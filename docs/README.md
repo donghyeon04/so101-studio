@@ -13,7 +13,11 @@
 
 | 경로 | 유형 | 상태 | 설명 |
 |---|---|---|---|
-| `docs/planning/hardware.md` | 기획 | 초안 | 부품 구성(BOM), 예상 비용, 전기적 주의사항 |
+| `docs/planning/hardware.md` | 기획 | 초안 | 부품 구성(BOM), 보유 현황, 예상 비용, 전기적 주의사항 |
 | `docs/guides/tooling-setup.md` | 가이드 | 확정 | 계정마다 설치할 플러그인, MCP, 스킬 |
 | `docs/decisions/0001-claude-md-authoring.md` | 결정 | 확정 | CLAUDE.md는 짧게, 절차는 skill로 |
 | `docs/decisions/0002-docs-structure.md` | 결정 | 확정 | 문서 유형 4종, 색인, 상태값, 조사 원문 비보관 |
+| `docs/decisions/0003-arm-control-stack.md` | 결정 | 확정 | LeRobot SOFollower + placo IK, MoveJ/L/P는 얇게 직접 구현 |
+| `docs/decisions/0004-perception-arm-interface.md` | 결정 | 확정 | 인식과 팔을 공통 인터페이스(x, y, 각도, 폭, 길이, 신뢰도)로 분리 |
+| `docs/decisions/0005-development-order.md` | 결정 | 확정 | 팔 먼저(구동 점검 → 동작 라이브러리 → 작업 공간), 센서는 그 뒤 |
+| `docs/decisions/0006-device-setup.md` | 결정 | 확정 | Windows PC 1대, ESP32 1개 + HC-SR04 2개, 서보·카메라는 추후 구매 |
