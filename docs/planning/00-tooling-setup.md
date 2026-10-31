@@ -14,6 +14,16 @@
 | A3 | **Hugging Face MCP** | MCP | LeRobot 데이터셋, 정책 모델, 관련 논문 검색. 레퍼런스 10개 이상 조사할 때 핵심 소스 | `claude mcp add hf-mcp-server -t http "https://huggingface.co/mcp?login"` |
 | A4 | **GitHub MCP** | MCP | 오픈소스 레퍼런스의 코드, 이슈, 스타 수, 최근 커밋 확인 (정량 평가에 사용) | claude.ai 커넥터에서 GitHub 연결 |
 | A5 | **Tavily** (또는 deep-research) | 플러그인/스킬 | 여러 출처를 묶어 인용이 붙은 조사 결과를 만든다. 레퍼런스 10개 이상 조사에 사용 | 현재 계정에 설치됨. 다른 계정에도 같은 플러그인 설치 |
+| A6 | **claude-md-management** (Anthropic 공식) | 플러그인 | `claude-md-improver`: CLAUDE.md 품질 점수와 개선안 / `/revise-claude-md`: 세션 종료 시 배운 점을 반영 | `/plugin install claude-md-management@claude-plugins-official` |
+| A7 | **skill-creator** | 스킬 | 레퍼런스 조사 같은 반복 절차를 프로젝트 skill(`.claude/skills/`)로 만든다. 프로젝트 skill은 레포에 있어서 계정을 바꿔도 따라온다 | 현재 계정에 있음 (anthropic-skills) |
+
+### 내장 기능 (설치 불필요)
+- `/doctor prompt-audit`: CLAUDE.md, rules, skills의 모순과 낡은 지침 점검 (v2.1.283 이상)
+- `/context`: CLAUDE.md가 실제로 로드됐는지 확인
+
+### 클라우드 세션 참고
+- Context7과 Hugging Face는 **커넥터 버전**(claude.ai 커넥터)이 원격 세션에서 동작한다. 플러그인 버전은 프록시에 막혀 연결에 실패했으므로, 원격 세션에서는 커넥터를 쓴다.
+- 원문 확인이 필요한 도메인(arxiv.org, humanlayer.dev 등)은 환경 설정의 Network access → Allowed domains에 추가해야 열린다.
 
 ## B. 기획 단계 — 기획 계정 위주
 
