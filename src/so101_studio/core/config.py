@@ -32,7 +32,8 @@ class RobotConfig:
     place_height_mm: float = 30
     grasp_bias_mm: float = 0.0
     grasp_open_policy: str = "max"
-    grasp_tilt_deg: float = 25.0
+    grasp_tilt_deg: float = 35.0
+    grasp_tilt_mode: str = "symmetric"
     grasp_tilt_tol_deg: float = 15.0
     grasp_max_open_mm: float = 100
     contact_lag_units: float = 4.0

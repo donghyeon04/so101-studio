@@ -77,7 +77,13 @@ class Skills:
         return abs(diff) <= self.cfg.grasp_tilt_tol_deg
 
     def _tilt(self, v: float) -> float:
-        """그리퍼 값 v에서의 기울기(°): 두 턱 끝 높이가 같아지는 각도, 최대 grasp_tilt_deg, 거의 닫히면 0으로 줄인다."""
+        """그리퍼 값 v에서의 손 기울기(°).
+        symmetric(기본): 가동 턱이 벌어진 각도 θ의 절반 -> 두 턱이 수직에서 ±θ/2로 벌어져 사용자가 보기에 대칭인 V자(닫을수록 같이 서서 닫힌다).
+          두 턱 끝 높이가 달라지고(θ=80°면 약 30mm), 손목 한계 때문에 grasp_tilt_deg까지만 기울인다.
+        equal_tips: 두 턱 끝 높이가 같아지는 각도(약 23°), 거의 닫히면 0으로 줄인다."""
+        theta = VALUE_TO_Q[1] * v
+        if self.cfg.grasp_tilt_mode == "symmetric":
+            return min(self.cfg.grasp_tilt_deg, theta / 2)
         q = VALUE_TO_Q[0] + VALUE_TO_Q[1] * v
         a_m = float(np.interp(q, JAW_Q_DEG, JAW_TIP_A))
         b_m = float(np.interp(q, JAW_Q_DEG, JAW_TIP_B))

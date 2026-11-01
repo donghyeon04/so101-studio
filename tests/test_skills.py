@@ -170,3 +170,11 @@ def test_width_table_follows_urdf_geometry(kin):
     ctl.close()
     assert sk.gripper_for_width(54) == pytest.approx(30.0, abs=1.5)  # 카드(54mm) 시험: 값 27.7~32.0에서 접촉
     assert sk.gripper_for_width(94) == pytest.approx(58.0, abs=1.5)
+
+
+def test_symmetric_tilt_is_half_the_jaw_opening_angle(kin):
+    _d, ctl, sk = rig(kin)
+    ctl.close()
+    for v in (10.0, 20.0, 40.0):
+        assert sk._tilt(v) == pytest.approx(min(CFG.grasp_tilt_deg, 0.607 * v), abs=0.2)  # θ = 1.214 v, 한쪽 턱이 ±θ/2
+    assert sk._tilt(0.0) == 0.0 and sk._tilt(100.0) == CFG.grasp_tilt_deg  # 다 닫으면 서고, 많이 벌리면 손목 한계에서 멈춘다

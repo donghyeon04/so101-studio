@@ -47,7 +47,8 @@ def run_skill(driver, cfg, a) -> str:
     ctl = MotionController(driver, kin, Safety(cfg.joint_limits_deg, ws, kin, z_floor_mm=cfg.tip_floor_mm, table_z_mm=cfg.table_z_mm), cfg.control_hz)
     cfg = replace(cfg, grasp_bias_mm=cfg.grasp_bias_mm if a.bias is None else a.bias,
                   gripper_margin_mm=cfg.gripper_margin_mm if a.margin is None else a.margin,
-                  grasp_max_open_mm=cfg.grasp_max_open_mm if a.max_open is None else a.max_open)
+                  grasp_max_open_mm=cfg.grasp_max_open_mm if a.max_open is None else a.max_open,
+                  grasp_tilt_deg=cfg.grasp_tilt_deg if a.tilt is None else a.tilt)
     sk = Skills(ctl, kin, cfg, ws, a.speed or cfg.speed_pct_default)
     try:
         driver.set_torque(True)
@@ -133,6 +134,7 @@ def main(argv=None) -> None:
     ap.add_argument("--source", default="manual", help="run: 인식 방식 (지금은 manual)")
     ap.add_argument("--dry-run", action="store_true", help="run: 물체 없이 동작만 (접촉이 없어도 성공으로 보고 이어간다)")
     ap.add_argument("--step", action="store_true", help="run: 상태가 바뀔 때마다 Enter를 기다린다")
+    ap.add_argument("--tilt", type=float, help="pick: 최대 기울기(°)를 이번만 바꿔 시험 (0이면 기울이지 않음)")
     ap.add_argument("--max-open", type=float, help="pick: 최대로 벌릴 틈(mm)을 이번만 바꿔 시험")
     ap.add_argument("--bias", type=float, help="pick: grasp_bias_mm를 이번만 바꿔 시험 (가동 턱 쪽이 +)")
     ap.add_argument("--config", default="config/robot.yaml")
