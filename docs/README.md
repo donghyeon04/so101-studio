@@ -43,3 +43,4 @@
 | `docs/decisions/0018-teach-torque-off-reference-flow.md` | 결정 | 확정 | 직접 교시는 레퍼런스의 토크 끈 흐름(홈 이동, 잡기 확인, 카운트다운, 20Hz, 90초, 실제 시각 저장), 추종 교시 코드 제거 |
 | `docs/decisions/0019-record-segments-and-parameters.md` | 결정 | 확정 | 기록 주기·최대 시간·구간 기준을 설정과 파라미터로, 기록에 속도 요약 저장, 구간별 속도 배율 재생(GUI용 record_info/segment_speeds) |
 | `docs/decisions/0020-arm-phase1-freeze.md` | 결정 | 확정 | 팔 1차 완료 = API 동결, 하드웨어 실측·전원·그리퍼는 시뮬레이션·GUI와 병행 |
+| `docs/decisions/0021-gui-viser-kinematic-twin.md` | 결정 | 확정 | GUI는 Viser 기반 Python 단일 프로세스(`so101 gui`), 실제·미리보기 팔 두 개, 시뮬레이션은 기구학 쌍둥이(MuJoCo는 보류), 연결 끊김 시 stop |
