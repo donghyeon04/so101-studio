@@ -204,3 +204,13 @@ def test_jog_distance_follows_elapsed_time_not_tick_count():
     jog_for(ctl, "joint", [20, 0, 0, 0, 0, 0], 0.6)
     ctl.close()
     assert d.read_joints().shoulder_pan - HOME.shoulder_pan == pytest.approx(10, abs=3)  # 20°/s x 0.6s, 램프 손실 감안
+
+
+def test_jog_can_leave_a_pose_beyond_the_joint_limit_but_not_go_further_out():
+    d = SimDriver([0, -90, 96.5, 0, 0, 3])  # 팔꿈치 한계(95) 밖에서 출발(받침에 기댄 자세 근처)
+    ctl = MotionController(d, None, Safety(LIMITS), CFG.control_hz)
+    jog_for(ctl, "joint", [0, 0, -20, 0, 0, 0], 0.4)  # 안쪽으로
+    inside = d.read_joints().elbow_flex
+    jog_for(ctl, "joint", [0, 0, 20, 0, 0, 0], 0.6)  # 다시 바깥쪽으로 밀어도
+    ctl.close()
+    assert inside < 96.5 - 2 and d.read_joints().elbow_flex <= LIMITS["elbow_flex"][1] + 1e-6

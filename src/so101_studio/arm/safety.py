@@ -14,8 +14,11 @@ class Safety:
         self.max_step_deg, self.z_floor_mm, self.table_z_mm = max_step_deg, z_floor_mm, table_z_mm
         self.check_xy = True  # False면 작업대 가장자리 검사를 건너뛰고 바닥(턱 끝 높이)만 본다. 전원·부하 시험이 팔을 끝까지 펼 때만 임시로 끈다
 
-    def check_goal(self, q: JointState) -> str | None:
+    def check_goal(self, q: JointState, ref: JointState | None = None) -> str | None:
+        """ref(지금 위치)를 주면 한계 밖에서 출발한 관절은 한계 안쪽으로 돌아오는 방향의 움직임을 허용한다(조그용)."""
         for name, (lo, hi) in self.limits.items():
+            if ref is not None:
+                lo, hi = min(lo, getattr(ref, name)), max(hi, getattr(ref, name))
             if not lo <= getattr(q, name) <= hi:
                 return f"joint_limit:{name}"
         return self._workspace(q)

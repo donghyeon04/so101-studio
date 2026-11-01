@@ -234,6 +234,7 @@ class MotionController:
             for i, name in enumerate(JOINTS):
                 if name in self.safety.limits:
                     lo, hi = self.safety.limits[name]
+                    lo, hi = min(lo, getattr(last, name)), max(hi, getattr(last, name))  # 한계 밖에서 출발해도 안쪽으로는 움직일 수 있다
                     nxt[i] = min(max(nxt[i], lo), hi)  # 한계에서 멈춘다
             q = JointState(*nxt.tolist())
         else:
@@ -244,7 +245,7 @@ class MotionController:
             if q is None:
                 self.jog_block = "ik_fail"
                 return
-        why = self.safety.check_goal(q)
+        why = self.safety.check_goal(q, last)
         if why or q == last:  # 작업 영역·한계 밖이면 움직이지 않는다
             self.jog_block = why or self.jog_block
             return
