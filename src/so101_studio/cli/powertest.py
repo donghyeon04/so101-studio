@@ -43,6 +43,7 @@ def run_powertest(svc, repeats: int = 3, speed_pct: float = 100.0, out=print) ->
             m = max(cur, key=cur.get)
             lm = max(load, key=load.get)
             rows.append((time.perf_counter(), v, sum(cur.values()), m, cur[m], lm, load[lm]))
+            time.sleep(0.0005)  # 제어 스레드가 밀리지 않게 양보한다 (시뮬에서 읽기가 즉시 끝나 CPU를 독점하는 것을 막음)
 
     th = threading.Thread(target=sample, daemon=True)
     th.start()
