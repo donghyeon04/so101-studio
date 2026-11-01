@@ -133,3 +133,15 @@ def test_controller_faults_on_overheat_and_holds_position():
     c.close()
     assert r.status == "fault" and c.fault == "overheat:elbow_flex"
     assert d.read_joints().shoulder_pan < 40  # 도착하지 못하고 그 자리에서 멈춘다
+
+
+def test_floor_is_measured_at_the_lowest_jaw_tip(kin):
+    from so101_studio.core.types import JointState
+
+    s = Safety({}, WS, kin, z_floor_mm=4.0)
+    q = JointState(0, -5, 38, 76, 0, 0)  # 수직 하강, 턱을 닫음
+    p = kin.fk(q)
+    f, m = kin.jaw_tip_offsets(p.pitch_deg, p.yaw_deg, q.gripper)
+    tip = p.z_mm + min(f[2], m[2])
+    assert tip < p.z_mm - 5  # 턱 끝은 기준점보다 낮다
+    assert (s.check_goal(q) == "z_floor") == (tip < 4.0)
