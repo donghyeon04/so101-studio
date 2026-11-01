@@ -178,7 +178,7 @@ class KeysSession:
             mode = getattr(self, mode + "_mode")()
 
 
-def run_keys(svc, speed_deg_s: float = 20.0, trace: bool = False, cart_mm_s: float = 40.0, write_s: float = 0.0) -> None:
+def run_keys(svc, speed_deg_s: float = 30.0, trace: bool = False, cart_mm_s: float = 80.0, write_s: float = 0.0) -> None:
     import ctypes
     import msvcrt
 
