@@ -47,8 +47,9 @@ class Safety:
         return None
 
     def check_path(self, traj, n: int = 20) -> str | None:
-        """목표는 관절 한계까지, 경로는 작업 영역만 본다. 시작점은 검사하지 않는다(받침에 기댄 자세가 한계 밖일 수 있다)."""
-        reason = self.check_goal(traj.sample(traj.duration_s))
+        """목표는 관절 한계까지, 경로는 작업 영역만 본다. 시작점은 검사하지 않고(받침에 기댄 자세가 한계 밖일 수 있다),
+        한계 밖에서 출발했다면 그 안쪽(시작점까지)으로 돌아오거나 머무는 목표는 허용한다."""
+        reason = self.check_goal(traj.sample(traj.duration_s), traj.sample(0.0))
         for i in range(1, n):
             reason = reason or self._workspace(traj.sample(traj.duration_s * i / n))
         return reason

@@ -158,3 +158,16 @@ def test_relaxed_restores_the_checks_even_when_the_block_raises():
     except RuntimeError:
         pass
     assert s.check_xy is True and s.max_step_deg == 5.0
+
+
+def test_path_to_a_goal_no_further_out_than_a_start_beyond_the_limit_is_allowed():
+    from so101_studio.arm.safety import Safety
+    from so101_studio.arm.trajectory import move_j
+    from so101_studio.core.types import JointState
+
+    s = Safety({"elbow_flex": [-96, 95]})
+    rest, inside = JointState(0, -90, 97.2, 0, 0, 3), JointState(0, -90, 93, 0, 0, 3)
+    assert s.check_path(move_j(rest, rest, 20, 100)) is None  # 받침 자세에 머무는 동작
+    assert s.check_path(move_j(rest, inside, 20, 100)) is None
+    assert s.check_path(move_j(inside, rest, 20, 100)) is not None  # 안에서 밖으로 새로 나가는 것은 막는다
+    assert s.check_path(move_j(rest, JointState(0, -90, 99, 0, 0, 3), 20, 100)) is not None  # 시작보다 더 바깥도 막는다
