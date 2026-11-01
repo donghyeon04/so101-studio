@@ -1,4 +1,5 @@
 """안전 검사 (arm-software-spec.md 6.5). 명령을 보내기 전에 검사하고, 하나라도 어기면 보내지 않는다."""
+from contextlib import contextmanager
 from dataclasses import asdict
 
 from lerobot.robots.utils import ensure_safe_goal_position
@@ -13,6 +14,17 @@ class Safety:
         self.limits, self.ws, self.kin = joint_limits, ws, kin
         self.max_step_deg, self.z_floor_mm, self.table_z_mm = max_step_deg, z_floor_mm, table_z_mm
         self.check_xy = True  # False면 작업대 가장자리 검사를 건너뛰고 바닥(턱 끝 높이)만 본다. 전원·부하 시험이 팔을 끝까지 펼 때만 임시로 끈다
+
+    @contextmanager
+    def relaxed(self, check_xy: bool = True, max_step_deg: float | None = None):
+        """시험용으로 검사를 임시로 풀고, 어떤 이유로 끝나든 원래 값으로 되돌린다(오래 도는 GUI 프로세스에서 풀린 채로 남지 않게)."""
+        prev = self.check_xy, self.max_step_deg
+        self.check_xy = check_xy
+        self.max_step_deg = prev[1] if max_step_deg is None else max_step_deg
+        try:
+            yield
+        finally:
+            self.check_xy, self.max_step_deg = prev
 
     def check_goal(self, q: JointState, ref: JointState | None = None) -> str | None:
         """ref(지금 위치)를 주면 한계 밖에서 출발한 관절은 한계 안쪽으로 돌아오는 방향의 움직임을 허용한다(조그용)."""

@@ -13,7 +13,7 @@ COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper
 
 
 def make_driver(sim: bool, cfg):
-    return SimDriver(cfg.poses.get("home")) if sim else ArmDriver(cfg.pid, cfg.joint_offsets_deg, cfg.servo_acceleration)
+    return SimDriver(cfg.poses.get("home")) if sim else ArmDriver(cfg.pid, cfg.joint_offsets_deg, cfg.servo_acceleration, cfg.gripper_acceleration)
 
 
 def status_text(st) -> str:
@@ -72,7 +72,6 @@ def main(argv=None) -> None:
     ap.add_argument("--cartesian", action="store_true", help="jog: 직교 모드(앞뒤·좌우·위아래)")
     ap.add_argument("--jog-speed", type=float, default=30.0, help="keys: 관절 모드 이동 속도 (°/s)")
     ap.add_argument("--cart-speed", type=float, default=80.0, help="keys: 직교 조그 속도 (mm/s, 60 넘게도 가능)")
-    ap.add_argument("--jog-write-s", type=float, default=0.0, help="keys: 조그 목표를 이 간격(초)마다 모아서 서보에 쓴다 (0 = 매 틱, 떨림 시험용)")
     ap.add_argument("--hz", type=int, help="제어 주기 Hz를 이번만 바꿔 시험 (기본: 설정값 50). 서보 목표를 더 자주 보내 떨림이 줄어드는지 보는 용도")
     ap.add_argument("--trace", action="store_true", help="keys: 명령·실제 관절 위치를 빠르게 기록하고 떨림 요약 (runs/.../trace.csv)")
     ap.add_argument("--speeds", help="shaketest: 시험할 속도들(°/s, 쉼표로). 기본 20,60,200")
@@ -140,7 +139,7 @@ def main(argv=None) -> None:
         elif c == "keys":
             from .keys import run_keys
 
-            run_keys(svc, a.jog_speed, a.trace, a.cart_speed, a.jog_write_s)
+            run_keys(svc, a.jog_speed, a.trace, a.cart_speed)
         elif c == "record":
             name = v[0] if v else ap.error("record: 이름이 필요하다")
             input("토크를 끄고 기록합니다. 팔을 손으로 받친 채 Enter를 누르면 시작합니다...")

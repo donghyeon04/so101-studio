@@ -27,35 +27,34 @@ def run_shaketest(svc, reps: int = 10, out=print, poll_mark=None, accels=None, s
     if why:
         out(f"이 자세에서는 시험할 수 없습니다: {why}. 홈 자세에서 시작하세요.")
         return []
-    rest_acc, rest_step = svc.driver.acceleration, svc.safety.max_step_deg
-    svc.safety.max_step_deg = 8.0
+    rest_acc = svc.driver.acceleration
     tr, moves, marks, total = Tracer(svc), [], [], len(accels) * len(speeds) * reps * 2
     tr.start()
     t_begin = time.perf_counter()
-    try:
-        for acc in accels:
-            svc.driver.set_acceleration(acc)
-            for v in speeds:
-                out(f"\a=== 가속 한계 {acc}, 속도 {v:.0f}°/s ({reps}회 왕복) ===")
-                for rep in range(reps):
-                    for name, q in (("갈 때", goal), ("올 때", start)):
-                        label = f"가속{acc}/{v:.0f}°/s/{rep + 1}번째 {name}"
-                        t0 = time.perf_counter()
-                        out(f"[{len(moves) + 1}/{total}] {label}  (시작 후 {t0 - t_begin:.0f}s)")
-                        st = svc._run([move_j(svc.driver.read_joints(), q, v, A_MAX_DEG_S2)]).status
-                        t1 = time.perf_counter()
-                        moves.append({"label": label, "acc": acc, "speed": v, "t0": t0, "t1": t1, "status": st})
-                        if poll_mark and poll_mark():
-                            marks.append(time.perf_counter())
-                            out(f"  >> 떨림 표시 ({label} 직후)")
-                        if st != "ok":
-                            out(f"  중간에 멈춤: {st} {svc.ctl.fault}")
-                            raise RuntimeError(st)
-    except RuntimeError:
-        pass
-    finally:
-        svc.driver.set_acceleration(rest_acc)
-        svc.safety.max_step_deg = rest_step
+    with svc.safety.relaxed(max_step_deg=8.0):  # 200°/s는 주기당 4°라 평소 한계(5°)에 여유가 없다. 이 시험 동안만 올린다
+        try:
+            for acc in accels:
+                svc.driver.set_acceleration(acc)
+                for v in speeds:
+                    out(f"\a=== 가속 한계 {acc}, 속도 {v:.0f}°/s ({reps}회 왕복) ===")
+                    for rep in range(reps):
+                        for name, q in (("갈 때", goal), ("올 때", start)):
+                            label = f"가속{acc}/{v:.0f}°/s/{rep + 1}번째 {name}"
+                            t0 = time.perf_counter()
+                            out(f"[{len(moves) + 1}/{total}] {label}  (시작 후 {t0 - t_begin:.0f}s)")
+                            st = svc._run([move_j(svc.driver.read_joints(), q, v, A_MAX_DEG_S2)]).status
+                            t1 = time.perf_counter()
+                            moves.append({"label": label, "acc": acc, "speed": v, "t0": t0, "t1": t1, "status": st})
+                            if poll_mark and poll_mark():
+                                marks.append(time.perf_counter())
+                                out(f"  >> 떨림 표시 ({label} 직후)")
+                            if st != "ok":
+                                out(f"  중간에 멈춤: {st} {svc.ctl.fault}")
+                                raise RuntimeError(st)
+        except RuntimeError:
+            pass
+        finally:
+            svc.driver.set_acceleration(rest_acc)
     tr.result()
     for m in moves:  # 이동마다 6Hz 이상 흔들림
         seg = tr.slice(m["t0"], m["t1"])

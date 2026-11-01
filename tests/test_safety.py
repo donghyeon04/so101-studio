@@ -145,3 +145,16 @@ def test_floor_is_measured_at_the_lowest_jaw_tip(kin):
     tip = p.z_mm + min(f[2], m[2])
     assert tip < p.z_mm - 5  # 턱 끝은 기준점보다 낮다
     assert (s.check_goal(q) == "z_floor") == (tip < 4.0)
+
+
+def test_relaxed_restores_the_checks_even_when_the_block_raises():
+    from so101_studio.arm.safety import Safety
+
+    s = Safety({})
+    try:
+        with s.relaxed(check_xy=False, max_step_deg=9.0):
+            assert s.check_xy is False and s.max_step_deg == 9.0
+            raise RuntimeError("시험 중 오류")
+    except RuntimeError:
+        pass
+    assert s.check_xy is True and s.max_step_deg == 5.0

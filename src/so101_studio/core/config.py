@@ -22,6 +22,7 @@ class RobotConfig:
     pid: dict = field(default_factory=lambda: {"p": 16, "i": 0, "d": 32})
     speed_pct_default: int = 30
     servo_acceleration: int = 25
+    gripper_acceleration: int = 25  # 그리퍼는 접촉 감지(명령-실측 지연)를 이 값에서 맞췄으므로 팔 관절과 따로 둔다
     joint_v_max_deg_s: float = 90
     tool_v_max_mm_s: float = 100
     approach_height_mm: float = 80

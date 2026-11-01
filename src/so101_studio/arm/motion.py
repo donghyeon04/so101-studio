@@ -41,8 +41,6 @@ class MotionController:
         self._jog = None  # (mode, 속도 벡터, 마지막 입력 시각)
         self._jog_v = np.zeros(6)  # 가속도 제한을 거친 지금 조그 속도
         self._jog_t = 0.0  # 직전 조그 틱 시각
-        self.jog_write_s = 0.0  # 0이면 매 틱 쓴다. 양수면 조그 목표를 이 간격마다 모아서 쓴다(한 번에 더 큰 걸음, 서보 정지-출발 떨림 시험용)
-        self._jog_wrote, self._jog_dirty = 0.0, False
         self.jog_block = None  # 조그가 막힌 이유(풀리지 않음 'ik_fail' 또는 안전 검사 이유). 움직이면 None
         self.fault: str | None = None
         self._job = None  # (traj, handle, t0, kind)
@@ -228,9 +226,6 @@ class MotionController:
         self._jog_v[: len(v)] = cur
         if not cur.any() and not target.any():
             self._jog, self.state = None, "idle"
-            if self._jog_dirty:  # 모아 둔 마지막 목표를 내보낸다
-                self.driver.write_joints(self._last)
-                self._jog_dirty = False
             return
         v = cur
         last = self._last
@@ -259,11 +254,7 @@ class MotionController:
             return
         self.jog_block = None
         self._last = q
-        if now - self._jog_wrote >= self.jog_write_s:
-            self.driver.write_joints(q)
-            self._jog_wrote, self._jog_dirty = now, False
-        else:
-            self._jog_dirty = True
+        self.driver.write_joints(q)
         self.health.comm_ok()
 
     def close(self) -> None:

@@ -178,7 +178,7 @@ class KeysSession:
             mode = getattr(self, mode + "_mode")()
 
 
-def run_keys(svc, speed_deg_s: float = 30.0, trace: bool = False, cart_mm_s: float = 80.0, write_s: float = 0.0) -> None:
+def run_keys(svc, speed_deg_s: float = 30.0, trace: bool = False, cart_mm_s: float = 80.0) -> None:
     import ctypes
     import msvcrt
 
@@ -196,7 +196,6 @@ def run_keys(svc, speed_deg_s: float = 30.0, trace: bool = False, cart_mm_s: flo
         return input(prompt)
 
     sess = KeysSession(svc, speed_deg_s, key_down, read_line, cart_mm_s=cart_mm_s)
-    svc.ctl.jog_write_s = write_s
     svc.ctl.jog_tool_max = max(svc.ctl.jog_tool_max, cart_mm_s)  # 직교 조그 속도 상한(기본 60mm/s)을 넘겨 시험할 수 있게
     for name in ("joint_mode", "jog_mode"):
         orig = getattr(sess, name)

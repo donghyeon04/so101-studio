@@ -29,9 +29,12 @@ SWINGS = [
 
 def run_powertest(svc, repeats: int = 3, speed_pct: float = 100.0, out=print) -> dict:
     svc.driver.set_torque(True)
-    svc.safety.check_xy = False
-    rest_step = svc.safety.max_step_deg
-    svc.safety.max_step_deg = 8.0  # 200°/s는 주기당 4°라 평소 한계(5°)에 여유가 없다. 이 시험 동안만 올린다
+    # 200°/s는 주기당 4°라 평소 한계(5°)에 여유가 없다. 이 시험 동안만 8°로 올리고, 작업대 가장자리 검사는 끈다
+    with svc.safety.relaxed(check_xy=False, max_step_deg=8.0):
+        return _powertest(svc, repeats, speed_pct, out)
+
+
+def _powertest(svc, repeats: int, speed_pct: float, out) -> dict:
     start = svc.driver.read_joints()
     rest_acc = svc.driver.acceleration
     targets, skipped = [], []
@@ -42,7 +45,6 @@ def run_powertest(svc, repeats: int = 3, speed_pct: float = 100.0, out=print) ->
         (skipped.append((i + 1, why)) if why else targets.append(q))
         here = q if not why else here
     if not targets:
-        svc.safety.check_xy, svc.safety.max_step_deg = True, rest_step
         out(f"안전 검사를 통과한 자세가 없어 시험하지 않았습니다: {skipped}")
         return {}
     rows, stop, mark = [], threading.Event(), {}
@@ -68,8 +70,6 @@ def run_powertest(svc, repeats: int = 3, speed_pct: float = 100.0, out=print) ->
                 results.append(svc._run([traj]).status)
                 time.sleep(0.2)
     finally:
-        svc.safety.check_xy = True
-        svc.safety.max_step_deg = rest_step
         svc.driver.set_acceleration(rest_acc)
         mark["t1"] = time.perf_counter()
         time.sleep(0.5)
