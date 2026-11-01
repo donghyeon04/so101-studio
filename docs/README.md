@@ -5,7 +5,7 @@
 | 위치 | 유형 | 수명 |
 |---|---|---|
 | `README.md` | 프로젝트 개요 | 계속 갱신 |
-| `docs/planning/` | 기획서, 기능명세서, 메뉴트리, 와이어프레임, 하드웨어 구성 | 같은 파일을 계속 고침 |
+| `docs/planning/` | 기획서, 기능명세서, 메뉴트리, 와이어프레임, 하드웨어 구성, 설계서, 측정 기록 | 같은 파일을 계속 고침 |
 | `docs/decisions/` | 결정 기록 (`NNNN-slug.md`) | 수정하지 않고, 새 기록으로 대체 |
 | `docs/guides/` | 설치·셋업 방법 | 계속 갱신 |
 
@@ -15,7 +15,9 @@
 |---|---|---|---|
 | `docs/planning/overview.md` | 기획 | 초안 | 기획서: 한 줄 정의, 일정·평가, 산출물, 역할, 기획 진행 순서, 범위, 주간 일정 |
 | `docs/planning/features.md` | 기획 | 초안 | 기능명세서와 메뉴트리, 시연 시나리오, 기능별 범위 층 |
+| `docs/planning/system-architecture.md` | 기획 | 초안 | 시스템 구성, 모듈 경계, 공통 타입, 인식 규격, 작업 실행 상태 머신, ESP32 통신 틀, 폴더 구조, 0~2단계 작업 순서 |
 | `docs/planning/arm-software-spec.md` | 기획 | 초안 | 팔 모듈 계층 구조, 데이터 타입, 모듈 API, 설정·출력 형식, 구현 작업 순서(T1~T11) |
+| `docs/planning/measurements.md` | 기획 | 초안 | 로컬 개발 세션의 측정 기록 양식 (T0~T7) |
 | `docs/planning/hardware.md` | 기획 | 초안 | 부품 구성(BOM), 보유 현황, 예상 비용, 전기적 주의사항 |
 | `docs/planning/comparison-experiment.md` | 기획 | 초안 | 초음파·카메라 인식 비교 실험의 통제 변인, 평가 기준, 환경 조건 가설 |
 | `docs/guides/tooling-setup.md` | 가이드 | 확정 | 계정마다 설치할 플러그인, MCP, 스킬 |
@@ -25,3 +27,4 @@
 | `docs/decisions/0004-perception-arm-interface.md` | 결정 | 확정 | 인식과 팔을 공통 인터페이스(x, y, 각도, 폭, 길이, 신뢰도)로 분리 |
 | `docs/decisions/0005-development-order.md` | 결정 | 확정 | 팔 먼저(구동 점검 → 동작 라이브러리 → 작업 공간), 센서는 그 뒤 |
 | `docs/decisions/0006-device-setup.md` | 결정 | 확정 | Windows PC 1대, ESP32 1개 + HC-SR04 2개, 서보·카메라는 추후 구매 |
+| `docs/decisions/0007-branch-and-dev-workflow.md` | 결정 | 확정 | 기획 브랜치를 main에 합치고 개발은 dev/ 브랜치, 측정값·설계 변경의 되돌림 경로 |

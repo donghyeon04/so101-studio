@@ -4,6 +4,8 @@
 
 로컬 개발 세션이 이 문서만 보고 팔 모듈을 구현할 수 있도록, 구조·인터페이스·출력값·작업 순서를 정한다. 범위는 개발 0~2단계(구동 점검, 동작 라이브러리, 작업 공간 확정)다. 인식 모듈과 GUI는 팔 모듈과 맞닿는 인터페이스만 정한다.
 
+상위 문서: `system-architecture.md` (모듈 경계, 공통 타입, 폴더 구조).
+
 근거: `decisions/0003`(LeRobot 제어 스택), `0004`(인식–팔 분리), `0005`(개발 순서), `0006`(장치 구성), `features.md`.
 
 ## 1. 제어 방식 요약
@@ -32,17 +34,12 @@
 - `SimDriver`는 명령받은 위치를 그대로 현재 위치로 돌려주는 가짜 장치다. 팔 없이 GUI·로직을 개발하고 테스트하는 데 쓴다.
 
 ## 3. 폴더 구조
+레포 전체 구조는 `system-architecture.md` 9절을 따른다. 팔 모듈 파일은 아래와 같다.
 ```
-src/so101_studio/
-  core/        types.py, frames.py, config.py, logging.py
-  arm/         driver.py, sim_driver.py, kinematics.py, trajectory.py,
-               motion.py, safety.py, skills.py, teleop.py, teach.py
-  service/     arm_service.py
-  cli/         __main__.py
-config/        robot.yaml, workspace.yaml, sequences/*.json
-assets/        so101_new_calib.urdf (+ meshes)
-runs/          실행 기록 (git 제외)
-tests/         단위 테스트 (하드웨어 불필요)
+src/so101_studio/arm/
+  driver.py, sim_driver.py, kinematics.py, trajectory.py,
+  motion.py, safety.py, skills.py, teleop.py, teach.py
+src/so101_studio/service/arm_service.py
 ```
 
 ## 4. 좌표계와 단위
@@ -70,11 +67,7 @@ class ToolPose:            # 작업대 좌표계
     yaw_deg: float         # 위에서 내려다본 그리퍼 회전각
     pitch_deg: float = -90 # -90 = 수직 하강
 
-@dataclass
-class DetectedObject:      # 인식 모듈 출력 (decisions/0004)
-    x_mm: float; y_mm: float; angle_deg: float | None  # None = 판단 불가
-    width_mm: float; length_mm: float; confidence: float  # 0~1
-    source: str            # "ultrasonic" | "camera" | "manual"
+# DetectedObject는 system-architecture.md 3절의 공통 타입을 쓴다
 
 @dataclass
 class ArmStatus:           # 상태 스트림, 10Hz
@@ -251,7 +244,7 @@ LeRobot 공식 SO-101 절차를 따른다. 순서를 바꾸지 않는다.
 | T10 | `ArmService`, 실행 기록 | CLI가 모두 `ArmService`를 거치도록 정리, `runs/`에 기록 생성 | F1 |
 | T11 | `retarget` | 이동 중 목표를 바꾸면 멈추지 않고 새 목표로 이어서 이동 | B12 |
 
-T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작업 공간 확정)를 한다. T8~T11은 센서를 기다리는 동안 할 수 있다.
+T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작업 공간 확정)를 한다. T8~T11은 센서를 기다리는 동안 할 수 있다. 팔 이외의 작업(C1, S1~S3)과 전체 순서는 `system-architecture.md` 11절에 있다.
 
 ## 12. 미정 사항
 - 팔 배치(모서리 / 긴 변 가운데): T6 실측 후 확정. 코드는 `workspace.yaml`만 바뀐다.
