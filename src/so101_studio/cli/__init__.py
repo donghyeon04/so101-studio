@@ -71,6 +71,7 @@ def main(argv=None) -> None:
     ap.add_argument("--step", action="store_true", help="run: 상태가 바뀔 때마다 Enter를 기다린다")
     ap.add_argument("--cartesian", action="store_true", help="jog: 직교 모드(앞뒤·좌우·위아래)")
     ap.add_argument("--jog-speed", type=float, default=20.0, help="keys: 관절 모드 이동 속도 (°/s)")
+    ap.add_argument("--cart-speed", type=float, default=40.0, help="keys: 직교 조그 속도 (mm/s, 60 넘게도 가능)")
     ap.add_argument("--trace", action="store_true", help="keys: 명령·실제 관절 위치를 빠르게 기록하고 떨림 요약 (runs/.../trace.csv)")
     ap.add_argument("--speeds", help="shaketest: 시험할 속도들(°/s, 쉼표로). 기본 20,60,200")
     ap.add_argument("command", choices=COMMANDS)
@@ -136,7 +137,7 @@ def main(argv=None) -> None:
         elif c == "keys":
             from .keys import run_keys
 
-            run_keys(svc, a.jog_speed, a.trace)
+            run_keys(svc, a.jog_speed, a.trace, a.cart_speed)
         elif c == "record":
             name = v[0] if v else ap.error("record: 이름이 필요하다")
             input("토크를 끄고 기록합니다. 팔을 손으로 받친 채 Enter를 누르면 시작합니다...")
