@@ -21,15 +21,17 @@ class ArmDriver:
             raise RuntimeError(f"캘리브레이션 불일치: {calibration_id} (lerobot-calibrate 다시 실행)")
         self._robot = robot
         bus = robot.bus
-        bus.disable_torque()
+        was_on = any(bus.read("Torque_Enable", m) for m in bus.motors)  # 다시 연결해도 팔이 떨어지지 않게
+        if not was_on:
+            bus.disable_torque()
         for m in bus.motors:
             bus.write("P_Coefficient", m, self.pid["p"])
             bus.write("I_Coefficient", m, self.pid["i"])
             bus.write("D_Coefficient", m, self.pid["d"])
-        # 그리퍼 과열 방지 (LeRobot SO101 기본값)
-        bus.write("Max_Torque_Limit", "gripper", 500)
-        bus.write("Protection_Current", "gripper", 250)
-        bus.write("Overload_Torque", "gripper", 25)
+        if not was_on:  # EEPROM 항목은 토크가 꺼져 있을 때만 쓴다. 그리퍼 과열 방지 (LeRobot SO101 기본값)
+            bus.write("Max_Torque_Limit", "gripper", 500)
+            bus.write("Protection_Current", "gripper", 250)
+            bus.write("Overload_Torque", "gripper", 25)
 
     def disconnect(self) -> None:
         if self._robot:
