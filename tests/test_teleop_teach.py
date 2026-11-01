@@ -66,7 +66,7 @@ def test_joint_jog_stops_at_the_limit():
 
 def test_jog_is_ignored_while_a_trajectory_runs():
     d, ctl = rig()
-    h = ctl.execute(move_j(HOME, JointState(20, -90, 95, 0, 0, 3), 20, 60))
+    h = ctl.execute(move_j(HOME, JointState(20, -90, 93, 0, 0, 3), 20, 60))
     assert ctl.jog("joint", [0, 0, 0, 0, 30, 0]) is False
     h.wait(5)
     ctl.close()
@@ -99,9 +99,9 @@ def test_retarget_replaces_the_move_smoothly_without_a_jump():
     log = []
     orig = d.write_joints
     d.write_joints = lambda q: (log.append(astuple(q)), orig(q))[1]
-    h1 = ctl.execute(move_j(HOME, JointState(40, -90, 95, 0, 0, 3), 40, 120, profile="ruckig", j_max_deg_s3=400))
+    h1 = ctl.execute(move_j(HOME, JointState(40, -90, 93, 0, 0, 3), 40, 120, profile="ruckig", j_max_deg_s3=400))
     time.sleep(0.4)
-    h2 = ctl.retarget(JointState(-30, -90, 95, 0, 0, 3), 40, 120, 400)  # 반대쪽으로 목표를 바꾼다
+    h2 = ctl.retarget(JointState(-30, -90, 93, 0, 0, 3), 40, 120, 400)  # 반대쪽으로 목표를 바꾼다
     assert h1.wait(2).status == "preempted"
     assert h2.wait(8).status == "ok"
     ctl.close()
@@ -113,16 +113,16 @@ def test_retarget_replaces_the_move_smoothly_without_a_jump():
 
 def test_retarget_when_idle_just_starts_a_move():
     d, ctl = rig()
-    r = ctl.retarget(JointState(10, -90, 95, 0, 0, 3), 40, 120, 400).wait(5)
+    r = ctl.retarget(JointState(10, -90, 93, 0, 0, 3), 40, 120, 400).wait(5)
     ctl.close()
     assert r.status == "ok" and d.read_joints().shoulder_pan == pytest.approx(10, abs=0.01)
 
 
 def test_retarget_outside_limits_is_rejected_and_the_old_move_continues():
     _d, ctl = rig()
-    h1 = ctl.execute(move_j(HOME, JointState(30, -90, 95, 0, 0, 3), 30, 100))
+    h1 = ctl.execute(move_j(HOME, JointState(30, -90, 93, 0, 0, 3), 30, 100))
     time.sleep(0.2)
-    h2 = ctl.retarget(JointState(500, -90, 95, 0, 0, 3), 40, 120, 400)
+    h2 = ctl.retarget(JointState(500, -90, 93, 0, 0, 3), 40, 120, 400)
     assert h2.wait(1).status == "out_of_bounds"
     assert h1.wait(5).status == "ok"
     ctl.close()
@@ -141,7 +141,7 @@ def test_record_save_and_replay(tmp_path):
     teach.record_start()
     assert d.torque_enabled() is False  # 토크를 끄고 기록한다
     for pan in (0, 8, 16, 24, 30):
-        d.write_joints(JointState(pan, -90, 95, 0, 0, 3))  # 사람이 손으로 움직이는 것을 흉내
+        d.write_joints(JointState(pan, -90, 93, 0, 0, 3))  # 사람이 손으로 움직이는 것을 흉내
         time.sleep(0.25)
     path = teach.record_stop("wave")
     assert path.exists() and d.torque_enabled() is True and teach.names() == ["wave"]
@@ -163,7 +163,7 @@ def test_replay_rejects_a_sequence_outside_the_limits(tmp_path):
 
 def test_cartesian_jog_works_with_the_wrist_rolled(kin):
     d = SimDriver(CFG.poses["home"])
-    d.write_joints(JointState(0, -90, 95, 0, 17, 3))  # 손목이 돌아가 있는 자세
+    d.write_joints(JointState(0, -90, 93, 0, 17, 3))  # 손목이 돌아가 있는 자세
     ctl = MotionController(d, kin, Safety(LIMITS, WS, kin, z_floor_mm=CFG.tip_floor_mm, table_z_mm=CFG.table_z_mm), 100)
     y0 = kin.fk(d.read_joints()).y_mm
     f, left, up, yaw = robot_to_table((30.0, 0, 0, 0), WS.base.yaw_deg)

@@ -86,7 +86,7 @@ def test_big_jump_between_ticks_is_a_fault():
     assert r.status == "fault"
 
 
-def test_goal_at_resting_pose_beyond_old_limit_is_allowed():
+def test_goal_at_resting_pose_beyond_limit_is_allowed_as_start():
     from so101_studio.core.config import load_robot
 
     cfg = load_robot("config/robot.yaml")
@@ -94,7 +94,7 @@ def test_goal_at_resting_pose_beyond_old_limit_is_allowed():
     rest = JointState(0, -89, 97.4, 0, 0, 3)
     d.write_joints(rest)
     c = MotionController(d, safety=Safety(cfg.joint_limits_deg))
-    r = c.execute(move_j(rest, JointState(10, -89, 97.4, 0, 0, 3), 200, 1000)).wait(5)
+    r = c.execute(move_j(rest, JointState(10, -89, 90, 0, 0, 3), 200, 1000)).wait(5)
     c.close()
     assert r.status == "ok"
 

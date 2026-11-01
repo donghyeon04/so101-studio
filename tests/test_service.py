@@ -48,7 +48,7 @@ def test_status_stream_runs_at_about_10hz_and_writes_status_csv(svc):
 
 
 def test_commands_go_through_the_service_and_are_logged(svc):
-    r1 = svc.move_joints(JointState(10, -90, 95, 0, 0, 3))
+    r1 = svc.move_joints(JointState(10, -90, 93, 0, 0, 3))
     r2 = svc.move_tool(ToolPose(300, 200, 40, 90))
     r3 = svc.set_gripper(54, as_width=True)
     assert (r1.status, r2.status, r3.status) == ("ok", "ok", "ok")
@@ -66,20 +66,20 @@ def test_unreachable_goto_returns_ik_fail_without_moving(svc):
 def test_pick_and_place_and_retarget(svc):
     r = svc.pick_and_place(DetectedObject("o", 300, 200, 0, 0, 0, 1, "manual"), "right")
     assert r.status in ("ok", "no_object")  # 시뮬레이션은 물체가 없어 no_object가 나올 수 있다
-    h = svc.retarget(JointState(20, -90, 95, 0, 0, 3))
+    h = svc.retarget(JointState(20, -90, 93, 0, 0, 3))
     assert h.wait(10).status == "ok"
     assert svc.driver.read_joints().shoulder_pan == pytest.approx(20, abs=0.05)
 
 
 def test_estop_blocks_motion_until_resume(svc):
     svc.estop()
-    assert svc.move_joints(JointState(10, -90, 95, 0, 0, 3)).status == "stopped"
+    assert svc.move_joints(JointState(10, -90, 93, 0, 0, 3)).status == "stopped"
     svc.ctl.resume()
-    assert svc.move_joints(JointState(10, -90, 95, 0, 0, 3)).status == "ok"
+    assert svc.move_joints(JointState(10, -90, 93, 0, 0, 3)).status == "ok"
 
 
 def test_cli_goes_through_the_service(capsys):
-    main(["--sim", "--speed", "100", "movej", "5", "-90", "95", "0", "0", "3"])
+    main(["--sim", "--speed", "100", "movej", "5", "-90", "93", "0", "0", "3"])
     main(["--sim", "status"])
     out = capsys.readouterr().out
     assert "ok" in out and "shoulder_pan" in out and "torque" in out
