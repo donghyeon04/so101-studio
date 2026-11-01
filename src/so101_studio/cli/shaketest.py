@@ -16,25 +16,26 @@ SPEEDS = (20.0, 60.0, 200.0)  # °/s (가장 많이 움직이는 관절 기준 �
 A_MAX_DEG_S2 = 1500.0
 
 
-def run_shaketest(svc, reps: int = 10, out=print, poll_mark=None) -> list[dict]:
+def run_shaketest(svc, reps: int = 10, out=print, poll_mark=None, accels=None, speeds=None) -> list[dict]:
     """poll_mark(): 호출할 때마다 떨림 표시 키가 눌렸는지(True/False)를 돌려주는 함수. 없으면 표시 기능을 쓰지 않는다."""
+    accels, speeds = accels or ACCELS, speeds or SPEEDS
     svc.driver.set_torque(True)
     start = svc.driver.read_joints()
     goal = replace(start, shoulder_pan=start.shoulder_pan + 50, shoulder_lift=start.shoulder_lift + 40,
                    elbow_flex=start.elbow_flex - 40, wrist_flex=start.wrist_flex + 30)
-    why = svc.safety.check_path(move_j(start, goal, SPEEDS[0], A_MAX_DEG_S2))
+    why = svc.safety.check_path(move_j(start, goal, 20.0, A_MAX_DEG_S2))
     if why:
         out(f"이 자세에서는 시험할 수 없습니다: {why}. 홈 자세에서 시작하세요.")
         return []
     rest_acc, rest_step = svc.driver.acceleration, svc.safety.max_step_deg
     svc.safety.max_step_deg = 8.0
-    tr, moves, marks, total = Tracer(svc), [], [], len(ACCELS) * len(SPEEDS) * reps * 2
+    tr, moves, marks, total = Tracer(svc), [], [], len(accels) * len(speeds) * reps * 2
     tr.start()
     t_begin = time.perf_counter()
     try:
-        for acc in ACCELS:
+        for acc in accels:
             svc.driver.set_acceleration(acc)
-            for v in SPEEDS:
+            for v in speeds:
                 out(f"\a=== 가속 한계 {acc}, 속도 {v:.0f}°/s ({reps}회 왕복) ===")
                 for rep in range(reps):
                     for name, q in (("갈 때", goal), ("올 때", start)):
@@ -64,8 +65,8 @@ def run_shaketest(svc, reps: int = 10, out=print, poll_mark=None) -> list[dict]:
         m["joint"] = worst["joint"] if worst else "-"
         m["hz"] = worst["dominant_hz"] if worst else float("nan")
     out("\n=== 조건별 평균(이동마다 가장 많이 떤 관절의 6Hz 이상 흔들림 RMS°) ===")
-    for acc in ACCELS:
-        for v in SPEEDS:
+    for acc in accels:
+        for v in speeds:
             r = [m["rms"] for m in moves if m["acc"] == acc and m["speed"] == v and m["rms"] == m["rms"]]
             if r:
                 out(f"가속 {acc:>3} 속도 {v:>4.0f}°/s  평균 {np.mean(r):.3f}°  최대 {np.max(r):.3f}°  ({len(r)}번)")

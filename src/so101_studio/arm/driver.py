@@ -86,6 +86,16 @@ class ArmDriver:
         v = bus.read("Present_Voltage", "shoulder_lift", normalize=False) / 10
         return v, {m: (x & 0x7FFF) * 6.5 for m, x in cur.items()}, {m: abs(x) / 10 for m, x in load.items()}
 
+    INFO_REGS = ("P_Coefficient", "I_Coefficient", "D_Coefficient", "Acceleration", "Minimum_Startup_Force", "CW_Dead_Zone",
+                 "CCW_Dead_Zone", "Max_Torque_Limit", "Torque_Limit", "Protection_Current", "Maximum_Acceleration", "Acceleration_Multiplier ",
+                 "Angular_Resolution", "Phase", "Return_Delay_Time")
+
+    @_locked
+    def read_servo_info(self) -> dict:
+        """서보 설정 레지스터를 읽기만 한다(떨림 원인 후보 확인용): PID, 가속, 시동 힘, 데드존, 토크 한계 등."""
+        bus = self._bus
+        return {m: {r.strip(): bus.read(r, m, normalize=False) for r in self.INFO_REGS} for m in bus.motors}
+
     @_locked
     def set_acceleration(self, value: int) -> None:
         """서보 가속 한계를 바꾼다(시험용). 기본으로 되돌릴 때도 쓴다."""

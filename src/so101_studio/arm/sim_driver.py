@@ -38,6 +38,9 @@ class SimDriver:
     def read_power(self) -> tuple[float, dict, dict]:
         return 12.0, {m: 0.0 for m in JOINTS}, {m: 0.0 for m in JOINTS}
 
+    def read_servo_info(self) -> dict:
+        return {m: {"Acceleration": self.acceleration} for m in JOINTS}
+
     def set_acceleration(self, value: int) -> None:
         self.acceleration = value
 

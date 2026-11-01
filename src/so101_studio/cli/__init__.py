@@ -9,7 +9,7 @@ from ..core.config import load_robot, load_workspace
 from ..core.types import DetectedObject, JointState, ToolPose
 from ..service.arm_service import ArmService, plan_goto  # noqa: F401  plan_goto는 테스트가 이 경로로도 쓴다
 
-COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "jog", "keys", "powertest", "shaketest", "record", "replay", "seq"]
+COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "jog", "keys", "powertest", "shaketest", "servoinfo", "record", "replay", "seq"]
 
 
 def make_driver(sim: bool, cfg):
@@ -72,6 +72,7 @@ def main(argv=None) -> None:
     ap.add_argument("--cartesian", action="store_true", help="jog: 직교 모드(앞뒤·좌우·위아래)")
     ap.add_argument("--jog-speed", type=float, default=20.0, help="keys: 관절 모드 이동 속도 (°/s)")
     ap.add_argument("--trace", action="store_true", help="keys: 명령·실제 관절 위치를 빠르게 기록하고 떨림 요약 (runs/.../trace.csv)")
+    ap.add_argument("--speeds", help="shaketest: 시험할 속도들(°/s, 쉼표로). 기본 20,60,200")
     ap.add_argument("command", choices=COMMANDS)
     ap.add_argument("values", nargs="*", help="movej: 관절 6개 / goto: x y z yaw / pick: x y 각도 폭(0이면 크기를 모름) / gripper: 값 / record·replay·seq: 이름")
     a = ap.parse_args(argv)
@@ -116,6 +117,9 @@ def main(argv=None) -> None:
             from .powertest import run_powertest
 
             run_powertest(svc, int(a.values[0]) if a.values else 3, a.speed or 100.0)
+        elif c == "servoinfo":
+            for m, regs in svc.driver.read_servo_info().items():
+                print(m, regs)
         elif c == "shaketest":
             import msvcrt
 
@@ -127,7 +131,8 @@ def main(argv=None) -> None:
                     hit |= msvcrt.getwch().lower() == "m"
                 return hit
 
-            run_shaketest(svc, int(a.values[0]) if a.values else 10, poll_mark=None if a.sim else poll_mark)
+            run_shaketest(svc, int(a.values[0]) if a.values else 10, poll_mark=None if a.sim else poll_mark,
+                          accels=[int(x) for x in a.values[1:]] or None, speeds=[float(x) for x in a.speeds.split(",")] if a.speeds else None)
         elif c == "keys":
             from .keys import run_keys
 
