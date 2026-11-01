@@ -254,3 +254,40 @@ def test_check_path_sees_a_short_violation_in_a_long_sequence():
     q[:, 1], q[:, 2] = -90, 93
     q[500:508, 0] = 130  # 0.4초만 한계 밖 (60초 중)
     assert s.check_path(SequenceTrajectory(t, q)) is not None
+
+
+def test_recording_saves_real_sample_times_and_replay_uses_them(tmp_path):
+    import json
+
+    d, ctl = rig()
+    teach = Teach(ctl, CFG, tmp_path)
+    teach.record_start()
+    for pan in (0, 6, 12, 18):
+        d.write_joints(JointState(pan, -90, 93, 0, 0, 3))
+        time.sleep(0.2)
+    path = teach.record_stop("slow")
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert len(saved["t"]) == len(saved["joints"]) and saved["t"] == sorted(saved["t"])
+    dur = saved["t"][-1] - saved["t"][0]
+    assert dur == pytest.approx(0.8, abs=0.25)  # 손으로 움직인 시간이 그대로 들어 있다
+    _q, t = teach.load("slow")
+    assert t[-1] - t[0] == pytest.approx(dur)
+    # 시각이 없는 옛 파일은 hz로 일정하다고 본다
+    (tmp_path / "old.json").write_text('{"hz": 20, "joints": [[0,-90,93,0,0,3],[1,-90,93,0,0,3],[2,-90,93,0,0,3]]}', encoding="utf-8")
+    assert teach.load("old")[1].tolist() == pytest.approx([0.0, 0.05, 0.1])
+    ctl.close()
+
+
+def test_recording_stops_adding_samples_after_the_time_cap(tmp_path, monkeypatch):
+    from so101_studio.arm import teach as teach_mod
+
+    monkeypatch.setattr(teach_mod, "MAX_RECORD_S", 0.3)
+    d, ctl = rig()
+    t = Teach(ctl, CFG, tmp_path)
+    t.record_start()
+    time.sleep(0.8)
+    t.record_stop("cap")
+    ctl.close()
+    q, times = t.load("cap")
+    assert t.truncated and times[-1] <= 0.35 and len(q) <= 8
+    assert d.torque_enabled() is True  # 끝나면 토크가 다시 켜진다

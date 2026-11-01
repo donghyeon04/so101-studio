@@ -36,20 +36,11 @@ class MotionController:
         self.driver, self.kin, self.safety, self.dt = driver, kin, safety or Safety({}), 1.0 / hz
         self.health = HealthMonitor()
         self._next_health = 0.0
-        self.state = "idle"  # "idle" | "moving" | "teleop" | "follow" | "stopped" | "fault"
+        self.state = "idle"  # "idle" | "moving" | "teleop" | "stopped" | "fault"
         self.jog_joint_max, self.jog_tool_max = 40.0, 60.0  # 원격 조종 최대 속도 (deg/s, mm/s)
         self._jog = None  # (mode, 속도 벡터, 마지막 입력 시각)
         self._jog_v = np.zeros(6)  # 가속도 제한을 거친 지금 조그 속도
         self._jog_t = 0.0  # 직전 조그 틱 시각
-        self.assist_deg = np.zeros(6)  # 추종 교시 방향 보조 크기(°, 관절별). 0이면 끔
-        self.assist_gain = 1.0
-        self.assist_v_on, self.assist_v_max = 3.0, 40.0  # °/s. 이 속도부터 보조, 이 속도에서는 보조 0(저절로 달아나지 않게)
-        self._prev_present, self._prev_t, self._vel = None, 0.0, np.zeros(6)
-        self.gravity = None  # 중력 보상 모델(arm/gravity.py). 있으면 추종 교시에서 목표에 중력분을 미리 더한다
-        self.gravity_gain = 1.0
-        self.follow_dead_deg = 1.0  # 추종 교시: 목표와 실제 위치가 이만큼 넘게 어긋나면 손으로 민 것으로 보고 목표를 따라 옮긴다
-        self._follow = False
-        self.follow_block = None  # 추종이 안전 검사에 막힌 이유
         self.jog_block = None  # 조그가 막힌 이유(풀리지 않음 'ik_fail' 또는 안전 검사 이유). 움직이면 None
         self.fault: str | None = None
         self._job = None  # (traj, handle, t0, kind)
@@ -90,26 +81,11 @@ class MotionController:
         with self._lock:
             self._last = self.driver.read_joints()
 
-    def follow(self, on: bool) -> bool:
-        """추종 교시: 토크를 켠 채 손으로 밀어 위치가 어긋나면 목표를 그 위치로 따라 옮긴다. 한계·바닥 검사는 그대로 적용된다.
-        동작 중이거나 정지·fault 상태에서는 시작하지 않는다."""
-        with self._lock:
-            if on and (self.state in ("stopped", "fault") or self._job is not None):
-                return False
-            self._jog = None
-            self._follow, self.follow_block = on, None
-            self._prev_present, self._vel = None, np.zeros(6)
-            self.state = "follow" if on else ("idle" if self.state == "follow" else self.state)
-            if on:
-                self._last = self.driver.read_joints()
-                self.driver.write_joints(self._last)
-            return True
-
     def jog(self, mode: str, velocity) -> bool:
         """원격 조종 한 걸음 (spec 6.7). mode: "joint"(관절 6개 deg/s) 또는 "cartesian"(작업대 x, y, z mm/s, yaw deg/s).
         입력이 DEADMAN_S 넘게 끊기면 멈춘다. 동작 중이거나 정지·fault 상태면 무시한다."""
         with self._lock:
-            if self.state in ("stopped", "fault", "follow") or self._job is not None:
+            if self.state in ("stopped", "fault") or self._job is not None:
                 return False
             if self._jog is None:
                 self._jog_v = np.zeros(6)
@@ -152,8 +128,8 @@ class MotionController:
 
         with self._lock:
             self._jog = None
-            if self.state in ("teleop", "follow"):
-                self._follow, self.state = False, "idle"
+            if self.state == "teleop":
+                self.state = "idle"
             if self._job is None:
                 return
             traj, handle, t0, kind = self._job
@@ -175,7 +151,7 @@ class MotionController:
         with self._lock:
             if self._job is not None:
                 self._job[1]._finish(self._result("stopped", self._job[2]))
-            self._job, self.state, self._follow = None, "stopped", False
+            self._job, self.state = None, "stopped"
             self._last = self.driver.read_joints()
             self.driver.write_joints(self._last)
 
@@ -194,8 +170,6 @@ class MotionController:
                     self._check_health()
                     if self._job is not None:
                         self._tick()
-                    elif self._follow:
-                        self._tick_follow()
                     elif self._jog is not None:
                         self._tick_jog()
                 except Exception:  # noqa: BLE001 통신 오류 등 어떤 실패든 0.5초 넘게 이어지면 fault
@@ -237,43 +211,6 @@ class MotionController:
             if self.state == "moving":
                 self.state = "idle"
             handle._finish(self._result("ok" if kind == "move" else "stopped", t0))
-
-    def _assist(self, present: tuple) -> np.ndarray:
-        """손으로 움직이는 방향(측정 속도의 부호)으로 목표를 앞에 두는 각도. 속도가 빠를수록 줄어 assist_v_max에서 0이 된다."""
-        now = time.perf_counter()
-        p = np.array(present, float)
-        if self._prev_present is not None and now > self._prev_t:
-            raw = (p - self._prev_present) / (now - self._prev_t)
-            self._vel = 0.5 * self._vel + 0.5 * raw
-        else:
-            self._vel = np.zeros(6)
-        self._prev_present, self._prev_t = p, now
-        speed = np.abs(self._vel)
-        scale = np.clip(1.0 - speed / self.assist_v_max, 0.0, 1.0) * (speed > self.assist_v_on)
-        return np.sign(self._vel) * self.assist_deg * self.assist_gain * scale
-
-    def _tick_follow(self) -> None:
-        present = astuple(self.driver.read_joints())
-        goal = list(astuple(self._last))
-        for i, p in enumerate(present):
-            if abs(p - goal[i]) > self.follow_dead_deg:
-                goal[i] = p  # 손으로 밀린 만큼 목표를 옮긴다
-        q = JointState(*goal)
-        if q != self._last:
-            why = self.safety.check_goal(q, self._last) or self.safety.check_step(self._last, q)
-            self.follow_block = why
-            if not why:
-                self._last = q
-        cmd = np.array(astuple(self._last), float)
-        if self.gravity is not None:  # 팔 무게를 버티는 만큼 목표를 미리 앞에 둔다(P를 낮춰도 처지지 않게)
-            cmd = cmd + self.gravity.ff_deg(JointState(*present), self.gravity_gain)
-        lead = self._assist(present)
-        if lead.any():
-            with_assist = JointState(*(cmd + lead).tolist())
-            if not self.safety.check_goal(with_assist, self._last):  # 한계·바닥을 넘는 보조는 하지 않는다
-                cmd = cmd + lead
-        self.driver.write_joints(JointState(*cmd.tolist()))
-        self.health.comm_ok()
 
     def _tick_jog(self) -> None:
         mode, v, t_in = self._jog

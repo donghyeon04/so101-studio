@@ -6,7 +6,6 @@ from dataclasses import asdict, replace
 
 import numpy as np
 
-from ..arm import gravity
 from ..arm.kinematics import Kinematics
 from ..arm.motion import MotionController
 from ..arm.safety import MODES, Safety, SafetySettings
@@ -63,9 +62,6 @@ class ArmService:
         self.safety = Safety(self.cfg.joint_limits_deg, self.ws, self.kin, z_floor_mm=self.cfg.tip_floor_mm,
                              table_z_mm=self.cfg.table_z_mm, physical_limits=self.cfg.physical_limits_deg)
         self.ctl = MotionController(self.driver, self.kin, self.safety, self.cfg.control_hz)
-        params = gravity.load_params()
-        if params:
-            self.ctl.gravity = gravity.Gravity(self.cfg.urdf, params)
         self.skills = Skills(self.ctl, self.kin, self.cfg, self.ws, self.speed)
         self.teach = Teach(self.ctl, self.cfg)
         self.logger = RunLogger(self.log_root) if self.log_root else None
@@ -218,9 +214,9 @@ class ArmService:
     def jog(self, mode: str, velocity) -> bool:
         return self.ctl.jog(mode, velocity)
 
-    def record_start(self, follow: bool = False, stiffness: float = 1.0, p: int | None = None, d: int | None = None) -> None:
-        self._log("record_start", {"follow": follow, "stiffness": stiffness, "p": p, "d": d})
-        self.teach.record_start(follow, stiffness, p, d)
+    def record_start(self) -> None:
+        self._log("record_start", {})
+        self.teach.record_start()
 
     def record_stop(self, name: str):
         path = self.teach.record_stop(name)

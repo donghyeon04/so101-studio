@@ -49,9 +49,6 @@ class ArmDriver:
             bus.write("Max_Torque_Limit", "gripper", 500)
             bus.write("Protection_Current", "gripper", 250)
             bus.write("Overload_Torque", "gripper", 25)
-        for m in bus.motors:  # 이전 실행이 교시 중 낮춘 토크 제한(RAM)이 남아 있으면 팔이 약해진다. 최대값으로 되돌린다
-            bus.write("Torque_Limit", m, bus.read("Max_Torque_Limit", m, normalize=False))
-
     def disconnect(self) -> None:
         if self._robot:
             self._robot.bus.disconnect(disable_torque=False)  # 팔이 떨어지지 않게 토크는 그대로 둔다
@@ -101,41 +98,6 @@ class ArmDriver:
         """서보 설정 레지스터를 읽기만 한다(떨림 원인 후보 확인용): PID, 가속, 시동 힘, 데드존, 토크 한계 등."""
         bus = self._bus
         return {m: {r.strip(): bus.read(r, m, normalize=False) for r in self.INFO_REGS} for m in bus.motors}
-
-    @_locked
-    def get_torque_limits(self) -> dict[str, int]:
-        return {m: self._bus.read("Torque_Limit", m, normalize=False) for m in self._bus.motors}
-
-    @_locked
-    def read_loads_signed(self) -> dict[str, float]:
-        """서보별 부하(±1000, 방향 부호 포함). 정지 자세에서는 중력을 버티는 힘이다."""
-        return {m: float(v) for m, v in self._bus.sync_read("Present_Load").items()}
-
-    @_locked
-    def get_p(self) -> dict[str, int]:
-        return {m: self._bus.read("P_Coefficient", m, normalize=False) for m in self._bus.motors}
-
-    @_locked
-    def set_p(self, values: dict[str, int]) -> None:
-        """서보별 P 계수(위치 오차에 대한 힘의 비례). 낮추면 손으로 쉽게 밀린다. 연결할 때 설정값(pid)으로 항상 다시 쓴다."""
-        for m, v in values.items():
-            self._bus.write("P_Coefficient", m, int(v))
-
-    @_locked
-    def get_d(self) -> dict[str, int]:
-        return {m: self._bus.read("D_Coefficient", m, normalize=False) for m in self._bus.motors}
-
-    @_locked
-    def set_d(self, values: dict[str, int]) -> None:
-        """서보별 D 계수(속도에 비례하는 저항, 끈적한 느낌의 주원인). 연결할 때 설정값(pid)으로 항상 다시 쓴다."""
-        for m, v in values.items():
-            self._bus.write("D_Coefficient", m, int(v))
-
-    @_locked
-    def set_torque_limits(self, limits: dict[str, int]) -> None:
-        """서보별 토크 제한(0~1000, RAM)을 바꾼다. 교시처럼 손으로 밀릴 만큼만 힘을 내게 할 때 쓴다."""
-        for m, v in limits.items():
-            self._bus.write("Torque_Limit", m, int(v))
 
     @_locked
     def set_acceleration(self, value: int) -> None:

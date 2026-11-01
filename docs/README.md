@@ -39,4 +39,5 @@
 | `docs/decisions/0014-servo-acceleration-and-elbow-limit.md` | 결정 | 확정 | 팔 서보 가속 한계 10(그리퍼 25 유지), 제어 주기 50Hz 유지, 팔꿈치 접는 한계 95·home 93, 전원은 병목 아님 |
 | `docs/decisions/0015-safety-settings.md` | 결정 | 확정 | 안전 검사를 실행 중 바꿀 수 있는 설정으로(normal/free/off, 관절 여유, XYZ 범위), GUI는 get_safety/set_safety |
 | `docs/decisions/0016-follow-teach.md` | 결정 | 대체됨(→ 0017) | 직접 교시는 토크 제한을 낮춘 추종 방식(밀리면 목표가 따라감), 1단계 고정 프로필, 중력 모델은 2단계 |
-| `docs/decisions/0017-teach-with-torque-off.md` | 결정 | 확정 | 직접 교시는 토크를 끈 `record`가 기본, 추종 교시와 중력 보정은 기어 마찰 때문에 실험 기능으로만 둠 |
+| `docs/decisions/0017-teach-with-torque-off.md` | 결정 | 대체됨(→ 0018) | 직접 교시는 토크를 끈 `record`가 기본, 추종 교시와 중력 보정은 기어 마찰 때문에 실험 기능으로만 둠 |
+| `docs/decisions/0018-teach-torque-off-reference-flow.md` | 결정 | 확정 | 직접 교시는 레퍼런스의 토크 끈 흐름(홈 이동, 잡기 확인, 카운트다운, 20Hz, 90초, 실제 시각 저장), 추종 교시 코드 제거 |

@@ -1,15 +1,17 @@
 """CLI (arm-software-spec.md 9절). 모든 명령은 ArmService를 거친다."""
 import argparse
 import sys
+import time
 from dataclasses import asdict, replace
 
 from ..arm.driver import ArmDriver
 from ..arm.sim_driver import SimDriver
+from ..arm.teach import MAX_RECORD_S
 from ..core.config import load_robot, load_workspace
 from ..core.types import DetectedObject, JointState, ToolPose
 from ..service.arm_service import ArmService, plan_goto  # noqa: F401  plan_goto는 테스트가 이 경로로도 쓴다
 
-COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "jog", "keys", "powertest", "shaketest", "servoinfo", "gravcal", "linkwatch", "record", "replay", "seq"]
+COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "jog", "keys", "powertest", "shaketest", "servoinfo", "linkwatch", "record", "replay", "seq"]
 
 
 def make_driver(sim: bool, cfg):
@@ -76,12 +78,6 @@ def main(argv=None) -> None:
     ap.add_argument("--unsafe", action="store_true", help="관절 한계·작업 영역·바닥 검사를 모두 끈다 (한 주기 이동량 한계와 과열·과부하 감시는 유지). 매우 조심해서만")
     ap.add_argument("--safety-margin", type=float, help="팔 관절 한계를 이만큼(°) 안쪽으로 줄인다. 음수면 실제 가동 범위까지 넓힌다")
     ap.add_argument("--box", help="허용 범위(작업대 좌표 mm): x최소,x최대,y최소,y최대,z최소,z최대. z는 작업대 면 위 낮은 턱 끝 높이. 'none'이면 제한 없음")
-    ap.add_argument("--follow", action="store_true", help="record: 토크를 켠 채 약하게 두고 손으로 밀어 움직이는 대로 따라가며 교시(추종 교시)")
-    ap.add_argument("--stiffness", type=float, default=1.0, help="record --follow: 서보 토크 제한 배율 (작을수록 손으로 쉽게 밀리지만 처질 수 있음)")
-    ap.add_argument("--gravity-gain", type=float, default=1.0, help="record --follow: 중력 선행 보상 배율 (처지면 올리고, 올라가면 내린다)")
-    ap.add_argument("--teach-p", type=int, help="record --follow: 모든 관절 P 계수를 이 값으로 (실험용)")
-    ap.add_argument("--teach-d", type=int, help="record --follow: 모든 관절 D 계수를 이 값으로 (실험용)")
-    ap.add_argument("--assist", type=float, default=1.0, help="record --follow: 움직이는 방향 보조 배율 (0 = 끔, 2 = 두 배). 뻑뻑하면 올리고, 놓았는데 계속 가면 내린다")
     ap.add_argument("--free", action="store_true", help="작업대 가장자리 검사를 끈다 (바닥과 관절 한계는 유지). 손으로 움직이는 조종·재생용")
     ap.add_argument("--until-limit", action="store_true", help="replay: 한계나 바닥을 처음 넘는 자세 앞까지만 재생")
     ap.add_argument("--trace", action="store_true", help="keys: 명령·실제 관절 위치를 빠르게 기록하고 떨림 요약 (runs/.../trace.csv)")
@@ -153,10 +149,6 @@ def main(argv=None) -> None:
             from .powertest import run_powertest
 
             run_powertest(svc, int(a.values[0]) if a.values else 3, a.speed or 100.0)
-        elif c == "gravcal":
-            from .gravcal import run_gravcal
-
-            run_gravcal(svc)
         elif c == "servoinfo":
             for m, regs in svc.driver.read_servo_info().items():
                 print(m, regs)
@@ -179,17 +171,17 @@ def main(argv=None) -> None:
             run_keys(svc, a.jog_speed, a.trace, a.cart_speed)
         elif c == "record":
             name = v[0] if v else ap.error("record: 이름이 필요하다")
-            if a.follow:
-                input("토크를 켠 채(약하게) 기록합니다. 팔을 손으로 잡고 Enter를 누르면 시작합니다. 천천히 밀어 움직이세요...")
-            else:
-                input("토크를 끄고 기록합니다. 팔을 손으로 받친 채 Enter를 누르면 시작합니다...")
-            svc.ctl.gravity_gain = a.gravity_gain
-            svc.ctl.assist_gain = a.assist
-            svc.record_start(a.follow, a.stiffness, a.teach_p, a.teach_d)
-            input("손으로 움직이세요. 끝나면 Enter... ")
+            print("먼저 홈 자세(받침 근처)로 이동합니다. 토크를 끄면 팔이 처지기 때문입니다.")
+            print(fmt(svc.home()))
+            input("팔을 손으로 단단히 잡으세요. 준비되면 Enter (3초 뒤 토크가 꺼집니다)...")
+            for n in (3, 2, 1):
+                print(f"  {n}...", flush=True)
+                time.sleep(1)
+            svc.record_start()
+            input("토크가 꺼졌습니다. 손으로 천천히 움직이세요. 끝나면 Enter... ")
             print("저장:", svc.record_stop(name))
-            for j, (mx, p95) in svc.teach.load_summary().items():
-                print(f"  부하 {j:<14} 최대 {mx:4.0f}  95% {p95:4.0f}")
+            if svc.teach.truncated:
+                print(f"기록은 최대 {MAX_RECORD_S:.0f}초라 앞부분만 저장했습니다.")
         elif c in ("replay", "seq"):
             print(fmt(svc.replay(v[0] if v else ap.error(f"{c}: 이름이 필요하다"), a.speed / 100 if a.speed else 1.0, a.until_limit)))
             if svc.teach.last_cut:
