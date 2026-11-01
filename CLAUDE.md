@@ -19,7 +19,8 @@ SO-101(SO-ARM101) 로봇 암 프로젝트. 문서 색인은 `docs/README.md`에 
 - 설계서와 다르게 구현해야 하면 멈추고 사용자에게 알린다. 설계서는 기획 세션에서 고친다.
 - 하드웨어 없이 `--sim`으로 먼저 테스트한다. 실제 팔은 속도 30% 이하로 처음 움직이고, 사람이 전원 스위치 옆에서 대기한다.
 - 측정값은 `docs/planning/measurements.md`에 기록한다.
-- 환경: conda env `so101`(Python 3.12). 명령은 env의 python으로 실행한다 (`C:\Users\c\miniforge3\envs\so101\python.exe`).
+- 환경: conda env `so101`(Python 3.12). 먼저 `conda activate so101`로 활성화한다. 활성화 없이 env의 python.exe를 바로 부르면 numpy 행렬곱에서 아무 메시지 없이 종료(exit 127)된다(MKL DLL 경로). Git Bash에서는 `export PATH="/c/Users/c/miniforge3/envs/so101/Library/bin:/c/Users/c/miniforge3/envs/so101:$PATH"`.
+- numpy는 conda 설치본(MKL, placo와 맞춤)이다. `pip install`로 numpy를 다시 설치하지 않는다.
 - 테스트: `python -m pytest -q` (레포 루트에서). 린트: `python -m ruff check src tests`.
 - 코드가 더 생기면 실행 명령을 이 절에 추가한다.
 

@@ -23,7 +23,7 @@ T0-6 첫 구동: shoulder_pan ±10° 통과(오차 0.5° 이내, 온도 34~36°C
 | 항목 | 결과 |
 |---|---|
 | Python, LeRobot 버전 | Python 3.12.16 (conda env `so101`, Miniforge 26.9.4), lerobot 0.6.1 (`lerobot[feetech]`) |
-| `import placo` (성공 / 실패 → 대체안) | pip `lerobot[feetech,kinematics]`는 실패(placo 0.9.15 sdist, Windows 휠 없음, 빌드 의존성 설치 오류). 대체: `conda install -c conda-forge placo=0.9.25` → `import placo`, `RobotKinematics` import 성공. lerobot 요구 범위(<0.9.16)를 벗어난 버전이라 T3·T6에서 FK/IK 동작 확인 필요 |
+| `import placo` (성공 / 실패 → 대체안) | pip `lerobot[feetech,kinematics]`는 실패(placo 0.9.15 sdist, Windows 휠 없음, 빌드 의존성 설치 오류). 대체: `conda install -c conda-forge placo=0.9.25` → `import placo`, `RobotKinematics` import 성공. lerobot 요구 범위(<0.9.16)를 벗어난 버전. T3에서 FK/IK 동작 확인(영점 FK 391.4, 0, 226.5 mm, 수직 하강 IK 왕복 오차 1mm 이내). 부작용 2가지: (1) env 비활성 상태로 python.exe를 직접 부르면 conda numpy(MKL)가 행렬곱에서 조용히 종료 → `conda activate` 필요, pip numpy는 conda 설치본으로 교체. (2) torch(libiomp5)와 placo(libomp)의 OpenMP 중복 → `KMP_DUPLICATE_LIB_OK=TRUE`로 우회(`so101_studio/__init__.py`) |
 
 ## T2 정지 자세 30초 관찰
 | 관절 | 떨림 (있음/없음, 폭 °) | 최고 온도 °C | 최대 부하 % |
