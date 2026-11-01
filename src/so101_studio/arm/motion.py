@@ -62,6 +62,7 @@ class MotionController:
             elif self.safety.check_path(traj):
                 handle._finish(self._result("out_of_bounds", now))
             else:
+                self._last = traj.sample(0)  # 새 궤적은 실제 위치에서 시작한다. 서보가 뒤처져 있어도 'step' fault로 오인하지 않게 기준을 옮긴다
                 self._job, self.state = (traj, handle, now, "move"), "moving"
         return handle
 

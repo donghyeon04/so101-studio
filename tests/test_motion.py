@@ -97,3 +97,13 @@ def test_goal_at_resting_pose_beyond_old_limit_is_allowed():
     r = c.execute(move_j(rest, JointState(10, -89, 97.4, 0, 0, 3), 200, 1000)).wait(5)
     c.close()
     assert r.status == "ok"
+
+
+def test_new_trajectory_may_start_far_from_last_command():
+    d = SimDriver()
+    c = MotionController(d)
+    c.execute(move_j(A, JointState(10, 0, 0, 0, 0, 0), 200, 1000)).wait(5)
+    # 서보가 뒤처져 실제 위치가 마지막 명령에서 8° 떨어져 있어도 새 동작은 거부되지 않는다
+    r = c.execute(move_j(JointState(2, 0, 0, 0, 0, 0), JointState(20, 0, 0, 0, 0, 0), 200, 1000)).wait(5)
+    c.close()
+    assert r.status == "ok"
