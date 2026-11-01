@@ -13,7 +13,7 @@ tool_a_max_mm_s2: 120
 tool_jerk_max_mm_s3: 600
 tool_v_max_mm_s: 100
 approach_height_mm: 40         # 수직 하강 자세로 닿는 높이가 최대 약 80mm라 80mm 위 접근은 불가능 (measurements.md T6 사전 조사)
-table_z_mm: -13            # 작업대 면의 모델 z(mm). URDF 기준 0이 아니라 아래에 있다: 사용자가 육안으로 '턱 끝(모델 z 약 2mm)과 작업대 사이가 손가락 한 마디(약 15mm)'라고 본 값에서 추정, 실측 전
+table_z_mm: -25            # 작업대 면의 모델 z(mm) 추정. 사용자가 육안으로 턱 끝과 작업대 사이를 본 값(모델 z 2mm에서 손가락 한 마디, 4mm 내린 뒤에도 한 마디)으로 조금씩 내려 추정, 실측 전
 tip_floor_mm: 5            # 낮은 턱 끝이 작업대 면(table_z_mm)보다 이만큼은 위에 있어야 한다(명령 기준. 처짐 약 4mm가 더해져 실제 끝은 1mm 위까지 내려간다)
 grasp_height_mm: 15        # 낮은 턱 끝의 작업대 면 위 높이. 미정: 시험 물체가 정해지면 확정        # 미정: 시험 물체가 정해지면 확정
 gripper_margin_mm: 20

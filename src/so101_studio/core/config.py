@@ -55,6 +55,7 @@ class WorkspaceConfig:
     robot_base_in_table: dict
     drop_zones: dict = field(default_factory=dict)
     safety_margin_mm: float = 10
+    reach_mm: dict = field(default_factory=lambda: {"min": 90.0, "max": 250.0})
 
     @property
     def base(self) -> Pose2D:
