@@ -28,3 +28,4 @@
 | `docs/decisions/0005-development-order.md` | 결정 | 확정 | 팔 먼저(구동 점검 → 동작 라이브러리 → 작업 공간), 센서는 그 뒤 |
 | `docs/decisions/0006-device-setup.md` | 결정 | 확정 | Windows PC 1대, ESP32 1개 + HC-SR04 2개, 서보·카메라는 추후 구매 |
 | `docs/decisions/0007-branch-and-dev-workflow.md` | 결정 | 확정 | 기획 브랜치를 main에 합치고 개발은 dev/ 브랜치, 측정값·설계 변경의 되돌림 경로 |
+| `docs/decisions/0008-single-jaw-grasp-compensation.md` | 결정 | 확정 | 고정 턱 1개 그리퍼는 턱 중심 보정과 닫기 전 가동 턱 쪽 이동으로 소프트웨어에서 보정 |
