@@ -65,3 +65,10 @@ def test_joint_mode_key_hold_then_tab_to_coord(svc):
     s = KeysSession(svc, 20, key_down, lambda p: "", out=lambda *_: None, tick_s=0.02)
     assert s.joint_mode() == "coord"
     assert svc.status().joints.shoulder_pan > p0 + 1
+
+
+def test_speed_commands(svc):
+    s = KeysSession(svc, 20, lambda k: False, lambda p: "", out=lambda *_: None)
+    s.coord_line("speed 40")
+    s.coord_line("jog 35")
+    assert svc.speed == 40 and s.speed == 35

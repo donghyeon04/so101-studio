@@ -70,6 +70,7 @@ def main(argv=None) -> None:
     ap.add_argument("--dry-run", action="store_true", help="run: 물체 없이 동작만 (접촉이 없어도 성공으로 보고 이어간다)")
     ap.add_argument("--step", action="store_true", help="run: 상태가 바뀔 때마다 Enter를 기다린다")
     ap.add_argument("--cartesian", action="store_true", help="jog: 직교 모드(앞뒤·좌우·위아래)")
+    ap.add_argument("--jog-speed", type=float, default=20.0, help="keys: 관절 모드 이동 속도 (°/s)")
     ap.add_argument("command", choices=COMMANDS)
     ap.add_argument("values", nargs="*", help="movej: 관절 6개 / goto: x y z yaw / pick: x y 각도 폭(0이면 크기를 모름) / gripper: 값 / record·replay·seq: 이름")
     a = ap.parse_args(argv)
@@ -113,7 +114,7 @@ def main(argv=None) -> None:
         elif c == "keys":
             from .keys import run_keys
 
-            run_keys(svc)
+            run_keys(svc, a.jog_speed)
         elif c == "record":
             name = v[0] if v else ap.error("record: 이름이 필요하다")
             input("토크를 끄고 기록합니다. 팔을 손으로 받친 채 Enter를 누르면 시작합니다...")

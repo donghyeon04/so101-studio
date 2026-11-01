@@ -9,7 +9,7 @@ from ..service.targets import from_table, parse_target, reason_text
 VK = {"tab": 0x09, "space": 0x20, "esc": 0x1B, **{c: ord(c.upper()) for c in "abcdefghijklmnopqrstuvwxyz"}}
 HELP_JOINT = "[관절 모드] q/a w/s e/d r/f t/g y/h = 1~6번 관절 +/- (누르는 동안 이동)  Tab: 좌표 모드  space: 정지  x/Esc: 종료"
 HELP_COORD = (
-    "[좌표 모드] x y z [yaw] = 그 점으로 이동 | d dx dy dz = 지금 위치에서 상대 이동 | frame table|robot = 좌표계 | "
+    "[좌표 모드] x y z [yaw] = 그 점으로 이동 | d dx dy dz = 지금 위치에서 상대 이동 | frame table|robot = 좌표계 | speed N(%) / jog N(°/s) = 속도 | "
     "where = 현재 위치 | j 또는 빈 줄 = 관절 모드 | x = 종료\n"
     "  table: 작업대 좌표(mm), robot: 앞/왼쪽(어깨 회전축 기준)/높이. 높이 z는 같고 그리퍼는 아래를 봅니다."
 )
@@ -68,6 +68,16 @@ class KeysSession:
             self.out(HELP_COORD)
         elif low == "where":
             self.out(self.where())
+        elif low.startswith(("speed", "jog")):
+            tok = low.split()
+            try:
+                if tok[0] == "speed":
+                    self.svc.set_speed(float(tok[1]))
+                else:
+                    self.speed = float(tok[1])
+            except (IndexError, ValueError):
+                self.out("  사용법: speed 퍼센트 (좌표 이동) / jog 도/초 (관절 모드)")
+            self.out(f"  좌표 이동 속도 {self.svc.speed:.0f}% | 관절 모드 {self.speed:.0f}°/s")
         elif low.startswith("frame"):
             arg = low.split()[1:] and low.split()[1]
             if arg in ("table", "robot"):
