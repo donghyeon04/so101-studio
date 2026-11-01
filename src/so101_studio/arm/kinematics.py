@@ -41,14 +41,15 @@ class Kinematics:
         yaw = math.degrees(math.atan2(-R[0, 1], R[1, 1]))
         return frames.tool_robot_to_table(ToolPose(x, y, z, yaw, pitch), self.base)
 
-    def ik(self, pose: ToolPose, seed: JointState, tol_mm: float = 2.0, max_iter: int = 30) -> JointState | None:
+    def ik(self, pose: ToolPose, seed: JointState, tol_mm: float = 2.0, max_iter: int = 30,
+           orientation_weight: float = 0.1) -> JointState | None:
         r = frames.tool_table_to_robot(pose, self.base)
         T = np.eye(4)
         T[:3, :3] = _rotation(r.pitch_deg, r.yaw_deg) @ self._C
         T[:3, 3] = np.array([r.x_mm + PAN_AXIS_X_MM, r.y_mm, r.z_mm]) / 1000
         q = np.array([getattr(seed, j) for j in ARM_JOINTS], float)
         for _ in range(max_iter):  # placo는 호출 1번에 한 걸음만 가므로 수렴할 때까지 반복
-            nxt = self._k.inverse_kinematics(q, T, orientation_weight=1.0)[:5]
+            nxt = self._k.inverse_kinematics(q, T, orientation_weight=orientation_weight)[:5]
             done = np.abs(nxt - q).max() < 1e-3
             q = nxt
             if done:
