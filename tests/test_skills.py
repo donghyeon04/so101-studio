@@ -127,3 +127,13 @@ def test_grasp_bias_shifts_toward_the_moving_jaw(kin):
     a = at_lowest(run_pick(kin, grasp_bias_mm=0), kin)[1]
     b = at_lowest(run_pick(kin, grasp_bias_mm=6), kin)[1]
     assert b.y_mm - a.y_mm == pytest.approx(6, abs=2)
+
+
+@pytest.mark.parametrize("angle", [0, 45, 90, 135])
+def test_pick_returns_to_hover_for_every_angle(kin, angle):
+    d = Recorder(CFG.poses["home"])
+    ctl = MotionController(d, kin, Safety(CFG.joint_limits_deg, WS, kin), CFG.control_hz)
+    r = Skills(ctl, kin, CFG, WS, speed_pct=100).pick(obj(x=300, y=200, angle=angle, width=30))
+    ctl.close()
+    assert r.status == "ok"
+    assert kin.fk(d.log[-1]).z_mm == pytest.approx(CFG.grasp_height_mm + CFG.approach_height_mm, abs=3)

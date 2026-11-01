@@ -68,6 +68,13 @@ class LineTrajectory:
         u = min(max(t / self.duration_s, 0.0), 1.0)
         return 10 * u**3 - 15 * u**4 + 6 * u**5, (30 * u**2 - 60 * u**3 + 30 * u**4) / self.duration_s
 
+    def reversed(self, gripper: float | None = None) -> "LineTrajectory":
+        """같은 경로를 거꾸로 간다. 내려간 길로 되돌아오는 것이므로 IK를 다시 풀 필요가 없다(그리퍼 값은 지금 상태로 바꿀 수 있다)."""
+        pts = self.pts[::-1].copy()
+        if gripper is not None:
+            pts[:, 5] = gripper
+        return LineTrajectory(pts, self.duration_s)
+
     def _at(self, s: float) -> np.ndarray:
         x = s * (len(self.pts) - 1)
         i = min(int(x), len(self.pts) - 2)

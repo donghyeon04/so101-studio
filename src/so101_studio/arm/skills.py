@@ -56,12 +56,20 @@ class Skills:
     def park(self) -> MotionResult:
         return self._run([self._joint_move(JointState(*self.cfg.poses["park"]))])
 
+    def _jaw_yaw(self, yaw_t: float) -> float:
+        """턱 축은 180° 돌려도 같은 파지다(고정·가동 턱 쪽만 바뀐다). 손목이 덜 돌도록 로봇 기준 ±90° 안의 쪽을 고른다."""
+        base = self.ws.base.yaw_deg
+        r = (yaw_t - base + 180.0) % 360.0 - 180.0
+        if abs(r) > 90.0:
+            r -= math.copysign(180.0, r)
+        return r + base
+
     def pick(self, obj: DetectedObject) -> MotionResult:
         """고정 턱 1개 + 가동 턱 1개라서 닫으면 물체가 고정 턱 쪽으로 밀린다. URDF 기하로 보면 FK 기준점(gripper_frame)은
         고정 턱 안쪽 면 위에 있고 가동 턱은 방향 m=(cos yaw, sin yaw) 쪽이다. 그래서
         (1) 턱을 폭+여유로 열고 턱 중심이 물체에 오도록 목표를 (벌림/2)만큼 -m 쪽으로 옮겨 내려가고 (NVIDIA 포럼의 grasp_center 방식),
         (2) 닫기 직전에 손을 +m 쪽으로 여유/2만큼 밀어 고정 턱 면을 물체 면에 붙인 뒤 가동 턱만 닫는다 (F1 Hand '닫으며 중심 쪽으로 이동', 고정 턱 기준)."""
-        yaw = (obj.angle_deg or 0.0) + 90.0  # 턱 축이 물체 긴 변에 수직이 되도록 (spec 6.6: 물체 각도 + 90°)
+        yaw = self._jaw_yaw((obj.angle_deg or 0.0) + 90.0)  # 턱 축이 물체 긴 변에 수직이 되도록 (spec 6.6: 물체 각도 + 90°)
         m = (math.cos(math.radians(yaw)), math.sin(math.radians(yaw)))
         gap = obj.width_mm + self.cfg.gripper_margin_mm
         shift = -gap / 2 + self.cfg.grasp_bias_mm  # 턱 중심이 물체 중심에 오도록
@@ -92,8 +100,7 @@ class Skills:
         r = self._run([self._gripper(self.cfg.joint_limits_deg["gripper"][0])])  # 5. 닫기
         if r.status != "ok":
             return r
-        up = self._line(self._q(), hover)  # 6. 상승
-        return MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0)) if up is None else self._run([up])
+        return self._run([down.reversed(self._q().gripper)])  # 6. 내려간 경로로 상승 (IK를 다시 풀지 않는다)
 
     def place(self, zone: str) -> MotionResult:
         z = self.ws.drop_zones[zone]
@@ -112,5 +119,4 @@ class Skills:
         r = self._run([self._gripper(self.cfg.gripper_open)])
         if r.status != "ok":
             return r
-        up = self._line(self._q(), hover)
-        return MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0)) if up is None else self._run([up])
+        return self._run([down.reversed(self._q().gripper)])
