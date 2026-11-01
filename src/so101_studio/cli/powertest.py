@@ -11,6 +11,7 @@ from ..arm.trajectory import move_j
 from ..core.types import JointState
 
 SETTLE_S = 1.0
+SAMPLE_GAP_S = 0.006  # 읽기 사이 간격. 첫 거친 시험(0.0005s)에서 이동량 한계 경고와 함께 멈췄고, 읽기가 버스를 점유해 쓰기가 밀린 것으로 추정
 V_MAX_DEG_S = 200.0  # 100% 기준 속도. 한 주기 이동량 한계(5°/주기 = 250°/s) 안에서 가장 빠르게
 A_MAX_DEG_S2 = 1500.0
 # 큰 스윙 자세: pan, lift, elbow, wrist_flex, wrist_roll, gripper (시작 자세에서 출발해 차례로 갔다가 돌아온다)
@@ -52,7 +53,7 @@ def run_powertest(svc, repeats: int = 3, speed_pct: float = 100.0, out=print) ->
             m = max(cur, key=cur.get)
             lm = max(load, key=load.get)
             rows.append((time.perf_counter(), v, sum(cur.values()), m, cur[m], lm, load[lm]))
-            time.sleep(0.0005)  # 제어 스레드가 밀리지 않게 양보한다 (시뮬에서 읽기가 즉시 끝나 CPU를 독점하는 것을 막음)
+            time.sleep(SAMPLE_GAP_S)  # 통신 버스를 제어 스레드(50Hz 쓰기)에게 양보한다. 읽기가 버스를 계속 쥐면 쓰기가 밀려 한 주기 이동량이 커질 수 있다
 
     th = threading.Thread(target=sample, daemon=True)
     th.start()
@@ -93,6 +94,8 @@ def run_powertest(svc, repeats: int = 3, speed_pct: float = 100.0, out=print) ->
     res = {"baseline_v": v0, "min_v": low[1], "drop_v": v0 - low[1], "peak_total_ma": peak[2], "peak_motor": peak[3],
            "peak_motor_ma": max(r[4] for r in move), "peak_load_pct": hot[6], "peak_load_motor": hot[5], "sample_hz": hz,
            "moves": results, "skipped": skipped, "csv": str(path)}
+    if "fault" in results:
+        out(f"중간에 멈춤(fault): {svc.ctl.fault}")
     out(f"실행한 자세 {len(targets)}개 x {repeats}회, 건너뜀 {skipped or '없음'}, 결과 {sorted(set(results))}")
     out(f"전압: 정지 때 {v0:.1f}V, 동작 중 최저 {low[1]:.1f}V (강하 {v0 - low[1]:.1f}V, 출발 후 {low[0] - mark['t0']:.2f}s 시점)")
     out(f"전류(추정): 6개 합 최대 {peak[2] / 1000:.2f}A ({peak[3]} 최대 {res['peak_motor_ma'] / 1000:.2f}A), 어댑터 5A 대비 {peak[2] / 50:.0f}%")
