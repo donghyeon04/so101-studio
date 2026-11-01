@@ -12,8 +12,9 @@ MAX_CONSECUTIVE_FAILS = 3  # 같은 물체를 연속으로 이만큼 실패하�
 
 
 class TaskRunner:
-    def __init__(self, skills, source, ws, bus: EventBus | None = None, zone: str = "right"):
+    def __init__(self, skills, source, ws, bus: EventBus | None = None, zone: str = "right", accept_no_object: bool = False):
         self.skills, self.source, self.ws, self.zone = skills, source, ws, zone
+        self.accept_no_object = accept_no_object  # 물체 없이 동작만 보일 때(dry-run): 접촉이 없어도(no_object) 성공으로 보고 이어간다
         self.bus = bus or EventBus()
         self.state = "IDLE"
         self._stop = False
@@ -34,6 +35,9 @@ class TaskRunner:
         if self._stop:
             self._emit("STOPPED")
         return self._stop
+
+    def _ok(self, r) -> bool:
+        return r.status == "ok" or (self.accept_no_object and r.status == "no_object")
 
     def _end(self, end: str) -> dict:
         return {"picked": self.picked, "failed": self.failed, "cycles": self.cycles, "end": end}
@@ -67,14 +71,14 @@ class TaskRunner:
             if self._stopped():
                 return self._end("STOPPED")
             r = self.skills.pick(obj)
-            if r.status != "ok":  # 재시도 1회
+            if not self._ok(r):  # 재시도 1회
                 if self._stop:
                     self._stopped()
                     return self._end("STOPPED")
                 if self.skills.ctl.state == "fault":
                     return self._fault("pick")
                 r = self.skills.pick(obj)
-            if r.status != "ok":
+            if not self._ok(r):
                 fails[obj.id] = fails.get(obj.id, 0) + 1
                 self.failed.append(obj.id)
                 self._emit("PICK", obj.id, result=r.status)

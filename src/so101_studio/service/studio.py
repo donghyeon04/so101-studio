@@ -11,14 +11,14 @@ from ..task.runner import TaskRunner
 
 
 class Studio:
-    def __init__(self, driver, cfg, ws, source, speed_pct: float | None = None, log_root: str | None = "runs"):
+    def __init__(self, driver, cfg, ws, source, speed_pct: float | None = None, log_root: str | None = "runs", dry_run: bool = False):
         self.cfg, self.ws, self.source, self.bus = cfg, ws, source, EventBus()
         self.kin = Kinematics(cfg.urdf, ws.base)
         self.ctl = MotionController(
             driver, self.kin, Safety(cfg.joint_limits_deg, ws, self.kin, z_floor_mm=cfg.tip_floor_mm, table_z_mm=cfg.table_z_mm), cfg.control_hz
         )
         self.skills = Skills(self.ctl, self.kin, cfg, ws, speed_pct)
-        self.task = TaskRunner(self.skills, source, ws, self.bus)
+        self.task = TaskRunner(self.skills, source, ws, self.bus, accept_no_object=dry_run)
         self.logger = RunLogger(log_root) if log_root else None
         if self.logger:
             self.bus.subscribe("task", lambda e: self.logger.event("task", e))

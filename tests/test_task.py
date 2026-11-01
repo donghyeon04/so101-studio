@@ -111,6 +111,12 @@ def test_runner_retries_once_then_gives_up_after_three_failed_cycles():
     assert sk.calls.count("pick:obj-1") == 6  # 사이클마다 재시도 1회
 
 
+def test_dry_run_treats_no_object_as_success():
+    src = ListSource([obj(1, 300, 170), obj(2, 300, 200)])
+    res, _ = run(TaskRunner(StubSkills(pick_status="no_object"), src, WS, EventBus(), accept_no_object=True))
+    assert res["end"] == "no_objects" and res["picked"] == ["obj-1", "obj-2"] and res["failed"] == []
+
+
 def test_runner_stops_on_request():
     sk = StubSkills()
     runner = TaskRunner(sk, ListSource([obj(1, 300, 170), obj(2, 300, 200)]), WS, EventBus())

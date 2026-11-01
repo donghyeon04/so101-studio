@@ -166,3 +166,7 @@ T6 대체 시험 (2026-11-01, 사용자 육안 확인 + 엔코더 값을 FK로 �
 - S1 `perception/manual.py`: `config/manual_objects.yaml`의 물체 3개를 `ScanResult`로 돌려준다(집은 물체는 다음 스캔에서 뺀다). 시험 통과.
 - S2 `task/runner.py`, `task/policy.py`: PREPARE→SCAN→DECIDE→PICK→PLACE 상태 머신, 도달 범위 밖 제외(원점에서 90~250mm) 후 가까운 순, 실패 시 재시도 1회, 같은 물체 3회 연속 실패 또는 사이클 20회면 종료, 단계별 모드, 정지 요청. SimDriver + ManualSource로 물체 3개 자동 사이클이 끝까지 도는 테스트 통과(시뮬레이션에서 물체가 있는 것처럼 그리퍼 값으로 흉내). 전체 테스트 89개 중 task 10개 통과.
 - S3 `service/studio.py`, CLI `run --source manual [--step]`: 시뮬레이션에서 동작 확인. 물체가 없으면 `no_object`로 세 번 실패하고 `repeated_failure`로 끝난다(규칙대로). 실제 팔로 3개를 옮기는 시험은 물체 3개를 `manual_objects.yaml` 자리에 놓아야 해서 아직이다.
+
+## 물체 없이 자동 작업 시연 (2026-11-01, `run --dry-run`)
+- 실제 팔, 속도 30%, 물체 없음(접촉이 없어도 성공으로 보고 이어가는 dry-run): 16:07:05~16:09:21(2분 16초)에 `manual_objects.yaml`의 3자리를 가까운 순(obj-1 → obj-3 → obj-2)으로 집고 배출 구역(500,150)에 놓은 뒤 `no_objects`로 정상 종료, home 복귀. 이상 없음.
+- 사용자가 영상 촬영 예정. 접촉 감지와 실제 물체 집기 시험은 아직.

@@ -85,7 +85,7 @@ def run_task(driver, cfg, a) -> str:
     from ..perception.manual import ManualSource
     from ..service.studio import Studio
 
-    st = Studio(driver, cfg, load_workspace(), ManualSource(), a.speed or cfg.speed_pct_default)
+    st = Studio(driver, cfg, load_workspace(), ManualSource(), a.speed or cfg.speed_pct_default, dry_run=a.dry_run)
     st.bus.subscribe("task", lambda e: print(f"[{e.state}] {e.object_id or ''} {e.result or ''}".rstrip()))
     if a.step:
         st.task.wait_step = lambda: input("  (Enter: 다음 단계) ")
@@ -131,6 +131,7 @@ def main(argv=None) -> None:
     ap.add_argument("--width", action="store_true", help="gripper: 값을 그리퍼 값이 아니라 벌림 폭(mm)으로 해석")
     ap.add_argument("--margin", type=float, help="pick: gripper_margin_mm(물체 폭보다 더 벌리는 양)를 이번만 바꿔 시험")
     ap.add_argument("--source", default="manual", help="run: 인식 방식 (지금은 manual)")
+    ap.add_argument("--dry-run", action="store_true", help="run: 물체 없이 동작만 (접촉이 없어도 성공으로 보고 이어간다)")
     ap.add_argument("--step", action="store_true", help="run: 상태가 바뀔 때마다 Enter를 기다린다")
     ap.add_argument("--max-open", type=float, help="pick: 최대로 벌릴 틈(mm)을 이번만 바꿔 시험")
     ap.add_argument("--bias", type=float, help="pick: grasp_bias_mm를 이번만 바꿔 시험 (가동 턱 쪽이 +)")
