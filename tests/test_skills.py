@@ -142,5 +142,5 @@ def test_pick_returns_to_hover_for_every_angle(kin, angle):
 def test_width_table_follows_urdf_geometry(kin):
     _d, ctl, sk = rig(kin)
     ctl.close()
-    assert sk.gripper_for_width(50) == pytest.approx(30.4, abs=1.0)  # 벌림 50mm는 값 약 30 (기하 계산)
-    assert sk.gripper_for_width(94) == pytest.approx(63.6, abs=1.5)
+    assert sk.gripper_for_width(54) == pytest.approx(30.0, abs=1.5)  # 카드(54mm) 시험: 값 27.7~32.0에서 접촉
+    assert sk.gripper_for_width(94) == pytest.approx(58.0, abs=1.5)
