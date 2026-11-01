@@ -75,4 +75,20 @@ def test_gravcal_runs_in_sim_and_saves_params(tmp_path, monkeypatch):
     params = gravcal.run_gravcal(svc, out=out.append)
     svc.disconnect()
     assert params is not None and params["shoulder_lift"]["k"] == pytest.approx(300, rel=0.02) and params["shoulder_lift"]["s"] == 18.0
-    assert (tmp_path / "gravity.json").exists()
+    assert (tmp_path / "gravity.json").exists()  # 합성 부하는 중력과 정확히 비례하므로 저장된다
+
+
+def test_gravcal_does_not_save_a_fit_that_is_not_reliable(tmp_path, monkeypatch):
+    from so101_studio.core.config import load_workspace
+    from so101_studio.service.arm_service import ArmService
+
+    d = SimDriver(CFG.poses["home"])
+    svc = ArmService(d, CFG, load_workspace("config/workspace.yaml"), speed_pct=100, log_root=str(tmp_path))
+    svc.connect()
+    d.read_loads_signed = lambda: {j: 100.0 for j in ARM_JOINTS + ["gripper"]}  # 자세와 상관없는 일정한 부하(마찰만 있는 경우)
+    monkeypatch.setattr(gravcal, "step_slope", lambda svc, joint: 18.0)
+    monkeypatch.setattr(gravcal, "SETTLE_S", 0.05)
+    monkeypatch.setattr(gravity, "DEFAULT_PATH", str(tmp_path / "gravity.json"))
+    gravcal.run_gravcal(svc, out=lambda *_: None)
+    svc.disconnect()
+    assert not (tmp_path / "gravity.json").exists()

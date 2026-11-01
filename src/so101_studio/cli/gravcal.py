@@ -96,6 +96,10 @@ def _gravcal(svc, out) -> dict | None:
         params[j] = f
         flag = "" if f["r2"] >= 0.6 and f["s"] > 0 else "  <- 신뢰 낮음"
         out(f"{j}: 부하 = {f['k']:+.0f} x 중력토크 {f['b']:+.0f}  (r2 {f['r2']:.2f}, 잔차 {f['resid_std']:.0f}), 1°당 부하 s={f['s']:.1f}{flag}")
-    gravity.save(params)
-    out(f"저장: {gravity.DEFAULT_PATH}")
+    good = {j: f for j, f in params.items() if f["r2"] >= 0.6 and f["s"] > 0 and f["k"] > 0}  # 부호가 반대거나 설명력이 낮은 관절은 쓰지 않는다
+    if not good:
+        out("믿을 만한 보정이 없어 저장하지 않았습니다 (정지 부하가 중력보다 마찰·접근 방향의 영향을 더 받음).")
+        return params
+    gravity.save(good)
+    out(f"저장: {gravity.DEFAULT_PATH} ({', '.join(good)})")
     return params

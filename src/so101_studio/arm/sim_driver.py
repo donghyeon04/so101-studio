@@ -42,6 +42,12 @@ class SimDriver:
     def read_loads_signed(self) -> dict:
         return {m: 0.0 for m in JOINTS}
 
+    def get_d(self) -> dict:
+        return dict(getattr(self, "_d", {m: 32 for m in JOINTS}))
+
+    def set_d(self, values: dict) -> None:
+        self._d = {**self.get_d(), **values}
+
     def get_p(self) -> dict:
         return dict(getattr(self, "_p", {m: 16 for m in JOINTS}))
 

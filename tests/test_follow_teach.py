@@ -73,11 +73,12 @@ def test_follow_recording_keeps_torque_lowers_limits_and_restores_them(tmp_path)
     d, ctl = rig()
     d.set_torque(True)
     teach = Teach(ctl, CFG, tmp_path)
-    before, p_before = d.get_torque_limits(), d.get_p()
+    before, p_before, d_before = d.get_torque_limits(), d.get_p(), d.get_d()
     teach.record_start(follow=True, stiffness=0.5)
     during = d.get_torque_limits()
     assert d.get_p()["shoulder_pan"] == max(1, round(CFG.teach_p["shoulder_pan"] * 0.5)) < p_before["shoulder_pan"]  # P도 낮춘다
     assert ctl.follow_dead_deg == CFG.teach_dead_deg
+    assert d.get_d()["shoulder_pan"] == max(0, round(CFG.teach_d["shoulder_pan"] * 0.5)) < d_before["shoulder_pan"]  # D도 낮춘다
     assert d.torque_enabled() is True  # 토크는 켜져 있다
     assert during["shoulder_lift"] == int(CFG.teach_torque["shoulder_lift"] * 0.5) and during["shoulder_lift"] < before["shoulder_lift"]
     for step in (0, 8, 16):
@@ -85,7 +86,7 @@ def test_follow_recording_keeps_torque_lowers_limits_and_restores_them(tmp_path)
         time.sleep(0.25)
     path = teach.record_stop("hand")
     ctl.close()
-    assert path.exists() and d.get_torque_limits() == before and d.get_p() == p_before and ctl.state == "idle"  # 토크 제한과 P를 되돌렸다
+    assert path.exists() and d.get_torque_limits() == before and d.get_p() == p_before and d.get_d() == d_before and ctl.state == "idle"  # 토크 제한과 P를 되돌렸다
     q, _ = teach.load("hand")
     assert q[-1][0] > q[0][0] + 10  # 밀린 만큼 기록됨
 

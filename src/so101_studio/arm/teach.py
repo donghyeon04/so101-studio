@@ -49,11 +49,12 @@ class Teach:
         self._saved_torque = None
         if follow:
             drv = self.ctl.driver
-            self._saved_torque = (drv.get_torque_limits(), drv.get_p())
+            self._saved_torque = (drv.get_torque_limits(), drv.get_p(), drv.get_d())
             drv.set_torque(True)
             drv.set_torque_limits({n: int(min(self._saved_torque[0].get(n, 1000), max(50, v * stiffness))) for n, v in self.cfg.teach_torque.items()})
             p = {**self.cfg.teach_p, **(self.cfg.teach_p_gravity if self.ctl.gravity is not None else {})}
             drv.set_p({n: max(1, round(v * stiffness)) for n, v in p.items()})
+            drv.set_d({n: max(0, round(v * stiffness)) for n, v in self.cfg.teach_d.items()})
             self.ctl.follow_dead_deg = self.cfg.teach_dead_deg
             if not self.ctl.follow(True):
                 self._restore_servo(drv)
@@ -71,9 +72,10 @@ class Teach:
         self._thread.start()
 
     def _restore_servo(self, drv) -> None:
-        limits, p = self._saved_torque
+        limits, p, d = self._saved_torque
         drv.set_torque_limits(limits)
         drv.set_p(p)
+        drv.set_d(d)
         self._saved_torque = None
 
     def record_stop(self, name: str) -> Path:
