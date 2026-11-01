@@ -1,0 +1,5 @@
+table_mm: {x: 600, y: 400}
+robot_base_in_table: {x_mm: 300, y_mm: 50, yaw_deg: 90}   # 배치 확정 후 수정
+drop_zones:
+  right: {x_mm: 500, y_mm: 150}
+safety_margin_mm: 10

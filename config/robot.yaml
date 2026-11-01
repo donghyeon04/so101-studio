@@ -1,0 +1,14 @@
+port: COM3
+calibration_id: so101_follower_01
+urdf: assets/so101_new_calib.urdf
+control_hz: 50
+pid: {p: 16, i: 0, d: 32}
+speed_pct_default: 30
+joint_v_max_deg_s: 90
+tool_v_max_mm_s: 100
+approach_height_mm: 80
+grasp_height_mm: 15        # 미정: 시험 물체가 정해지면 확정
+gripper_margin_mm: 20
+poses:                     # 자리표시. T4에서 실제 자세를 측정해 바꾼다 (measurements.md의 기본 자세 후보 참고)
+  home: [-4.5, -93.2, 97.8, 10.9, 0.7, 2.5]
+  park: [90, -100, 90, 70, 0, 50]
