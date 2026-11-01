@@ -11,8 +11,8 @@ tool_v_max_mm_s: 100
 approach_height_mm: 40         # 수직 하강 자세로 닿는 높이가 최대 약 80mm라 80mm 위 접근은 불가능 (measurements.md T6 사전 조사)
 grasp_height_mm: 15        # 미정: 시험 물체가 정해지면 확정
 gripper_margin_mm: 20
-joint_offsets_deg:         # 영점 보정(도). 읽은 값 = 모터 값 - offset. pan: 정면에서 오른쪽으로 약 1.5° 틀어져 있어 왼쪽으로 맞춤 (2026-11-01 사용자 육안)
-  shoulder_pan: -1.5
+joint_offsets_deg:         # 영점 보정(도). 읽은 값 = 모터 값 - offset. pan: 정면에서 오른쪽으로 약 1.5° 틀어져 있어 왼쪽으로 맞춤 (2026-11-01 사용자 육안, 1.5° 후 0.5° 더)
+  shoulder_pan: -2.0
 joint_limits_deg:          # 캘리브레이션으로 잰 가동 범위(measurements.md)에서 안쪽으로 1~3° 줄인 값. T5에서 safety.py로 옮긴다
   shoulder_pan: [-118, 118]
   shoulder_lift: [-103, 103]
