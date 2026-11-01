@@ -14,7 +14,7 @@ def kin():
 
 def test_fk_zero_pose(kin):
     p = kin.fk(JointState(0, 0, 0, 0, 0, 0))
-    assert (p.x_mm, p.y_mm, p.z_mm) == pytest.approx((391.4, 0, 226.5), abs=0.5)
+    assert (p.x_mm, p.y_mm, p.z_mm) == pytest.approx((352.5, 0, 226.5), abs=0.5)
     assert p.pitch_deg == pytest.approx(0, abs=0.1)
 
 

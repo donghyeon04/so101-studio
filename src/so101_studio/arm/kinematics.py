@@ -12,6 +12,8 @@ from lerobot.model.kinematics import RobotKinematics
 from ..core import frames
 from ..core.types import JointState, ToolPose
 
+# URDF의 base_link 원점은 어깨 회전축보다 38.8mm 뒤에 있다(shoulder_pan 조인트 origin). 로봇 원점은 회전축 기준(spec 4절).
+PAN_AXIS_X_MM = 38.8353
 ARM_JOINTS = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll"]
 
 
@@ -33,6 +35,7 @@ class Kinematics:
     def fk(self, q: JointState) -> ToolPose:
         T = self._k.forward_kinematics(np.array([getattr(q, j) for j in ARM_JOINTS], float))
         x, y, z = (T[:3, 3] * 1000).tolist()
+        x -= PAN_AXIS_X_MM
         R = T[:3, :3] @ self._C.T
         pitch = math.degrees(math.asin(max(-1.0, min(1.0, R[2, 2]))))
         yaw = math.degrees(math.atan2(-R[0, 1], R[1, 1]))
@@ -42,7 +45,7 @@ class Kinematics:
         r = frames.tool_table_to_robot(pose, self.base)
         T = np.eye(4)
         T[:3, :3] = _rotation(r.pitch_deg, r.yaw_deg) @ self._C
-        T[:3, 3] = np.array([r.x_mm, r.y_mm, r.z_mm]) / 1000
+        T[:3, 3] = np.array([r.x_mm + PAN_AXIS_X_MM, r.y_mm, r.z_mm]) / 1000
         q = np.array([getattr(seed, j) for j in ARM_JOINTS], float)
         for _ in range(max_iter):  # placo는 호출 1번에 한 걸음만 가므로 수렴할 때까지 반복
             nxt = self._k.inverse_kinematics(q, T, orientation_weight=1.0)[:5]
