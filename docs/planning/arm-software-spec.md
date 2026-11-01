@@ -222,10 +222,24 @@ python -m so101_studio record <name> | replay <name> | seq <name>
 python -m so101_studio --sim ...               # SimDriver로 실행
 ```
 
-## 10. 구현 작업 순서 (로컬 세션)
+## 10. 하드웨어 초기 설정 (T0, 코드 작성 전 1회)
+LeRobot 공식 SO-101 절차를 따른다. 순서를 바꾸지 않는다.
+
+| 단계 | 내용 | 완료 기준 |
+|---|---|---|
+| T0-1 전원·배선 | 12V 전원 → 버스 서보 보드, 보드 → PC USB, 보드 → 모터 3핀 케이블. 보드에 USB/MCU 전환 점퍼가 있으면 USB 쪽으로 둔다(Waveshare 보드는 `B` 채널) | 보드 전원 LED 켜짐 |
+| T0-2 포트 찾기 | `lerobot-find-port` (USB를 뺐다 꽂아 사라지는 포트) | COM 번호를 `robot.yaml`에 기록 |
+| T0-3 모터 ID 설정 | `lerobot-setup-motors --robot.type=so101_follower --robot.port=COMx`. 안내에 따라 **한 번에 모터 하나만** 연결(그리퍼 6번 → 어깨 회전 1번 순). 이미 조립했으면 모터 사이 케이블을 하나씩 빼서 진행 | 6개 모두 ID·통신 속도 설정 완료 메시지. 키트에서 이미 설정됐는지는 6개를 모두 연결한 뒤 읽기가 되는지로 확인 |
+| T0-4 캘리브레이션 | `lerobot-calibrate --robot.type=so101_follower --robot.port=COMx --robot.id=so101_follower_01`. 모든 관절을 가동 범위 가운데에 두고 Enter → 각 관절을 끝에서 끝까지 천천히 움직인 뒤 Enter | 캘리브레이션 파일 생성. 레포 `config/calibration/`에 사본 보관 |
+| T0-5 확인 | 토크를 끈 채 각 관절을 손으로 움직이며 읽기값의 방향과 범위가 맞는지 확인 | 6개 관절 모두 정상. 이상 있으면 T0-4 재실행 |
+| T0-6 첫 구동 | 속도 낮게, 관절 하나씩 ±10°만 움직여 본다. 사람이 전원 스위치 옆에서 대기 | 떨림·이상음·과열 없음 |
+
+주의: 팔로워용 STS3215-C018은 12V 모터다. 다른 전압의 전원을 쓰지 않는다.
+
+## 11. 구현 작업 순서 (로컬 세션)
 | # | 작업 | 완료 기준 | 관련 기능 |
 |---|---|---|---|
-| T1 | 환경 구성: conda, Python 3.12 이상, `lerobot[feetech,kinematics]`, COM 포트 확인, `lerobot-calibrate` | `import placo` 성공 여부를 기록. 실패하면 대체안 결정 기록 작성 | A1, A2 |
+| T1 | 환경 구성: conda, Python 3.12 이상, `lerobot[feetech,kinematics]` | `import placo` 성공 여부를 기록. 실패하면 대체안 결정 기록 작성 | — |
 | T2 | `ArmDriver`, `SimDriver`, CLI `status` | 관절값·온도·부하·전압 출력. 30초 정지 자세에서 떨림 관찰 기록 | A1, B7 |
 | T3 | `Kinematics` + FK 검증 | 자세 3개에서 FK 결과와 자로 잰 그리퍼 끝 위치 차이 기록 | — |
 | T4 | `trajectory.move_j`, `MotionController`, `stop`, `estop`, CLI `home`·`park`·`movej` | 각 관절 전체 범위를 저속 왕복, 끊김·떨림 없음. 정지 명령 0.3초 안에 멈춤 | B2, B3, B1 |
@@ -239,7 +253,7 @@ python -m so101_studio --sim ...               # SimDriver로 실행
 
 T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작업 공간 확정)를 한다. T8~T11은 센서를 기다리는 동안 할 수 있다.
 
-## 11. 미정 사항
+## 12. 미정 사항
 - 팔 배치(모서리 / 긴 변 가운데): T6 실측 후 확정. 코드는 `workspace.yaml`만 바뀐다.
 - 수직 하강 전용 해석적 IK 추가 여부: T6 결과로 결정.
 - 집는 높이 기본값과 시험 물체: 팀 논의 8번.
