@@ -38,3 +38,4 @@
 | `docs/decisions/0013-coordinate-frames-and-keys-modes.md` | 결정 | 확정 | 좌표계는 월드(작업대)·베이스(로봇)·툴, 높이는 작업대 면 기준, keys는 관절/직교 조그/좌표 입력 세 모드 |
 | `docs/decisions/0014-servo-acceleration-and-elbow-limit.md` | 결정 | 확정 | 팔 서보 가속 한계 10(그리퍼 25 유지), 제어 주기 50Hz 유지, 팔꿈치 접는 한계 95·home 93, 전원은 병목 아님 |
 | `docs/decisions/0015-safety-settings.md` | 결정 | 확정 | 안전 검사를 실행 중 바꿀 수 있는 설정으로(normal/free/off, 관절 여유, XYZ 범위), GUI는 get_safety/set_safety |
+| `docs/decisions/0016-follow-teach.md` | 결정 | 확정 | 직접 교시는 토크 제한을 낮춘 추종 방식(밀리면 목표가 따라감), 1단계 고정 프로필, 중력 모델은 2단계 |

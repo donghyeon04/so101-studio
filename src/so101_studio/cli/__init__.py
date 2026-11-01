@@ -76,6 +76,8 @@ def main(argv=None) -> None:
     ap.add_argument("--unsafe", action="store_true", help="관절 한계·작업 영역·바닥 검사를 모두 끈다 (한 주기 이동량 한계와 과열·과부하 감시는 유지). 매우 조심해서만")
     ap.add_argument("--safety-margin", type=float, help="팔 관절 한계를 이만큼(°) 안쪽으로 줄인다. 음수면 실제 가동 범위까지 넓힌다")
     ap.add_argument("--box", help="허용 범위(작업대 좌표 mm): x최소,x최대,y최소,y최대,z최소,z최대. z는 작업대 면 위 낮은 턱 끝 높이. 'none'이면 제한 없음")
+    ap.add_argument("--follow", action="store_true", help="record: 토크를 켠 채 약하게 두고 손으로 밀어 움직이는 대로 따라가며 교시(추종 교시)")
+    ap.add_argument("--stiffness", type=float, default=1.0, help="record --follow: 서보 토크 제한 배율 (작을수록 손으로 쉽게 밀리지만 처질 수 있음)")
     ap.add_argument("--free", action="store_true", help="작업대 가장자리 검사를 끈다 (바닥과 관절 한계는 유지). 손으로 움직이는 조종·재생용")
     ap.add_argument("--until-limit", action="store_true", help="replay: 한계나 바닥을 처음 넘는 자세 앞까지만 재생")
     ap.add_argument("--trace", action="store_true", help="keys: 명령·실제 관절 위치를 빠르게 기록하고 떨림 요약 (runs/.../trace.csv)")
@@ -164,8 +166,11 @@ def main(argv=None) -> None:
             run_keys(svc, a.jog_speed, a.trace, a.cart_speed)
         elif c == "record":
             name = v[0] if v else ap.error("record: 이름이 필요하다")
-            input("토크를 끄고 기록합니다. 팔을 손으로 받친 채 Enter를 누르면 시작합니다...")
-            svc.record_start()
+            if a.follow:
+                input("토크를 켠 채(약하게) 기록합니다. 팔을 손으로 잡고 Enter를 누르면 시작합니다. 천천히 밀어 움직이세요...")
+            else:
+                input("토크를 끄고 기록합니다. 팔을 손으로 받친 채 Enter를 누르면 시작합니다...")
+            svc.record_start(a.follow, a.stiffness)
             input("손으로 움직이세요. 끝나면 Enter... ")
             print("저장:", svc.record_stop(name))
         elif c in ("replay", "seq"):

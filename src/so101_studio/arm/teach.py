@@ -33,18 +33,30 @@ class Teach:
         self._rows: list[list[float]] = []
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
+        self._saved_torque = None
         self.last_cut = None  # until_limit 재생이 잘린 위치 (재생한 점 수, 전체 점 수, 이유)
 
     @property
     def recording(self) -> bool:
         return self._thread is not None
 
-    def record_start(self) -> None:
-        """토크를 끄고 관절값을 20Hz로 기록한다. 시작 전에 팔을 손으로 받쳐야 한다(토크가 꺼지면 처진다)."""
+    def record_start(self, follow: bool = False, stiffness: float = 1.0) -> None:
+        """관절값을 20Hz로 기록한다. 기본은 토크를 끈다(시작 전에 팔을 손으로 받쳐야 한다).
+        follow=True면 토크를 켠 채 서보 토크 제한을 낮추고(cfg.teach_torque x stiffness) 손으로 밀어 움직이는 대로 목표를 따라가게 한다."""
         if self.recording:
             return
         self.ctl.stop()
-        self.ctl.driver.set_torque(False)
+        self._saved_torque = None
+        if follow:
+            drv = self.ctl.driver
+            self._saved_torque = drv.get_torque_limits()
+            drv.set_torque(True)
+            drv.set_torque_limits({n: int(min(self._saved_torque.get(n, 1000), max(50, v * stiffness))) for n, v in self.cfg.teach_torque.items()})
+            if not self.ctl.follow(True):
+                drv.set_torque_limits(self._saved_torque)
+                raise RuntimeError("지금은 추종 교시를 시작할 수 없습니다 (동작 중이거나 정지·fault 상태)")
+        else:
+            self.ctl.driver.set_torque(False)
         self._rows, _ = [], self._stop.clear()
 
         def loop():
@@ -60,6 +72,10 @@ class Teach:
         self._stop.set()
         self._thread.join(timeout=2.0)
         self._thread = None
+        if self._saved_torque is not None:  # 추종 교시: 추종을 끄고 토크 제한을 되돌린다
+            self.ctl.follow(False)
+            self.ctl.driver.set_torque_limits(self._saved_torque)
+            self._saved_torque = None
         self.ctl.driver.set_torque(True)
         self.ctl.sync()
         self.dir.mkdir(parents=True, exist_ok=True)

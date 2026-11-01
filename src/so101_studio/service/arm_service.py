@@ -214,9 +214,9 @@ class ArmService:
     def jog(self, mode: str, velocity) -> bool:
         return self.ctl.jog(mode, velocity)
 
-    def record_start(self) -> None:
-        self._log("record_start", {})
-        self.teach.record_start()
+    def record_start(self, follow: bool = False, stiffness: float = 1.0) -> None:
+        self._log("record_start", {"follow": follow, "stiffness": stiffness})
+        self.teach.record_start(follow, stiffness)
 
     def record_stop(self, name: str):
         path = self.teach.record_stop(name)

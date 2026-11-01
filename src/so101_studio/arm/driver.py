@@ -49,6 +49,8 @@ class ArmDriver:
             bus.write("Max_Torque_Limit", "gripper", 500)
             bus.write("Protection_Current", "gripper", 250)
             bus.write("Overload_Torque", "gripper", 25)
+        for m in bus.motors:  # 이전 실행이 교시 중 낮춘 토크 제한(RAM)이 남아 있으면 팔이 약해진다. 최대값으로 되돌린다
+            bus.write("Torque_Limit", m, bus.read("Max_Torque_Limit", m, normalize=False))
 
     def disconnect(self) -> None:
         if self._robot:
@@ -97,6 +99,16 @@ class ArmDriver:
         """서보 설정 레지스터를 읽기만 한다(떨림 원인 후보 확인용): PID, 가속, 시동 힘, 데드존, 토크 한계 등."""
         bus = self._bus
         return {m: {r.strip(): bus.read(r, m, normalize=False) for r in self.INFO_REGS} for m in bus.motors}
+
+    @_locked
+    def get_torque_limits(self) -> dict[str, int]:
+        return {m: self._bus.read("Torque_Limit", m, normalize=False) for m in self._bus.motors}
+
+    @_locked
+    def set_torque_limits(self, limits: dict[str, int]) -> None:
+        """서보별 토크 제한(0~1000, RAM)을 바꾼다. 교시처럼 손으로 밀릴 만큼만 힘을 내게 할 때 쓴다."""
+        for m, v in limits.items():
+            self._bus.write("Torque_Limit", m, int(v))
 
     @_locked
     def set_acceleration(self, value: int) -> None:
