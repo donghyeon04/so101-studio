@@ -123,10 +123,12 @@ def test_tracer_analysis_finds_the_shaking_joint_and_frequency():
     assert "tremor_rms_deg" not in res[1]  # 안 움직이는 관절은 판정하지 않는다
 
 
-def test_shaketest_runs_in_sim_and_restores_settings(svc):
+def test_shaketest_runs_in_sim_and_restores_settings(svc, monkeypatch):
     from so101_studio.cli import shaketest
 
     out = []
-    table = shaketest.run_shaketest(svc, out=out.append)
-    assert len(table) == 6 and all(set(r["status"]) == {"ok"} for r in table)
+    monkeypatch.setattr(shaketest, "SPEEDS", (200.0,))  # 시험 시간을 줄인다
+    moves = shaketest.run_shaketest(svc, reps=1, out=out.append, poll_mark=lambda: True)
+    assert len(moves) == 4 and all(m["status"] == "ok" for m in moves)
     assert svc.driver.acceleration == CFG.servo_acceleration and svc.safety.max_step_deg == 5.0
+    assert any("표시한 순간" in line for line in out) and any("가장 많이 떤" in line for line in out)

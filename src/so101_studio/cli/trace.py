@@ -50,6 +50,11 @@ class Tracer:
     def start(self) -> None:
         self._th.start()
 
+    def slice(self, t0: float, t1: float):
+        """[t0, t1] 구간의 (시각, 실제 위치, 목표) 배열. 기록이 너무 짧으면 None."""
+        a = np.array([r for r in self.rows if t0 <= r[0] <= t1])
+        return None if len(a) < 20 else (a[:, 0], a[:, 1:7], a[:, 7:13])
+
     def result(self) -> list[dict] | None:
         """멈추고 관절별 떨림 요약을 돌려준다(기록이 너무 짧으면 None)."""
         self._stop.set()

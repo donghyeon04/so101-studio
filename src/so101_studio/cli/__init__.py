@@ -117,9 +117,17 @@ def main(argv=None) -> None:
 
             run_powertest(svc, int(a.values[0]) if a.values else 3, a.speed or 100.0)
         elif c == "shaketest":
+            import msvcrt
+
             from .shaketest import run_shaketest
 
-            run_shaketest(svc)
+            def poll_mark():  # 떨림을 느끼면 m 키 (이동이 끝난 직후 확인)
+                hit = False
+                while msvcrt.kbhit():
+                    hit |= msvcrt.getwch().lower() == "m"
+                return hit
+
+            run_shaketest(svc, int(a.values[0]) if a.values else 10, poll_mark=None if a.sim else poll_mark)
         elif c == "keys":
             from .keys import run_keys
 
