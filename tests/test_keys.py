@@ -121,3 +121,12 @@ def test_tracer_analysis_finds_the_shaking_joint_and_frequency():
     res = analyze(t, meas, goal)
     assert res[0]["dominant_hz"] == pytest.approx(30, abs=2) and res[0]["tremor_rms_deg"] == pytest.approx(0.35, abs=0.08)
     assert "tremor_rms_deg" not in res[1]  # 안 움직이는 관절은 판정하지 않는다
+
+
+def test_shaketest_runs_in_sim_and_restores_settings(svc):
+    from so101_studio.cli import shaketest
+
+    out = []
+    table = shaketest.run_shaketest(svc, out=out.append)
+    assert len(table) == 6 and all(set(r["status"]) == {"ok"} for r in table)
+    assert svc.driver.acceleration == CFG.servo_acceleration and svc.safety.max_step_deg == 5.0

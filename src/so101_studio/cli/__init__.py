@@ -9,7 +9,7 @@ from ..core.config import load_robot, load_workspace
 from ..core.types import DetectedObject, JointState, ToolPose
 from ..service.arm_service import ArmService, plan_goto  # noqa: F401  plan_goto는 테스트가 이 경로로도 쓴다
 
-COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "jog", "keys", "powertest", "record", "replay", "seq"]
+COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "jog", "keys", "powertest", "shaketest", "record", "replay", "seq"]
 
 
 def make_driver(sim: bool, cfg):
@@ -116,6 +116,10 @@ def main(argv=None) -> None:
             from .powertest import run_powertest
 
             run_powertest(svc, int(a.values[0]) if a.values else 3, a.speed or 100.0)
+        elif c == "shaketest":
+            from .shaketest import run_shaketest
+
+            run_shaketest(svc)
         elif c == "keys":
             from .keys import run_keys
 

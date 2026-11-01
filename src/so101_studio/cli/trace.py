@@ -43,9 +43,19 @@ class Tracer:
         while not self._stop.is_set():
             q = astuple(self.svc.driver.read_joints())
             self.rows.append((time.perf_counter(), *q, *astuple(self.svc.ctl._last)))
+            time.sleep(0.002)  # 제어 스레드의 쓰기에 통신 선을 양보한다
 
     def start(self) -> None:
         self._th.start()
+
+    def result(self) -> list[dict] | None:
+        """멈추고 관절별 떨림 요약을 돌려준다(기록이 너무 짧으면 None)."""
+        self._stop.set()
+        self._th.join(timeout=2)
+        if len(self.rows) < 50:
+            return None
+        a = np.array(self.rows)
+        return analyze(a[:, 0], a[:, 1:7], a[:, 7:13])
 
     def stop(self, out=print) -> None:
         self._stop.set()
