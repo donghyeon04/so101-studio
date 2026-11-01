@@ -83,3 +83,19 @@ def test_cli_goes_through_the_service(capsys):
     main(["--sim", "status"])
     out = capsys.readouterr().out
     assert "ok" in out and "shoulder_pan" in out and "torque" in out
+
+
+def test_service_safety_settings_roundtrip_and_validation(svc):
+    s = svc.set_safety(mode="free", joint_margin_deg=-3, box_mm={"z": [10, 300]})
+    assert s["mode"] == "free" and s["effective_limits_deg"]["elbow_flex"][1] == pytest.approx(97.1) and s["box_mm_effective"]["z"] == [10, 300]
+    with pytest.raises(ValueError):
+        svc.set_safety(mode="nope")
+    with pytest.raises(ValueError):
+        svc.set_safety(box_mm={"z": [-5, 100]})  # 작업대 면 아래는 안 된다
+    assert svc.get_safety()["mode"] == "free"  # 실패한 호출은 설정을 바꾸지 않는다
+    assert svc.set_safety("normal", 0.0, None)["box_mm_effective"]["z"][0] == CFG.tip_floor_mm
+
+
+def test_cli_unsafe_flag_warns_and_runs(capsys):
+    main(["--sim", "--unsafe", "status"])
+    assert "모두 끕니다" in capsys.readouterr().out

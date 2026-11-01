@@ -231,9 +231,10 @@ class MotionController:
         last = self._last
         if mode == "joint":
             nxt = np.array(astuple(last), float) + np.clip(v, -self.jog_joint_max, self.jog_joint_max) * dt
+            limits = self.safety.limits
             for i, name in enumerate(JOINTS):
-                if name in self.safety.limits:
-                    lo, hi = self.safety.limits[name]
+                if name in limits:
+                    lo, hi = limits[name]
                     lo, hi = min(lo, getattr(last, name)), max(hi, getattr(last, name))  # 한계 밖에서 출발해도 안쪽으로는 움직일 수 있다
                     nxt[i] = min(max(nxt[i], lo), hi)  # 한계에서 멈춘다
             q = JointState(*nxt.tolist())

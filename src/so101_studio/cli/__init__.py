@@ -73,6 +73,9 @@ def main(argv=None) -> None:
     ap.add_argument("--jog-speed", type=float, default=30.0, help="keys: 관절 모드 이동 속도 (°/s)")
     ap.add_argument("--cart-speed", type=float, default=80.0, help="keys: 직교 조그 속도 (mm/s, 60 넘게도 가능)")
     ap.add_argument("--hz", type=int, help="제어 주기 Hz를 이번만 바꿔 시험 (기본: 설정값 50). 서보 목표를 더 자주 보내 떨림이 줄어드는지 보는 용도")
+    ap.add_argument("--unsafe", action="store_true", help="관절 한계·작업 영역·바닥 검사를 모두 끈다 (한 주기 이동량 한계와 과열·과부하 감시는 유지). 매우 조심해서만")
+    ap.add_argument("--safety-margin", type=float, help="팔 관절 한계를 이만큼(°) 안쪽으로 줄인다. 음수면 실제 가동 범위까지 넓힌다")
+    ap.add_argument("--box", help="허용 범위(작업대 좌표 mm): x최소,x최대,y최소,y최대,z최소,z최대. z는 작업대 면 위 낮은 턱 끝 높이. 'none'이면 제한 없음")
     ap.add_argument("--free", action="store_true", help="작업대 가장자리 검사를 끈다 (바닥과 관절 한계는 유지). 손으로 움직이는 조종·재생용")
     ap.add_argument("--until-limit", action="store_true", help="replay: 한계나 바닥을 처음 넘는 자세 앞까지만 재생")
     ap.add_argument("--trace", action="store_true", help="keys: 명령·실제 관절 위치를 빠르게 기록하고 떨림 요약 (runs/.../trace.csv)")
@@ -93,9 +96,23 @@ def main(argv=None) -> None:
     ok, msg = svc.connect()
     if not ok:
         sys.exit(f"연결 실패: {msg}")
-    if a.free:
-        svc.safety.check_xy = False
-        print("작업대 가장자리 검사를 끕니다 (바닥과 관절 한계는 유지). 팔이 작업대 밖으로 나갈 수 있으니 주변을 비우세요.")
+    if a.free or a.unsafe or a.safety_margin is not None or a.box:
+        kw = {"mode": "off" if a.unsafe else "free"} if (a.unsafe or a.free) else {}
+        if a.safety_margin is not None:
+            kw["joint_margin_deg"] = a.safety_margin
+        if a.box:
+            n = [None if x in ("", "none") else float(x) for x in a.box.split(",")]
+            if len(n) != 6:
+                ap.error("--box는 x최소,x최대,y최소,y최대,z최소,z최대 (mm, 'none'이면 제한 없음)")
+            kw["box_mm"] = {"x": n[0:2], "y": n[2:4], "z": n[4:6]}
+        try:
+            svc.set_safety(**kw)
+        except ValueError as e:
+            sys.exit(f"안전 설정 오류: {e}")
+        if a.unsafe:
+            print("경고: 관절 한계·작업 영역·바닥 검사를 모두 끕니다. 한 주기 이동량 한계와 과열·과부하 감시만 남습니다. 속도 30% 이하, 전원 스위치 옆에서.")
+        elif a.free:
+            print("작업대 가장자리 검사를 끕니다 (바닥과 관절 한계는 유지). 팔이 작업대 밖으로 나갈 수 있으니 주변을 비우세요.")
     try:
         c, v = a.command, a.values
         nums = lambda n: [float(x) for x in v] if len(v) == n else ap.error(f"{c}: 값 {n}개가 필요하다")

@@ -8,7 +8,7 @@ import numpy as np
 
 from ..arm.kinematics import Kinematics
 from ..arm.motion import MotionController
-from ..arm.safety import Safety
+from ..arm.safety import MODES, Safety, SafetySettings
 from ..arm.skills import Skills
 from ..arm.teach import Teach
 from ..arm.trajectory import cfg_move_j, cfg_move_l
@@ -60,7 +60,7 @@ class ArmService:
             return False, str(e)
         self.kin = Kinematics(self.cfg.urdf, self.ws.base, self.cfg.joint_limits_deg)
         self.safety = Safety(self.cfg.joint_limits_deg, self.ws, self.kin, z_floor_mm=self.cfg.tip_floor_mm,
-                             table_z_mm=self.cfg.table_z_mm)
+                             table_z_mm=self.cfg.table_z_mm, physical_limits=self.cfg.physical_limits_deg)
         self.ctl = MotionController(self.driver, self.kin, self.safety, self.cfg.control_hz)
         self.skills = Skills(self.ctl, self.kin, self.cfg, self.ws, self.speed)
         self.teach = Teach(self.ctl, self.cfg)
@@ -153,6 +153,34 @@ class ArmService:
         """frame 기준 (x, y, 작업대 면 위 높이 h)인 끝점(tcp)을 수직 하강으로 가져갈 ToolPose. GUI에서 점을 찍을 때 쓰고, preview_tool·move_tool에 넘긴다."""
         tip = tip_vector(self.kin, -90.0, yaw, self.driver.read_joints().gripper, tcp)
         return point_to_pose(x, y, h, yaw, frame, self.ws.base, self.cfg.table_z_mm, tip)
+
+    def get_safety(self) -> dict:
+        """지금 안전 설정과 실제로 적용되는 값. GUI가 설정 화면을 그릴 때 쓴다."""
+        s = self.safety
+        return {**asdict(s.settings), "effective_limits_deg": s.limits, "physical_limits_deg": s.physical,
+                "box_mm_effective": s.box(), "max_step_deg": s.max_step_deg}
+
+    def set_safety(self, mode: str | None = None, joint_margin_deg: float | None = None, box_mm: dict | None = "keep") -> dict:
+        """안전 설정을 바꾼다. 검증에 실패하면 ValueError(바뀌지 않음). box_mm=None이면 기본 범위로 되돌린다."""
+        cur = self.safety.settings
+        mode = cur.mode if mode is None else mode
+        margin = cur.joint_margin_deg if joint_margin_deg is None else float(joint_margin_deg)
+        box = cur.box_mm if box_mm == "keep" else box_mm
+        if mode not in MODES:
+            raise ValueError(f"mode는 {MODES} 중 하나")
+        if not -15.0 <= margin <= 30.0:
+            raise ValueError("joint_margin_deg는 -15~30")
+        if box is not None:
+            if not set(box) <= {"x", "y", "z"} or any(len(v) != 2 for v in box.values()):
+                raise ValueError("box_mm는 x, y, z 각각 [최소, 최대]")
+            for k, (lo, hi) in box.items():
+                if lo is not None and hi is not None and lo >= hi:
+                    raise ValueError(f"box_mm.{k}: 최소가 최대보다 작아야 한다")
+            if box.get("z") and box["z"][0] is not None and box["z"][0] < 0:
+                raise ValueError("box_mm.z 최소는 0(작업대 면) 이상")
+        self.safety.settings = SafetySettings(mode, margin, box)
+        self._log("safety", asdict(self.safety.settings))
+        return self.get_safety()
 
     def preview_tool(self, pose: ToolPose):
         """움직이지 않고 목표가 가능한지만 본다. (이유 또는 None, 풀린 관절값). GUI가 점 위에 마우스를 올릴 때 미리보기로 쓴다."""

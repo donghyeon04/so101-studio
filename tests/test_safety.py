@@ -186,3 +186,32 @@ def test_floor_check_lets_the_tip_leave_a_pose_already_below_the_floor_but_not_g
     assert s.check_goal(at(3)) == "z_floor"  # 처음부터 낮은 목표는 거부
     assert s.check_goal(at(3), ref=at(2)) is None  # 2mm에서 출발해 3mm로 올라가는 것은 허용
     assert s.check_goal(at(1.5), ref=at(2)) == "z_floor"  # 출발보다 더 낮아지는 것은 거부
+
+
+def test_safety_settings_margin_box_and_off_mode():
+    from types import SimpleNamespace
+
+    from so101_studio.arm.safety import Safety
+    from so101_studio.core.types import JointState, ToolPose
+
+    base = {"shoulder_pan": [-118, 118], "gripper": [1, 99]}
+    phys = {"shoulder_pan": [-119.5, 119.5]}
+    kin = SimpleNamespace(fk=lambda q: ToolPose(300, 200, q.shoulder_lift, 90, -90), jaw_tip_offsets=lambda *a: ((0, 0, 0), (0, 0, 0)))
+    ws = SimpleNamespace(table_mm={"x": 600, "y": 400}, safety_margin_mm=10)
+    s = Safety(base, ws, kin, z_floor_mm=5, table_z_mm=0, physical_limits=phys)
+    q = lambda pan=0, h=50: JointState(pan, h, 0, 0, 0, 3)  # 높이 = shoulder_lift 값(mm)
+    s.settings.joint_margin_deg = 10  # 안쪽으로 줄이면
+    assert s.limits["shoulder_pan"] == [-108, 108] and s.check_goal(q(110)) == "joint_limit:shoulder_pan"
+    s.settings.joint_margin_deg = -5  # 넓히면 실제 가동 범위(119.5)까지만
+    assert s.limits["shoulder_pan"] == [-119.5, 119.5] and s.limits["gripper"] == [1, 99]
+    assert s.check_goal(q(119)) is None and s.check_goal(q(121)) == "joint_limit:shoulder_pan"
+    s.settings.joint_margin_deg = 0
+    s.settings.box_mm = {"x": [250, 350], "z": [5, 100]}  # x 범위를 좁히고 z 상한을 둠
+    assert s.check_goal(q()) is None and s.check_goal(q(h=150)) == "z_ceiling"
+    s.settings.box_mm = {"x": [400, 500]}
+    assert s.check_goal(q()) == "workspace"
+    s.settings.mode = "free"  # 가장자리(x, y)만 끈다
+    assert s.check_goal(q()) is None and s.check_goal(q(h=1)) == "z_floor"
+    s.settings.mode = "off"  # 전부 끄지만 한 주기 이동량 한계는 남는다
+    assert s.limits == {} and s.check_goal(q(500, 1)) is None
+    assert s.check_step(q(0), q(30)) == "step"

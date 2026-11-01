@@ -46,6 +46,13 @@ joint_limits_deg:          # 캘리브레이션으로 잰 가동 범위(measurem
   wrist_flex: [-101, 101]
   wrist_roll: [-170, 170]
   gripper: [1, 99]
+physical_limits_deg:       # 캘리브레이션 때 손으로 읽은 실제 가동 범위(measurements.md T0-5). joint_limits_deg를 넓혀도 이 범위 안에서만
+  shoulder_pan: [-119.5, 119.5]
+  shoulder_lift: [-104.3, 104.4]
+  elbow_flex: [-97.2, 97.1]
+  wrist_flex: [-101.8, 102.6]
+  wrist_roll: [-164.2, 169.7]
+  gripper: [0.8, 99.6]
 poses:                     # 자리표시. park는 센서 시야 밖 자세가 정해지면 바꾼다 (지금은 home과 같음)
   home: [0, -90, 93, 0, 0, 3]
   park: [0, -90, 93, 0, 0, 3]

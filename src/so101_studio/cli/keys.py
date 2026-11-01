@@ -134,6 +134,8 @@ class KeysSession:
             except (IndexError, ValueError):
                 self.out("  사용법: speed 퍼센트 (좌표 이동) / jog 도/초 (관절 모드) / cart mm/초 (직교 조그)")
             self.out(f"  좌표 이동 {self.svc.speed:.0f}% | 관절 모드 {self.speed:.0f}°/s | 직교 조그 {self.cart:.0f}mm/s")
+        elif tok[0] == "safety":
+            self.safety_cmd(tok[1:])
         elif tok[0] == "frame":
             name = FRAMES.get(tok[1]) if len(tok) > 1 else None
             if name:
@@ -146,6 +148,27 @@ class KeysSession:
         else:
             self.move_to(text)
         return None
+
+    def safety_cmd(self, args: list[str]) -> None:
+        """safety | safety normal|free|off | safety margin N | safety box x0 x1 y0 y1 z0 z1 | safety reset"""
+        try:
+            if args[:1] in (["normal"], ["free"], ["off"]):
+                self.svc.set_safety(mode=args[0])
+            elif args[:1] == ["margin"]:
+                self.svc.set_safety(joint_margin_deg=float(args[1]))
+            elif args[:1] == ["box"] and len(args) == 7:
+                n = [None if x == "none" else float(x) for x in args[1:]]
+                self.svc.set_safety(box_mm={"x": n[0:2], "y": n[2:4], "z": n[4:6]})
+            elif args[:1] == ["reset"]:
+                self.svc.set_safety("normal", 0.0, None)
+            elif args:
+                self.out("  사용법: safety [normal|free|off] | safety margin N | safety box x0 x1 y0 y1 z0 z1 | safety reset")
+                return
+        except (ValueError, IndexError) as e:
+            self.out(f"  안전 설정 오류: {e}")
+            return
+        s = self.svc.get_safety()
+        self.out(f"  안전 모드 {s['mode']} | 관절 여유 {s['joint_margin_deg']:+.1f}° | 범위 {s['box_mm_effective']} | 한계 {s['effective_limits_deg'] or '없음'}")
 
     def move_to(self, text: str) -> None:
         svc = self.svc

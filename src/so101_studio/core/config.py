@@ -22,6 +22,7 @@ class RobotConfig:
     pid: dict = field(default_factory=lambda: {"p": 16, "i": 0, "d": 32})
     speed_pct_default: int = 30
     servo_acceleration: int = 25
+    physical_limits_deg: dict = field(default_factory=dict)  # 캘리브레이션으로 잰 실제 가동 범위. 안전 한계를 넓혀도 이 범위는 넘지 않는다
     gripper_acceleration: int = 25  # 그리퍼는 접촉 감지(명령-실측 지연)를 이 값에서 맞췄으므로 팔 관절과 따로 둔다
     joint_v_max_deg_s: float = 90
     tool_v_max_mm_s: float = 100

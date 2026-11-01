@@ -1,19 +1,60 @@
 """안전 검사 (arm-software-spec.md 6.5). 명령을 보내기 전에 검사하고, 하나라도 어기면 보내지 않는다."""
 from contextlib import contextmanager
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 
 from lerobot.robots.utils import ensure_safe_goal_position
 
 from ..core.config import WorkspaceConfig
 from ..core.types import JointState
 
+MODES = ("normal", "free", "off")
+
+
+@dataclass
+class SafetySettings:
+    """사용자가 바꿀 수 있는 안전 설정. GUI가 그대로 JSON으로 주고받는다 (ArmService.get_safety / set_safety).
+    mode: normal = 관절 한계 + 작업 영역 + 바닥 / free = 작업대 가장자리(x, y)만 끔 / off = 관절 한계·작업 영역·바닥 모두 끔(한 주기 이동량 한계와 과열·과부하 감시는 항상 켜짐).
+    joint_margin_deg: 양수면 팔 관절 한계를 안쪽으로 그만큼 줄이고, 음수면 실제 가동 범위(physical_limits_deg)까지 넓힌다.
+    box_mm: 작업대 좌표계 x, y 범위와 z(작업대 면 위 낮은 턱 끝 높이) 범위. None이면 작업대 크기에서 여유를 뺀 범위와 기본 바닥 높이."""
+
+    mode: str = "normal"
+    joint_margin_deg: float = 0.0
+    box_mm: dict | None = None
+
 
 class Safety:
     def __init__(self, joint_limits: dict[str, list[float]], ws: WorkspaceConfig | None = None, kin=None,
-                 max_step_deg: float = 5.0, z_floor_mm: float = 4.0, table_z_mm: float = 0.0):
-        self.limits, self.ws, self.kin = joint_limits, ws, kin
+                 max_step_deg: float = 5.0, z_floor_mm: float = 4.0, table_z_mm: float = 0.0,
+                 physical_limits: dict[str, list[float]] | None = None):
+        self._base_limits, self.ws, self.kin = joint_limits, ws, kin
+        self.physical = physical_limits or {}
+        self.settings = SafetySettings()
         self.max_step_deg, self.z_floor_mm, self.table_z_mm = max_step_deg, z_floor_mm, table_z_mm
         self.check_xy = True  # False면 작업대 가장자리 검사를 건너뛰고 바닥(턱 끝 높이)만 본다. 전원·부하 시험이 팔을 끝까지 펼 때만 임시로 끈다
+
+    @property
+    def limits(self) -> dict[str, list[float]]:
+        """지금 적용되는 관절 한계(설정 파일 값에 joint_margin_deg를 반영). off 모드에서는 비어 있다."""
+        if self.settings.mode == "off":
+            return {}
+        m = self.settings.joint_margin_deg
+        out = {}
+        for name, (lo, hi) in self._base_limits.items():
+            if m and name != "gripper":
+                if m > 0:
+                    lo, hi = (lo + m, hi - m) if lo + m < hi - m else ((lo + hi) / 2, (lo + hi) / 2)
+                elif name in self.physical:
+                    lo, hi = max(self.physical[name][0], lo + m), min(self.physical[name][1], hi - m)
+            out[name] = [lo, hi]
+        return out
+
+    def box(self) -> dict | None:
+        """x, y, z 범위. 사용자가 정한 box_mm가 없으면 작업대 크기에서 여유를 뺀 x, y만 있고 z는 기본 바닥 높이부터."""
+        if self.ws is None:
+            return None
+        m, t = self.ws.safety_margin_mm, self.ws.table_mm
+        base = {"x": [m, t["x"] - m], "y": [m, t["y"] - m], "z": [self.z_floor_mm, None]}
+        return {**base, **(self.settings.box_mm or {})}
 
     @contextmanager
     def relaxed(self, check_xy: bool = True, max_step_deg: float | None = None):
@@ -28,6 +69,8 @@ class Safety:
 
     def check_goal(self, q: JointState, ref: JointState | None = None) -> str | None:
         """ref(지금 위치)를 주면 한계 밖에서 출발한 관절은 한계 안쪽으로 돌아오는 방향의 움직임을 허용한다(조그용)."""
+        if self.settings.mode == "off":
+            return None
         for name, (lo, hi) in self.limits.items():
             if ref is not None:
                 lo, hi = min(lo, getattr(ref, name)), max(hi, getattr(ref, name))
@@ -44,14 +87,19 @@ class Safety:
     def _workspace(self, q: JointState, ref: JointState | None = None) -> str | None:
         if self.ws is None or self.kin is None:
             return None
-        p, m = self.kin.fk(q), self.ws.safety_margin_mm
-        if self.check_xy and not (m <= p.x_mm <= self.ws.table_mm["x"] - m and m <= p.y_mm <= self.ws.table_mm["y"] - m):
+        p, box = self.kin.fk(q), self.box()
+        if self.check_xy and self.settings.mode == "normal" and not (
+            box["x"][0] <= p.x_mm <= box["x"][1] and box["y"][0] <= p.y_mm <= box["y"][1]
+        ):
             return "workspace"
-        floor = self.z_floor_mm
+        floor = box["z"][0]
         if ref is not None:  # 바닥 한계 아래에서 출발했다면(정지가 바닥 바로 앞에서 걸린 경우 등) 더 낮아지지 않는 동작은 허용해 빠져나올 수 있게 한다
             floor = min(floor, self._tip_height(ref))
-        if self._tip_height(q) < floor:
+        h = self._tip_height(q)
+        if h < floor:
             return "z_floor"
+        if box["z"][1] is not None and h > box["z"][1]:
+            return "z_ceiling"
         return None
 
     def check_path(self, traj, n: int = 20) -> str | None:
