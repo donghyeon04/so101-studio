@@ -70,3 +70,41 @@ def test_gripper_for_width_is_clamped_and_monotonic(kin):
     assert sk.gripper_for_width(0) == CFG.joint_limits_deg["gripper"][0]
     assert sk.gripper_for_width(40) < sk.gripper_for_width(60) < sk.gripper_for_width(500) + 1e-9
     assert sk.gripper_for_width(500) == CFG.joint_limits_deg["gripper"][1]
+
+
+def lowest_xy(d, kin):
+    z = [kin.fk(q) for q in d.log]
+    low = min(z, key=lambda p: p.z_mm)
+    return low.x_mm, low.y_mm
+
+
+def run_pick(kin, **cfg_kw):
+    from dataclasses import replace
+
+    d = Recorder(CFG.poses["home"])
+    cfg = replace(CFG, **cfg_kw)
+    ctl = MotionController(d, kin, Safety(CFG.joint_limits_deg, WS, kin), CFG.control_hz)
+    r = Skills(ctl, kin, cfg, WS, speed_pct=100).pick(obj(x=300, y=210, angle=0))
+    ctl.close()
+    assert r.status == "ok"
+    return d
+
+
+def test_grasp_center_offset_shifts_the_target_along_the_jaw_axis(kin):
+    # angle 0 -> tool yaw 0 -> 턱 축은 작업대 +y. offset 10이면 목표는 물체에서 -10mm(y)
+    base = lowest_xy(run_pick(kin, grasp_center_offset_mm=0, moving_jaw_sign=1, gripper_margin_mm=0), kin)
+    shifted = lowest_xy(run_pick(kin, grasp_center_offset_mm=10, moving_jaw_sign=1, gripper_margin_mm=0), kin)
+    assert shifted[1] - base[1] == pytest.approx(-10, abs=2.5)
+    assert shifted[0] - base[0] == pytest.approx(0, abs=2.5)
+
+
+def test_nudge_toward_moving_jaw_before_closing(kin):
+    # 여유 폭 20mm -> 닫기 직전에 가동 턱 쪽으로 10mm. sign에 따라 방향이 바뀐다
+    def y_at_close_start(d):
+        top = max(q.gripper for q in d.log)
+        last_open = max(i for i, q in enumerate(d.log) if q.gripper == top)  # 열린 상태의 마지막 샘플 = 닫기 시작
+        return kin.fk(d.log[last_open]).y_mm
+
+    plus = y_at_close_start(run_pick(kin, moving_jaw_sign=1, gripper_margin_mm=20))
+    minus = y_at_close_start(run_pick(kin, moving_jaw_sign=-1, gripper_margin_mm=20))
+    assert plus - minus == pytest.approx(20, abs=4)

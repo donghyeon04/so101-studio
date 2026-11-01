@@ -26,6 +26,8 @@ class RobotConfig:
     grasp_height_mm: float = 15
     gripper_margin_mm: float = 20
     place_height_mm: float = 30
+    grasp_center_offset_mm: float = 0.0
+    moving_jaw_sign: int = 1
     gripper_open: float = 60
     gripper_width_mm: list[list[float]] = field(default_factory=lambda: [[0, 0], [100, 90]])
     a_max_deg_s2: float = 120

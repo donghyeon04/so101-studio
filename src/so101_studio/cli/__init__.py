@@ -46,6 +46,8 @@ def run_skill(driver, cfg, a) -> str:
     ws = load_workspace()
     kin = Kinematics(cfg.urdf, ws.base)
     ctl = MotionController(driver, kin, Safety(cfg.joint_limits_deg, ws, kin), cfg.control_hz)
+    cfg = replace(cfg, grasp_center_offset_mm=cfg.grasp_center_offset_mm if a.grasp_offset is None else a.grasp_offset,
+                  moving_jaw_sign=cfg.moving_jaw_sign if a.jaw_sign is None else a.jaw_sign)
     sk = Skills(ctl, kin, cfg, ws, a.speed or cfg.speed_pct_default)
     try:
         driver.set_torque(True)
@@ -92,6 +94,8 @@ def main(argv=None) -> None:
     ap = argparse.ArgumentParser(prog="so101_studio")
     ap.add_argument("--sim", action="store_true", help="SimDriver로 실행")
     ap.add_argument("--place", help="pick 뒤에 놓을 배출 구역 이름 (place 명령은 필수)")
+    ap.add_argument("--grasp-offset", type=float, help="pick: grasp_center_offset_mm를 이번만 바꿔 시험")
+    ap.add_argument("--jaw-sign", type=int, choices=[-1, 1], help="pick: moving_jaw_sign을 이번만 바꿔 시험")
     ap.add_argument("--config", default="config/robot.yaml")
     ap.add_argument("--speed", type=float, help="속도 %% (기본: 설정값)")
     ap.add_argument("command", choices=["status", "home", "park", "movej", "goto", "pick", "place"])

@@ -11,6 +11,8 @@ tool_v_max_mm_s: 100
 approach_height_mm: 40         # 수직 하강 자세로 닿는 높이가 최대 약 80mm라 80mm 위 접근은 불가능 (measurements.md T6 사전 조사)
 grasp_height_mm: 15        # 미정: 시험 물체가 정해지면 확정
 gripper_margin_mm: 20
+grasp_center_offset_mm: 0   # FK 기준점에서 턱 사이 중심까지의 거리(턱 축 +y 방향, mm). 미측정: 작은 물체로 시험해서 정한다
+moving_jaw_sign: 1         # 고정 턱에서 가동 턱 쪽이 턱 축 +y이면 1, 반대면 -1. 미측정
 place_height_mm: 30        # 놓을 때 그리퍼 끝 높이
 gripper_open: 60           # 놓을 때 여는 정도(0~100)
 gripper_width_mm:          # [그리퍼 값, 벌어진 폭 mm]. 자리표시(미측정): T7에서 물체나 A4 용지로 대응표를 잰다
