@@ -196,3 +196,11 @@ def test_lateral_jog_works_from_the_horizontal_home_pose(kin):
     jog_for(ctl, "cartesian", [f, left, up, yaw], 0.5)
     ctl.close()
     assert abs(kin.fk(d.read_joints()).x_mm - x0) > 3  # 고치기 전에는 풀리지 않아 0이었다
+
+
+def test_jog_distance_follows_elapsed_time_not_tick_count():
+    d, ctl = rig()
+    ctl.dt = 0.002  # 틱이 아주 빠르게 돌아도(간격이 들쭉날쭉해도) 이동 거리는 시간에 비례한다
+    jog_for(ctl, "joint", [20, 0, 0, 0, 0, 0], 0.6)
+    ctl.close()
+    assert d.read_joints().shoulder_pan - HOME.shoulder_pan == pytest.approx(10, abs=3)  # 20°/s x 0.6s, 램프 손실 감안

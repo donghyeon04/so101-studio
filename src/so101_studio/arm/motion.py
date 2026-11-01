@@ -40,6 +40,8 @@ class MotionController:
         self.jog_joint_max, self.jog_tool_max = 40.0, 60.0  # 원격 조종 최대 속도 (deg/s, mm/s)
         self._jog = None  # (mode, 속도 벡터, 마지막 입력 시각)
         self._jog_v = np.zeros(6)  # 가속도 제한을 거친 지금 조그 속도
+        self._jog_t = 0.0  # 직전 조그 틱 시각
+        self.jog_block = None  # 조그가 막힌 이유(풀리지 않음 'ik_fail' 또는 안전 검사 이유). 움직이면 None
         self.fault: str | None = None
         self._job = None  # (traj, handle, t0, kind)
         self._lock = threading.Lock()
@@ -87,6 +89,7 @@ class MotionController:
                 return False
             if self._jog is None:
                 self._jog_v = np.zeros(6)
+                self._jog_t = time.perf_counter() - self.dt
             self._jog, self.state = (mode, np.array(velocity, float), time.perf_counter()), "teleop"
             return True
 
@@ -212,7 +215,10 @@ class MotionController:
     def _tick_jog(self) -> None:
         mode, v, t_in = self._jog
         target = v if time.perf_counter() - t_in <= DEADMAN_S else np.zeros_like(v)  # 데드맨: 입력이 끊기면 속도를 0으로 내린다
-        step = (JOG_ACCEL_JOINT if mode == "joint" else JOG_ACCEL_TOOL) * self.dt
+        now = time.perf_counter()  # 틱 간격이 들쭉날쭉해도(이 기록에서 표준편차 8ms) 속도가 일정하도록 실제 경과 시간으로 적분한다
+        dt = min(max(now - self._jog_t, 0.0005), 3 * self.dt)
+        self._jog_t = now
+        step = (JOG_ACCEL_JOINT if mode == "joint" else JOG_ACCEL_TOOL) * dt
         cur = self._jog_v[: len(v)]
         dv = target - cur
         n = float(np.linalg.norm(dv))
@@ -224,7 +230,7 @@ class MotionController:
         v = cur
         last = self._last
         if mode == "joint":
-            nxt = np.array(astuple(last), float) + np.clip(v, -self.jog_joint_max, self.jog_joint_max) * self.dt
+            nxt = np.array(astuple(last), float) + np.clip(v, -self.jog_joint_max, self.jog_joint_max) * dt
             for i, name in enumerate(JOINTS):
                 if name in self.safety.limits:
                     lo, hi = self.safety.limits[name]
@@ -234,14 +240,18 @@ class MotionController:
             vx, vy, vz, vyaw = (list(v) + [0.0] * 4)[:4]
             speed = math.hypot(vx, vy, vz)
             k = min(1.0, self.jog_tool_max / speed) if speed else 1.0
-            q = self.kin.step(last, vx * k * self.dt, vy * k * self.dt, vz * k * self.dt, vyaw * self.dt)
+            q = self.kin.step(last, vx * k * dt, vy * k * dt, vz * k * dt, vyaw * dt)
             if q is None:
+                self.jog_block = "ik_fail"
                 return
-        if self.safety.check_goal(q) or q == last:  # 작업 영역·한계 밖이면 움직이지 않는다
+        why = self.safety.check_goal(q)
+        if why or q == last:  # 작업 영역·한계 밖이면 움직이지 않는다
+            self.jog_block = why or self.jog_block
             return
         if self.safety.check_step(last, q):
             self._fault("step")
             return
+        self.jog_block = None
         self._last = q
         self.driver.write_joints(q)
         self.health.comm_ok()

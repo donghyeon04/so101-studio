@@ -70,6 +70,7 @@ class KeysSession:
     def jog_mode(self) -> str:
         self.out(HELP_JOG.format(frame=self.jog_frame))
         state = {"f": True}
+        blocked = {"why": None}
 
         def toggle():  # 들어올 때 눌려 있던 f는 무시하고, 누를 때마다 한 번만 바꾼다
             f = self.key_down("f")
@@ -88,6 +89,10 @@ class KeysSession:
                 vx, vy, vz, vyaw = robot_to_table((fwd * self.cart, left * self.cart, up * self.cart, yaw * self.yaw_speed),
                                                   self.svc.ws.base.yaw_deg)
             self.svc.ctl.jog("cartesian", [vx, vy, vz, vyaw])
+            why = self.svc.ctl.jog_block
+            if why and why != blocked["why"]:  # 막혔을 때 이유를 한 번 알려준다
+                self.out(f"  막힘: {reason_text(why)}")
+            blocked["why"] = why
 
         return self._hold_loop("coord", KEYS_CART, apply, toggle)
 
