@@ -170,3 +170,19 @@ def test_cartesian_jog_works_with_the_wrist_rolled(kin):
     jog_for(ctl, "cartesian", [f, left, up, yaw], 0.5)
     ctl.close()
     assert kin.fk(d.read_joints()).y_mm - y0 == pytest.approx(0.5 * 30, abs=6)
+
+
+def test_jog_speed_ramps_up_and_down_without_a_velocity_step():
+    d, ctl = rig()
+    log = []
+    orig = d.write_joints
+    d.write_joints = lambda q: (log.append(astuple(q)), orig(q))[1]
+    jog_for(ctl, "joint", [20, 0, 0, 0, 0, 0], 0.4)
+    ctl.jog_stop()
+    time.sleep(0.3)
+    ctl.close()
+    pan = np.array(log)[:, 0]
+    step = np.diff(pan)
+    assert abs(step[0]) < 0.2 and np.abs(np.diff(step)).max() < 0.2  # 시작·정지에서 틱당 속도 변화가 가속도 한계(0.16°) 안
+    assert step[-1] == 0 or abs(step[-1]) < 0.2
+    assert ctl.state == "idle"

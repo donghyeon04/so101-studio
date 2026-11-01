@@ -21,9 +21,9 @@ class RunLogger:
         self._events.flush()
 
     def status(self, st) -> None:
-        """ArmStatus 한 줄(10Hz): 관절 6개, 끝 위치, 최고 온도, 최대 부하 (F1·F2 기록의 원천)."""
+        """ArmStatus 한 줄(10Hz): 관절 6개, 끝 위치, 최고 온도, 최대 부하, 최저 전압 (F1·F2 기록의 원천)."""
         j = dataclasses.astuple(st.joints)
-        row = [st.t, *j, st.tool.x_mm, st.tool.y_mm, st.tool.z_mm, max(st.temperature_c.values()), max(st.load_pct.values())]
+        row = [st.t, *j, st.tool.x_mm, st.tool.y_mm, st.tool.z_mm, max(st.temperature_c.values()), max(st.load_pct.values()), st.voltage_v]
         self._status.write(",".join(f"{v:.3f}" for v in row) + "\n")
         self._status.flush()
 

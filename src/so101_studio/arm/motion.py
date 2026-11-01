@@ -12,7 +12,9 @@ from .safety import HealthMonitor, Safety
 
 JOINTS = [f.name for f in fields(JointState)]
 HEALTH_PERIOD_S = 0.5  # 온도·부하는 2Hz로만 읽는다 (spec 6.1)
-DEADMAN_S = 0.3  # 원격 조종 입력이 이만큼 끊기면 정지 (spec 6.5)
+DEADMAN_S = 0.3
+JOG_ACCEL_JOINT = 400.0  # °/s². 조그 속도를 이 가속도로 올리고 내려 시작·정지 충격(속도 계단)을 없앤다
+JOG_ACCEL_TOOL = 600.0  # mm/s², 회전은 같은 값을 °/s²로  # 원격 조종 입력이 이만큼 끊기면 정지 (spec 6.5)
 
 
 class MotionHandle:
@@ -37,6 +39,7 @@ class MotionController:
         self.state = "idle"  # "idle" | "moving" | "teleop" | "stopped" | "fault"
         self.jog_joint_max, self.jog_tool_max = 40.0, 60.0  # 원격 조종 최대 속도 (deg/s, mm/s)
         self._jog = None  # (mode, 속도 벡터, 마지막 입력 시각)
+        self._jog_v = np.zeros(6)  # 가속도 제한을 거친 지금 조그 속도
         self.fault: str | None = None
         self._job = None  # (traj, handle, t0, kind)
         self._lock = threading.Lock()
@@ -82,16 +85,16 @@ class MotionController:
         with self._lock:
             if self.state in ("stopped", "fault") or self._job is not None:
                 return False
+            if self._jog is None:
+                self._jog_v = np.zeros(6)
             self._jog, self.state = (mode, np.array(velocity, float), time.perf_counter()), "teleop"
             return True
 
     def jog_stop(self) -> None:
-        """원격 조종을 즉시 멈추고 그 자리를 유지한다(키를 뗐을 때)."""
+        """키를 뗐을 때: 조그 속도를 가속도 한계로 0까지 내려 멈추고 그 자리를 유지한다."""
         with self._lock:
-            if self._jog is not None:
-                self._jog = None
-                if self.state == "teleop":
-                    self.state = "idle"
+            if self._jog is not None:  # 속도를 0으로 내려 부드럽게 멈춘다(바로 끊지 않는다)
+                self._jog = (self._jog[0], np.zeros_like(self._jog[1]), time.perf_counter())
 
     def retarget(self, goal: JointState, v_max: float, a_max: float, j_max: float) -> MotionHandle:
         """진행 중인 동작을 지금 위치·속도에서 새 목표로 매끄럽게 교체한다 (T11). 이전 동작의 결과는 preempted."""
@@ -208,9 +211,17 @@ class MotionController:
 
     def _tick_jog(self) -> None:
         mode, v, t_in = self._jog
-        if time.perf_counter() - t_in > DEADMAN_S:  # 데드맨: 입력이 끊기면 그 자리에서 멈춘다
+        target = v if time.perf_counter() - t_in <= DEADMAN_S else np.zeros_like(v)  # 데드맨: 입력이 끊기면 속도를 0으로 내린다
+        step = (JOG_ACCEL_JOINT if mode == "joint" else JOG_ACCEL_TOOL) * self.dt
+        cur = self._jog_v[: len(v)]
+        dv = target - cur
+        n = float(np.linalg.norm(dv))
+        cur = target.copy() if n <= step else cur + dv * (step / n)
+        self._jog_v[: len(v)] = cur
+        if not cur.any() and not target.any():
             self._jog, self.state = None, "idle"
             return
+        v = cur
         last = self._last
         if mode == "joint":
             nxt = np.array(astuple(last), float) + np.clip(v, -self.jog_joint_max, self.jog_joint_max) * self.dt
