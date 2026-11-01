@@ -9,7 +9,7 @@
 |---|---|---|
 | 버스 서보 보드 COM 포트 | COM3 (USB-Enhanced-SERIAL CH343) | 2026-11-01 |
 | 모터 ID 설정 (이미 설정됨 / 새로 설정) | 이미 설정됨: 6개 연결 상태에서 1Mbps 스캔 시 ID 1~6 모두 응답(모델 777 = STS3215) | 2026-11-01 |
-| 캘리브레이션 파일 이름 | `so101_follower_01.json` (원본: `~/.cache/huggingface/lerobot/calibration/robots/so_follower/`, 사본: `config/calibration/`). 3번째 시도에서 성공, 앞선 2번은 통신 끊김(전체 모터 동시 무응답)으로 실패 | 2026-11-01 |
+| 캘리브레이션 파일 이름 | `so101_follower_01.json` (원본: `~/.cache/huggingface/lerobot/calibration/robots/so_follower/`, 사본: `config/calibration/`). 앞선 3번(통신 끊김 2회, 가운데 자세 불량으로 shoulder_lift·elbow_flex 범위가 0~4095로 튄 1회) 후 4번째 시도에서 공식 영상 자세로 재캘리브레이션. 범위(raw): pan 683~3403, lift 843~3224, elbow 880~3094, wrist_flex 937~3278, gripper 2047~3469 | 2026-11-01 |
 | 첫 구동 이상 여부 (떨림·이상음·과열) | | |
 
 ## T1 환경
