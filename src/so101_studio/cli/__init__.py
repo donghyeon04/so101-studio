@@ -81,6 +81,7 @@ def main(argv=None) -> None:
     ap.add_argument("--gravity-gain", type=float, default=1.0, help="record --follow: 중력 선행 보상 배율 (처지면 올리고, 올라가면 내린다)")
     ap.add_argument("--teach-p", type=int, help="record --follow: 모든 관절 P 계수를 이 값으로 (실험용)")
     ap.add_argument("--teach-d", type=int, help="record --follow: 모든 관절 D 계수를 이 값으로 (실험용)")
+    ap.add_argument("--assist", type=float, default=1.0, help="record --follow: 움직이는 방향 보조 배율 (0 = 끔, 2 = 두 배). 뻑뻑하면 올리고, 놓았는데 계속 가면 내린다")
     ap.add_argument("--free", action="store_true", help="작업대 가장자리 검사를 끈다 (바닥과 관절 한계는 유지). 손으로 움직이는 조종·재생용")
     ap.add_argument("--until-limit", action="store_true", help="replay: 한계나 바닥을 처음 넘는 자세 앞까지만 재생")
     ap.add_argument("--trace", action="store_true", help="keys: 명령·실제 관절 위치를 빠르게 기록하고 떨림 요약 (runs/.../trace.csv)")
@@ -183,6 +184,7 @@ def main(argv=None) -> None:
             else:
                 input("토크를 끄고 기록합니다. 팔을 손으로 받친 채 Enter를 누르면 시작합니다...")
             svc.ctl.gravity_gain = a.gravity_gain
+            svc.ctl.assist_gain = a.assist
             svc.record_start(a.follow, a.stiffness, a.teach_p, a.teach_d)
             input("손으로 움직이세요. 끝나면 Enter... ")
             print("저장:", svc.record_stop(name))

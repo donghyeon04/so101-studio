@@ -30,6 +30,8 @@ class RobotConfig:
     teach_p_gravity: dict = field(default_factory=lambda: {"shoulder_lift": 6, "elbow_flex": 6, "wrist_flex": 4})  # config/gravity.json이 있을 때 중력 관절의 교시 P 계수
     teach_d: dict = field(default_factory=lambda: {"shoulder_pan": 32, "shoulder_lift": 32, "elbow_flex": 32,
                                                      "wrist_flex": 32, "wrist_roll": 32, "gripper": 32})  # 추종 교시 때 서보별 D 계수(평소 32). D를 2~4로 낮추자 오히려 더 뻑뻑해져서 기본으로 되돌렸다
+    teach_assist_deg: dict = field(default_factory=lambda: {"shoulder_pan": 1.0, "shoulder_lift": 1.5, "elbow_flex": 1.5,
+                                                              "wrist_flex": 1.0, "wrist_roll": 0.0, "gripper": 0.0})  # 추종 교시: 손으로 움직이는 방향으로 목표를 이만큼(°) 앞에 둬서 기어 마찰을 덜어 준다
     teach_dead_deg: float = 0.4  # 추종 교시: 이 각도(°)를 넘게 어긋나면 손으로 민 것으로 본다. 작을수록 가볍지만 흔들림에 민감하다
     gripper_acceleration: int = 25  # 그리퍼는 접촉 감지(명령-실측 지연)를 이 값에서 맞췄으므로 팔 관절과 따로 둔다
     joint_v_max_deg_s: float = 90

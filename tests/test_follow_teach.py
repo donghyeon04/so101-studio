@@ -1,6 +1,7 @@
 import time
 from dataclasses import replace
 
+import numpy as np
 import pytest
 
 from so101_studio.arm.motion import MotionController
@@ -129,3 +130,24 @@ def test_follow_recording_overrides_p_and_d_and_summarizes_loads(tmp_path):
     ctl.close()
     mx, p95 = teach.load_summary()["shoulder_pan"]
     assert mx == 300 and p95 == 300 and d.get_p()["shoulder_pan"] == 16  # 끝나면 원래 값으로
+
+
+def test_follow_assist_leads_the_goal_in_the_direction_of_hand_motion_and_vanishes_at_high_speed():
+    d = SimDriver(HOME)
+    written = []
+    d.write_joints = lambda q: written.append(q)  # 명령이 위치를 바꾸지 않게 기록만 한다
+    ctl = MotionController(d, None, Safety(LIMITS), CFG.control_hz)
+    ctl.assist_deg = np.array([2.0, 0, 0, 0, 0, 0])
+    ctl.follow(True)
+    for _ in range(12):  # 손으로 어깨를 +방향으로 20°/s로 밀고 있다
+        d._q = replace(d._q, shoulder_pan=d._q.shoulder_pan + 0.4)
+        time.sleep(0.02)
+    moving = ctl._last.shoulder_pan, written[-1].shoulder_pan
+    for _ in range(10):  # 매우 빠르게(60°/s 이상) 밀면 보조는 0
+        d._q = replace(d._q, shoulder_pan=d._q.shoulder_pan + 2.0)
+        time.sleep(0.02)
+    fast_lead = written[-1].shoulder_pan - ctl._last.shoulder_pan
+    ctl.follow(False)
+    ctl.close()
+    assert moving[1] - moving[0] > 0.5  # 움직이는 방향(+)으로 앞에 둔다
+    assert abs(fast_lead) < 0.2

@@ -41,6 +41,10 @@ class MotionController:
         self._jog = None  # (mode, 속도 벡터, 마지막 입력 시각)
         self._jog_v = np.zeros(6)  # 가속도 제한을 거친 지금 조그 속도
         self._jog_t = 0.0  # 직전 조그 틱 시각
+        self.assist_deg = np.zeros(6)  # 추종 교시 방향 보조 크기(°, 관절별). 0이면 끔
+        self.assist_gain = 1.0
+        self.assist_v_on, self.assist_v_max = 3.0, 40.0  # °/s. 이 속도부터 보조, 이 속도에서는 보조 0(저절로 달아나지 않게)
+        self._prev_present, self._prev_t, self._vel = None, 0.0, np.zeros(6)
         self.gravity = None  # 중력 보상 모델(arm/gravity.py). 있으면 추종 교시에서 목표에 중력분을 미리 더한다
         self.gravity_gain = 1.0
         self.follow_dead_deg = 1.0  # 추종 교시: 목표와 실제 위치가 이만큼 넘게 어긋나면 손으로 민 것으로 보고 목표를 따라 옮긴다
@@ -94,6 +98,7 @@ class MotionController:
                 return False
             self._jog = None
             self._follow, self.follow_block = on, None
+            self._prev_present, self._vel = None, np.zeros(6)
             self.state = "follow" if on else ("idle" if self.state == "follow" else self.state)
             if on:
                 self._last = self.driver.read_joints()
@@ -233,6 +238,20 @@ class MotionController:
                 self.state = "idle"
             handle._finish(self._result("ok" if kind == "move" else "stopped", t0))
 
+    def _assist(self, present: tuple) -> np.ndarray:
+        """손으로 움직이는 방향(측정 속도의 부호)으로 목표를 앞에 두는 각도. 속도가 빠를수록 줄어 assist_v_max에서 0이 된다."""
+        now = time.perf_counter()
+        p = np.array(present, float)
+        if self._prev_present is not None and now > self._prev_t:
+            raw = (p - self._prev_present) / (now - self._prev_t)
+            self._vel = 0.5 * self._vel + 0.5 * raw
+        else:
+            self._vel = np.zeros(6)
+        self._prev_present, self._prev_t = p, now
+        speed = np.abs(self._vel)
+        scale = np.clip(1.0 - speed / self.assist_v_max, 0.0, 1.0) * (speed > self.assist_v_on)
+        return np.sign(self._vel) * self.assist_deg * self.assist_gain * scale
+
     def _tick_follow(self) -> None:
         present = astuple(self.driver.read_joints())
         goal = list(astuple(self._last))
@@ -245,11 +264,15 @@ class MotionController:
             self.follow_block = why
             if not why:
                 self._last = q
-        cmd = self._last
+        cmd = np.array(astuple(self._last), float)
         if self.gravity is not None:  # 팔 무게를 버티는 만큼 목표를 미리 앞에 둔다(P를 낮춰도 처지지 않게)
-            ff = self.gravity.ff_deg(JointState(*present), self.gravity_gain)
-            cmd = JointState(*(np.array(astuple(self._last)) + ff).tolist())
-        self.driver.write_joints(cmd)
+            cmd = cmd + self.gravity.ff_deg(JointState(*present), self.gravity_gain)
+        lead = self._assist(present)
+        if lead.any():
+            with_assist = JointState(*(cmd + lead).tolist())
+            if not self.safety.check_goal(with_assist, self._last):  # 한계·바닥을 넘는 보조는 하지 않는다
+                cmd = cmd + lead
+        self.driver.write_joints(JointState(*cmd.tolist()))
         self.health.comm_ok()
 
     def _tick_jog(self) -> None:

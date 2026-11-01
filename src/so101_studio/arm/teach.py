@@ -56,6 +56,7 @@ class Teach:
             drv.set_p({n: max(1, round((v if p is None else p) * stiffness)) for n, v in pp.items()})
             drv.set_d({n: max(0, round((v if d is None else d) * stiffness)) for n, v in self.cfg.teach_d.items()})
             self.ctl.follow_dead_deg = self.cfg.teach_dead_deg
+            self.ctl.assist_deg = np.array([self.cfg.teach_assist_deg.get(n, 0.0) for n in JOINTS])
             if not self.ctl.follow(True):
                 self._restore_servo(drv)
                 raise RuntimeError("지금은 추종 교시를 시작할 수 없습니다 (동작 중이거나 정지·fault 상태)")
