@@ -33,25 +33,35 @@ class Safety:
                 lo, hi = min(lo, getattr(ref, name)), max(hi, getattr(ref, name))
             if not lo <= getattr(q, name) <= hi:
                 return f"joint_limit:{name}"
-        return self._workspace(q)
+        return self._workspace(q, ref)
 
-    def _workspace(self, q: JointState) -> str | None:
+    def _tip_height(self, q: JointState) -> float:
+        """낮은 턱 끝의 작업대 면 위 높이(mm). 기준점(고정 턱 면)은 수직일 때 턱 끝보다 약 7mm 위라 기준점으로 재면 느슨하다."""
+        p = self.kin.fk(q)
+        f, mt = self.kin.jaw_tip_offsets(p.pitch_deg, p.yaw_deg, q.gripper)
+        return p.z_mm + min(f[2], mt[2], 0.0) - self.table_z_mm
+
+    def _workspace(self, q: JointState, ref: JointState | None = None) -> str | None:
         if self.ws is None or self.kin is None:
             return None
         p, m = self.kin.fk(q), self.ws.safety_margin_mm
         if self.check_xy and not (m <= p.x_mm <= self.ws.table_mm["x"] - m and m <= p.y_mm <= self.ws.table_mm["y"] - m):
             return "workspace"
-        f, mt = self.kin.jaw_tip_offsets(p.pitch_deg, p.yaw_deg, q.gripper)  # 낮은 턱 끝 기준: 기준점(고정 턱 면)은 수직일 때 턱 끝보다 약 7mm 위라 기준점으로 재면 느슨하다
-        if p.z_mm + min(f[2], mt[2], 0.0) - self.table_z_mm < self.z_floor_mm:
+        floor = self.z_floor_mm
+        if ref is not None:  # 바닥 한계 아래에서 출발했다면(정지가 바닥 바로 앞에서 걸린 경우 등) 더 낮아지지 않는 동작은 허용해 빠져나올 수 있게 한다
+            floor = min(floor, self._tip_height(ref))
+        if self._tip_height(q) < floor:
             return "z_floor"
         return None
 
     def check_path(self, traj, n: int = 20) -> str | None:
-        """목표는 관절 한계까지, 경로는 작업 영역만 본다. 시작점은 검사하지 않고(받침에 기댄 자세가 한계 밖일 수 있다),
-        한계 밖에서 출발했다면 그 안쪽(시작점까지)으로 돌아오거나 머무는 목표는 허용한다."""
-        reason = self.check_goal(traj.sample(traj.duration_s), traj.sample(0.0))
+        """목표와 경로 위 점들을 관절 한계와 작업 영역(바닥 포함)으로 검사한다. 시작점은 검사하지 않고(받침에 기댄 자세가 한계 밖일 수 있다),
+        한계 밖에서 출발했다면 그 안쪽(시작점까지)으로 돌아오거나 머무는 점은 허용한다. 0.1초마다 이상 촘촘히 본다(긴 녹화에서 짧은 위반을 놓치지 않게)."""
+        ref = traj.sample(0.0)
+        n = max(n, int(traj.duration_s * 10))
+        reason = self.check_goal(traj.sample(traj.duration_s), ref)
         for i in range(1, n):
-            reason = reason or self._workspace(traj.sample(traj.duration_s * i / n))
+            reason = reason or self.check_goal(traj.sample(traj.duration_s * i / n), ref)
         return reason
 
     def check_step(self, prev: JointState, nxt: JointState) -> str | None:

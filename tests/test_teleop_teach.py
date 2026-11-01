@@ -226,3 +226,31 @@ def test_replay_clamps_small_limit_overshoots_but_still_rejects_big_ones(tmp_pat
     ctl.close()
     assert near.status == "ok" and d.read_joints().elbow_flex <= hi + 1e-6  # 한계로 잘려 재생됨
     assert far.status == "out_of_bounds"  # 크게 넘으면 거부
+
+
+def test_replay_until_limit_plays_only_the_part_before_the_first_violation(tmp_path):
+    d, ctl = rig()
+    teach = Teach(ctl, CFG, tmp_path)
+    lim = LIMITS["shoulder_pan"][1]
+    rows = [[float(p), -90, 93, 0, 0, 3] for p in range(int(lim) + 20)]  # 어깨가 1°씩 천천히 한계를 넘어간다
+    import json
+    (tmp_path / "x.json").write_text(json.dumps({"hz": 20, "joints": rows}), encoding="utf-8")
+    full = teach.replay("x", 3.0)
+    part = teach.replay("x", 3.0, until_limit=True)
+    cut = teach.last_cut
+    ctl.close()
+    assert full.status == "out_of_bounds"  # 통째로는 거부
+    assert part.status == "ok" and cut[0] < cut[1] and "shoulder_pan" in cut[2]  # 한계 앞까지만 재생
+    assert d.read_joints().shoulder_pan < lim
+
+
+def test_check_path_sees_a_short_violation_in_a_long_sequence():
+    from so101_studio.arm.safety import Safety
+    from so101_studio.arm.trajectory import SequenceTrajectory
+
+    s = Safety({"shoulder_pan": [-100, 100]})
+    t = np.arange(0, 60, 0.05)
+    q = np.zeros((len(t), 6))
+    q[:, 1], q[:, 2] = -90, 93
+    q[500:508, 0] = 130  # 0.4초만 한계 밖 (60초 중)
+    assert s.check_path(SequenceTrajectory(t, q)) is not None

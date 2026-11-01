@@ -195,9 +195,9 @@ class ArmService:
         self._log("record_stop", {"name": name, "path": str(path)})
         return path
 
-    def replay(self, name: str, speed: float = 1.0) -> MotionResult:
+    def replay(self, name: str, speed: float = 1.0, until_limit: bool = False) -> MotionResult:
         self.driver.set_torque(True)
-        return self._done("replay", self.teach.replay(name, speed), name=name, speed=speed)
+        return self._done("replay", self.teach.replay(name, speed, until_limit), name=name, speed=speed, until_limit=until_limit)
 
     def run_sequence(self, name: str) -> MotionResult:
         return self.replay(name, 1.0)

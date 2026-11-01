@@ -171,3 +171,18 @@ def test_path_to_a_goal_no_further_out_than_a_start_beyond_the_limit_is_allowed(
     assert s.check_path(move_j(rest, inside, 20, 100)) is None
     assert s.check_path(move_j(inside, rest, 20, 100)) is not None  # 안에서 밖으로 새로 나가는 것은 막는다
     assert s.check_path(move_j(rest, JointState(0, -90, 99, 0, 0, 3), 20, 100)) is not None  # 시작보다 더 바깥도 막는다
+
+
+def test_floor_check_lets_the_tip_leave_a_pose_already_below_the_floor_but_not_go_lower():
+    from types import SimpleNamespace
+
+    from so101_studio.arm.safety import Safety
+    from so101_studio.core.types import JointState, ToolPose
+
+    kin = SimpleNamespace(fk=lambda q: ToolPose(100, 100, q.shoulder_lift, 90, -90), jaw_tip_offsets=lambda *a: ((0, 0, 0), (0, 0, 0)))
+    ws = SimpleNamespace(table_mm={"x": 600, "y": 400}, safety_margin_mm=10)
+    s = Safety({}, ws, kin, z_floor_mm=5, table_z_mm=0)
+    at = lambda h: JointState(0, h, 0, 0, 0, 0)  # 높이 = shoulder_lift 값(mm)
+    assert s.check_goal(at(3)) == "z_floor"  # 처음부터 낮은 목표는 거부
+    assert s.check_goal(at(3), ref=at(2)) is None  # 2mm에서 출발해 3mm로 올라가는 것은 허용
+    assert s.check_goal(at(1.5), ref=at(2)) == "z_floor"  # 출발보다 더 낮아지는 것은 거부
