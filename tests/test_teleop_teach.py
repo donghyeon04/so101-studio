@@ -214,3 +214,15 @@ def test_jog_can_leave_a_pose_beyond_the_joint_limit_but_not_go_further_out():
     jog_for(ctl, "joint", [0, 0, 20, 0, 0, 0], 0.6)  # 다시 바깥쪽으로 밀어도
     ctl.close()
     assert inside < 96.5 - 2 and d.read_joints().elbow_flex <= LIMITS["elbow_flex"][1] + 1e-6
+
+
+def test_replay_clamps_small_limit_overshoots_but_still_rejects_big_ones(tmp_path):
+    d, ctl = rig()
+    teach = Teach(ctl, CFG, tmp_path)
+    hi = LIMITS["elbow_flex"][1]
+    (tmp_path / "near.json").write_text(f'{{"hz": 20, "joints": [[0,-90,{hi + 1.5},0,0,3],[5,-90,{hi + 1.0},0,0,3]]}}', encoding="utf-8")
+    (tmp_path / "far.json").write_text(f'{{"hz": 20, "joints": [[0,-90,{hi + 8},0,0,3],[5,-90,{hi + 8},0,0,3]]}}', encoding="utf-8")
+    near, far = teach.replay("near", 2.0), teach.replay("far")
+    ctl.close()
+    assert near.status == "ok" and d.read_joints().elbow_flex <= hi + 1e-6  # 한계로 잘려 재생됨
+    assert far.status == "out_of_bounds"  # 크게 넘으면 거부

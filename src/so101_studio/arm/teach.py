@@ -8,10 +8,12 @@ from pathlib import Path
 import numpy as np
 
 from ..core.types import JointState, MotionResult
+from .driver import JOINTS
 from .trajectory import SequenceTrajectory, cfg_move_j
 
 RECORD_HZ = 20
 SMOOTH = 5  # 재생 전에 이동평균 창(표본 수)
+CLAMP_TOL_DEG = 3.0  # 손으로 움직인 자세가 관절 한계를 이만큼까지 넘으면 한계로 잘라 재생한다(받침 자세 근처 등). 더 넘으면 그대로 두어 안전 검사가 거부한다
 
 
 def smooth(q: np.ndarray, window: int = SMOOTH) -> np.ndarray:
@@ -68,11 +70,19 @@ class Teach:
         data = json.loads((self.dir / f"{name}.json").read_text(encoding="utf-8"))
         return np.array(data["joints"], float), data["hz"]
 
+    def _clamp(self, q: np.ndarray) -> np.ndarray:
+        q = q.copy()
+        for i, (name, (lo, hi)) in enumerate((n, self.ctl.safety.limits[n]) for n in JOINTS if n in self.ctl.safety.limits):
+            over = np.maximum(lo - q[:, i], q[:, i] - hi)
+            if 0 < over.max() <= CLAMP_TOL_DEG:
+                q[:, i] = np.clip(q[:, i], lo, hi)
+        return q
+
     def replay(self, name: str, speed: float = 1.0) -> MotionResult:
         """기록을 다듬어 재생한다. 시작 전에 첫 자세로 MoveJ(저속)로 간 뒤 시간에 맞춰 따라간다.
         한계·작업 영역 밖이면 움직이지 않고 거부한다(execute의 안전 검사)."""
         q, hz = self.load(name)
-        q = smooth(q)
+        q = self._clamp(smooth(q))
         first = JointState(*q[0].tolist())
         r = self.ctl.execute(cfg_move_j(self.cfg, self.ctl.driver.read_joints(), first, 20)).wait()
         if r.status != "ok":
