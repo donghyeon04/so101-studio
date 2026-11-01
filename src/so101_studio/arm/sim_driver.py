@@ -33,6 +33,9 @@ class SimDriver:
             "voltage_v": 12.0,
         }
 
+    def read_power(self) -> tuple[float, dict]:
+        return 12.0, {m: 0.0 for m in JOINTS}
+
     def torque_enabled(self) -> bool:
         return self._torque
 

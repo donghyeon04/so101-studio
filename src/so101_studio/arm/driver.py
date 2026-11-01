@@ -78,6 +78,13 @@ class ArmDriver:
         }
 
     @_locked
+    def read_power(self) -> tuple[float, dict]:
+        """전원 시험용 빠른 읽기: (전압 V, 서보별 전류 mA). 전류 단위는 STS3215 레지스터 값 x 6.5mA로 추정한다."""
+        bus = self._bus
+        cur = bus.sync_read("Present_Current", normalize=False)
+        return bus.read("Present_Voltage", "shoulder_lift", normalize=False) / 10, {m: (v & 0x7FFF) * 6.5 for m, v in cur.items()}
+
+    @_locked
     def torque_enabled(self) -> bool:
         return any(self._bus.read("Torque_Enable", m) for m in self._bus.motors)
 

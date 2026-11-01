@@ -94,3 +94,13 @@ def test_height_is_above_the_table_and_tip_is_below_the_reference_point(svc):
     assert tip.z_mm > ref.z_mm  # 끝점이 기준점보다 아래이므로 같은 높이면 기준점이 더 위
     assert np.isclose(tip.z_mm - ref.z_mm, 7.3, atol=0.5)
     assert svc.point_pose(300, 150, 20, frame="world", tcp="ref") == ref
+
+
+def test_powertest_runs_in_sim_and_writes_csv(svc, monkeypatch):
+    from so101_studio.cli import powertest
+
+    monkeypatch.setattr(powertest, "SETTLE_S", 0.2)
+    out = []
+    res = powertest.run_powertest(svc, repeats=1, out=out.append)
+    assert res["moves"] == ["ok", "ok"] and res["baseline_v"] == 12.0 and res["sample_hz"] > 20
+    assert (svc.logger.dir / "powertest.csv").exists()
