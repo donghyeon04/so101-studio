@@ -5,10 +5,18 @@ control_hz: 50
 pid: {p: 16, i: 0, d: 32}
 speed_pct_default: 30
 joint_v_max_deg_s: 90
+a_max_deg_s2: 120
 tool_v_max_mm_s: 100
 approach_height_mm: 80
 grasp_height_mm: 15        # 미정: 시험 물체가 정해지면 확정
 gripper_margin_mm: 20
-poses:                     # 자리표시. T4에서 실제 자세를 측정해 바꾼다 (measurements.md의 기본 자세 후보 참고)
-  home: [-4.5, -93.2, 97.8, 10.9, 0.7, 2.5]
-  park: [90, -100, 90, 70, 0, 50]
+joint_limits_deg:          # 캘리브레이션으로 잰 가동 범위(measurements.md)에서 안쪽으로 1~3° 줄인 값. T5에서 safety.py로 옮긴다
+  shoulder_pan: [-118, 118]
+  shoulder_lift: [-103, 103]
+  elbow_flex: [-96, 98]   # 받침에 기댄 자세(약 97.4°)가 포함되도록 위쪽을 넓혔다
+  wrist_flex: [-101, 101]
+  wrist_roll: [-170, 170]
+  gripper: [1, 99]
+poses:                     # 자리표시. park는 센서 시야 밖 자세가 정해지면 바꾼다 (지금은 home과 같음)
+  home: [0, -90, 95, 0, 0, 3]
+  park: [0, -90, 95, 0, 0, 3]

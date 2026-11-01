@@ -1,4 +1,6 @@
 """장치 계층. 모터 통신은 LeRobot SO101Follower의 버스만 거친다 (arm-software-spec.md 6.1)."""
+import functools
+import threading
 from dataclasses import asdict, fields
 
 from lerobot.robots.so_follower import SO101Follower, SO101FollowerConfig
@@ -8,10 +10,20 @@ from ..core.types import JointState
 JOINTS = [f.name for f in fields(JointState)]
 
 
+def _locked(fn):
+    @functools.wraps(fn)
+    def wrapper(self, *a, **k):
+        with self._lock:
+            return fn(self, *a, **k)
+
+    return wrapper
+
+
 class ArmDriver:
     def __init__(self, pid: dict | None = None):
         self.pid = pid or {"p": 16, "i": 0, "d": 32}
         self._robot: SO101Follower | None = None
+        self._lock = threading.RLock()  # 시리얼 포트는 한 번에 한 스레드만 쓴다 (동작 스레드와 상태 읽기가 겹칠 수 있다)
 
     def connect(self, port: str, calibration_id: str) -> None:
         robot = SO101Follower(SO101FollowerConfig(port=port, id=calibration_id))
@@ -44,12 +56,15 @@ class ArmDriver:
             raise RuntimeError("연결되지 않음")
         return self._robot.bus
 
+    @_locked
     def read_joints(self) -> JointState:
         return JointState(**self._bus.sync_read("Present_Position"))
 
+    @_locked
     def write_joints(self, q: JointState) -> None:
         self._bus.sync_write("Goal_Position", asdict(q))
 
+    @_locked
     def read_health(self) -> dict:
         bus = self._bus
         return {
@@ -58,9 +73,11 @@ class ArmDriver:
             "voltage_v": min(bus.read("Present_Voltage", m) for m in bus.motors) / 10,
         }
 
+    @_locked
     def torque_enabled(self) -> bool:
         return any(self._bus.read("Torque_Enable", m) for m in self._bus.motors)
 
+    @_locked
     def set_torque(self, on: bool) -> None:
         if on:
             self._bus.sync_write("Goal_Position", self._bus.sync_read("Present_Position"))  # 켜는 순간 튀지 않게
