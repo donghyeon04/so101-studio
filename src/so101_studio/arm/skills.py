@@ -5,7 +5,9 @@ from dataclasses import astuple, replace
 
 import numpy as np
 
+from ..core import frames
 from ..core.types import DetectedObject, JointState, MotionResult, ToolPose
+from .kinematics import FIXED_TIP, JAW_Q_DEG, JAW_TIP_A, JAW_TIP_B, VALUE_TO_Q
 from .trajectory import LineTrajectory, QuinticShape, cfg_move_j, cfg_move_l
 
 SEEDS = [JointState(0, -30, 30, 60, 0, 0), JointState(0, -60, 60, 30, 0, 0), JointState(0, 0, 60, 30, 0, 0)]
@@ -65,20 +67,29 @@ class Skills:
             r -= math.copysign(180.0, r)
         return r + base
 
-    def _closing_path(self, q_start: JointState, grasp: ToolPose, m: tuple[float, float], gap0: float, gap_end: float):
-        """닫으면서 손을 가동 턱 쪽으로 같이 보내는 한 개의 경로. 틈이 d만큼 줄 때 손은 d/2만큼 간다.
-        그러면 틈의 중심이 물체 중심에 계속 머물러서, 닫는 동안 내내 가운데에 있는 물체를 양쪽에서 잡는 모양이 된다
-        (고정 턱은 +m 쪽으로 d/2, 가동 턱은 -m 쪽으로 d/2 다가온다)."""
-        length = (gap0 - gap_end) / 2
-        n = max(1, math.ceil(length / 3.0))
-        pts, q = [np.array(astuple(replace(q_start, gripper=self.gripper_for_width(gap0))), float)], q_start
-        for i in range(1, n + 1):
-            s = length * i / n
-            q = self.kin.ik(replace(grasp, x_mm=grasp.x_mm + s * m[0], y_mm=grasp.y_mm + s * m[1]), q)
-            if q is None:
-                return None
-            pts.append(np.array(astuple(replace(q, gripper=self.gripper_for_width(gap0 - 2 * s))), float))
-        return LineTrajectory(np.array(pts), QuinticShape(max(1.0, length / 8.0)))  # 손 8mm/s, 틈 16mm/s로 천천히
+    def _tilt_ok(self, obj: DetectedObject, yaw_t: float) -> bool:
+        """턱 축이 팔이 뻗은 방향(방사 방향)과 거의 나란할 때만 기울일 수 있다."""
+        if self.cfg.grasp_tilt_deg <= 0:
+            return False
+        xr, yr = frames.table_to_robot(obj.x_mm, obj.y_mm, self.ws.base)
+        radial = math.degrees(math.atan2(yr, xr))
+        diff = (yaw_t - self.ws.base.yaw_deg - radial + 90.0) % 180.0 - 90.0  # 턱 축은 180° 대칭
+        return abs(diff) <= self.cfg.grasp_tilt_tol_deg
+
+    def _tilt(self, v: float) -> float:
+        """그리퍼 값 v에서의 기울기(°): 두 턱 끝 높이가 같아지는 각도, 최대 grasp_tilt_deg, 거의 닫히면 0으로 줄인다."""
+        q = VALUE_TO_Q[0] + VALUE_TO_Q[1] * v
+        a_m = float(np.interp(q, JAW_Q_DEG, JAW_TIP_A))
+        b_m = float(np.interp(q, JAW_Q_DEG, JAW_TIP_B))
+        eq = math.degrees(math.atan2(FIXED_TIP[1] - b_m, a_m - FIXED_TIP[0])) if a_m - FIXED_TIP[0] > 1.0 else 0.0
+        return min(self.cfg.grasp_tilt_deg, max(0.0, eq)) * min(1.0, v / 25.0)
+
+    def _hand_pose(self, ox: float, oy: float, yaw_t: float, v: float, tilt_ok: bool, tip_z: float, tilt_scale: float = 1.0) -> ToolPose:
+        """두 턱 끝의 중간점이 (ox, oy)에 오고 낮은 턱 끝이 tip_z에 오는 손 자세(기준점 gripper_frame의 위치)."""
+        pitch = -90.0 - (self._tilt(v) * tilt_scale if tilt_ok else 0.0)
+        f, m = self.kin.jaw_tip_offsets(pitch, yaw_t, v)
+        mid = (f[:2] + m[:2]) / 2
+        return ToolPose(ox - mid[0], oy - mid[1], tip_z - min(f[2], m[2]), yaw_t, pitch)
 
     def _close_until_contact(self, traj) -> tuple[bool, MotionResult]:
         """경로를 실행하다가 그리퍼가 명령보다 앞서 멈추면(물체에 닿음) 그 자리에서 정지한다."""
@@ -96,36 +107,52 @@ class Skills:
         self.ctl.wait_idle()
         return contact, r
 
+    def _closing_path(self, q_start: JointState, obj, yaw_t: float, tilt_ok: bool, v0: float, v_end: float, gap0: float, gap_end: float):
+        """닫으면서 손의 자세와 위치를 매 단계 다시 계산한 한 개의 경로: 두 턱 끝의 중간점이 물체 중심에 계속 머물고,
+        기울기는 닫히는 정도에 맞춰 풀린다(고정 턱은 +m 쪽으로, 가동 턱은 -m 쪽으로 같이 다가온다)."""
+        n = max(2, math.ceil((v0 - v_end) / 1.5))
+        q, pts = q_start, [np.array(astuple(replace(q_start, gripper=v0)), float)]
+        for i in range(1, n + 1):
+            v = v0 + (v_end - v0) * i / n
+            q = self.kin.ik(self._hand_pose(obj.x_mm, obj.y_mm, yaw_t, v, tilt_ok, self.cfg.grasp_height_mm), q, tol_mm=3.0)
+            if q is None:
+                return None
+            pts.append(np.array(astuple(replace(q, gripper=v)), float))
+        return LineTrajectory(np.array(pts), QuinticShape(max(1.0, (gap0 - gap_end) / 16.0)))  # 틈 16mm/s로 천천히
+
     def pick(self, obj: DetectedObject) -> MotionResult:
-        """고정 턱 1개 + 가동 턱 1개라서 닫으면 물체가 고정 턱 쪽으로 밀린다. URDF 기하로 보면 FK 기준점(gripper_frame)은
-        고정 턱 안쪽 면 위에 있고 가동 턱은 방향 m=(cos yaw, sin yaw) 쪽이다. 그래서 (결정 0009, 0010)
-        (1) 틈을 벌리고(기본: 최대) 그 틈의 중심이 물체에 오도록 목표를 (벌림/2)만큼 -m 쪽으로 옮겨 내려간다 (NVIDIA 포럼의 grasp_center 방식),
-        (2) 닫을 때 틈이 d만큼 줄면 손을 +m 쪽으로 d/2만큼 같이 보내 중심을 유지하고(F1 Hand '닫으며 중심 쪽으로 이동'),
-        (3) 그리퍼가 명령보다 앞서 멈추면(접촉) 그 자리에서 정지한다. 물체 크기를 몰라도 된다."""
+        """고정 턱 1개 + 가동 턱 1개. URDF 기하(결정 0009, 0010, 0011): 기준점(gripper_frame)은 고정 턱 안쪽 면 위에 있고 가동 턱은 +m 쪽이다.
+        (1) 틈을 최대로 벌리고(기본), 두 턱 끝의 중간점이 물체에 오도록 손 위치를 정해 내려간다(NVIDIA 포럼의 grasp_center 방식),
+        (2) 턱 축이 팔이 뻗은 방향이면 손을 기울여 V자를 대칭에 가깝게 만들고, 닫을수록 기울기를 푼다,
+        (3) 닫을 때 중간점이 물체 중심에 머물도록 손을 같이 보낸다(F1 Hand '닫으며 중심 쪽으로 이동'),
+        (4) 그리퍼가 명령보다 앞서 멈추면(접촉) 그 자리에서 정지한다. 물체 크기를 몰라도 된다."""
         yaw = self._jaw_yaw((obj.angle_deg or 0.0) + 90.0)  # 턱 축이 물체 긴 변에 수직이 되도록 (spec 6.6: 물체 각도 + 90°)
         m = (math.cos(math.radians(yaw)), math.sin(math.radians(yaw)))
         known = obj.width_mm > 0
         gap_min = min(mm for _, mm in self.cfg.gripper_width_mm)
         gap0 = self.cfg.grasp_max_open_mm if self.cfg.grasp_open_policy == "max" or not known else obj.width_mm + self.cfg.gripper_margin_mm
-        gap_end = max(obj.width_mm - 10.0, gap_min) if known else gap_min  # 알면 폭보다 10mm 더 조이는 지점까지(접촉 감지에 필요한 명령 차이 4값 ≈ 6mm 이상), 모르면 끝까지
-        shift = -gap0 / 2 + self.cfg.grasp_bias_mm
-        grasp = ToolPose(obj.x_mm + shift * m[0], obj.y_mm + shift * m[1], self.cfg.grasp_height_mm, yaw)
-        hover = replace(grasp, z_mm=grasp.z_mm + self.cfg.approach_height_mm)
+        gap_end = max(obj.width_mm - 10.0, gap_min) if known else gap_min  # 알면 폭보다 10mm 더 조이는 지점까지(접촉 감지에 필요한 명령 차이), 모르면 끝까지
+        v0, v_end = self.gripper_for_width(gap0), self.gripper_for_width(gap_end)
+        tilt_ok = self._tilt_ok(obj, yaw)
+        ox, oy = obj.x_mm + self.cfg.grasp_bias_mm * m[0], obj.y_mm + self.cfg.grasp_bias_mm * m[1]
+        grasp = self._hand_pose(ox, oy, yaw, v0, tilt_ok, self.cfg.grasp_height_mm)
+        # 접근 높이에서는 기울기를 절반만 준다(전부 기울이면 손목 한계로 닿지 않는다). 내려가며 직선 경로가 pitch를 보간해 전부 기울인다.
+        hover = self._hand_pose(ox, oy, yaw, v0, tilt_ok, self.cfg.grasp_height_mm + self.cfg.approach_height_mm, 0.5)
         fail = MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0))
         q_hover = self._ik(hover)
         if q_hover is None:
             return fail
-        q_open = replace(q_hover, gripper=self.gripper_for_width(gap0))
+        q_open = replace(q_hover, gripper=v0)
         down = self._line(q_open, grasp) if self.kin.ik(grasp, q_open) is not None else None
         if down is None:
             return fail
-        closing = self._closing_path(JointState(*down.pts[-1]), grasp, m, gap0, gap_end)
+        closing = self._closing_path(JointState(*down.pts[-1]), replace(obj, x_mm=ox, y_mm=oy), yaw, tilt_ok, v0, v_end, gap0, gap_end)
         if closing is None:
             return fail
         r = self._run([self._joint_move(q_hover)])  # 1. 접근 위치로
         if r.status != "ok":
             return r
-        r = self._run([self._gripper(q_open.gripper), down])  # 2. 열기 3. 하강
+        r = self._run([self._gripper(v0), down])  # 2. 열기 3. 하강
         if r.status != "ok":
             return r
         self.ctl.driver.set_gripper_torque_limit(self.cfg.gripper_squeeze_torque)  # 조임 힘을 낮춰 얇은 물체가 미끄러져 빠지지 않게
@@ -136,7 +163,7 @@ class Skills:
         if r.status not in ("ok", "stopped"):
             return r
         here = self.kin.fk(self._q())
-        up = self._line(self._q(), replace(here, z_mm=hover.z_mm))  # 5. 수직으로 상승
+        up = self._line(self._q(), replace(here, z_mm=here.z_mm + self.cfg.approach_height_mm))  # 5. 자세는 그대로 수직으로 상승
         if up is None:
             return fail
         r = self._run([up])

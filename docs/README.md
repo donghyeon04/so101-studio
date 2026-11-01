@@ -31,3 +31,4 @@
 | `docs/decisions/0008-single-jaw-grasp-compensation.md` | 결정 | 대체됨(→ 0009) | 고정 턱 1개 그리퍼는 턱 중심 보정과 닫기 전 가동 턱 쪽 이동으로 소프트웨어에서 보정 |
 | `docs/decisions/0009-gripper-geometry-and-jaw-yaw.md` | 결정 | 확정 | 턱 방향은 URDF 기하로 정하고(고정 턱 면이 기준점, 가동 턱 방향 m), 집기 각도는 물체 각도 + 90° |
 | `docs/decisions/0010-centered-closing-grasp.md` | 결정 | 확정 | 최대로 벌려 중심을 맞추고 닫으며 손을 같이 보내 닫는 내내 중심을 유지, 접촉에서 정지 |
+| `docs/decisions/0011-tilted-symmetric-closing.md` | 결정 | 확정 | 턱 끝 기하로 중간점을 물체에 맞추고, 턱이 앞뒤로 벌어질 때 손을 기울여 V자를 대칭으로, 닫을수록 푼다 |

@@ -15,6 +15,14 @@ from ..core.types import JointState, ToolPose
 
 # URDF의 base_link 원점은 어깨 회전축보다 38.8mm 뒤에 있다(shoulder_pan 조인트 origin). 로봇 원점은 회전축 기준(spec 4절).
 PAN_AXIS_X_MM = 38.8353
+# URDF 메쉬로 계산한 가동 턱 끝 궤적(gripper_link 좌표, mm): 관절각 q에서 턱 끝의 x(가동 턱 쪽 +)와 아래로의 거리 b=-z.
+# 고정 턱 끝은 (x=-7.9, b=105.4). gripper_frame 점은 (x=-7.9, b=98.1)이다.
+JAW_Q_DEG = [-10, 0, 20, 40, 60, 80, 100]
+JAW_TIP_A = [-5.2, 8.9, 37.6, 64.3, 85.6, 99.0, 102.9]
+JAW_TIP_B = [102.2, 105.4, 104.3, 93.5, 74.2, 48.8, 20.3]
+FIXED_TIP = (-7.9, 105.4)
+FRAME_B = 98.1
+VALUE_TO_Q = (-10.0, 1.214)  # 그리퍼 값 v -> 관절각 q = -10 + 1.214 v (카드 시험 2점에 맞춘 가정)
 ARM_JOINTS = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll"]
 
 
@@ -38,9 +46,23 @@ class Kinematics:
         x, y, z = (T[:3, 3] * 1000).tolist()
         x -= PAN_AXIS_X_MM
         R = T[:3, :3] @ self._C.T
-        pitch = math.degrees(math.asin(max(-1.0, min(1.0, R[2, 2]))))
-        yaw = math.degrees(math.atan2(-R[0, 1], R[1, 1]))  # 도구 y축에서 구한 값. 수직 하강이면 턱 축(-x)의 방향각과 같다
+        yaw = math.degrees(math.atan2(-R[0, 1], R[1, 1]))
+        h = R[0, 2] * math.cos(math.radians(yaw)) + R[1, 2] * math.sin(math.radians(yaw))  # 도구 축의 수평 성분(진행 방향 기준)
+        pitch = math.degrees(math.atan2(R[2, 2], h))  # 부호를 살린다: -90 수직, -115는 가동 턱 반대쪽으로 25° 기울임  # 도구 y축에서 구한 값. 수직 하강이면 턱 축(-x)의 방향각과 같다
         return frames.tool_robot_to_table(ToolPose(x, y, z, yaw, pitch), self.base)
+
+    def jaw_tip_offsets(self, pitch_deg: float, yaw_table_deg: float, gripper_value: float):
+        """기준점(gripper_frame, 고정 턱 면)에서 본 두 턱 끝의 위치 벡터(작업대 좌표계, mm). 자세(pitch, yaw)와 그리퍼 값으로 정해진다."""
+        q = VALUE_TO_Q[0] + VALUE_TO_Q[1] * gripper_value
+        a_m = float(np.interp(q, JAW_Q_DEG, JAW_TIP_A))
+        b_m = float(np.interp(q, JAW_Q_DEG, JAW_TIP_B))
+        R = _rotation(pitch_deg, yaw_table_deg - self.base.yaw_deg) @ self._C  # 로봇 좌표계에서의 도구 프레임
+        c, s = math.cos(math.radians(self.base.yaw_deg)), math.sin(math.radians(self.base.yaw_deg))
+        Rt = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]]) @ R
+        # 도구 프레임 좌표: 가동 턱 쪽이 -x, 도구 축(턱 끝 방향)이 +z
+        f = Rt @ np.array([-(FIXED_TIP[0] + 7.9), 0.0, FIXED_TIP[1] - FRAME_B])
+        m = Rt @ np.array([-(a_m + 7.9), 0.0, b_m - FRAME_B])
+        return f, m
 
     def moving_jaw_dir(self, q: JointState) -> tuple[float, float]:
         """고정 턱에서 가동 턱으로 향하는 방향(작업대 좌표계, 수평 성분의 단위 벡터)."""
@@ -50,7 +72,7 @@ class Kinematics:
         n = math.hypot(x, y)
         return x / n, y / n
 
-    def ik(self, pose: ToolPose, seed: JointState, tol_mm: float = 2.0, max_iter: int = 30,
+    def ik(self, pose: ToolPose, seed: JointState, tol_mm: float = 3.0, max_iter: int = 30,
            orientation_weight: float = 0.1) -> JointState | None:
         r = frames.tool_table_to_robot(pose, self.base)
         T = np.eye(4)

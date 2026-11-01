@@ -67,8 +67,15 @@ def test_pick_without_an_object_reports_no_object(kin):
     assert r.status == "no_object"
 
 
-def test_jaw_gap_stays_centered_on_the_object_while_closing(kin):
-    # 닫는 동안 내내 틈의 중심이 물체 중심(300, 210)에 있어야 한다 = 가운데 있는 물체를 양쪽에서 잡는 모양
+def tips_mid_and_low(kin, q):
+    """FK 자세와 그리퍼 값으로 계산한 두 턱 끝의 중간점(작업대 x, y)과 낮은 턱 끝의 높이."""
+    p = kin.fk(q)
+    f, m = kin.jaw_tip_offsets(p.pitch_deg, p.yaw_deg, q.gripper)
+    return (p.x_mm + (f[0] + m[0]) / 2, p.y_mm + (f[1] + m[1]) / 2), p.z_mm + min(f[2], m[2])
+
+
+def test_jaw_tips_stay_centered_on_the_object_while_closing(kin):
+    # 닫는 동안 내내 두 턱 끝의 중간점이 물체 중심(300, 210)에 있어야 한다 = 가운데 있는 물체를 양쪽에서 잡는 모양
     d, r = run_pick(kin)
     assert r.status == "ok"
     top = max(q.gripper for q in d.log)
@@ -76,11 +83,27 @@ def test_jaw_gap_stays_centered_on_the_object_while_closing(kin):
     closing = [q for q in d.log[first:] if BLOCK + 0.5 < q.gripper < top - 0.5]
     assert len(closing) > 20
     for q in closing[:: max(1, len(closing) // 30)]:
-        p, (mx, my) = kin.fk(q), kin.moving_jaw_dir(q)
-        center = (p.x_mm - 300) * mx + (p.y_mm - 210) * my + gap_of(q.gripper) / 2
-        across = (p.x_mm - 300) * -my + (p.y_mm - 210) * mx
-        assert center == pytest.approx(0, abs=4)
-        assert across == pytest.approx(0, abs=4)
+        (cx, cy), low = tips_mid_and_low(kin, q)
+        assert (cx, cy) == pytest.approx((300, 210), abs=5)
+        assert low == pytest.approx(CFG.grasp_height_mm, abs=6)
+
+
+def test_hand_tilts_when_open_and_straightens_while_closing(kin):
+    d, r = run_pick(kin)
+    assert r.status == "ok"
+    top = max(q.gripper for q in d.log)
+    i_open = max(i for i, q in enumerate(d.log) if q.gripper == top)
+    opened = d.log[i_open]
+    assert kin.fk(opened).pitch_deg == pytest.approx(-90 - CFG.grasp_tilt_deg, abs=4)  # 벌린 상태: 가동 턱 반대쪽으로 기울임
+    at_contact = next(q for q in d.log[i_open:] if q.gripper <= BLOCK + 1.0)
+    assert abs(kin.fk(at_contact).pitch_deg + 90) < abs(kin.fk(opened).pitch_deg + 90) - 5  # 닫을수록 기울기가 줄어든다
+
+
+def test_no_tilt_when_the_jaw_axis_is_sideways(kin):
+    d, _r = run_pick(kin, angle=90)  # 턱이 좌우로 벌어짐: 5축 팔은 옆으로 기울일 수 없다
+    top = max(q.gripper for q in d.log)
+    opened = d.log[max(i for i, q in enumerate(d.log) if q.gripper == top)]
+    assert kin.fk(opened).pitch_deg == pytest.approx(-90, abs=2)
 
 
 def test_open_gap_is_the_configured_maximum(kin):
@@ -104,7 +127,8 @@ def test_jaw_axis_follows_the_object_angle(kin):
 def test_pick_returns_to_hover_for_every_angle(kin, angle):
     d, r = run_pick(kin, x=300, y=200, angle=angle)
     assert r.status == "ok"
-    assert kin.fk(d.log[-1]).z_mm == pytest.approx(CFG.grasp_height_mm + CFG.approach_height_mm, abs=3)
+    low = min(kin.fk(q).z_mm for q in d.log)
+    assert kin.fk(d.log[-1]).z_mm >= low + CFG.approach_height_mm - 6  # 접촉한 자리에서 접근 높이만큼 올라온다
 
 
 def test_known_width_with_fit_policy_opens_only_as_much_as_needed(kin):

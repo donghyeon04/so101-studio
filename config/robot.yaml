@@ -17,6 +17,8 @@ grasp_height_mm: 15        # 미정: 시험 물체가 정해지면 확정
 gripper_margin_mm: 20
 grasp_bias_mm: 0           # 턱 중심 보정의 미세 조정(가동 턱 쪽이 +, mm). URDF 기하로 계산한 위치가 실제와 다르면 작은 물체로 시험해서 정한다
 grasp_open_policy: max     # max: 물체 크기와 상관없이 최대로 벌려 틈의 중심을 물체에 맞춘 뒤 닫으며 손을 같이 보냄 | fit: 폭+여유만 벌림
+grasp_tilt_deg: 25         # 벌린 상태에서 손을 가동 턱 반대쪽으로 기울이는 최대 각도(두 턱 끝 높이가 같아지는 값까지). 닫을수록 풀린다. 0이면 기울이지 않음
+grasp_tilt_tol_deg: 15     # 턱 축이 팔이 뻗은 방향(앞뒤)에서 이만큼 안쪽일 때만 기울인다(5축 팔은 옆으로 기울일 수 없다)
 grasp_max_open_mm: 100     # 최대로 벌릴 틈(mm). 벌림 표(gripper_width_mm) 안에서
 contact_lag_units: 4       # 닫는 중 실제 그리퍼 값이 명령보다 이만큼 앞서 멈춰 있으면 물체에 닿은 것으로 본다
 gripper_squeeze_torque: 300  # 닫을 때 조임 힘 한계(0~1000). 얇은 물체가 미끄러져 빠지지 않게 낮춤
