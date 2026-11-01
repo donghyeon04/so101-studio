@@ -73,6 +73,7 @@ def main(argv=None) -> None:
     ap.add_argument("--jog-speed", type=float, default=20.0, help="keys: 관절 모드 이동 속도 (°/s)")
     ap.add_argument("--cart-speed", type=float, default=40.0, help="keys: 직교 조그 속도 (mm/s, 60 넘게도 가능)")
     ap.add_argument("--jog-write-s", type=float, default=0.0, help="keys: 조그 목표를 이 간격(초)마다 모아서 서보에 쓴다 (0 = 매 틱, 떨림 시험용)")
+    ap.add_argument("--hz", type=int, help="제어 주기 Hz를 이번만 바꿔 시험 (기본: 설정값 50). 서보 목표를 더 자주 보내 떨림이 줄어드는지 보는 용도")
     ap.add_argument("--trace", action="store_true", help="keys: 명령·실제 관절 위치를 빠르게 기록하고 떨림 요약 (runs/.../trace.csv)")
     ap.add_argument("--speeds", help="shaketest: 시험할 속도들(°/s, 쉼표로). 기본 20,60,200")
     ap.add_argument("command", choices=COMMANDS)
@@ -85,6 +86,7 @@ def main(argv=None) -> None:
         grasp_tilt_deg=cfg.grasp_tilt_deg if a.tilt is None else a.tilt,
         grasp_max_open_mm=cfg.grasp_max_open_mm if a.max_open is None else a.max_open,
         grasp_bias_mm=cfg.grasp_bias_mm if a.bias is None else a.bias,
+        control_hz=cfg.control_hz if a.hz is None else a.hz,
     )
     svc = ArmService(make_driver(a.sim, cfg), cfg, load_workspace(), a.speed or cfg.speed_pct_default)
     ok, msg = svc.connect()
