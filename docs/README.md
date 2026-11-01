@@ -42,3 +42,4 @@
 | `docs/decisions/0017-teach-with-torque-off.md` | 결정 | 대체됨(→ 0018) | 직접 교시는 토크를 끈 `record`가 기본, 추종 교시와 중력 보정은 기어 마찰 때문에 실험 기능으로만 둠 |
 | `docs/decisions/0018-teach-torque-off-reference-flow.md` | 결정 | 확정 | 직접 교시는 레퍼런스의 토크 끈 흐름(홈 이동, 잡기 확인, 카운트다운, 20Hz, 90초, 실제 시각 저장), 추종 교시 코드 제거 |
 | `docs/decisions/0019-record-segments-and-parameters.md` | 결정 | 확정 | 기록 주기·최대 시간·구간 기준을 설정과 파라미터로, 기록에 속도 요약 저장, 구간별 속도 배율 재생(GUI용 record_info/segment_speeds) |
+| `docs/decisions/0020-arm-phase1-freeze.md` | 결정 | 확정 | 팔 1차 완료 = API 동결, 하드웨어 실측·전원·그리퍼는 시뮬레이션·GUI와 병행 |
