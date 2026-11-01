@@ -2,7 +2,7 @@
 1) 정지 자세 18곳에서 부하(Present_Load, 부호 있음)를 평균한다. 2) 교시용 P 계수에서 위치 오차 1°당 부하(s)를 잰다(작은 계단 입력).
 3) 관절별로 부하 = k x 중력토크 + b 를 구해 config/gravity.json에 저장한다. 팔이 작업대 위 안전 범위 안에서 천천히(30%) 움직인다."""
 import time
-from dataclasses import replace
+from dataclasses import astuple, replace
 
 import numpy as np
 
@@ -69,9 +69,15 @@ def _gravcal(svc, out) -> dict | None:
                 out(f"[{i + 1}/{len(POSES)}] 이동 실패 {r.status}")
                 continue
             time.sleep(SETTLE_S)
+            if not drv.torque_enabled():  # 전원이 순간 끊기는 등으로 토크가 풀리면 더 진행하지 않는다
+                out(f"[{i + 1}/{len(POSES)}] 토크가 꺼졌습니다. 중단합니다. 팔을 받치고 전원·케이블을 확인하세요.")
+                break
             q, ld = drv.read_joints(), mean_loads(svc)
             taus.append(g.torques(q))
             loads.append(ld)
+            with (svc.logger.dir / "gravcal.csv").open("a", encoding="utf-8") as f:  # 도중에 끊겨도 잰 값은 남긴다
+                f.write(",".join(f"{v:.3f}" for v in [*astuple(q), *taus[-1], *[ld[j] for j in gravity.GRAVITY_JOINTS]]) + "
+")
             out(f"[{i + 1}/{len(POSES)}] 자세 {POSES[i]}  부하 " + " ".join(f"{j[:5]} {ld[j]:+.0f}" for j in gravity.GRAVITY_JOINTS))
             if i in SLOPE_POSES:
                 drv.set_p({j: p_teach[j] for j in gravity.GRAVITY_JOINTS})
