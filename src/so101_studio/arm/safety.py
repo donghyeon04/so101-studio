@@ -1,7 +1,7 @@
 """안전 검사 (arm-software-spec.md 6.5). 명령을 보내기 전에 검사하고, 하나라도 어기면 보내지 않는다."""
-from dataclasses import astuple
+from dataclasses import asdict
 
-import numpy as np
+from lerobot.robots.utils import ensure_safe_goal_position
 
 from ..core.config import WorkspaceConfig
 from ..core.types import JointState
@@ -37,9 +37,10 @@ class Safety:
         return reason
 
     def check_step(self, prev: JointState, nxt: JointState) -> str | None:
-        if np.abs(np.array(astuple(nxt)) - np.array(astuple(prev))).max() > self.max_step_deg:
-            return "step"
-        return None
+        """한 주기 이동량 상한. LeRobot의 ensure_safe_goal_position(max_relative_target과 같은 함수)으로 잘라 보고, 잘렸으면 거부한다."""
+        goal, present = asdict(nxt), asdict(prev)
+        safe = ensure_safe_goal_position({j: (goal[j], present[j]) for j in goal}, float(self.max_step_deg))
+        return "step" if any(abs(safe[j] - goal[j]) > 1e-6 for j in goal) else None
 
 
 class HealthMonitor:

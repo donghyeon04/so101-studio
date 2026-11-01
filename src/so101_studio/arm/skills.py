@@ -56,27 +56,23 @@ class Skills:
     def park(self) -> MotionResult:
         return self._run([self._joint_move(JointState(*self.cfg.poses["park"]))])
 
-    def _jaw_dir(self, yaw_deg: float) -> tuple[float, float]:
-        """턱이 벌어지는 축의 방향 (작업대 좌표계). kinematics._rotation의 턱 축과 같다."""
-        y = math.radians(yaw_deg)
-        return -math.sin(y), math.cos(y)
-
     def pick(self, obj: DetectedObject) -> MotionResult:
-        """고정 턱 1개 + 가동 턱 1개라서 닫으면 물체가 고정 턱 쪽으로 밀린다. 그래서
-        (1) 턱 중심이 물체에 오도록 목표를 grasp_center_offset_mm만큼 옮기고 (NVIDIA 포럼의 grasp_center 방식),
-        (2) 닫기 직전에 손을 가동 턱 쪽으로 (여유 폭의 절반)만큼 밀어 고정 턱이 물체에 닿게 한 뒤 가동 턱을 닫는다 (F1 Hand의 '닫으며 중심 쪽으로 이동')."""
-        yaw = obj.angle_deg or 0.0  # 턱이 벌어지는 방향이 긴 변에 수직이 되도록: tool yaw = 물체 각도 (spec 6.6의 +90°와 같은 뜻)
-        jx, jy = self._jaw_dir(yaw)
-        off = self.cfg.grasp_center_offset_mm
-        grasp = ToolPose(obj.x_mm - off * jx, obj.y_mm - off * jy, self.cfg.grasp_height_mm, yaw)
-        s = self.cfg.moving_jaw_sign * self.cfg.gripper_margin_mm / 2
-        touch = replace(grasp, x_mm=grasp.x_mm + s * jx, y_mm=grasp.y_mm + s * jy)
-        hover = replace(touch, z_mm=grasp.z_mm + self.cfg.approach_height_mm)
-        hover_above = replace(grasp, z_mm=hover.z_mm)
-        q_hover = self._ik(hover_above)
+        """고정 턱 1개 + 가동 턱 1개라서 닫으면 물체가 고정 턱 쪽으로 밀린다. URDF 기하로 보면 FK 기준점(gripper_frame)은
+        고정 턱 안쪽 면 위에 있고 가동 턱은 방향 m=(cos yaw, sin yaw) 쪽이다. 그래서
+        (1) 턱을 폭+여유로 열고 턱 중심이 물체에 오도록 목표를 (벌림/2)만큼 -m 쪽으로 옮겨 내려가고 (NVIDIA 포럼의 grasp_center 방식),
+        (2) 닫기 직전에 손을 +m 쪽으로 여유/2만큼 밀어 고정 턱 면을 물체 면에 붙인 뒤 가동 턱만 닫는다 (F1 Hand '닫으며 중심 쪽으로 이동', 고정 턱 기준)."""
+        yaw = (obj.angle_deg or 0.0) + 90.0  # 턱 축이 물체 긴 변에 수직이 되도록 (spec 6.6: 물체 각도 + 90°)
+        m = (math.cos(math.radians(yaw)), math.sin(math.radians(yaw)))
+        gap = obj.width_mm + self.cfg.gripper_margin_mm
+        shift = -gap / 2 + self.cfg.grasp_bias_mm  # 턱 중심이 물체 중심에 오도록
+        grasp = ToolPose(obj.x_mm + shift * m[0], obj.y_mm + shift * m[1], self.cfg.grasp_height_mm, yaw)
+        nudge_mm = self.cfg.gripper_margin_mm / 2
+        touch = replace(grasp, x_mm=grasp.x_mm + nudge_mm * m[0], y_mm=grasp.y_mm + nudge_mm * m[1])
+        hover = replace(grasp, z_mm=grasp.z_mm + self.cfg.approach_height_mm)
+        q_hover = self._ik(hover)
         if q_hover is None:
             return MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0))
-        q_open = replace(q_hover, gripper=self.gripper_for_width(obj.width_mm + self.cfg.gripper_margin_mm))
+        q_open = replace(q_hover, gripper=self.gripper_for_width(gap))
         q_down = self.kin.ik(grasp, q_open)
         down = self._line(q_open, grasp) if q_down is not None else None
         if down is None:
@@ -87,13 +83,12 @@ class Skills:
         r = self._run([self._gripper(q_open.gripper), down])  # 2. 열기 3. 하강
         if r.status != "ok":
             return r
-        if s:  # 4. 고정 턱이 물체에 닿도록 손을 가동 턱 쪽으로 민다
-            nudge = self._line(self._q(), touch)
-            if nudge is None:
-                return MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0))
-            r = self._run([nudge])
-            if r.status != "ok":
-                return r
+        nudge = self._line(self._q(), touch)  # 4. 고정 턱 면이 물체에 닿도록 +m 쪽으로
+        if nudge is None:
+            return MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0))
+        r = self._run([nudge])
+        if r.status != "ok":
+            return r
         r = self._run([self._gripper(self.cfg.joint_limits_deg["gripper"][0])])  # 5. 닫기
         if r.status != "ok":
             return r

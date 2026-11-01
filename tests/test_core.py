@@ -50,7 +50,9 @@ def test_load_configs():
 def test_unknown_key_is_rejected(tmp_path):
     f = tmp_path / "robot.yaml"
     f.write_text("port: COM3\ncalibration_id: x\nurdf: y\nprot: typo\n")
-    with pytest.raises(TypeError):
+    from draccus.utils import DecodingError
+
+    with pytest.raises(DecodingError):
         load_robot(f)
 
 

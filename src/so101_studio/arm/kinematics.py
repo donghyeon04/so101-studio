@@ -1,7 +1,8 @@
 """기구학: LeRobot RobotKinematics(placo) 래퍼 (arm-software-spec.md 6.2).
 
 ToolPose는 작업대 좌표계(mm, 도). 로봇 원점은 작업대 면 위(z=0)에 있다고 본다.
-pitch는 도구 축(gripper z축)의 수평면 기준 각도(-90 = 수직 하강), yaw는 턱이 벌어지는 축의 방향이다.
+pitch는 도구 축(gripper z축)의 수평면 기준 각도(-90 = 수직 하강), yaw는 가동 턱 쪽을 향하는 턱 축의 방향각이다
+(URDF 기하로 확인: 고정 턱 안쪽 면이 gripper_frame 점이고, 턱은 도구 프레임 x축을 따라 벌어지며 가동 턱은 -x 쪽이다 → moving_jaw_dir = (cos yaw, sin yaw)).
 shortcut: wrist_roll을 yaw로 읽으므로 yaw는 pitch가 -90에 가까울 때만 의미가 있다. 기울여 집기가 필요하면 확장.
 """
 import math
@@ -38,8 +39,16 @@ class Kinematics:
         x -= PAN_AXIS_X_MM
         R = T[:3, :3] @ self._C.T
         pitch = math.degrees(math.asin(max(-1.0, min(1.0, R[2, 2]))))
-        yaw = math.degrees(math.atan2(-R[0, 1], R[1, 1]))
+        yaw = math.degrees(math.atan2(-R[0, 1], R[1, 1]))  # 도구 y축에서 구한 값. 수직 하강이면 턱 축(-x)의 방향각과 같다
         return frames.tool_robot_to_table(ToolPose(x, y, z, yaw, pitch), self.base)
+
+    def moving_jaw_dir(self, q: JointState) -> tuple[float, float]:
+        """고정 턱에서 가동 턱으로 향하는 방향(작업대 좌표계, 수평 성분의 단위 벡터)."""
+        v = -(self._k.forward_kinematics(np.array([getattr(q, j) for j in ARM_JOINTS], float))[:3, :3] @ self._C.T)[:, 0]
+        c, s = math.cos(math.radians(self.base.yaw_deg)), math.sin(math.radians(self.base.yaw_deg))
+        x, y = c * v[0] - s * v[1], s * v[0] + c * v[1]
+        n = math.hypot(x, y)
+        return x / n, y / n
 
     def ik(self, pose: ToolPose, seed: JointState, tol_mm: float = 2.0, max_iter: int = 30,
            orientation_weight: float = 0.1) -> JointState | None:

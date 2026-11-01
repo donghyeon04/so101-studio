@@ -1,14 +1,16 @@
-"""config/*.yaml 읽기. 알 수 없는 키는 오류로 막는다(오타가 조용히 무시되지 않게)."""
+"""config/*.yaml 읽기 (draccus, LeRobot과 같은 방식)."""
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import yaml
+import draccus
 
 from .frames import Pose2D
 
 
-def _load(path: str | Path) -> dict:
-    return yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+def _load(cls, path: str | Path):
+    """LeRobot과 같은 draccus로 읽는다. 알 수 없는 키는 DecodingError."""
+    with Path(path).open(encoding="utf-8") as f:
+        return draccus.load(cls, f)
 
 
 @dataclass
@@ -26,8 +28,7 @@ class RobotConfig:
     grasp_height_mm: float = 15
     gripper_margin_mm: float = 20
     place_height_mm: float = 30
-    grasp_center_offset_mm: float = 0.0
-    moving_jaw_sign: int = 1
+    grasp_bias_mm: float = 0.0
     gripper_open: float = 60
     gripper_width_mm: list[list[float]] = field(default_factory=lambda: [[0, 0], [100, 90]])
     a_max_deg_s2: float = 120
@@ -49,8 +50,8 @@ class WorkspaceConfig:
 
 
 def load_robot(path: str | Path = "config/robot.yaml") -> RobotConfig:
-    return RobotConfig(**_load(path))
+    return _load(RobotConfig, path)
 
 
 def load_workspace(path: str | Path = "config/workspace.yaml") -> WorkspaceConfig:
-    return WorkspaceConfig(**_load(path))
+    return _load(WorkspaceConfig, path)

@@ -72,39 +72,58 @@ def test_gripper_for_width_is_clamped_and_monotonic(kin):
     assert sk.gripper_for_width(500) == CFG.joint_limits_deg["gripper"][1]
 
 
-def lowest_xy(d, kin):
-    z = [kin.fk(q) for q in d.log]
-    low = min(z, key=lambda p: p.z_mm)
-    return low.x_mm, low.y_mm
-
-
 def run_pick(kin, **cfg_kw):
     from dataclasses import replace
 
     d = Recorder(CFG.poses["home"])
     cfg = replace(CFG, **cfg_kw)
     ctl = MotionController(d, kin, Safety(CFG.joint_limits_deg, WS, kin), CFG.control_hz)
-    r = Skills(ctl, kin, cfg, WS, speed_pct=100).pick(obj(x=300, y=210, angle=0))
+    r = Skills(ctl, kin, cfg, WS, speed_pct=100).pick(obj(x=300, y=210, angle=0, width=30))
     ctl.close()
     assert r.status == "ok"
     return d
 
 
-def test_grasp_center_offset_shifts_the_target_along_the_jaw_axis(kin):
-    # angle 0 -> tool yaw 0 -> 턱 축은 작업대 +y. offset 10이면 목표는 물체에서 -10mm(y)
-    base = lowest_xy(run_pick(kin, grasp_center_offset_mm=0, moving_jaw_sign=1, gripper_margin_mm=0), kin)
-    shifted = lowest_xy(run_pick(kin, grasp_center_offset_mm=10, moving_jaw_sign=1, gripper_margin_mm=0), kin)
-    assert shifted[1] - base[1] == pytest.approx(-10, abs=2.5)
-    assert shifted[0] - base[0] == pytest.approx(0, abs=2.5)
+def at_lowest(d, kin):
+    q = min(d.log, key=lambda q: kin.fk(q).z_mm)
+    return q, kin.fk(q)
 
 
-def test_nudge_toward_moving_jaw_before_closing(kin):
-    # 여유 폭 20mm -> 닫기 직전에 가동 턱 쪽으로 10mm. sign에 따라 방향이 바뀐다
-    def y_at_close_start(d):
-        top = max(q.gripper for q in d.log)
-        last_open = max(i for i, q in enumerate(d.log) if q.gripper == top)  # 열린 상태의 마지막 샘플 = 닫기 시작
-        return kin.fk(d.log[last_open]).y_mm
+def test_jaws_open_perpendicular_to_the_long_axis(kin):
+    # 물체 각도 0(긴 변이 작업대 x축)이면 턱은 작업대 y축을 따라 벌어져야 한다 (가동 턱 쪽 = +y)
+    d = run_pick(kin)
+    q, _ = at_lowest(d, kin)
+    mx, my = kin.moving_jaw_dir(q)
+    assert (mx, my) == pytest.approx((0, 1), abs=0.1)
 
-    plus = y_at_close_start(run_pick(kin, moving_jaw_sign=1, gripper_margin_mm=20))
-    minus = y_at_close_start(run_pick(kin, moving_jaw_sign=-1, gripper_margin_mm=20))
-    assert plus - minus == pytest.approx(20, abs=4)
+
+def test_jaw_axis_follows_the_object_angle(kin):
+    import math
+
+    d = Recorder(CFG.poses["home"])
+    ctl = MotionController(d, kin, Safety(CFG.joint_limits_deg, WS, kin), CFG.control_hz)
+    r = Skills(ctl, kin, CFG, WS, speed_pct=100).pick(obj(x=300, y=210, angle=45, width=30))
+    ctl.close()
+    assert r.status == "ok"
+    q, _ = at_lowest(d, kin)
+    mx, my = kin.moving_jaw_dir(q)
+    assert (mx, my) == pytest.approx((math.cos(math.radians(135)), math.sin(math.radians(135))), abs=0.1)
+
+
+def test_fixed_jaw_face_ends_at_the_object_edge(kin):
+    # FK 기준점 = 고정 턱 안쪽 면. 닫기 직전에는 그 면이 물체의 고정 턱 쪽 모서리(물체 중심에서 폭/2 만큼 -m 쪽)에 와야 한다
+    d = run_pick(kin, gripper_margin_mm=20)
+    top = max(q.gripper for q in d.log)
+    last_open = max(i for i, q in enumerate(d.log) if q.gripper == top)  # 열린 상태의 마지막 샘플 = 닫기 시작
+    p = kin.fk(d.log[last_open])
+    mx, my = kin.moving_jaw_dir(d.log[last_open])
+    along = (p.x_mm - 300) * mx + (p.y_mm - 210) * my  # 물체 중심 기준 m 방향 좌표
+    assert along == pytest.approx(-15, abs=3)  # 폭 30 / 2
+    across = (p.x_mm - 300) * -my + (p.y_mm - 210) * mx
+    assert across == pytest.approx(0, abs=3)
+
+
+def test_grasp_bias_shifts_toward_the_moving_jaw(kin):
+    a = at_lowest(run_pick(kin, grasp_bias_mm=0), kin)[1]
+    b = at_lowest(run_pick(kin, grasp_bias_mm=6), kin)[1]
+    assert b.y_mm - a.y_mm == pytest.approx(6, abs=2)
