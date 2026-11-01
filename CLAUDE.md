@@ -22,7 +22,7 @@ SO-101(SO-ARM101) 로봇 암 프로젝트. 문서 색인은 `docs/README.md`에 
 - 환경: conda env `so101`(Python 3.12). 먼저 `conda activate so101`로 활성화한다. 활성화 없이 env의 python.exe를 바로 부르면 numpy 행렬곱에서 아무 메시지 없이 종료(exit 127)된다(MKL DLL 경로). Git Bash에서는 `export PATH="/c/Users/c/miniforge3/envs/so101/Library/bin:/c/Users/c/miniforge3/envs/so101:$PATH"`.
 - numpy는 conda 설치본(MKL, placo와 맞춤)이다. `pip install`로 numpy를 다시 설치하지 않는다.
 - 테스트: `python -m pytest -q` (레포 루트에서). 린트: `python -m ruff check src tests`.
-- 실행: `python -m so101_studio [--sim] [--speed N] status|home|park|movej|goto|pick|place|gripper|run`. 자동 작업은 `run --source manual [--step]` (`config/manual_objects.yaml`의 물체를 가까운 순으로 집어 `workspace.yaml`의 배출 구역으로 옮긴다).
+- 실행: `python -m so101_studio [--sim] [--speed N] status|home|park|movej|goto|pick|place|gripper|run|jog|record|replay|seq`. 모든 명령은 `service/arm_service.py`의 `ArmService`를 거치고 `runs/날짜-시각/`에 `events.jsonl`, `status.csv`를 남긴다. `jog`는 키보드 원격 조종(`--cartesian`으로 직교), `record <이름>`은 토크를 끄고 손으로 가르친 동작을 `config/sequences/`에 저장, `replay <이름>`·`seq <이름>`은 재생. 자동 작업은 `run --source manual [--step]` (`config/manual_objects.yaml`의 물체를 가까운 순으로 집어 `workspace.yaml`의 배출 구역으로 옮긴다).
 - 코드가 더 생기면 실행 명령을 이 절에 추가한다.
 
 ## 문서 규칙

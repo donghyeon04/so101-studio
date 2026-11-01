@@ -1,178 +1,122 @@
-"""CLI (arm-software-spec.md 9절). status, home, park, movej."""
+"""CLI (arm-software-spec.md 9절). 모든 명령은 ArmService를 거친다."""
 import argparse
+import sys
 from dataclasses import asdict, replace
 
 from ..arm.driver import ArmDriver
-from ..arm.motion import MotionController
-from ..arm.safety import Safety
 from ..arm.sim_driver import SimDriver
-from ..arm.skills import Skills
-from ..arm.trajectory import cfg_move_j, cfg_move_l
 from ..core.config import load_robot, load_workspace
 from ..core.types import DetectedObject, JointState, ToolPose
+from ..service.arm_service import ArmService, plan_goto  # noqa: F401  plan_goto는 테스트가 이 경로로도 쓴다
+
+COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "jog", "record", "replay", "seq"]
 
 
 def make_driver(sim: bool, cfg):
     return SimDriver(cfg.poses.get("home")) if sim else ArmDriver(cfg.pid, cfg.joint_offsets_deg, cfg.servo_acceleration)
 
 
-def status(driver, cfg) -> str:
-    q, h = asdict(driver.read_joints()), driver.read_health()
+def status_text(st) -> str:
+    q = asdict(st.joints)
     lines = [f"{'joint':14s} {'pos':>8s} {'temp C':>7s} {'load %':>7s}"]
-    lines += [f"{j:14s} {q[j]:8.1f} {h['temperature_c'][j]:7.0f} {h['load_pct'][j]:7.1f}" for j in q]
-    lines.append(f"voltage {h['voltage_v']:.1f} V  torque {'on' if driver.torque_enabled() else 'off'}")
+    lines += [f"{j:14s} {q[j]:8.1f} {st.temperature_c.get(j, 0):7.0f} {st.load_pct.get(j, 0):7.1f}" for j in q]
+    lines.append(f"voltage {st.voltage_v:.1f} V  torque {'on' if st.torque_enabled else 'off'}")
     return "\n".join(lines)
 
 
-def plan_goto(kin, cfg, q0: JointState, goal: ToolPose, speed_pct: float):
-    """직선(MoveL)으로 못 가면 목표 위 approach_height_mm 지점으로 MoveJ한 뒤 수직으로 내려간다(pick과 같은 순서)."""
-    traj = cfg_move_l(cfg, kin, kin.fk(q0), goal, q0, speed_pct)
-    if traj is not None:
-        return [traj]
-    hover = replace(goal, z_mm=goal.z_mm + cfg.approach_height_mm)
-    q_hover = kin.ik(hover, q0)
-    if q_hover is None:
-        return None
-    down = cfg_move_l(cfg, kin, hover, goal, q_hover, speed_pct)
-    if down is None:
-        return None
-    return [cfg_move_j(cfg, q0, q_hover, speed_pct), down]
+def fmt(r) -> str:
+    err = "-" if r.position_error_mm is None else f"{r.position_error_mm:.1f} mm"
+    return f"{r.status}  {r.duration_s:.2f} s  끝점 오차 {err}"
 
 
-def run_skill(driver, cfg, a) -> str:
-    from ..arm.kinematics import Kinematics
-
-    ws = load_workspace()
-    kin = Kinematics(cfg.urdf, ws.base)
-    ctl = MotionController(driver, kin, Safety(cfg.joint_limits_deg, ws, kin, z_floor_mm=cfg.tip_floor_mm, table_z_mm=cfg.table_z_mm), cfg.control_hz)
-    cfg = replace(cfg, grasp_bias_mm=cfg.grasp_bias_mm if a.bias is None else a.bias,
-                  gripper_margin_mm=cfg.gripper_margin_mm if a.margin is None else a.margin,
-                  grasp_max_open_mm=cfg.grasp_max_open_mm if a.max_open is None else a.max_open,
-                  grasp_tilt_deg=cfg.grasp_tilt_deg if a.tilt is None else a.tilt)
-    sk = Skills(ctl, kin, cfg, ws, a.speed or cfg.speed_pct_default)
-    try:
-        driver.set_torque(True)
-        if a.command == "pick":
-            x, y, angle, width = a.values
-            r = sk.pick(DetectedObject("cli", x, y, angle, width, width, 1.0, "manual"))
-            if r.status == "ok" and a.place:
-                r = sk.place(a.place)
-        else:
-            r = sk.place(a.place)
-        return f"{r.status}  마지막 동작 {r.duration_s:.2f} s"
-    finally:
-        ctl.close()
-
-
-def open_gripper(driver, cfg, value: float, as_width: bool, speed_pct: float) -> str:
-    """그리퍼만 움직인다. 벌림 폭(mm)을 눈으로 확인하는 데 쓴다 (예: 카드 폭 54mm)."""
-    import numpy as np
-
-    pts = sorted((mm, v) for v, mm in cfg.gripper_width_mm)
-    v = float(np.interp(value, [p[0] for p in pts], [p[1] for p in pts])) if as_width else value
-    lo, hi = cfg.joint_limits_deg["gripper"]
-    v = min(max(v, lo), hi)
-    ctl = MotionController(driver, None, Safety(cfg.joint_limits_deg), cfg.control_hz)
-    try:
-        driver.set_torque(True)
-        q = driver.read_joints()
-        r = ctl.execute(cfg_move_j(cfg, q, replace(q, gripper=v), speed_pct)).wait()
-        return f"{r.status}  그리퍼 값 {v:.1f}"
-    finally:
-        ctl.close()
-
-
-def run_task(driver, cfg, a) -> str:
+def run_task(svc: ArmService, a) -> str:
     from ..perception.manual import ManualSource
     from ..service.studio import Studio
 
-    st = Studio(driver, cfg, load_workspace(), ManualSource(), a.speed or cfg.speed_pct_default, dry_run=a.dry_run)
+    st = Studio(svc, ManualSource(), dry_run=a.dry_run)
     st.bus.subscribe("task", lambda e: print(f"[{e.state}] {e.object_id or ''} {e.result or ''}".rstrip()))
     if a.step:
         st.task.wait_step = lambda: input("  (Enter: 다음 단계) ")
-    try:
-        driver.set_torque(True)
-        res = st.start(step_mode=a.step, blocking=True)
-        return f"끝: {res['end']}  옮긴 물체 {len(res['picked'])}개 {res['picked']}  실패 {res['failed']}  사이클 {res['cycles']}"
-    finally:
-        st.close()
+    svc.driver.set_torque(True)
+    res = st.start(step_mode=a.step, blocking=True)
+    return f"끝: {res['end']}  옮긴 물체 {len(res['picked'])}개 {res['picked']}  실패 {res['failed']}  사이클 {res['cycles']}"
 
 
-def move(driver, cfg, goal: JointState | ToolPose, speed_pct: float) -> str:
-    from ..arm.kinematics import Kinematics
+def run_jog(svc: ArmService, a) -> None:
+    import msvcrt
 
-    ws = load_workspace()
-    kin = Kinematics(cfg.urdf, ws.base)
-    ctl = MotionController(driver, kin, Safety(cfg.joint_limits_deg, ws, kin, z_floor_mm=cfg.tip_floor_mm, table_z_mm=cfg.table_z_mm), cfg.control_hz)
-    try:
-        q0 = driver.read_joints()
-        if isinstance(goal, ToolPose):
-            trajs = plan_goto(kin, cfg, q0, goal, speed_pct)
-            if trajs is None:
-                return "ik_fail  해가 없는 점이 있다 (움직이지 않음)"
-        else:
-            trajs = [cfg_move_j(cfg, q0, goal, speed_pct)]
-        driver.set_torque(True)  # 현재 위치를 목표로 쓴 뒤 켜므로 튀지 않는다
-        out = []
-        for traj in trajs:
-            r = ctl.execute(traj).wait()
-            err = "-" if r.position_error_mm is None else f"{r.position_error_mm:.1f} mm"
-            out.append(f"{r.status}  {r.duration_s:.2f} s (계획 {traj.duration_s:.2f} s)  끝점 오차 {err}")
-            if r.status != "ok":
-                break
-        return "\n".join(out)
-    finally:
-        ctl.close()
+    from ..arm.teleop import keyboard_loop
+
+    def get_key():
+        return msvcrt.getwch() if msvcrt.kbhit() else None
+
+    mode = "cartesian" if a.cartesian else "joint"
+    svc.driver.set_torque(True)
+    keyboard_loop(svc.ctl, mode, svc.ws.base.yaw_deg, 20.0 if mode == "joint" else 40.0, get_key)
 
 
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(prog="so101_studio")
     ap.add_argument("--sim", action="store_true", help="SimDriver로 실행")
+    ap.add_argument("--config", default="config/robot.yaml")
+    ap.add_argument("--speed", type=float, help="속도 %% (기본: 설정값)")
     ap.add_argument("--place", help="pick 뒤에 놓을 배출 구역 이름 (place 명령은 필수)")
     ap.add_argument("--width", action="store_true", help="gripper: 값을 그리퍼 값이 아니라 벌림 폭(mm)으로 해석")
-    ap.add_argument("--margin", type=float, help="pick: gripper_margin_mm(물체 폭보다 더 벌리는 양)를 이번만 바꿔 시험")
-    ap.add_argument("--source", default="manual", help="run: 인식 방식 (지금은 manual)")
-    ap.add_argument("--dry-run", action="store_true", help="run: 물체 없이 동작만 (접촉이 없어도 성공으로 보고 이어간다)")
-    ap.add_argument("--step", action="store_true", help="run: 상태가 바뀔 때마다 Enter를 기다린다")
+    ap.add_argument("--margin", type=float, help="pick: gripper_margin_mm를 이번만 바꿔 시험")
     ap.add_argument("--tilt", type=float, help="pick: 최대 기울기(°)를 이번만 바꿔 시험 (0이면 기울이지 않음)")
     ap.add_argument("--max-open", type=float, help="pick: 최대로 벌릴 틈(mm)을 이번만 바꿔 시험")
     ap.add_argument("--bias", type=float, help="pick: grasp_bias_mm를 이번만 바꿔 시험 (가동 턱 쪽이 +)")
-    ap.add_argument("--config", default="config/robot.yaml")
-    ap.add_argument("--speed", type=float, help="속도 %% (기본: 설정값)")
-    ap.add_argument("command", choices=["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run"])
-    ap.add_argument("values", nargs="*", type=float, help="movej: 관절 6개 값(도, gripper 0~100) / goto: x y z yaw (작업대 좌표 mm, 도) / pick: x y 각도 폭")
+    ap.add_argument("--source", default="manual", help="run: 인식 방식 (지금은 manual)")
+    ap.add_argument("--dry-run", action="store_true", help="run: 물체 없이 동작만 (접촉이 없어도 성공으로 보고 이어간다)")
+    ap.add_argument("--step", action="store_true", help="run: 상태가 바뀔 때마다 Enter를 기다린다")
+    ap.add_argument("--cartesian", action="store_true", help="jog: 직교 모드(앞뒤·좌우·위아래)")
+    ap.add_argument("command", choices=COMMANDS)
+    ap.add_argument("values", nargs="*", help="movej: 관절 6개 / goto: x y z yaw / pick: x y 각도 폭(0이면 크기를 모름) / gripper: 값 / record·replay·seq: 이름")
     a = ap.parse_args(argv)
     cfg = load_robot(a.config)
-    driver = make_driver(a.sim, cfg)
-    driver.connect(cfg.port, cfg.calibration_id)
+    cfg = replace(
+        cfg,
+        gripper_margin_mm=cfg.gripper_margin_mm if a.margin is None else a.margin,
+        grasp_tilt_deg=cfg.grasp_tilt_deg if a.tilt is None else a.tilt,
+        grasp_max_open_mm=cfg.grasp_max_open_mm if a.max_open is None else a.max_open,
+        grasp_bias_mm=cfg.grasp_bias_mm if a.bias is None else a.bias,
+    )
+    svc = ArmService(make_driver(a.sim, cfg), cfg, load_workspace(), a.speed or cfg.speed_pct_default)
+    ok, msg = svc.connect()
+    if not ok:
+        sys.exit(f"연결 실패: {msg}")
     try:
-        if a.command == "status":
-            print(status(driver, cfg))
-            return
-        speed = a.speed or cfg.speed_pct_default
-        if a.command == "gripper":
-            if len(a.values) != 1:
-                ap.error("gripper: 값 1개(0~100, --width를 주면 벌림 mm)가 필요하다")
-            print(open_gripper(driver, cfg, a.values[0], a.width, speed))
-            return
-        if a.command == "run":
-            print(run_task(driver, cfg, a))
-            return
-        if a.command in ("pick", "place"):
-            if a.command == "pick" and len(a.values) != 4:
-                ap.error("pick: x y 각도 폭 4개가 필요하다 (작업대 좌표 mm, 도, mm)")
-            if a.command == "place" and not a.place:
-                ap.error("place: --place <구역 이름>이 필요하다")
-            print(run_skill(driver, cfg, a))
-            return
-        if a.command == "goto":
-            if len(a.values) != 4:
-                ap.error("goto: x y z yaw 4개가 필요하다")
-            print(move(driver, cfg, ToolPose(*a.values), speed))
-            return
-        vals = cfg.poses[a.command] if a.command in ("home", "park") else a.values
-        if len(vals) != 6:
-            ap.error("관절값 6개가 필요하다")
-        print(move(driver, cfg, JointState(*vals), speed))
+        c, v = a.command, a.values
+        nums = lambda n: [float(x) for x in v] if len(v) == n else ap.error(f"{c}: 값 {n}개가 필요하다")
+        if c == "status":
+            print(status_text(svc.status()))
+        elif c == "home":
+            print(fmt(svc.home()))
+        elif c == "park":
+            print(fmt(svc.park()))
+        elif c == "movej":
+            print(fmt(svc.move_joints(JointState(*nums(6)))))
+        elif c == "goto":
+            print(fmt(svc.move_tool(ToolPose(*nums(4)))))
+        elif c == "gripper":
+            print(fmt(svc.set_gripper(nums(1)[0], a.width)))
+        elif c == "pick":
+            x, y, angle, width = nums(4)
+            r = svc.pick_and_place(DetectedObject("cli", x, y, angle, width, width, 1.0, "manual"), a.place)
+            print(f"{r.status}  마지막 동작 {r.duration_s:.2f} s")
+        elif c == "place":
+            print(fmt(svc.place(a.place or ap.error("place: --place <구역 이름>이 필요하다"))))
+        elif c == "run":
+            print(run_task(svc, a))
+        elif c == "jog":
+            run_jog(svc, a)
+        elif c == "record":
+            name = v[0] if v else ap.error("record: 이름이 필요하다")
+            input("토크를 끄고 기록합니다. 팔을 손으로 받친 채 Enter를 누르면 시작합니다...")
+            svc.record_start()
+            input("손으로 움직이세요. 끝나면 Enter... ")
+            print("저장:", svc.record_stop(name))
+        elif c in ("replay", "seq"):
+            print(fmt(svc.replay(v[0] if v else ap.error(f"{c}: 이름이 필요하다"), a.speed / 100 if a.speed else 1.0)))
     finally:
-        driver.disconnect()
+        svc.disconnect()

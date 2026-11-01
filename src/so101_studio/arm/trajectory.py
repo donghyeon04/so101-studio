@@ -80,12 +80,15 @@ class RuckigShape:
 class RuckigTrajectory:
     """6관절을 Ruckig로 동시에 도착시키는 관절 궤적(모든 관절이 같은 시각에 끝난다)."""
 
-    def __init__(self, q0: np.ndarray, q1: np.ndarray, v_max: float, a_max: float, j_max: float):
+    def __init__(self, q0: np.ndarray, q1: np.ndarray, v_max: float, a_max: float, j_max: float,
+                 v0: np.ndarray | None = None):
         from ruckig import InputParameter, Ruckig, Trajectory
 
         n = len(q0)
         inp = InputParameter(n)
         inp.current_position, inp.target_position = q0.tolist(), q1.tolist()
+        if v0 is not None:  # 움직이는 중에 목표를 바꿀 때: 지금 속도에서 이어서 간다 (T11 retarget)
+            inp.current_velocity = np.clip(v0, -v_max, v_max).tolist()
         inp.max_velocity, inp.max_acceleration, inp.max_jerk = [v_max] * n, [a_max] * n, [j_max] * n
         self.q0, self.q1, self._traj = q0, q1, Trajectory(n)
         if Ruckig(n).calculate(inp, self._traj).value < 0:
@@ -176,3 +179,18 @@ def cfg_move_j(cfg, q0: JointState, q1: JointState, speed_pct: float):
 def cfg_move_l(cfg, kin, start, goal, seed: JointState, speed_pct: float):
     return move_l(kin, start, goal, seed, cfg.tool_v_max_mm_s * speed_pct / 100, cfg.tool_a_max_mm_s2,
                   profile=cfg.trajectory_profile, j_mm_s3=cfg.tool_jerk_max_mm_s3)
+
+
+class SequenceTrajectory:
+    """시간에 따라 기록된 관절 자세 목록(녹화·시연 동작)을 보간해 재생한다."""
+
+    def __init__(self, times: np.ndarray, poses: np.ndarray):
+        self.t, self.q, self.duration_s = np.asarray(times, float), np.asarray(poses, float), float(times[-1])
+
+    def sample(self, t: float) -> JointState:
+        t = min(max(t, 0.0), self.duration_s)
+        return _joint_state(np.array([np.interp(t, self.t, self.q[:, j]) for j in range(self.q.shape[1])]))
+
+    def velocity(self, t: float) -> np.ndarray:
+        dt = 0.05
+        return (np.array(astuple(self.sample(t + dt))) - np.array(astuple(self.sample(t - dt)))) / (min(t + dt, self.duration_s) - max(t - dt, 0.0) or 1.0)

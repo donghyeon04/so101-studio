@@ -72,6 +72,30 @@ class Kinematics:
         n = math.hypot(x, y)
         return x / n, y / n
 
+    def step(self, q: JointState, dx_mm: float, dy_mm: float, dz_mm: float, dyaw_deg: float = 0.0, tol_mm: float = 0.5) -> JointState | None:
+        """지금 자세의 방향을 유지한 채 끝을 (dx, dy, dz)(작업대 좌표계 mm)만큼 옮기고 수직축으로 dyaw만큼 돌린다(원격 조종용).
+        pitch·yaw로 방향을 다시 만들지 않으므로 손목이 돌아가 있어도(wrist_roll) 동작한다."""
+        arm = np.array([getattr(q, j) for j in ARM_JOINTS], float)
+        T = self._k.forward_kinematics(arm).copy()
+        c, s = math.cos(math.radians(self.base.yaw_deg)), math.sin(math.radians(self.base.yaw_deg))
+        d_robot = np.array([c * dx_mm + s * dy_mm, -s * dx_mm + c * dy_mm, dz_mm]) / 1000.0  # 작업대 -> 로봇 좌표
+        T[:3, 3] += d_robot
+        if dyaw_deg:
+            a = math.radians(dyaw_deg)
+            Rz = np.array([[math.cos(a), -math.sin(a), 0], [math.sin(a), math.cos(a), 0], [0, 0, 1]])
+            T[:3, :3] = Rz @ T[:3, :3]
+        cur = arm
+        for _ in range(8):
+            nxt = self._k.inverse_kinematics(cur, T, orientation_weight=0.1)[:5]
+            done = np.abs(nxt - cur).max() < 1e-3
+            cur = nxt
+            if done:
+                break
+        got = self._k.forward_kinematics(cur)[:3, 3]
+        if np.linalg.norm(got - T[:3, 3]) * 1000 > tol_mm:
+            return None
+        return JointState(*cur.tolist(), q.gripper)
+
     def ik(self, pose: ToolPose, seed: JointState, tol_mm: float = 3.0, max_iter: int = 30,
            orientation_weight: float = 0.1) -> JointState | None:
         r = frames.tool_table_to_robot(pose, self.base)

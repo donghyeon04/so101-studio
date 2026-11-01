@@ -1,5 +1,6 @@
 """동작 실행: 50Hz 스레드가 궤적을 샘플링해 장치에 쓴다 (arm-software-spec.md 6.4). 장치는 이 스레드만 쓴다."""
 import contextlib
+import math
 import threading
 import time
 from dataclasses import astuple, fields
@@ -11,6 +12,7 @@ from .safety import HealthMonitor, Safety
 
 JOINTS = [f.name for f in fields(JointState)]
 HEALTH_PERIOD_S = 0.5  # 온도·부하는 2Hz로만 읽는다 (spec 6.1)
+DEADMAN_S = 0.3  # 원격 조종 입력이 이만큼 끊기면 정지 (spec 6.5)
 
 
 class MotionHandle:
@@ -32,7 +34,9 @@ class MotionController:
         self.driver, self.kin, self.safety, self.dt = driver, kin, safety or Safety({}), 1.0 / hz
         self.health = HealthMonitor()
         self._next_health = 0.0
-        self.state = "idle"  # "idle" | "moving" | "stopped" | "fault"
+        self.state = "idle"  # "idle" | "moving" | "teleop" | "stopped" | "fault"
+        self.jog_joint_max, self.jog_tool_max = 40.0, 60.0  # 원격 조종 최대 속도 (deg/s, mm/s)
+        self._jog = None  # (mode, 속도 벡터, 마지막 입력 시각)
         self.fault: str | None = None
         self._job = None  # (traj, handle, t0, kind)
         self._lock = threading.Lock()
@@ -62,8 +66,46 @@ class MotionController:
             elif self.safety.check_path(traj):
                 handle._finish(self._result("out_of_bounds", now))
             else:
+                self._jog = None
                 self._last = traj.sample(0)  # 새 궤적은 실제 위치에서 시작한다. 서보가 뒤처져 있어도 'step' fault로 오인하지 않게 기준을 옮긴다
                 self._job, self.state = (traj, handle, now, "move"), "moving"
+        return handle
+
+    def sync(self) -> None:
+        """손으로 움직이는 등 명령 없이 팔이 움직인 뒤, 마지막 명령 위치를 실제 위치로 맞춘다."""
+        with self._lock:
+            self._last = self.driver.read_joints()
+
+    def jog(self, mode: str, velocity) -> bool:
+        """원격 조종 한 걸음 (spec 6.7). mode: "joint"(관절 6개 deg/s) 또는 "cartesian"(작업대 x, y, z mm/s, yaw deg/s).
+        입력이 DEADMAN_S 넘게 끊기면 멈춘다. 동작 중이거나 정지·fault 상태면 무시한다."""
+        with self._lock:
+            if self.state in ("stopped", "fault") or self._job is not None:
+                return False
+            self._jog, self.state = (mode, np.array(velocity, float), time.perf_counter()), "teleop"
+            return True
+
+    def retarget(self, goal: JointState, v_max: float, a_max: float, j_max: float) -> MotionHandle:
+        """진행 중인 동작을 지금 위치·속도에서 새 목표로 매끄럽게 교체한다 (T11). 이전 동작의 결과는 preempted."""
+        from .trajectory import RuckigTrajectory
+
+        handle, now = MotionHandle(), time.perf_counter()
+        with self._lock:
+            if self.state in ("stopped", "fault"):
+                handle._finish(MotionResult(self.state, 0.0, ToolPose(0, 0, 0, 0)))
+                return handle
+            v0, old = np.zeros(len(astuple(goal))), None
+            if self._job is not None:
+                old = self._job
+                v0 = np.array(old[0].velocity(now - old[2]), float)
+            new = RuckigTrajectory(np.array(astuple(self._last), float), np.array(astuple(goal), float), v_max, a_max, j_max, v0)
+            if self.safety.check_path(new):
+                handle._finish(self._result("out_of_bounds", now))
+                return handle
+            if old is not None:
+                old[1]._finish(self._result("preempted", old[2]))
+            self._jog = None
+            self._job, self.state = (new, handle, now, "move"), "moving"
         return handle
 
     def stop(self) -> None:
@@ -71,6 +113,9 @@ class MotionController:
         from .trajectory import StopTrajectory
 
         with self._lock:
+            self._jog = None
+            if self.state == "teleop":
+                self.state = "idle"
             if self._job is None:
                 return
             traj, handle, t0, kind = self._job
@@ -111,6 +156,8 @@ class MotionController:
                     self._check_health()
                     if self._job is not None:
                         self._tick()
+                    elif self._jog is not None:
+                        self._tick_jog()
                 except Exception:  # noqa: BLE001 통신 오류 등 어떤 실패든 0.5초 넘게 이어지면 fault
                     self._fault(self.health.comm_failed(time.perf_counter()))
             time.sleep(max(0.0, nxt - time.perf_counter()))
@@ -150,6 +197,35 @@ class MotionController:
             if self.state == "moving":
                 self.state = "idle"
             handle._finish(self._result("ok" if kind == "move" else "stopped", t0))
+
+    def _tick_jog(self) -> None:
+        mode, v, t_in = self._jog
+        if time.perf_counter() - t_in > DEADMAN_S:  # 데드맨: 입력이 끊기면 그 자리에서 멈춘다
+            self._jog, self.state = None, "idle"
+            return
+        last = self._last
+        if mode == "joint":
+            nxt = np.array(astuple(last), float) + np.clip(v, -self.jog_joint_max, self.jog_joint_max) * self.dt
+            for i, name in enumerate(JOINTS):
+                if name in self.safety.limits:
+                    lo, hi = self.safety.limits[name]
+                    nxt[i] = min(max(nxt[i], lo), hi)  # 한계에서 멈춘다
+            q = JointState(*nxt.tolist())
+        else:
+            vx, vy, vz, vyaw = (list(v) + [0.0] * 4)[:4]
+            speed = math.hypot(vx, vy, vz)
+            k = min(1.0, self.jog_tool_max / speed) if speed else 1.0
+            q = self.kin.step(last, vx * k * self.dt, vy * k * self.dt, vz * k * self.dt, vyaw * self.dt)
+            if q is None:
+                return
+        if self.safety.check_goal(q) or q == last:  # 작업 영역·한계 밖이면 움직이지 않는다
+            return
+        if self.safety.check_step(last, q):
+            self._fault("step")
+            return
+        self._last = q
+        self.driver.write_joints(q)
+        self.health.comm_ok()
 
     def close(self) -> None:
         self._quit.set()

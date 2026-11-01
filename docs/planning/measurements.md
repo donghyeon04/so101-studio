@@ -179,3 +179,9 @@ T6 대체 시험 (2026-11-01, 사용자 육안 확인 + 엔코더 값을 FK로 �
 - 영상(58.6초) 확인: 벌림 50mm는 좌우가 거의 대칭인 V자, 벌림 100mm는 손목 한계(35°) 때문에 고정 턱 약 12° / 가동 턱 약 40°로 아직 한쪽으로 치우쳐 보임. 닫을 때 표시 위에서 모이는 것은 이전과 같다. 사용자: '괜찮은 것 같다', 다음 단계로 진행.
 - 조치: 크기를 모를 때의 최대 벌림 기본값을 100mm에서 70mm로 낮춤(기울기 24°, 손목 한계 안). 약 60mm 폭까지 잡을 수 있다.
 - 남은 일: 실제 물체로 접촉 감지·집기 성공률(T7 기준), 작업대 면 높이(table_z_mm −25는 눈대중 추정) 실측, 큰 벌림 폭 표 확인.
+
+## T8 원격 조종 · T9 녹화·재생 · T11 retarget · T10 ArmService (2026-11-01)
+- T8 `arm/teleop.py`, `MotionController.jog`: 관절 모드(deg/s), 직교 모드(작업대 x, y, z mm/s, yaw deg/s, 현재 자세의 방향을 유지하고 끝만 이동). 입력이 0.3초 끊기면 정지(데드맨), 관절 한계·작업 영역 밖이면 그 자리에서 멈춤. 실제 팔: wrist_roll +20°/s 0.6초 입력 후 입력이 끊기자 0.3초 더 움직이고 멈춤(`idle`), 직교 앞쪽 25mm/s 0.8초 입력 → 끝이 24.6mm 이동(오차 z −0.8mm). 키보드 입력(`jog`)은 사용자 터미널에서 시험 필요.
+- T9 `arm/teach.py`: `record`(토크 끔, 20Hz 기록, 저장 시 토크 켜기) / `replay`·`seq`(이동평균 5표본, 첫 자세로 저속 MoveJ 후 시간에 맞춰 재생, 한계 밖이면 거부). 시뮬레이션 시험 통과. 손으로 가르치는 시험은 사용자와 해야 한다.
+- T11 `MotionController.retarget`: Ruckig로 지금 위치·속도에서 새 목표로 이어서 간다(이전 동작은 `preempted`). 시뮬레이션에서 한 주기 5° 이내(속도가 이어짐) 확인, 실제 팔: 이동 중 반대쪽으로 목표를 바꿈 → 이전 `preempted`, 새 동작 `ok`, 최종 위치 −24.6°(목표 −25°).
+- T10 `service/arm_service.py`: 설계서 6.9의 메서드(connect, disconnect, status_stream 10Hz, home, park, move_joints, move_tool, pick_and_place, jog, record_*, replay, run_sequence, retarget, stop, estop, set_speed)와 `runs/`의 `events.jsonl`·`status.csv`. CLI와 Studio가 모두 ArmService를 거친다. 시험 110개 통과.
