@@ -7,6 +7,7 @@ from dataclasses import astuple
 
 import numpy as np
 
+TREMOR_MIN_HZ = 6.0  # 이 주파수 이상만 떨림으로 본다 (제어 궤적의 모양은 보통 이보다 훨씬 느리다)
 NAMES = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
 
 
@@ -26,11 +27,12 @@ def analyze(t: np.ndarray, meas: np.ndarray, goal: np.ndarray, smooth_s: float =
             out.append({"joint": name, "samples": int(m.sum())})
             continue
         x = hp[m] - hp[m].mean()
-        spec = np.abs(np.fft.rfft(x * np.hanning(len(x))))
+        spec = np.fft.rfft(x)
         f = np.fft.rfftfreq(len(x), 1 / hz)
-        band = f > 2.0
-        out.append({"joint": name, "samples": int(m.sum()), "tremor_rms_deg": float(np.sqrt(np.mean(x**2))),
-                    "dominant_hz": float(f[band][np.argmax(spec[band])]), "track_err_max_deg": float(np.abs(meas[m, j] - goal[m, j]).max())})
+        band = f > TREMOR_MIN_HZ  # 동작 자체(느린 곡선)는 제외하고 빠른 흔들림 성분만 센다
+        fast = np.fft.irfft(np.where(band, spec, 0), n=len(x))
+        out.append({"joint": name, "samples": int(m.sum()), "tremor_rms_deg": float(np.sqrt(np.mean(fast**2))),
+                    "dominant_hz": float(f[band][np.argmax(np.abs(spec[band]))]), "track_err_max_deg": float(np.abs(meas[m, j] - goal[m, j]).max())})
     return out
 
 
