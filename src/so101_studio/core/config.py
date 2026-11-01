@@ -29,6 +29,10 @@ class RobotConfig:
     gripper_margin_mm: float = 20
     place_height_mm: float = 30
     grasp_bias_mm: float = 0.0
+    grasp_open_policy: str = "max"
+    grasp_max_open_mm: float = 100
+    contact_lag_units: float = 4.0
+    gripper_squeeze_torque: int = 300
     gripper_open: float = 60
     gripper_width_mm: list[list[float]] = field(default_factory=lambda: [[0, 0], [100, 90]])
     a_max_deg_s2: float = 120

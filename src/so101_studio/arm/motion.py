@@ -81,6 +81,12 @@ class MotionController:
             handle._finish(self._result("stopped", t0))
             self._job = (StopTrajectory(np.array(astuple(self._last)), v), MotionHandle(), now, "stop")
 
+    def wait_idle(self, timeout: float = 2.0) -> None:
+        """감속 정지가 끝날 때까지 기다린다(stop() 직후에는 감속 궤적이 아직 실행 중이다)."""
+        end = time.perf_counter() + timeout
+        while self._job is not None and time.perf_counter() < end:
+            time.sleep(0.01)
+
     def estop(self) -> None:
         """즉시 현재 위치 고정. 토크는 끄지 않는다(끄면 팔이 떨어짐)."""
         with self._lock:

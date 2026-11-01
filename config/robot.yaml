@@ -16,6 +16,10 @@ approach_height_mm: 40         # 수직 하강 자세로 닿는 높이가 최대
 grasp_height_mm: 15        # 미정: 시험 물체가 정해지면 확정
 gripper_margin_mm: 20
 grasp_bias_mm: 0           # 턱 중심 보정의 미세 조정(가동 턱 쪽이 +, mm). URDF 기하로 계산한 위치가 실제와 다르면 작은 물체로 시험해서 정한다
+grasp_open_policy: max     # max: 물체 크기와 상관없이 최대로 벌려 틈의 중심을 물체에 맞춘 뒤 닫으며 손을 같이 보냄 | fit: 폭+여유만 벌림
+grasp_max_open_mm: 100     # 최대로 벌릴 틈(mm). 벌림 표(gripper_width_mm) 안에서
+contact_lag_units: 4       # 닫는 중 실제 그리퍼 값이 명령보다 이만큼 앞서 멈춰 있으면 물체에 닿은 것으로 본다
+gripper_squeeze_torque: 300  # 닫을 때 조임 힘 한계(0~1000). 얇은 물체가 미끄러져 빠지지 않게 낮춤
 place_height_mm: 30        # 놓을 때 그리퍼 끝 높이
 gripper_open: 60           # 놓을 때 여는 정도(0~100)
 gripper_width_mm:          # [그리퍼 값, 턱 끝 벌림 mm]. URDF 메쉬 기하(관절 -10°~100°)에 카드 시험 2점(54mm가 값 32.0과 27.7에서 접촉)을 맞춰 값 0~100을 -10°~111°에 선형 대응시킨 계산값. 큰/작은 폭은 실측 전

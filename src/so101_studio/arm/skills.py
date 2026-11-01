@@ -1,11 +1,12 @@
 """기능: home, park, pick, place (arm-software-spec.md 6.6). 동작 계획은 MoveJ(관절 보간)와 MoveL(직선)의 조합이다."""
 import math
-from dataclasses import replace
+import time
+from dataclasses import astuple, replace
 
 import numpy as np
 
 from ..core.types import DetectedObject, JointState, MotionResult, ToolPose
-from .trajectory import cfg_move_j, cfg_move_l
+from .trajectory import LineTrajectory, QuinticShape, cfg_move_j, cfg_move_l
 
 SEEDS = [JointState(0, -30, 30, 60, 0, 0), JointState(0, -60, 60, 30, 0, 0), JointState(0, 0, 60, 30, 0, 0)]
 
@@ -64,43 +65,82 @@ class Skills:
             r -= math.copysign(180.0, r)
         return r + base
 
+    def _closing_path(self, q_start: JointState, grasp: ToolPose, m: tuple[float, float], gap0: float, gap_end: float):
+        """닫으면서 손을 가동 턱 쪽으로 같이 보내는 한 개의 경로. 틈이 d만큼 줄 때 손은 d/2만큼 간다.
+        그러면 틈의 중심이 물체 중심에 계속 머물러서, 닫는 동안 내내 가운데에 있는 물체를 양쪽에서 잡는 모양이 된다
+        (고정 턱은 +m 쪽으로 d/2, 가동 턱은 -m 쪽으로 d/2 다가온다)."""
+        length = (gap0 - gap_end) / 2
+        n = max(1, math.ceil(length / 3.0))
+        pts, q = [np.array(astuple(replace(q_start, gripper=self.gripper_for_width(gap0))), float)], q_start
+        for i in range(1, n + 1):
+            s = length * i / n
+            q = self.kin.ik(replace(grasp, x_mm=grasp.x_mm + s * m[0], y_mm=grasp.y_mm + s * m[1]), q)
+            if q is None:
+                return None
+            pts.append(np.array(astuple(replace(q, gripper=self.gripper_for_width(gap0 - 2 * s))), float))
+        return LineTrajectory(np.array(pts), QuinticShape(max(1.0, length / 8.0)))  # 손 8mm/s, 틈 16mm/s로 천천히
+
+    def _close_until_contact(self, traj) -> tuple[bool, MotionResult]:
+        """경로를 실행하다가 그리퍼가 명령보다 앞서 멈추면(물체에 닿음) 그 자리에서 정지한다."""
+        lo = self.cfg.joint_limits_deg["gripper"][0]
+        h, count, contact = self.ctl.execute(traj), 0, False
+        while h.result is None:
+            time.sleep(0.04)
+            lag = self._q().gripper - self.ctl._last.gripper  # 실제 - 명령. 닫는 중에 양수로 커지면 물체가 막고 있다
+            count = count + 1 if lag > self.cfg.contact_lag_units and self.ctl._last.gripper > lo + 1 else 0
+            if count >= 4:
+                contact = True
+                self.ctl.stop()
+                break
+        r = h.wait()
+        self.ctl.wait_idle()
+        return contact, r
+
     def pick(self, obj: DetectedObject) -> MotionResult:
         """고정 턱 1개 + 가동 턱 1개라서 닫으면 물체가 고정 턱 쪽으로 밀린다. URDF 기하로 보면 FK 기준점(gripper_frame)은
-        고정 턱 안쪽 면 위에 있고 가동 턱은 방향 m=(cos yaw, sin yaw) 쪽이다. 그래서
-        (1) 턱을 폭+여유로 열고 턱 중심이 물체에 오도록 목표를 (벌림/2)만큼 -m 쪽으로 옮겨 내려가고 (NVIDIA 포럼의 grasp_center 방식),
-        (2) 닫기 직전에 손을 +m 쪽으로 여유/2만큼 밀어 고정 턱 면을 물체 면에 붙인 뒤 가동 턱만 닫는다 (F1 Hand '닫으며 중심 쪽으로 이동', 고정 턱 기준)."""
+        고정 턱 안쪽 면 위에 있고 가동 턱은 방향 m=(cos yaw, sin yaw) 쪽이다. 그래서 (결정 0009, 0010)
+        (1) 틈을 벌리고(기본: 최대) 그 틈의 중심이 물체에 오도록 목표를 (벌림/2)만큼 -m 쪽으로 옮겨 내려간다 (NVIDIA 포럼의 grasp_center 방식),
+        (2) 닫을 때 틈이 d만큼 줄면 손을 +m 쪽으로 d/2만큼 같이 보내 중심을 유지하고(F1 Hand '닫으며 중심 쪽으로 이동'),
+        (3) 그리퍼가 명령보다 앞서 멈추면(접촉) 그 자리에서 정지한다. 물체 크기를 몰라도 된다."""
         yaw = self._jaw_yaw((obj.angle_deg or 0.0) + 90.0)  # 턱 축이 물체 긴 변에 수직이 되도록 (spec 6.6: 물체 각도 + 90°)
         m = (math.cos(math.radians(yaw)), math.sin(math.radians(yaw)))
-        gap = obj.width_mm + self.cfg.gripper_margin_mm
-        shift = -gap / 2 + self.cfg.grasp_bias_mm  # 턱 중심이 물체 중심에 오도록
+        known = obj.width_mm > 0
+        gap_min = min(mm for _, mm in self.cfg.gripper_width_mm)
+        gap0 = self.cfg.grasp_max_open_mm if self.cfg.grasp_open_policy == "max" or not known else obj.width_mm + self.cfg.gripper_margin_mm
+        gap_end = max(obj.width_mm - 10.0, gap_min) if known else gap_min  # 알면 폭보다 10mm 더 조이는 지점까지(접촉 감지에 필요한 명령 차이 4값 ≈ 6mm 이상), 모르면 끝까지
+        shift = -gap0 / 2 + self.cfg.grasp_bias_mm
         grasp = ToolPose(obj.x_mm + shift * m[0], obj.y_mm + shift * m[1], self.cfg.grasp_height_mm, yaw)
-        nudge_mm = self.cfg.gripper_margin_mm / 2
-        touch = replace(grasp, x_mm=grasp.x_mm + nudge_mm * m[0], y_mm=grasp.y_mm + nudge_mm * m[1])
         hover = replace(grasp, z_mm=grasp.z_mm + self.cfg.approach_height_mm)
+        fail = MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0))
         q_hover = self._ik(hover)
         if q_hover is None:
-            return MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0))
-        q_open = replace(q_hover, gripper=self.gripper_for_width(gap))
-        q_down = self.kin.ik(grasp, q_open)
-        down = self._line(q_open, grasp) if q_down is not None else None
+            return fail
+        q_open = replace(q_hover, gripper=self.gripper_for_width(gap0))
+        down = self._line(q_open, grasp) if self.kin.ik(grasp, q_open) is not None else None
         if down is None:
-            return MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0))
+            return fail
+        closing = self._closing_path(JointState(*down.pts[-1]), grasp, m, gap0, gap_end)
+        if closing is None:
+            return fail
         r = self._run([self._joint_move(q_hover)])  # 1. 접근 위치로
         if r.status != "ok":
             return r
         r = self._run([self._gripper(q_open.gripper), down])  # 2. 열기 3. 하강
         if r.status != "ok":
             return r
-        nudge = self._line(self._q(), touch)  # 4. 고정 턱 면이 물체에 닿도록 +m 쪽으로
-        if nudge is None:
-            return MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0))
-        r = self._run([nudge])
-        if r.status != "ok":
+        self.ctl.driver.set_gripper_torque_limit(self.cfg.gripper_squeeze_torque)  # 조임 힘을 낮춰 얇은 물체가 미끄러져 빠지지 않게
+        try:
+            contact, r = self._close_until_contact(closing)  # 4. 닫으며 손을 같이 보낸다
+        finally:
+            self.ctl.driver.set_gripper_torque_limit(500)
+        if r.status not in ("ok", "stopped"):
             return r
-        r = self._run([self._gripper(self.cfg.joint_limits_deg["gripper"][0])])  # 5. 닫기
-        if r.status != "ok":
-            return r
-        return self._run([down.reversed(self._q().gripper)])  # 6. 내려간 경로로 상승 (IK를 다시 풀지 않는다)
+        here = self.kin.fk(self._q())
+        up = self._line(self._q(), replace(here, z_mm=hover.z_mm))  # 5. 수직으로 상승
+        if up is None:
+            return fail
+        r = self._run([up])
+        return r if r.status != "ok" or contact else MotionResult("no_object", r.duration_s, r.final_tool)
 
     def place(self, zone: str) -> MotionResult:
         z = self.ws.drop_zones[zone]

@@ -46,7 +46,8 @@ def run_skill(driver, cfg, a) -> str:
     kin = Kinematics(cfg.urdf, ws.base)
     ctl = MotionController(driver, kin, Safety(cfg.joint_limits_deg, ws, kin), cfg.control_hz)
     cfg = replace(cfg, grasp_bias_mm=cfg.grasp_bias_mm if a.bias is None else a.bias,
-                  gripper_margin_mm=cfg.gripper_margin_mm if a.margin is None else a.margin)
+                  gripper_margin_mm=cfg.gripper_margin_mm if a.margin is None else a.margin,
+                  grasp_max_open_mm=cfg.grasp_max_open_mm if a.max_open is None else a.max_open)
     sk = Skills(ctl, kin, cfg, ws, a.speed or cfg.speed_pct_default)
     try:
         driver.set_torque(True)
@@ -113,6 +114,7 @@ def main(argv=None) -> None:
     ap.add_argument("--place", help="pick 뒤에 놓을 배출 구역 이름 (place 명령은 필수)")
     ap.add_argument("--width", action="store_true", help="gripper: 값을 그리퍼 값이 아니라 벌림 폭(mm)으로 해석")
     ap.add_argument("--margin", type=float, help="pick: gripper_margin_mm(물체 폭보다 더 벌리는 양)를 이번만 바꿔 시험")
+    ap.add_argument("--max-open", type=float, help="pick: 최대로 벌릴 틈(mm)을 이번만 바꿔 시험")
     ap.add_argument("--bias", type=float, help="pick: grasp_bias_mm를 이번만 바꿔 시험 (가동 턱 쪽이 +)")
     ap.add_argument("--config", default="config/robot.yaml")
     ap.add_argument("--speed", type=float, help="속도 %% (기본: 설정값)")

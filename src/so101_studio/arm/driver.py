@@ -82,6 +82,10 @@ class ArmDriver:
         return any(self._bus.read("Torque_Enable", m) for m in self._bus.motors)
 
     @_locked
+    def set_gripper_torque_limit(self, value: int) -> None:
+        self._bus.write("Max_Torque_Limit", "gripper", int(value))
+
+    @_locked
     def set_torque(self, on: bool) -> None:
         if on:
             self._bus.sync_write("Goal_Position", self._bus.sync_read("Present_Position"))  # 켜는 순간 튀지 않게
