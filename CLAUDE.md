@@ -19,7 +19,9 @@ SO-101(SO-ARM101) 로봇 암 프로젝트. 문서 색인은 `docs/README.md`에 
 - 설계서와 다르게 구현해야 하면 멈추고 사용자에게 알린다. 설계서는 기획 세션에서 고친다.
 - 하드웨어 없이 `--sim`으로 먼저 테스트한다. 실제 팔은 속도 30% 이하로 처음 움직이고, 사람이 전원 스위치 옆에서 대기한다.
 - 측정값은 `docs/planning/measurements.md`에 기록한다.
-- 코드가 생기면 테스트·실행 명령을 이 절에 추가한다.
+- 환경: conda env `so101`(Python 3.12). 명령은 env의 python으로 실행한다 (`C:\Users\c\miniforge3\envs\so101\python.exe`).
+- 테스트: `python -m pytest -q` (레포 루트에서). 린트: `python -m ruff check src tests`.
+- 코드가 더 생기면 실행 명령을 이 절에 추가한다.
 
 ## 문서 규칙
 - 새 문서는 `docs/README.md`에 정해진 네 위치 중 하나에 만들고, 색인에 한 줄을 추가한다. 어느 위치에도 맞지 않는 문서는 만들지 않는다.
