@@ -1,0 +1,67 @@
+# 팔 개발 현황과 인수인계 (로컬 개발 세션 → 기획 세션)
+
+상태: 초안
+
+작성 시점: 2026-11-01, 브랜치 `dev/arm-t0-t7` (커밋 `b39a953`). 측정 원본은 `measurements.md`, 결정은 `docs/decisions/0008~0013`.
+
+## 1. 한 줄 요약
+SO-101 팔을 실제로 구동해 T0~T11, C1, S1~S3를 구현했다. 키보드·CLI로 이동, 직교 이동, 집기·놓기, 녹화·재생, 물체 없는 자동 작업을 시연했다. 물체를 실제로 집는 성공률(T7), 위치 정확도의 자(줄자) 실측, 센서·카메라·GUI는 아직이다.
+
+## 2. 한 일 (작업 순서표 기준)
+| 작업 | 내용 | 결과 |
+|---|---|---|
+| T0 | 모터 ID, 영점 보정(calibration) | 6개 서보, COM3, 1Mbps. 보정 파일 `so101_follower_01.json` |
+| T1~T2 | 환경(conda `so101`, Python 3.12), `ArmDriver`/`SimDriver`, `status` | 정지 자세 30초 관찰 기록 |
+| T3 | FK/IK (LeRobot + placo), 방향 매핑 확인 | FK 원점을 어깨 회전축으로 보정 |
+| T4~T5 | `move_j`, `MotionController`(정지·비상정지), `safety.py` | 관절 한계·작업 영역·한 주기 이동량·과열·과부하·통신 끊김 |
+| T6 | `move_l`, `goto`, 수직 하강 도달 영역 | 5점 반복 이동 시험. 줄자 실측은 못 함 |
+| T7 | `skills`: home, park, pick, place | 물체 없는 동작만 확인 |
+| T8 | 원격 조종 `jog`/`keys` | 키 상태를 읽는 관절·직교·좌표 입력 모드 |
+| T9 | 녹화·재생 (`record`/`replay`/`seq`) | 구현·시뮬 테스트. 실제 팔 시험은 아직 |
+| T10 | `ArmService`, `runs/` 기록 | CLI와 이후 GUI가 모두 이것을 거침 |
+| T11 | `retarget` | 이동 중 목표를 바꿔도 끊기지 않음 (Ruckig) |
+| C1, S1~S3 | core, `ManualSource`, 작업 상태 머신, `Studio`, `run` | `run --dry-run`을 실제 팔로 시연 |
+
+시뮬레이션 테스트 118개 통과. 실제 팔 확인이 끝난 것: 이동, 직교 이동, 집기 동작(물체 없이), 자동 작업 시연, 키보드 관절·직교 조그. 시뮬만 거친 것: 좌표 입력 모드, 툴 기준 조그, 녹화·재생.
+
+## 3. 설계서와 다르게 하거나 설계서에 없는 것 (기획에서 반영 검토)
+- **궤적**: 기본 quintic에 Ruckig 선택지(`trajectory_profile`)와 T11 retarget 추가.
+- **설정**: 설정 읽기를 draccus로, 한 주기 이동량 제한은 LeRobot `ensure_safe_goal_position`을 씀.
+- **서보 가속 한계** `servo_acceleration=25`: 이동 중 떨림을 줄이려고 도입.
+- **고정 턱 1개 그리퍼** 집기 보정 (결정 0008~0012): 턱 기하(URDF) 기반 중심 맞춤, 대칭 V자 기울기(벌림 각도의 절반, 손목 한계 35°), 닫는 내내 중심 유지, 접촉은 명령-실측 지연으로 감지, `no_object` 결과, 크기를 모르면 최대 벌림 70mm.
+- **작업대 높이**: `table_z_mm`(모델 z에서 작업대 면, 현재 −25mm 육안 추정), 턱 끝 바닥 한계 `tip_floor_mm`(5mm).
+- **좌표계** (결정 0013): `table`(world), `robot`(base), `tool` 세 가지, 높이는 작업대 면 위. `ArmService`에 `preview_tool`, `point_pose` 추가.
+- **ToolPose의 yaw**: 턱이 벌어지는 축의 방향. 집기 각도는 물체 각도 + 90°.
+
+## 4. 사용법
+```
+.\so101.cmd [--sim] [--speed N] status|home|park|movej|goto|pick|place|gripper|run|jog|keys|record|replay|seq
+```
+레포 폴더 밖에서는 `C:\Users\c\Desktop\so101-studio\so101.cmd`로 부른다 (conda 활성화 불필요). 실제 팔은 속도 30% 이하, 전원 스위치 옆에서 대기, 클램프로 고정.
+- `keys` (`--jog-speed N`): Tab으로 관절 → 직교 조그 → 좌표 입력. 관절 모드는 q/a w/s e/d r/f t/g y/h. 직교 조그는 i/k 앞뒤, j/l 좌우, u/o 위아래, n/m 회전, `f`로 로봇/툴 기준, space 정지, x/Esc 종료. 좌표 모드는 `x y 높이 [yaw]`, `d dx dy dz`, `frame table|robot|tool`, `tcp tip|ref`, `speed|jog|cart N`, `where`.
+- `pick x y 각도 폭` (폭 0이면 크기 모름), `place <구역>`, `run --source manual [--dry-run] [--step]`.
+- `record <이름>`(토크를 끄고 손으로 가르침), `replay <이름>`, `seq <이름>`. 저장 위치 `config/sequences/`.
+- 기록은 `runs/날짜-시각/`의 `events.jsonl`, `status.csv`. 설정은 `config/robot.yaml`, `workspace.yaml`, `manual_objects.yaml`.
+
+## 5. 남은 일
+**해결해야 할 것 (기획 세션 전)**
+- 키보드 직교 조그의 J/L(로봇 기준 좌우) 떨림. 시뮬 목표값은 매끄러워 서보 쪽(1번 관절 + 5번 손목 회전 동시 구동) 가능성이 있음. 확인 항목: `cart 15`로 낮췄을 때, `q`+`t` 동시 입력 시, 어깨 축에서의 거리.
+- 시뮬레이션: 사용자가 GUI에서 점을 찍는 시뮬레이션까지 가고 싶어 함. 아직 시작하지 않음.
+
+**이후**
+- T7 실물 집기 성공률과 접촉 감지 검증, 그리퍼 큰 벌림 폭 표 보정
+- T6 줄자 실측 위치 정확도, `table_z_mm` 실측
+- `record`/`replay` 실제 팔 시험
+- 초음파(3단계), 카메라(4단계), GUI(5단계, 기술 미정)
+- 발표 자료에 쓸 영상·측정 정리
+
+## 6. GUI와 시뮬레이션에 붙이는 방법
+GUI는 `ArmService`만 호출하면 된다. 점 찍기: `point_pose(x, y, 높이, yaw, frame, tcp)` → `preview_tool(pose)`(움직이지 않고 가능 여부·이유·풀린 관절값) → `move_tool(pose)`. 상태는 `status_stream`(10Hz). URDF와 `SimDriver`가 이미 있어 시뮬레이션 화면은 FK로 그릴 수 있다. 좌표 입력 규칙은 결정 0013.
+
+## 7. 떨림에 대한 기록 (팀 논의용)
+- 이동 중 떨림: 서보 가속 한계(25)와 PID(16/0/32)로 줄임. 분석은 `measurements.md`의 떨림 분석.
+- 영점 보정: shoulder_pan −3.0°.
+- 이번 키보드 직교 조그 떨림은 위 5절의 항목.
+
+## 8. 저장소 상태
+GitHub(`donghyeon04/so101-studio`)의 `main`에는 기획 문서 1차 병합(#1)까지만 올라가 있다. 개발 브랜치 `dev/arm-t0-t7`의 커밋 약 60개(코드, 설정, 시험 기록, 결정 0008~0013)는 아직 푸시하지 않았다. 푸시와 PR은 사용자가 정한다.
