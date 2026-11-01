@@ -76,8 +76,7 @@ def _gravcal(svc, out) -> dict | None:
             taus.append(g.torques(q))
             loads.append(ld)
             with (svc.logger.dir / "gravcal.csv").open("a", encoding="utf-8") as f:  # 도중에 끊겨도 잰 값은 남긴다
-                f.write(",".join(f"{v:.3f}" for v in [*astuple(q), *taus[-1], *[ld[j] for j in gravity.GRAVITY_JOINTS]]) + "
-")
+                f.write(",".join(f"{v:.3f}" for v in [*astuple(q), *taus[-1], *[ld[j] for j in gravity.GRAVITY_JOINTS]]) + chr(10))
             out(f"[{i + 1}/{len(POSES)}] 자세 {POSES[i]}  부하 " + " ".join(f"{j[:5]} {ld[j]:+.0f}" for j in gravity.GRAVITY_JOINTS))
             if i in SLOPE_POSES:
                 drv.set_p({j: p_teach[j] for j in gravity.GRAVITY_JOINTS})
