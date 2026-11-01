@@ -16,8 +16,8 @@ gripper_open: 60           # 놓을 때 여는 정도(0~100)
 gripper_width_mm:          # [그리퍼 값, 벌어진 폭 mm]. 자리표시(미측정): T7에서 물체나 A4 용지로 대응표를 잰다
   - [0, 0]
   - [100, 90]
-joint_offsets_deg:         # 영점 보정(도). 읽은 값 = 모터 값 - offset. pan: 정면에서 오른쪽으로 약 1.5° 틀어져 있어 왼쪽으로 맞춤 (2026-11-01 사용자 육안, 1.5°, 그 뒤 0.5°씩 두 번 더)
-  shoulder_pan: -2.5
+joint_offsets_deg:         # 영점 보정(도). 읽은 값 = 모터 값 - offset. pan: 정면에서 오른쪽으로 약 1.5° 틀어져 있어 왼쪽으로 맞춤 (2026-11-01 사용자 육안, 1.5°, 그 뒤 0.5°씩 세 번 더)
+  shoulder_pan: -3.0
 joint_limits_deg:          # 캘리브레이션으로 잰 가동 범위(measurements.md)에서 안쪽으로 1~3° 줄인 값. T5에서 safety.py로 옮긴다
   shoulder_pan: [-118, 118]
   shoulder_lift: [-103, 103]
