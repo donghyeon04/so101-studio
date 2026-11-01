@@ -50,8 +50,9 @@ def fit(tau: np.ndarray, load: np.ndarray) -> dict:
     A = np.column_stack([tau, np.ones(len(tau))])
     (k, b), *_ = np.linalg.lstsq(A, load, rcond=None)
     resid = load - (k * tau + b)
-    ss_tot = float(np.sum((load - load.mean()) ** 2)) or 1e-9
-    return {"k": float(k), "b": float(b), "r2": float(1 - np.sum(resid**2) / ss_tot), "resid_std": float(resid.std())}
+    ss_tot = float(np.sum((load - load.mean()) ** 2))
+    r2 = 0.0 if ss_tot < 1e-6 else float(1 - np.sum(resid**2) / ss_tot)  # 부하가 자세에 따라 변하지 않으면 설명할 것이 없다
+    return {"k": float(k), "b": float(b), "r2": r2, "resid_std": float(resid.std())}
 
 
 def save(params: dict, path: str | Path | None = None) -> None:
