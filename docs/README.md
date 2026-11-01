@@ -21,6 +21,7 @@
 | `docs/planning/arm-dev-status.md` | 기획 | 초안 | 팔 개발 현황: 한 일(T0~T11, C1, S1~S3), 설계서와 다른 점, 사용법, 남은 일, GUI 연결, 저장소 상태 |
 | `docs/planning/hardware.md` | 기획 | 초안 | 부품 구성(BOM), 보유 현황, 예상 비용, 전기적 주의사항 |
 | `docs/planning/comparison-experiment.md` | 기획 | 초안 | 초음파·카메라 인식 비교 실험의 통제 변인, 평가 기준, 환경 조건 가설 |
+| `docs/guides/arm-hardware-setup.md` | 가이드 | 확정 | 팔 하드웨어 구성, COM 포트, 서보 ID 1~6, 캘리브레이션 파일 복사, 다른 PC에서 처음 연결하는 순서, 문제 해결 |
 | `docs/guides/tooling-setup.md` | 가이드 | 확정 | 계정마다 설치할 플러그인, MCP, 스킬 |
 | `docs/decisions/0001-claude-md-authoring.md` | 결정 | 확정 | CLAUDE.md는 짧게, 절차는 skill로 |
 | `docs/decisions/0002-docs-structure.md` | 결정 | 확정 | 문서 유형 4종, 색인, 상태값, 조사 원문 비보관 |
