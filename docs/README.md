@@ -33,3 +33,4 @@
 | `docs/decisions/0010-centered-closing-grasp.md` | 결정 | 확정 | 최대로 벌려 중심을 맞추고 닫으며 손을 같이 보내 닫는 내내 중심을 유지, 접촉에서 정지 |
 | `docs/decisions/0011-tilted-symmetric-closing.md` | 결정 | 확정 | 턱 끝 기하로 중간점을 물체에 맞추고, 턱이 앞뒤로 벌어질 때 손을 기울여 V자를 대칭으로, 닫을수록 푼다 |
 | `docs/decisions/0012-symmetric-v-tilt.md` | 결정 | 확정 | 기울기를 벌림 각도의 절반으로 해 보기에 대칭인 V자로(손목 한계 35°), 대칭 그리퍼 교체와 물체 교정은 하지 않음 |
+| `docs/decisions/0013-coordinate-frames-and-keys-modes.md` | 결정 | 확정 | 좌표계는 월드(작업대)·베이스(로봇)·툴, 높이는 작업대 면 기준, keys는 관절/직교 조그/좌표 입력 세 모드 |

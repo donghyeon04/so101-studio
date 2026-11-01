@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 
 from so101_studio.arm.sim_driver import SimDriver
@@ -63,7 +64,7 @@ def test_joint_mode_key_hold_then_tab_to_coord(svc):
         return k in cur["v"] and k != "x"
     p0 = svc.status().joints.shoulder_pan
     s = KeysSession(svc, 20, key_down, lambda p: "", out=lambda *_: None, tick_s=0.02)
-    assert s.joint_mode() == "coord"
+    assert s.joint_mode() == "jog"
     assert svc.status().joints.shoulder_pan > p0 + 1
 
 
@@ -72,3 +73,24 @@ def test_speed_commands(svc):
     s.coord_line("speed 40")
     s.coord_line("jog 35")
     assert svc.speed == 40 and s.speed == 35
+
+
+def test_tool_axes_point_down_and_tool_moves_follow_them(svc):
+    assert svc.move_tool(ToolPose(300, 150, 60, 90, -90)).status == "ok"  # 홈은 수직이 아니므로 수직 자세로 옮긴다
+    q = svc.status().joints
+    t = svc.status().tool
+    ax = svc.kin.tool_axes(q)
+    assert ax[:, 2] == pytest.approx((0, 0, -1), abs=0.05)  # 수직 자세: 도구 앞 = 아래
+    p = parse_target("d 0 0 10", "tool", WS.base, t, axes=ax)  # 도구 앞으로 10mm = 아래 10mm
+    assert p.z_mm == pytest.approx(t.z_mm - 10, abs=2)
+    with pytest.raises(ValueError):
+        parse_target("300 200 40", "tool", WS.base, t, axes=ax)
+
+
+def test_height_is_above_the_table_and_tip_is_below_the_reference_point(svc):
+    ref = svc.point_pose(300, 150, 20, frame="table", tcp="ref")
+    tip = svc.point_pose(300, 150, 20, frame="table", tcp="tip")
+    assert ref.z_mm == pytest.approx(20 + CFG.table_z_mm)
+    assert tip.z_mm > ref.z_mm  # 끝점이 기준점보다 아래이므로 같은 높이면 기준점이 더 위
+    assert np.isclose(tip.z_mm - ref.z_mm, 7.3, atol=0.5)
+    assert svc.point_pose(300, 150, 20, frame="world", tcp="ref") == ref

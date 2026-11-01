@@ -15,6 +15,7 @@ from ..arm.trajectory import cfg_move_j, cfg_move_l
 from ..core.config import RobotConfig, WorkspaceConfig, load_workspace
 from ..core.logging import RunLogger
 from ..core.types import ArmStatus, DetectedObject, JointState, MotionResult, ToolPose
+from .targets import point_to_pose, tip_vector
 
 STATUS_HZ = 10
 HEALTH_HZ = 2
@@ -147,6 +148,11 @@ class ArmService:
             return self._done("goto", MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0)), goal=asdict(pose))
         self.driver.set_torque(True)
         return self._done("goto", self._run(trajs), goal=asdict(pose))
+
+    def point_pose(self, x: float, y: float, h: float, yaw: float = 90.0, frame: str = "table", tcp: str = "tip") -> ToolPose:
+        """frame 기준 (x, y, 작업대 면 위 높이 h)인 끝점(tcp)을 수직 하강으로 가져갈 ToolPose. GUI에서 점을 찍을 때 쓰고, preview_tool·move_tool에 넘긴다."""
+        tip = tip_vector(self.kin, -90.0, yaw, self.driver.read_joints().gripper, tcp)
+        return point_to_pose(x, y, h, yaw, frame, self.ws.base, self.cfg.table_z_mm, tip)
 
     def preview_tool(self, pose: ToolPose):
         """움직이지 않고 목표가 가능한지만 본다. (이유 또는 None, 풀린 관절값). GUI가 점 위에 마우스를 올릴 때 미리보기로 쓴다."""

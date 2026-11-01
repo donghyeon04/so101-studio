@@ -64,6 +64,12 @@ class Kinematics:
         m = Rt @ np.array([-(a_m + 7.9), 0.0, b_m - FRAME_B])
         return f, m
 
+    def tool_axes(self, q: JointState) -> np.ndarray:
+        """도구 프레임의 x·y·z 축(열)을 작업대 좌표계 벡터로 돌려준다. z = 도구 앞(턱 끝 방향), x = 턱이 벌어지는 축(가동 턱은 -x 쪽)."""
+        R = self._k.forward_kinematics(np.array([getattr(q, j) for j in ARM_JOINTS], float))[:3, :3] @ self._C.T
+        c, s = math.cos(math.radians(self.base.yaw_deg)), math.sin(math.radians(self.base.yaw_deg))
+        return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]]) @ R
+
     def moving_jaw_dir(self, q: JointState) -> tuple[float, float]:
         """고정 턱에서 가동 턱으로 향하는 방향(작업대 좌표계, 수평 성분의 단위 벡터)."""
         v = -(self._k.forward_kinematics(np.array([getattr(q, j) for j in ARM_JOINTS], float))[:3, :3] @ self._C.T)[:, 0]
