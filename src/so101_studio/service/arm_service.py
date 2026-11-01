@@ -58,7 +58,7 @@ class ArmService:
             self.driver.connect(port or self.cfg.port, self.cfg.calibration_id)
         except Exception as e:  # noqa: BLE001 포트 없음, 응답 없는 모터 등 원인을 메시지로 돌려준다
             return False, str(e)
-        self.kin = Kinematics(self.cfg.urdf, self.ws.base)
+        self.kin = Kinematics(self.cfg.urdf, self.ws.base, self.cfg.joint_limits_deg)
         self.safety = Safety(self.cfg.joint_limits_deg, self.ws, self.kin, z_floor_mm=self.cfg.tip_floor_mm,
                              table_z_mm=self.cfg.table_z_mm)
         self.ctl = MotionController(self.driver, self.kin, self.safety, self.cfg.control_hz)

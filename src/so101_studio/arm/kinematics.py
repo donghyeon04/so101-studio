@@ -35,9 +35,11 @@ def _rotation(pitch_deg: float, yaw_deg: float) -> np.ndarray:
 
 
 class Kinematics:
-    def __init__(self, urdf_path: str, base: frames.Pose2D | None = None):
+    def __init__(self, urdf_path: str, base: frames.Pose2D | None = None, limits: dict | None = None):
         self.base = base or frames.Pose2D(0, 0, 0)
         self._k = RobotKinematics(urdf_path, "gripper_frame_link", joint_names=ARM_JOINTS)
+        for j in ARM_JOINTS if limits else []:  # 풀이기가 우리 관절 한계 안에서 해를 찾게 한다(한계 밖 해를 만들고 나중에 거부하지 않도록)
+            self._k.robot.set_joint_limits(j, math.radians(limits[j][0]), math.radians(limits[j][1]))
         # URDF 그리퍼 프레임은 도구 축에 대해 약 3° 돌아가 있다. 영점 자세 기준으로 상수 보정한다.
         self._C = _rotation(0, 0).T @ self._k.forward_kinematics(np.zeros(5))[:3, :3]
 
