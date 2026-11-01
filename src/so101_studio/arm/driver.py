@@ -20,8 +20,9 @@ def _locked(fn):
 
 
 class ArmDriver:
-    def __init__(self, pid: dict | None = None, offsets: dict[str, float] | None = None):
+    def __init__(self, pid: dict | None = None, offsets: dict[str, float] | None = None, acceleration: int = 254):
         self.pid = pid or {"p": 16, "i": 0, "d": 32}
+        self.acceleration = acceleration  # 서보 자체 가속 한계(0~254, 클수록 빠름). 낮추면 움직일 때 떨림이 준다
         self.offsets = offsets or {}  # 관절별 영점 보정(도): 읽은 값 = 모터 값 - offset
         self._robot: SO101Follower | None = None
         self._lock = threading.RLock()  # 시리얼 포트는 한 번에 한 스레드만 쓴다 (동작 스레드와 상태 읽기가 겹칠 수 있다)
@@ -41,6 +42,7 @@ class ArmDriver:
             bus.write("P_Coefficient", m, self.pid["p"])
             bus.write("I_Coefficient", m, self.pid["i"])
             bus.write("D_Coefficient", m, self.pid["d"])
+            bus.write("Acceleration", m, self.acceleration)
         if not was_on:  # EEPROM 항목은 토크가 꺼져 있을 때만 쓴다. 그리퍼 과열 방지 (LeRobot SO101 기본값)
             bus.write("Max_Torque_Limit", "gripper", 500)
             bus.write("Protection_Current", "gripper", 250)

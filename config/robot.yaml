@@ -4,6 +4,7 @@ urdf: assets/so101_new_calib.urdf
 control_hz: 50
 pid: {p: 16, i: 0, d: 32}
 speed_pct_default: 30
+servo_acceleration: 25      # 서보 가속 한계 (기본 254). 15~40에서 이동 중 떨림 약 30~40% 감소 (measurements.md T4 떨림)
 joint_v_max_deg_s: 90
 a_max_deg_s2: 120
 tool_v_max_mm_s: 100

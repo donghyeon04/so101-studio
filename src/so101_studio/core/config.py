@@ -19,6 +19,7 @@ class RobotConfig:
     control_hz: int = 50
     pid: dict = field(default_factory=lambda: {"p": 16, "i": 0, "d": 32})
     speed_pct_default: int = 30
+    servo_acceleration: int = 25
     joint_v_max_deg_s: float = 90
     tool_v_max_mm_s: float = 100
     approach_height_mm: float = 80
