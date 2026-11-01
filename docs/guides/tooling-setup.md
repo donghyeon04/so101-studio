@@ -1,6 +1,6 @@
 # 툴링 셋업
 
-상태: 확정 · 갱신 2026-10-31
+상태: 확정 · 갱신 2026-11-01
 
 > 기획 계정과 개발 계정 모두 같은 도구를 갖추기 위한 체크리스트다.
 
@@ -36,14 +36,31 @@
 | B4 | **Figma** 커넥터 | 와이어프레임과 디자인 | ⚠️ 현재 원격 세션에서는 프록시 403으로 연결 실패. 환경 네트워크 정책 확인 필요 |
 | B5 | **Excalidraw MCP** (선택) | 손그림 스타일의 메뉴트리, 시스템 다이어그램, 저충실도 와이어프레임 | `claude mcp add --transport http excalidraw https://mcp.excalidraw.com/mcp` |
 
-## C. 개발 단계 — 로컬 세션 전용
+## C. 개발 단계 — 로컬 세션 (Windows PC)
 
+### C-1. 개발 도구 (플러그인 아님, 먼저 설치)
 | # | 이름 | 용도 | 비고 |
 |---|---|---|---|
-| C1 | **so101-mcp** (Tibe31) | Claude가 SO-101 관절을 직접 움직이며 테스트. 관절별 안전 한계 포함 | LeRobot 캘리브레이션이 끝나야 실행됨. 시리얼 포트는 한 번에 한 클라이언트만 사용 |
-| C2 | **ros-mcp-server** (robotmcp) | ROS2를 쓰기로 결정한 경우에만 | Apache-2.0. 실험용 |
-| C3 | **Ponytail** (선택) | 코드를 적게 쓰도록 유도하는 규칙 모음 | `/plugin marketplace add DietrichGebert/ponytail` 후 `/plugin install ponytail@ponytail`. Node.js 필요. 효과 수치는 제작자가 직접 측정한 값이고, 제3자 측정에서는 약 15% 감소에 그쳤다 |
-| C4 | **desktop-commander** | 로컬 셸, 시리얼 모니터, 장시간 실행 프로세스 | 현재 계정에 설치됨 |
+| C1 | Git for Windows | 레포 작업. Windows용 Claude Code도 Git Bash를 쓴다 | |
+| C2 | Miniforge (conda) | Python 3.12 이상 가상환경. LeRobot 공식 문서가 conda를 권장한다 | LeRobot은 Python 3.12 이상 필요 |
+| C3 | LeRobot | 팔 제어, 기구학 (`decisions/0003`) | `pip install "lerobot[feetech,kinematics]"`. `kinematics`가 설치하는 placo는 Windows 휠이 없어 실패할 수 있다 → T1에서 확인 |
+| C4 | USB 시리얼 드라이버 (CH340 또는 CP210x) | 버스 서보 보드와 ESP32의 COM 포트 인식 | 장치 관리자에서 COM 번호 확인 |
+| C5 | ruff, pytest | 코드 형식 검사, `--sim` 단위 테스트 | |
+| C6 | Arduino IDE 2 또는 PlatformIO + ESP32 보드 패키지 | ESP32 스캔 펌웨어 (개발 3단계부터) | 지금은 불필요 |
+
+### C-2. Claude Code 플러그인·MCP·스킬
+| # | 이름 | 용도 | 비고 |
+|---|---|---|---|
+| C7 | Superpowers (A1) | 개발 흐름: `writing-plans` → `executing-plans` → `test-driven-development` → `systematic-debugging` → `verification-before-completion` → `requesting-code-review` | 설계서의 작업 T1~T11을 하나씩 계획→구현→검증으로 진행 |
+| C8 | Context7 (A2) | LeRobot `SO101Follower`, `RobotKinematics` 등 최신 API 확인 | 로컬에서는 플러그인 버전도 동작한다 |
+| C9 | engineering 플러그인 | `debug`, `code-review`, `testing-strategy` | |
+| C10 | desktop-commander | Windows 셸, 시리얼 모니터, 오래 도는 프로세스 관리 | |
+| C11 | so101-mcp (Tibe31, 선택) | Claude가 관절을 직접 움직여 보는 초기 탐색용 | 시리얼 포트는 한 번에 한 프로그램만 쓸 수 있다. 우리 코드를 실행하기 전에 반드시 끈다 |
+| C12 | Ponytail (선택) | 코드를 적게 쓰도록 유도하는 규칙 모음 | `/plugin marketplace add DietrichGebert/ponytail` 후 `/plugin install ponytail@ponytail`. Node.js 필요. 제3자 측정에서는 약 15% 감소 |
+| C13 | huggingface-skills (나중) | ACT 등 학습 정책을 할 때만 (선택 층) | 지금은 불필요 |
+
+### C-3. 쓰지 않는 것
+- ros-mcp-server: ROS 2를 쓰지 않기로 했다 (`decisions/0003`).
 
 ---
 
