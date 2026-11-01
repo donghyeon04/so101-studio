@@ -12,7 +12,7 @@ from ..core.types import JointState, ToolPose
 
 
 def make_driver(sim: bool, cfg):
-    return SimDriver(cfg.poses.get("home")) if sim else ArmDriver(cfg.pid)
+    return SimDriver(cfg.poses.get("home")) if sim else ArmDriver(cfg.pid, cfg.joint_offsets_deg)
 
 
 def status(driver, cfg) -> str:

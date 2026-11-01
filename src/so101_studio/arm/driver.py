@@ -20,8 +20,9 @@ def _locked(fn):
 
 
 class ArmDriver:
-    def __init__(self, pid: dict | None = None):
+    def __init__(self, pid: dict | None = None, offsets: dict[str, float] | None = None):
         self.pid = pid or {"p": 16, "i": 0, "d": 32}
+        self.offsets = offsets or {}  # 관절별 영점 보정(도): 읽은 값 = 모터 값 - offset
         self._robot: SO101Follower | None = None
         self._lock = threading.RLock()  # 시리얼 포트는 한 번에 한 스레드만 쓴다 (동작 스레드와 상태 읽기가 겹칠 수 있다)
 
@@ -58,11 +59,12 @@ class ArmDriver:
 
     @_locked
     def read_joints(self) -> JointState:
-        return JointState(**self._bus.sync_read("Present_Position"))
+        raw = self._bus.sync_read("Present_Position")
+        return JointState(**{j: v - self.offsets.get(j, 0.0) for j, v in raw.items()})
 
     @_locked
     def write_joints(self, q: JointState) -> None:
-        self._bus.sync_write("Goal_Position", asdict(q))
+        self._bus.sync_write("Goal_Position", {j: v + self.offsets.get(j, 0.0) for j, v in asdict(q).items()})
 
     @_locked
     def read_health(self) -> dict:
