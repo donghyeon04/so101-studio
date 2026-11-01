@@ -90,17 +90,19 @@ class Kinematics:
             a = math.radians(dyaw_deg)
             Rz = np.array([[math.cos(a), -math.sin(a), 0], [math.sin(a), math.cos(a), 0], [0, 0, 1]])
             T[:3, :3] = Rz @ T[:3, :3]
-        cur = arm
-        for _ in range(8):
-            nxt = self._k.inverse_kinematics(cur, T, orientation_weight=0.1)[:5]
-            done = np.abs(nxt - cur).max() < 1e-3
-            cur = nxt
-            if done:
-                break
-        got = self._k.forward_kinematics(cur)[:3, 3]
-        if np.linalg.norm(got - T[:3, 3]) * 1000 > tol_mm:
-            return None
-        return JointState(*cur.tolist(), q.gripper)
+        # 5축이라 도구가 수평일 때는 방향을 그대로 둔 채 옆으로 옮길 수 없다. 방향 가중치를 점점 낮춰(위치 우선) 풀리는 첫 해를 쓴다
+        for w in (0.1, 0.01, 0.0):
+            cur = arm
+            for _ in range(8):
+                nxt = self._k.inverse_kinematics(cur, T, orientation_weight=w)[:5]
+                done = np.abs(nxt - cur).max() < 1e-3
+                cur = nxt
+                if done:
+                    break
+            got = self._k.forward_kinematics(cur)[:3, 3]
+            if np.linalg.norm(got - T[:3, 3]) * 1000 <= tol_mm:
+                return JointState(*cur.tolist(), q.gripper)
+        return None
 
     def ik(self, pose: ToolPose, seed: JointState, tol_mm: float = 3.0, max_iter: int = 30,
            orientation_weight: float = 0.1) -> JointState | None:

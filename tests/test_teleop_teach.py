@@ -186,3 +186,13 @@ def test_jog_speed_ramps_up_and_down_without_a_velocity_step():
     assert abs(step[0]) < 0.2 and np.abs(np.diff(step)).max() < 0.2  # 시작·정지에서 틱당 속도 변화가 가속도 한계(0.16°) 안
     assert step[-1] == 0 or abs(step[-1]) < 0.2
     assert ctl.state == "idle"
+
+
+def test_lateral_jog_works_from_the_horizontal_home_pose(kin):
+    d = SimDriver(CFG.poses["home"])  # 도구가 수평: 방향을 고정하면 옆으로 못 가는 자세
+    ctl = MotionController(d, kin, Safety(LIMITS, WS, kin, z_floor_mm=CFG.tip_floor_mm, table_z_mm=CFG.table_z_mm), CFG.control_hz)
+    x0 = kin.fk(d.read_joints()).x_mm
+    f, left, up, yaw = robot_to_table((0.0, 30.0, 0, 0), WS.base.yaw_deg)
+    jog_for(ctl, "cartesian", [f, left, up, yaw], 0.5)
+    ctl.close()
+    assert abs(kin.fk(d.read_joints()).x_mm - x0) > 3  # 고치기 전에는 풀리지 않아 0이었다
