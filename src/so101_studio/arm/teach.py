@@ -40,7 +40,7 @@ class Teach:
     def recording(self) -> bool:
         return self._thread is not None
 
-    def record_start(self, follow: bool = False, stiffness: float = 1.0) -> None:
+    def record_start(self, follow: bool = False, stiffness: float = 1.0, p: int | None = None, d: int | None = None) -> None:
         """관절값을 20Hz로 기록한다. 기본은 토크를 끈다(시작 전에 팔을 손으로 받쳐야 한다).
         follow=True면 토크를 켠 채 서보 토크 제한을 낮추고(cfg.teach_torque x stiffness) 손으로 밀어 움직이는 대로 목표를 따라가게 한다."""
         if self.recording:
@@ -52,9 +52,9 @@ class Teach:
             self._saved_torque = (drv.get_torque_limits(), drv.get_p(), drv.get_d())
             drv.set_torque(True)
             drv.set_torque_limits({n: int(min(self._saved_torque[0].get(n, 1000), max(50, v * stiffness))) for n, v in self.cfg.teach_torque.items()})
-            p = {**self.cfg.teach_p, **(self.cfg.teach_p_gravity if self.ctl.gravity is not None else {})}
-            drv.set_p({n: max(1, round(v * stiffness)) for n, v in p.items()})
-            drv.set_d({n: max(0, round(v * stiffness)) for n, v in self.cfg.teach_d.items()})
+            pp = {**self.cfg.teach_p, **(self.cfg.teach_p_gravity if self.ctl.gravity is not None else {})}
+            drv.set_p({n: max(1, round((v if p is None else p) * stiffness)) for n, v in pp.items()})
+            drv.set_d({n: max(0, round((v if d is None else d) * stiffness)) for n, v in self.cfg.teach_d.items()})
             self.ctl.follow_dead_deg = self.cfg.teach_dead_deg
             if not self.ctl.follow(True):
                 self._restore_servo(drv)
@@ -63,13 +63,25 @@ class Teach:
             self.ctl.driver.set_torque(False)
         self._rows, _ = [], self._stop.clear()
 
+        self._loads = []
+
         def loop():
             while not self._stop.is_set():
                 self._rows.append(list(astuple(self.ctl.driver.read_joints())))
+                if follow:  # 서보가 밀리는 것에 저항하는지(부하가 큰지) 알아보려고 같이 기록한다
+                    self._loads.append(list(self.ctl.driver.read_loads_signed().values()))
                 time.sleep(1.0 / RECORD_HZ)
 
         self._thread = threading.Thread(target=loop, daemon=True)
         self._thread.start()
+
+    def load_summary(self) -> dict[str, tuple[float, float]]:
+        """직전 추종 교시의 관절별 (최대 |부하|, 95% 지점) — 단위는 ±1000. 큰 값이 오래 이어지면 서보가 밀리는 것을 막고 있다는 뜻."""
+        if not getattr(self, "_loads", None):
+            return {}
+        a = np.abs(np.array(self._loads, float))
+        names = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
+        return {n: (float(a[:, i].max()), float(np.percentile(a[:, i], 95))) for i, n in enumerate(names[: a.shape[1]])}
 
     def _restore_servo(self, drv) -> None:
         limits, p, d = self._saved_torque

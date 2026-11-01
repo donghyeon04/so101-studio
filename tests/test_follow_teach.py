@@ -78,7 +78,7 @@ def test_follow_recording_keeps_torque_lowers_limits_and_restores_them(tmp_path)
     during = d.get_torque_limits()
     assert d.get_p()["shoulder_pan"] == max(1, round(CFG.teach_p["shoulder_pan"] * 0.5)) < p_before["shoulder_pan"]  # P도 낮춘다
     assert ctl.follow_dead_deg == CFG.teach_dead_deg
-    assert d.get_d()["shoulder_pan"] == max(0, round(CFG.teach_d["shoulder_pan"] * 0.5)) < d_before["shoulder_pan"]  # D도 낮춘다
+    assert d.get_d()["shoulder_pan"] == max(0, round(CFG.teach_d["shoulder_pan"] * 0.5)) < d_before["shoulder_pan"]  # stiffness는 D도 같이 줄인다
     assert d.torque_enabled() is True  # 토크는 켜져 있다
     assert during["shoulder_lift"] == int(CFG.teach_torque["shoulder_lift"] * 0.5) and during["shoulder_lift"] < before["shoulder_lift"]
     for step in (0, 8, 16):
@@ -115,3 +115,17 @@ def test_arm_driver_torque_limit_helpers_write_to_the_bus():
     assert drv.get_torque_limits() == {"shoulder_pan": 1000, "gripper": 500}
     drv.set_torque_limits({"shoulder_pan": 250.0})
     assert drv._robot.bus.writes == [("Torque_Limit", "shoulder_pan", 250)]
+
+
+def test_follow_recording_overrides_p_and_d_and_summarizes_loads(tmp_path):
+    d, ctl = rig()
+    d.set_torque(True)
+    d.read_loads_signed = lambda: {n: -300.0 if n == "shoulder_pan" else 5.0 for n in ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]}
+    teach = Teach(ctl, CFG, tmp_path)
+    teach.record_start(follow=True, p=7, d=9)
+    assert set(d.get_p().values()) == {7} and set(d.get_d().values()) == {9}
+    time.sleep(0.3)
+    teach.record_stop("x")
+    ctl.close()
+    mx, p95 = teach.load_summary()["shoulder_pan"]
+    assert mx == 300 and p95 == 300 and d.get_p()["shoulder_pan"] == 16  # 끝나면 원래 값으로
