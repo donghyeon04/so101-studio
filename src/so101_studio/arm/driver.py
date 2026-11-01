@@ -78,11 +78,20 @@ class ArmDriver:
         }
 
     @_locked
-    def read_power(self) -> tuple[float, dict]:
-        """전원 시험용 빠른 읽기: (전압 V, 서보별 전류 mA). 전류 단위는 STS3215 레지스터 값 x 6.5mA로 추정한다."""
+    def read_power(self) -> tuple[float, dict, dict]:
+        """전원 시험용 빠른 읽기: (전압 V, 서보별 전류 mA, 서보별 부하 %). 전류는 레지스터 값 x 6.5mA 추정이라 부하와 함께 보며 교차 확인한다."""
         bus = self._bus
         cur = bus.sync_read("Present_Current", normalize=False)
-        return bus.read("Present_Voltage", "shoulder_lift", normalize=False) / 10, {m: (v & 0x7FFF) * 6.5 for m, v in cur.items()}
+        load = bus.sync_read("Present_Load")
+        v = bus.read("Present_Voltage", "shoulder_lift", normalize=False) / 10
+        return v, {m: (x & 0x7FFF) * 6.5 for m, x in cur.items()}, {m: abs(x) / 10 for m, x in load.items()}
+
+    @_locked
+    def set_acceleration(self, value: int) -> None:
+        """서보 가속 한계를 바꾼다(시험용). 기본으로 되돌릴 때도 쓴다."""
+        self.acceleration = value
+        for m in self._bus.motors:
+            self._bus.write("Acceleration", m, value)
 
     @_locked
     def torque_enabled(self) -> bool:

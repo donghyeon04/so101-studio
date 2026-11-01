@@ -102,7 +102,8 @@ def test_powertest_runs_in_sim_and_writes_csv(svc, monkeypatch):
     monkeypatch.setattr(powertest, "SETTLE_S", 0.2)
     out = []
     res = powertest.run_powertest(svc, repeats=1, out=out.append)
-    assert res["moves"] == ["ok", "ok"] and res["baseline_v"] == 12.0 and res["sample_hz"] > 20
+    assert set(res["moves"]) == {"ok"} and res["baseline_v"] == 12.0 and res["sample_hz"] > 20
+    assert svc.driver.acceleration == CFG.servo_acceleration  # 시험 뒤 서보 가속 한계를 되돌린다
     assert (svc.logger.dir / "powertest.csv").exists()
 
 

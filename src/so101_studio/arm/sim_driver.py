@@ -11,12 +11,14 @@ class SimDriver:
         self._torque = False
         self.grip_block = grip_block  # 물체가 있는 것처럼 그리퍼가 이 값 아래로는 닫히지 않는다 (시험용)
         self.connected = False
+        self.acceleration = 25
 
     def connect(self, port: str = "sim", calibration_id: str = "sim") -> None:
         self.connected = True
 
     def disconnect(self) -> None:
         self.connected = False
+        self.acceleration = 25
 
     def read_joints(self) -> JointState:
         return replace(self._q)
@@ -33,8 +35,11 @@ class SimDriver:
             "voltage_v": 12.0,
         }
 
-    def read_power(self) -> tuple[float, dict]:
-        return 12.0, {m: 0.0 for m in JOINTS}
+    def read_power(self) -> tuple[float, dict, dict]:
+        return 12.0, {m: 0.0 for m in JOINTS}, {m: 0.0 for m in JOINTS}
+
+    def set_acceleration(self, value: int) -> None:
+        self.acceleration = value
 
     def torque_enabled(self) -> bool:
         return self._torque

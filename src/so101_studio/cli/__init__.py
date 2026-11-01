@@ -115,7 +115,7 @@ def main(argv=None) -> None:
         elif c == "powertest":
             from .powertest import run_powertest
 
-            run_powertest(svc, int(a.values[0]) if a.values else 3)
+            run_powertest(svc, int(a.values[0]) if a.values else 3, a.speed or 100.0)
         elif c == "keys":
             from .keys import run_keys
 
