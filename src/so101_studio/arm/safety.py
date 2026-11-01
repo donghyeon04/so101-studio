@@ -123,9 +123,11 @@ class HealthMonitor:
     """과열·과부하·통신 끊김 감시. 온도 읽기는 가끔 튀므로(T2) 연속 temp_count번 넘을 때만 fault로 본다."""
 
     def __init__(self, temp_limit_c: float = 60, temp_count: int = 3, load_limit_pct: float = 90,
-                 load_s: float = 3.0, comm_s: float = 0.5):
+                 load_s: float = 3.0, comm_s: float = 0.5, current_limit_ma: float = 4000, current_count: int = 2):
         self.temp_limit_c, self.temp_count = temp_limit_c, temp_count
         self.load_limit_pct, self.load_s, self.comm_s = load_limit_pct, load_s, comm_s
+        self.current_limit_ma, self.current_count = current_limit_ma, current_count  # 어댑터(5A)의 과전류 보호가 걸려 6개가 한꺼번에 꺼지는 것을 막는다
+        self._over_current = 0
         self._hot: dict[str, int] = {}
         self._over_since: dict[str, float] = {}
         self._comm_down_since: float | None = None
@@ -135,6 +137,9 @@ class HealthMonitor:
             self._hot[m] = self._hot.get(m, 0) + 1 if t >= self.temp_limit_c else 0
             if self._hot[m] >= self.temp_count:
                 return f"overheat:{m}"
+        self._over_current = self._over_current + 1 if health.get("current_ma", 0.0) >= self.current_limit_ma else 0
+        if self._over_current >= self.current_count:
+            return "overcurrent"
         for m, load in health["load_pct"].items():
             if load < self.load_limit_pct:
                 self._over_since.pop(m, None)

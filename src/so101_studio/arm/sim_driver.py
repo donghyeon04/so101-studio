@@ -33,6 +33,7 @@ class SimDriver:
             "temperature_c": {m: 25.0 for m in JOINTS},
             "load_pct": {m: 0.0 for m in JOINTS},
             "voltage_v": 12.0,
+            "current_ma": 0.0,
         }
 
     def read_power(self) -> tuple[float, dict, dict]:

@@ -44,7 +44,7 @@ def test_status_stream_runs_at_about_10hz_and_writes_status_csv(svc):
     assert 8 <= len(got) <= 14
     svc.logger._status.flush()
     rows = list(csv.reader((svc.logger.dir / "status.csv").open(encoding="utf-8")))
-    assert rows[0][0] == "t" and len(rows) >= 9 and len(rows[1]) == 13 and rows[0][-1] == "voltage_v"
+    assert rows[0][0] == "t" and len(rows) >= 9 and len(rows[1]) == 14 and rows[0][-1] == "current_a"
 
 
 def test_commands_go_through_the_service_and_are_logged(svc):

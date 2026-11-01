@@ -215,3 +215,14 @@ def test_safety_settings_margin_box_and_off_mode():
     s.settings.mode = "off"  # 전부 끄지만 한 주기 이동량 한계는 남는다
     assert s.limits == {} and s.check_goal(q(500, 1)) is None
     assert s.check_step(q(0), q(30)) == "step"
+
+
+def test_health_monitor_trips_on_sustained_overcurrent_but_not_a_single_spike():
+    from so101_studio.arm.safety import HealthMonitor
+
+    base = {"temperature_c": {"a": 30}, "load_pct": {"a": 10}}
+    h = HealthMonitor(current_limit_ma=4000, current_count=2)
+    assert h.update_health({**base, "current_ma": 4500}, 0.0) is None  # 한 번 튄 값은 무시
+    assert h.update_health({**base, "current_ma": 1000}, 0.5) is None
+    assert h.update_health({**base, "current_ma": 4500}, 1.0) is None
+    assert h.update_health({**base, "current_ma": 4600}, 1.5) == "overcurrent"  # 연속이면 fault

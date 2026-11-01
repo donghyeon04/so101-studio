@@ -79,6 +79,8 @@ class ArmDriver:
             "temperature_c": {m: bus.read("Present_Temperature", m) for m in bus.motors},
             "load_pct": {m: abs(bus.read("Present_Load", m)) / 10 for m in bus.motors},
             "voltage_v": min(bus.read("Present_Voltage", m) for m in bus.motors) / 10,
+            # 6개 서보 전류 합(mA). 레지스터 값 x 6.5mA 추정이고 전압 강하와 상관이 -0.84로 쓸 만하다(powertest)
+            "current_ma": sum((v & 0x7FFF) * 6.5 for v in bus.sync_read("Present_Current", normalize=False).values()),
         }
 
     @_locked

@@ -32,6 +32,7 @@ class ArmStatus:  # 10Hz 상태 스트림
     torque_enabled: bool
     state: str  # "idle" | "moving" | "teleop" | "teach" | "stopped" | "fault"
     fault: str | None = None
+    current_ma: float = 0.0  # 서보 전류 합(mA, 추정)
 
 
 @dataclass
