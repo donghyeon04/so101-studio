@@ -1,4 +1,5 @@
 """동작 실행: 50Hz 스레드가 궤적을 샘플링해 장치에 쓴다 (arm-software-spec.md 6.4). 장치는 이 스레드만 쓴다."""
+import contextlib
 import threading
 import time
 from dataclasses import astuple, fields
@@ -6,9 +7,10 @@ from dataclasses import astuple, fields
 import numpy as np
 
 from ..core.types import JointState, MotionResult, ToolPose
+from .safety import HealthMonitor, Safety
 
 JOINTS = [f.name for f in fields(JointState)]
-MAX_STEP_DEG = 5.0  # 한 주기 최대 이동량 (spec 6.5)
+HEALTH_PERIOD_S = 0.5  # 온도·부하는 2Hz로만 읽는다 (spec 6.1)
 
 
 class MotionHandle:
@@ -26,9 +28,12 @@ class MotionHandle:
 
 
 class MotionController:
-    def __init__(self, driver, kin=None, limits: dict[str, list[float]] | None = None, hz: int = 50):
-        self.driver, self.kin, self.limits, self.dt = driver, kin, limits or {}, 1.0 / hz
+    def __init__(self, driver, kin=None, safety: Safety | None = None, hz: int = 50):
+        self.driver, self.kin, self.safety, self.dt = driver, kin, safety or Safety({}), 1.0 / hz
+        self.health = HealthMonitor()
+        self._next_health = 0.0
         self.state = "idle"  # "idle" | "moving" | "stopped" | "fault"
+        self.fault: str | None = None
         self._job = None  # (traj, handle, t0, kind)
         self._lock = threading.Lock()
         self._quit = threading.Event()
@@ -47,10 +52,6 @@ class MotionController:
         tool, err = self._final_tool()
         return MotionResult(status, time.perf_counter() - t0, tool, err)
 
-    def _out_of_bounds(self, traj) -> bool:  # 시작점은 검사하지 않는다(받침에 기댄 자세가 한계 밖일 수 있고, 5차 궤적은 단조라 목표만 보면 된다)
-        end = traj.sample(traj.duration_s)
-        return any(not lo <= getattr(end, name) <= hi for name, (lo, hi) in self.limits.items())
-
     def execute(self, traj) -> MotionHandle:
         handle, now = MotionHandle(), time.perf_counter()
         with self._lock:
@@ -58,7 +59,7 @@ class MotionController:
                 handle._finish(MotionResult(self.state, 0.0, ToolPose(0, 0, 0, 0)))
             elif self._job is not None:
                 raise RuntimeError("이미 동작 중")
-            elif self._out_of_bounds(traj):
+            elif self.safety.check_path(traj):
                 handle._finish(self._result("out_of_bounds", now))
             else:
                 self._job, self.state = (traj, handle, now, "move"), "moving"
@@ -90,28 +91,53 @@ class MotionController:
 
     def resume(self) -> None:
         with self._lock:
-            if self.state == "stopped":
-                self.state = "idle"
+            if self.state in ("stopped", "fault"):
+                self.state, self.fault = "idle", None
+                self.health = HealthMonitor()
 
     def _loop(self) -> None:
         nxt = time.perf_counter()
         while not self._quit.is_set():
             nxt += self.dt
             with self._lock:
-                if self._job is not None:
-                    self._tick()
+                try:
+                    self._check_health()
+                    if self._job is not None:
+                        self._tick()
+                except Exception:  # noqa: BLE001 통신 오류 등 어떤 실패든 0.5초 넘게 이어지면 fault
+                    self._fault(self.health.comm_failed(time.perf_counter()))
             time.sleep(max(0.0, nxt - time.perf_counter()))
+
+    def _fault(self, reason: str | None) -> None:
+        if reason is None or self.state == "fault":
+            return
+        self.state = "fault"
+        job, self._job = self._job, None
+        if job is not None:
+            job[1]._finish(MotionResult("fault", time.perf_counter() - job[2], ToolPose(0, 0, 0, 0)))
+        self.fault = reason
+        with contextlib.suppress(Exception):  # 통신이 끊긴 상태일 수 있다
+            self.driver.write_joints(self._last)  # 현재 위치 유지 (토크는 끄지 않는다)
+
+    def _check_health(self) -> None:
+        now = time.perf_counter()
+        if now < self._next_health or self.state == "fault":
+            return
+        self._next_health = now + HEALTH_PERIOD_S
+        self._fault(self.health.update_health(self.driver.read_health(), now))
+        if self._job is None:  # 움직이는 중에는 쓰기 성공만 통신 정상으로 본다
+            self.health.comm_ok()
 
     def _tick(self) -> None:
         traj, handle, t0, kind = self._job
         t = time.perf_counter() - t0
         q = traj.sample(t)
-        if np.abs(np.array(astuple(q)) - np.array(astuple(self._last))).max() > MAX_STEP_DEG:
-            self._job, self.state = None, "fault"
-            handle._finish(self._result("fault", t0))
+        if self.safety.check_step(self._last, q):
+            self._fault("step")
             return
+        self._last = q  # 쓰기 실패도 시도한 위치로 센다(통신 끊김이 'step' fault로 오인되지 않게)
         self.driver.write_joints(q)
-        self._last = q
+        self.health.comm_ok()
         if t >= traj.duration_s:
             self._job = None
             if self.state == "moving":

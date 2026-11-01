@@ -3,6 +3,7 @@ import time
 import numpy as np
 
 from so101_studio.arm.motion import MotionController
+from so101_studio.arm.safety import Safety
 from so101_studio.arm.sim_driver import SimDriver
 from so101_studio.arm.trajectory import move_j
 from so101_studio.core.types import JointState
@@ -32,7 +33,7 @@ def test_move_j_is_monotonic():
 
 def test_controller_reaches_goal():
     d = SimDriver()
-    c = MotionController(d, limits=LIMITS, hz=200)
+    c = MotionController(d, safety=Safety(LIMITS), hz=200)
     r = c.execute(move_j(A, JointState(10, 0, 0, 0, 0, 20), 200, 1000)).wait(5)
     c.close()
     assert r.status == "ok" and d.read_joints() == JointState(10, 0, 0, 0, 0, 20)
@@ -40,7 +41,7 @@ def test_controller_reaches_goal():
 
 def test_out_of_bounds_is_rejected_without_moving():
     d = SimDriver()
-    c = MotionController(d, limits=LIMITS)
+    c = MotionController(d, safety=Safety(LIMITS))
     r = c.execute(move_j(A, JointState(150, 0, 0, 0, 0, 0), 30, 100)).wait(1)
     c.close()
     assert r.status == "out_of_bounds" and d.read_joints() == A
@@ -48,7 +49,7 @@ def test_out_of_bounds_is_rejected_without_moving():
 
 def test_stop_halts_within_300ms():
     d = SimDriver()
-    c = MotionController(d, limits=LIMITS)
+    c = MotionController(d, safety=Safety(LIMITS))
     h = c.execute(move_j(A, JointState(60, 0, 0, 0, 0, 0), 30, 100))
     time.sleep(0.5)
     t0 = time.perf_counter()
@@ -67,7 +68,7 @@ def test_stop_halts_within_300ms():
 
 def test_estop_blocks_until_resume():
     d = SimDriver()
-    c = MotionController(d, limits=LIMITS)
+    c = MotionController(d, safety=Safety(LIMITS))
     c.execute(move_j(A, JointState(60, 0, 0, 0, 0, 0), 30, 100))
     time.sleep(0.2)
     c.estop()
@@ -92,7 +93,7 @@ def test_goal_at_resting_pose_beyond_old_limit_is_allowed():
     d = SimDriver()
     rest = JointState(0, -89, 97.4, 0, 0, 3)
     d.write_joints(rest)
-    c = MotionController(d, limits=cfg.joint_limits_deg)
+    c = MotionController(d, safety=Safety(cfg.joint_limits_deg))
     r = c.execute(move_j(rest, JointState(10, -89, 97.4, 0, 0, 3), 200, 1000)).wait(5)
     c.close()
     assert r.status == "ok"

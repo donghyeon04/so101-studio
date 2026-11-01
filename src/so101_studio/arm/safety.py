@@ -1,0 +1,73 @@
+"""안전 검사 (arm-software-spec.md 6.5). 명령을 보내기 전에 검사하고, 하나라도 어기면 보내지 않는다."""
+from dataclasses import astuple
+
+import numpy as np
+
+from ..core.config import WorkspaceConfig
+from ..core.types import JointState
+
+
+class Safety:
+    def __init__(self, joint_limits: dict[str, list[float]], ws: WorkspaceConfig | None = None, kin=None,
+                 max_step_deg: float = 5.0, z_floor_mm: float = 5.0):
+        self.limits, self.ws, self.kin = joint_limits, ws, kin
+        self.max_step_deg, self.z_floor_mm = max_step_deg, z_floor_mm
+
+    def check_goal(self, q: JointState) -> str | None:
+        for name, (lo, hi) in self.limits.items():
+            if not lo <= getattr(q, name) <= hi:
+                return f"joint_limit:{name}"
+        return self._workspace(q)
+
+    def _workspace(self, q: JointState) -> str | None:
+        if self.ws is None or self.kin is None:
+            return None
+        p, m = self.kin.fk(q), self.ws.safety_margin_mm
+        if not (m <= p.x_mm <= self.ws.table_mm["x"] - m and m <= p.y_mm <= self.ws.table_mm["y"] - m):
+            return "workspace"
+        if p.z_mm < self.z_floor_mm:
+            return "z_floor"
+        return None
+
+    def check_path(self, traj, n: int = 20) -> str | None:
+        """목표는 관절 한계까지, 경로는 작업 영역만 본다. 시작점은 검사하지 않는다(받침에 기댄 자세가 한계 밖일 수 있다)."""
+        reason = self.check_goal(traj.sample(traj.duration_s))
+        for i in range(1, n):
+            reason = reason or self._workspace(traj.sample(traj.duration_s * i / n))
+        return reason
+
+    def check_step(self, prev: JointState, nxt: JointState) -> str | None:
+        if np.abs(np.array(astuple(nxt)) - np.array(astuple(prev))).max() > self.max_step_deg:
+            return "step"
+        return None
+
+
+class HealthMonitor:
+    """과열·과부하·통신 끊김 감시. 온도 읽기는 가끔 튀므로(T2) 연속 temp_count번 넘을 때만 fault로 본다."""
+
+    def __init__(self, temp_limit_c: float = 60, temp_count: int = 3, load_limit_pct: float = 90,
+                 load_s: float = 3.0, comm_s: float = 0.5):
+        self.temp_limit_c, self.temp_count = temp_limit_c, temp_count
+        self.load_limit_pct, self.load_s, self.comm_s = load_limit_pct, load_s, comm_s
+        self._hot: dict[str, int] = {}
+        self._over_since: dict[str, float] = {}
+        self._comm_down_since: float | None = None
+
+    def update_health(self, health: dict, now: float) -> str | None:
+        for m, t in health["temperature_c"].items():
+            self._hot[m] = self._hot.get(m, 0) + 1 if t >= self.temp_limit_c else 0
+            if self._hot[m] >= self.temp_count:
+                return f"overheat:{m}"
+        for m, load in health["load_pct"].items():
+            if load < self.load_limit_pct:
+                self._over_since.pop(m, None)
+            elif now - self._over_since.setdefault(m, now) >= self.load_s:
+                return f"overload:{m}"
+        return None
+
+    def comm_ok(self) -> None:
+        self._comm_down_since = None
+
+    def comm_failed(self, now: float) -> str | None:
+        self._comm_down_since = self._comm_down_since if self._comm_down_since is not None else now
+        return "comm_lost" if now - self._comm_down_since >= self.comm_s else None

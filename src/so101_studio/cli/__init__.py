@@ -4,9 +4,10 @@ from dataclasses import asdict
 
 from ..arm.driver import ArmDriver
 from ..arm.motion import MotionController
+from ..arm.safety import Safety
 from ..arm.sim_driver import SimDriver
 from ..arm.trajectory import move_j
-from ..core.config import load_robot
+from ..core.config import load_robot, load_workspace
 from ..core.types import JointState
 
 
@@ -25,7 +26,9 @@ def status(driver, cfg) -> str:
 def move(driver, cfg, goal: JointState, speed_pct: float) -> str:
     from ..arm.kinematics import Kinematics
 
-    ctl = MotionController(driver, Kinematics(cfg.urdf), cfg.joint_limits_deg, cfg.control_hz)
+    ws = load_workspace()
+    kin = Kinematics(cfg.urdf, ws.base)
+    ctl = MotionController(driver, kin, Safety(cfg.joint_limits_deg, ws, kin), cfg.control_hz)
     try:
         traj = move_j(driver.read_joints(), goal, cfg.joint_v_max_deg_s * speed_pct / 100, cfg.a_max_deg_s2)
         driver.set_torque(True)  # 현재 위치를 목표로 쓴 뒤 켜므로 튀지 않는다
