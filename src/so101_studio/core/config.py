@@ -26,6 +26,8 @@ class RobotConfig:
     tool_v_max_mm_s: float = 100
     approach_height_mm: float = 80
     grasp_height_mm: float = 15
+    table_z_mm: float = 0.0
+    tip_floor_mm: float = 4.0
     gripper_margin_mm: float = 20
     place_height_mm: float = 30
     grasp_bias_mm: float = 0.0

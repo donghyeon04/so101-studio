@@ -9,9 +9,9 @@ from ..core.types import JointState
 
 class Safety:
     def __init__(self, joint_limits: dict[str, list[float]], ws: WorkspaceConfig | None = None, kin=None,
-                 max_step_deg: float = 5.0, z_floor_mm: float = 4.0):
+                 max_step_deg: float = 5.0, z_floor_mm: float = 4.0, table_z_mm: float = 0.0):
         self.limits, self.ws, self.kin = joint_limits, ws, kin
-        self.max_step_deg, self.z_floor_mm = max_step_deg, z_floor_mm
+        self.max_step_deg, self.z_floor_mm, self.table_z_mm = max_step_deg, z_floor_mm, table_z_mm
 
     def check_goal(self, q: JointState) -> str | None:
         for name, (lo, hi) in self.limits.items():
@@ -26,7 +26,7 @@ class Safety:
         if not (m <= p.x_mm <= self.ws.table_mm["x"] - m and m <= p.y_mm <= self.ws.table_mm["y"] - m):
             return "workspace"
         f, mt = self.kin.jaw_tip_offsets(p.pitch_deg, p.yaw_deg, q.gripper)  # 낮은 턱 끝 기준: 기준점(고정 턱 면)은 수직일 때 턱 끝보다 약 7mm 위라 기준점으로 재면 느슨하다
-        if p.z_mm + min(f[2], mt[2], 0.0) < self.z_floor_mm:
+        if p.z_mm + min(f[2], mt[2], 0.0) - self.table_z_mm < self.z_floor_mm:
             return "z_floor"
         return None
 

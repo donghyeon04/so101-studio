@@ -44,7 +44,7 @@ def run_skill(driver, cfg, a) -> str:
 
     ws = load_workspace()
     kin = Kinematics(cfg.urdf, ws.base)
-    ctl = MotionController(driver, kin, Safety(cfg.joint_limits_deg, ws, kin), cfg.control_hz)
+    ctl = MotionController(driver, kin, Safety(cfg.joint_limits_deg, ws, kin, z_floor_mm=cfg.tip_floor_mm, table_z_mm=cfg.table_z_mm), cfg.control_hz)
     cfg = replace(cfg, grasp_bias_mm=cfg.grasp_bias_mm if a.bias is None else a.bias,
                   gripper_margin_mm=cfg.gripper_margin_mm if a.margin is None else a.margin,
                   grasp_max_open_mm=cfg.grasp_max_open_mm if a.max_open is None else a.max_open)
@@ -86,7 +86,7 @@ def move(driver, cfg, goal: JointState | ToolPose, speed_pct: float) -> str:
 
     ws = load_workspace()
     kin = Kinematics(cfg.urdf, ws.base)
-    ctl = MotionController(driver, kin, Safety(cfg.joint_limits_deg, ws, kin), cfg.control_hz)
+    ctl = MotionController(driver, kin, Safety(cfg.joint_limits_deg, ws, kin, z_floor_mm=cfg.tip_floor_mm, table_z_mm=cfg.table_z_mm), cfg.control_hz)
     try:
         q0 = driver.read_joints()
         if isinstance(goal, ToolPose):

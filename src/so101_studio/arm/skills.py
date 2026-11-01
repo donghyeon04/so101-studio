@@ -114,7 +114,7 @@ class Skills:
         q, pts = q_start, [np.array(astuple(replace(q_start, gripper=v0)), float)]
         for i in range(1, n + 1):
             v = v0 + (v_end - v0) * i / n
-            q = self.kin.ik(self._hand_pose(obj.x_mm, obj.y_mm, yaw_t, v, tilt_ok, self.cfg.grasp_height_mm), q, tol_mm=3.0)
+            q = self.kin.ik(self._hand_pose(obj.x_mm, obj.y_mm, yaw_t, v, tilt_ok, (self.cfg.table_z_mm + self.cfg.grasp_height_mm)), q, tol_mm=3.0)
             if q is None:
                 return None
             pts.append(np.array(astuple(replace(q, gripper=v)), float))
@@ -135,9 +135,9 @@ class Skills:
         v0, v_end = self.gripper_for_width(gap0), self.gripper_for_width(gap_end)
         tilt_ok = self._tilt_ok(obj, yaw)
         ox, oy = obj.x_mm + self.cfg.grasp_bias_mm * m[0], obj.y_mm + self.cfg.grasp_bias_mm * m[1]
-        grasp = self._hand_pose(ox, oy, yaw, v0, tilt_ok, self.cfg.grasp_height_mm)
+        grasp = self._hand_pose(ox, oy, yaw, v0, tilt_ok, (self.cfg.table_z_mm + self.cfg.grasp_height_mm))
         # 접근 높이에서는 기울기를 절반만 준다(전부 기울이면 손목 한계로 닿지 않는다). 내려가며 직선 경로가 pitch를 보간해 전부 기울인다.
-        hover = self._hand_pose(ox, oy, yaw, v0, tilt_ok, self.cfg.grasp_height_mm + self.cfg.approach_height_mm, 0.5)
+        hover = self._hand_pose(ox, oy, yaw, v0, tilt_ok, (self.cfg.table_z_mm + self.cfg.grasp_height_mm) + self.cfg.approach_height_mm, 0.5)
         fail = MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0))
         q_hover = self._ik(hover)
         if q_hover is None:
@@ -171,7 +171,7 @@ class Skills:
 
     def place(self, zone: str) -> MotionResult:
         z = self.ws.drop_zones[zone]
-        release = ToolPose(z["x_mm"], z["y_mm"], self.cfg.place_height_mm, 0.0)
+        release = ToolPose(z["x_mm"], z["y_mm"], self.cfg.table_z_mm + self.cfg.place_height_mm, 0.0)
         hover = replace(release, z_mm=release.z_mm + self.cfg.approach_height_mm)
         q_hover = self._ik(hover)
         if q_hover is None:

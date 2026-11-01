@@ -23,7 +23,7 @@ def kin():
 
 @pytest.fixture(scope="module")
 def safety(kin):
-    return Safety(CFG.joint_limits_deg, WS, kin)
+    return Safety(CFG.joint_limits_deg, WS, kin, z_floor_mm=CFG.tip_floor_mm, table_z_mm=CFG.table_z_mm)
 
 
 def test_home_is_allowed(safety):

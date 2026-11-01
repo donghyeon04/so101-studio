@@ -41,7 +41,7 @@ def kin():
 
 def rig(kin, block=None, **cfg_kw):
     d = Recorder(CFG.poses["home"], grip_block=block)
-    ctl = MotionController(d, kin, Safety(CFG.joint_limits_deg, WS, kin), CFG.control_hz)
+    ctl = MotionController(d, kin, Safety(CFG.joint_limits_deg, WS, kin, z_floor_mm=CFG.tip_floor_mm, table_z_mm=CFG.table_z_mm), CFG.control_hz)
     return d, ctl, Skills(ctl, kin, replace(CFG, **cfg_kw), WS, speed_pct=100)
 
 
@@ -85,7 +85,7 @@ def test_jaw_tips_stay_centered_on_the_object_while_closing(kin):
     for q in closing[:: max(1, len(closing) // 30)]:
         (cx, cy), low = tips_mid_and_low(kin, q)
         assert (cx, cy) == pytest.approx((300, 210), abs=5)
-        assert low == pytest.approx(CFG.grasp_height_mm, abs=6)
+        assert low == pytest.approx(CFG.table_z_mm + CFG.grasp_height_mm, abs=6)
 
 
 def test_hand_tilts_when_open_and_straightens_while_closing(kin):
