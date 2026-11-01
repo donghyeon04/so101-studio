@@ -46,6 +46,11 @@ def step_slope(svc, joint: str) -> float:
 
 
 def run_gravcal(svc, out=print) -> dict | None:
+    with svc.safety.relaxed(check_xy=False):  # 팔을 뻗는 자세가 작업대 가장자리 밖으로 나가므로 가장자리 검사만 끈다(바닥·관절 한계는 유지)
+        return _gravcal(svc, out)
+
+
+def _gravcal(svc, out) -> dict | None:
     drv, cfg = svc.driver, svc.cfg
     g = gravity.Gravity(cfg.urdf)
     drv.set_torque(True)
