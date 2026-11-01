@@ -1,6 +1,6 @@
 # 0021. GUI는 Viser 기반 Python 단일 프로세스, 시뮬레이션은 기구학 쌍둥이
 
-상태: 확정 · 2026-11-02
+상태: 대체됨(→ 0023) · 2026-11-02
 
 ## 맥락
 2차 단계(시뮬레이션·GUI)의 기술을 정하려고 레퍼런스 24개를 조사했다(PIPER Studio, LeLab, phosphobot, Viser, NiceGUI, Rerun, MuJoCo 등). SO-101 계열 웹 GUI는 대부분 React와 Python 백엔드로 나뉘어 있지만, 혼자 12/4까지 만들고 GitHub에 공개해야 하는 조건에서는 언어가 둘이 되고 빌드 도구가 늘어나는 부담이 크다. placo의 시각화 모듈은 이미 Viser를 쓴다.
