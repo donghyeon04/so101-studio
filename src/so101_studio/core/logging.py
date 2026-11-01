@@ -12,7 +12,7 @@ class RunLogger:
         (self.dir / "scans").mkdir(parents=True)
         self._events = (self.dir / "events.jsonl").open("a", encoding="utf-8")
         self._status = (self.dir / "status.csv").open("a", encoding="utf-8")
-        self._status.write("t,shoulder_pan,shoulder_lift,elbow_flex,wrist_flex,wrist_roll,gripper,x_mm,y_mm,z_mm,max_temp_c,max_load_pct\n")
+        self._status.write("t,shoulder_pan,shoulder_lift,elbow_flex,wrist_flex,wrist_roll,gripper,x_mm,y_mm,z_mm,max_temp_c,max_load_pct,voltage_v\n")
 
     def event(self, kind: str, data) -> None:
         if dataclasses.is_dataclass(data):
