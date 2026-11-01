@@ -9,7 +9,7 @@ from ..core.config import load_robot, load_workspace
 from ..core.types import DetectedObject, JointState, ToolPose
 from ..service.arm_service import ArmService, plan_goto  # noqa: F401  plan_goto는 테스트가 이 경로로도 쓴다
 
-COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "jog", "record", "replay", "seq"]
+COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "jog", "keys", "record", "replay", "seq"]
 
 
 def make_driver(sim: bool, cfg):
@@ -110,6 +110,10 @@ def main(argv=None) -> None:
             print(run_task(svc, a))
         elif c == "jog":
             run_jog(svc, a)
+        elif c == "keys":
+            from .keys import run_keys
+
+            run_keys(svc)
         elif c == "record":
             name = v[0] if v else ap.error("record: 이름이 필요하다")
             input("토크를 끄고 기록합니다. 팔을 손으로 받친 채 Enter를 누르면 시작합니다...")

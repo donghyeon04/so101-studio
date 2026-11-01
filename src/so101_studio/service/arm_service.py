@@ -148,6 +148,13 @@ class ArmService:
         self.driver.set_torque(True)
         return self._done("goto", self._run(trajs), goal=asdict(pose))
 
+    def preview_tool(self, pose: ToolPose):
+        """움직이지 않고 목표가 가능한지만 본다. (이유 또는 None, 풀린 관절값). GUI가 점 위에 마우스를 올릴 때 미리보기로 쓴다."""
+        q = self.skills._ik(pose)
+        if q is None:
+            return "ik_fail", None
+        return self.safety.check_goal(q), q
+
     def pick_and_place(self, obj: DetectedObject, zone: str | None = None) -> MotionResult:
         self.driver.set_torque(True)
         r = self.skills.pick(obj)

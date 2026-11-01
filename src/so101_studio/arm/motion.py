@@ -85,6 +85,14 @@ class MotionController:
             self._jog, self.state = (mode, np.array(velocity, float), time.perf_counter()), "teleop"
             return True
 
+    def jog_stop(self) -> None:
+        """원격 조종을 즉시 멈추고 그 자리를 유지한다(키를 뗐을 때)."""
+        with self._lock:
+            if self._jog is not None:
+                self._jog = None
+                if self.state == "teleop":
+                    self.state = "idle"
+
     def retarget(self, goal: JointState, v_max: float, a_max: float, j_max: float) -> MotionHandle:
         """진행 중인 동작을 지금 위치·속도에서 새 목표로 매끄럽게 교체한다 (T11). 이전 동작의 결과는 preempted."""
         from .trajectory import RuckigTrajectory

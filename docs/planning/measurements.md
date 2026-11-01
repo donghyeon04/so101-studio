@@ -185,3 +185,6 @@ T6 대체 시험 (2026-11-01, 사용자 육안 확인 + 엔코더 값을 FK로 �
 - T9 `arm/teach.py`: `record`(토크 끔, 20Hz 기록, 저장 시 토크 켜기) / `replay`·`seq`(이동평균 5표본, 첫 자세로 저속 MoveJ 후 시간에 맞춰 재생, 한계 밖이면 거부). 시뮬레이션 시험 통과. 손으로 가르치는 시험은 사용자와 해야 한다.
 - T11 `MotionController.retarget`: Ruckig로 지금 위치·속도에서 새 목표로 이어서 간다(이전 동작은 `preempted`). 시뮬레이션에서 한 주기 5° 이내(속도가 이어짐) 확인, 실제 팔: 이동 중 반대쪽으로 목표를 바꿈 → 이전 `preempted`, 새 동작 `ok`, 최종 위치 −24.6°(목표 −25°).
 - T10 `service/arm_service.py`: 설계서 6.9의 메서드(connect, disconnect, status_stream 10Hz, home, park, move_joints, move_tool, pick_and_place, jog, record_*, replay, run_sequence, retarget, stop, estop, set_speed)와 `runs/`의 `events.jsonl`·`status.csv`. CLI와 Studio가 모두 ArmService를 거친다. 시험 110개 통과.
+
+## 키보드 두 모드 (keys)
+- 관절 모드는 GetAsyncKeyState로 누름/뗌을 읽는다(pynput 미설치, 추가 설치 없음). 좌표 모드는 입력 전에 `preview_tool`로 IK·관절한계·작업대·바닥을 검사해 불가능하면 이동하지 않는다. 시뮬 테스트 4개 통과, 실제 팔 확인은 사용자 몫: `.\so101 --speed 30 keys`.
