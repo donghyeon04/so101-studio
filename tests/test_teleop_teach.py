@@ -147,7 +147,7 @@ def test_record_save_and_replay(tmp_path):
     assert path.exists() and d.torque_enabled() is True and teach.names() == ["wave"]
     d.write_joints(HOME)  # 다른 자리로 옮겨 놓고 재생
     ctl.sync()
-    r = teach.replay("wave", speed=4.0)
+    r = teach.replay("wave", speed=1.0)
     ctl.close()
     assert r.status == "ok" and d.read_joints().shoulder_pan == pytest.approx(30, abs=1.0)
 
@@ -278,16 +278,75 @@ def test_recording_saves_real_sample_times_and_replay_uses_them(tmp_path):
     ctl.close()
 
 
-def test_recording_stops_adding_samples_after_the_time_cap(tmp_path, monkeypatch):
-    from so101_studio.arm import teach as teach_mod
-
-    monkeypatch.setattr(teach_mod, "MAX_RECORD_S", 0.3)
+def test_recording_stops_adding_samples_after_the_time_cap(tmp_path):
     d, ctl = rig()
     t = Teach(ctl, CFG, tmp_path)
-    t.record_start()
+    t.record_start(max_s=0.3)  # 설정(90초) 대신 이번만 0.3초
     time.sleep(0.8)
     t.record_stop("cap")
     ctl.close()
     q, times = t.load("cap")
     assert t.truncated and times[-1] <= 0.35 and len(q) <= 8
     assert d.torque_enabled() is True  # 끝나면 토크가 다시 켜진다
+
+
+def _slow_pause_fast():
+    """0~2초 느리게(10°/s), 2~3초 멈춤, 3~5초 빠르게(80°/s). 20Hz."""
+    t = np.arange(0, 5.0, 0.05)
+    v = np.where(t < 2, 10.0, np.where(t < 3, 0.0, 80.0))
+    q = np.zeros((len(t), 6))
+    q[:, 0], q[:, 1], q[:, 2] = np.cumsum(v * 0.05), -90, 93
+    return q, t
+
+
+def test_analyze_finds_slow_pause_and_fast_segments():
+    from so101_studio.arm.teach import analyze
+
+    q, t = _slow_pause_fast()
+    info = analyze(q, t, pause=3.0, fast=40.0, min_s=0.5)
+    assert [s["label"] for s in info["segments"]] == ["느림", "멈춤", "빠름"]
+    seg = info["segments"]
+    assert info["duration_s"] == pytest.approx(4.95, abs=0.05) and info["max_deg_s"] > info["mean_deg_s"] > 5
+    assert seg[0]["mean_deg_s"] < seg[2]["mean_deg_s"] and seg[1]["start_s"] == pytest.approx(2.0, abs=0.3)
+
+
+def test_retime_changes_only_the_chosen_segment():
+    from so101_studio.arm.teach import analyze, retime
+
+    q, t = _slow_pause_fast()
+    segs = analyze(q, t)["segments"]
+    new = retime(t, segs, {2: 2.0})  # 빠른 구간만 두 배 빠르게
+    assert (new[-1] - new[0]) == pytest.approx((t[-1] - t[0]) - 1.0, abs=0.15)  # 2초짜리 구간이 1초로
+    assert retime(t, segs, {})[-1] == pytest.approx(t[-1] - t[0])
+    assert retime(t, segs, {}, speed=2.0)[-1] == pytest.approx((t[-1] - t[0]) / 2)
+
+
+def test_replay_validates_segment_speeds_and_info_works_on_files_without_meta(tmp_path):
+    import json
+
+    d, ctl = rig()
+    teach = Teach(ctl, CFG, tmp_path)
+    q, t = _slow_pause_fast()
+    (tmp_path / "mix.json").write_text(json.dumps({"hz": 20, "t": t.tolist(), "joints": q.tolist()}), encoding="utf-8")
+    info = teach.info("mix")  # 요약이 없는 파일도 지금 계산한다
+    assert [s["label"] for s in info["segments"]] == ["느림", "멈춤", "빠름"]
+    with pytest.raises(ValueError):
+        teach.replay("mix", segment_speeds={9: 1.0})  # 없는 구간
+    with pytest.raises(ValueError):
+        teach.replay("mix", segment_speeds={2: 5.0})  # 빠른 구간 80°/s x 5 = 400°/s라 한계(220°/s)를 넘는다
+    ctl.close()
+
+
+def test_recording_saves_summary_and_segments(tmp_path):
+    import json
+
+    d, ctl = rig()
+    teach = Teach(ctl, CFG, tmp_path)
+    teach.record_start()
+    for pan in (0, 3, 6, 9, 12):
+        d.write_joints(JointState(pan, -90, 93, 0, 0, 3))
+        time.sleep(0.2)
+    path = teach.record_stop("sum")
+    meta = json.loads(path.read_text(encoding="utf-8"))["meta"]
+    ctl.close()
+    assert meta["points"] > 5 and meta["duration_s"] > 0.5 and "segments" in meta and meta["recorded_at"]

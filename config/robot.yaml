@@ -46,6 +46,11 @@ joint_limits_deg:          # 캘리브레이션으로 잰 가동 범위(measurem
   wrist_flex: [-101, 101]
   wrist_roll: [-170, 170]
   gripper: [1, 99]
+record_hz: 20            # 교시 기록 주기(Hz)
+record_max_s: 90         # 한 번에 기록하는 최대 시간(초)
+seg_pause_deg_s: 3       # 구간 나누기: 이 속도(°/s) 미만 = 멈춤
+seg_fast_deg_s: 40       # 이 속도 이상 = 빠름, 그 사이 = 느림
+seg_min_s: 0.5           # 이보다 짧은 구간은 이웃에 합침
 physical_limits_deg:       # 캘리브레이션 때 손으로 읽은 실제 가동 범위(measurements.md T0-5). joint_limits_deg를 넓혀도 이 범위 안에서만
   shoulder_pan: [-119.5, 119.5]
   shoulder_lift: [-104.3, 104.4]

@@ -6,12 +6,11 @@ from dataclasses import asdict, replace
 
 from ..arm.driver import ArmDriver
 from ..arm.sim_driver import SimDriver
-from ..arm.teach import MAX_RECORD_S
 from ..core.config import load_robot, load_workspace
 from ..core.types import DetectedObject, JointState, ToolPose
 from ..service.arm_service import ArmService, plan_goto  # noqa: F401  plan_goto는 테스트가 이 경로로도 쓴다
 
-COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "jog", "keys", "powertest", "shaketest", "servoinfo", "linkwatch", "record", "replay", "seq"]
+COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "jog", "keys", "powertest", "shaketest", "servoinfo", "linkwatch", "info", "record", "replay", "seq"]
 
 
 def make_driver(sim: bool, cfg):
@@ -42,6 +41,13 @@ def run_task(svc: ArmService, a) -> str:
     svc.driver.set_torque(True)
     res = st.start(step_mode=a.step, blocking=True)
     return f"끝: {res['end']}  옮긴 물체 {len(res['picked'])}개 {res['picked']}  실패 {res['failed']}  사이클 {res['cycles']}"
+
+
+def print_info(info: dict) -> None:
+    print(f"길이 {info['duration_s']:.1f}초, 점 {info['points']}개, 기록 주기 {info['hz_effective']:.1f}Hz, "
+          f"평균 속도 {info['mean_deg_s']:.0f}°/s, 최대 {info['max_deg_s']:.0f}°/s" + (f", 기록 {info['recorded_at']}" if info.get("recorded_at") else ""))
+    for s in info["segments"]:
+        print(f"  구간 {s['index']}: {s['start_s']:5.1f}~{s['end_s']:5.1f}초  {s['label']}  평균 {s['mean_deg_s']:4.0f}°/s  최대 {s['max_deg_s']:4.0f}°/s")
 
 
 def run_jog(svc: ArmService, a) -> None:
@@ -78,6 +84,9 @@ def main(argv=None) -> None:
     ap.add_argument("--unsafe", action="store_true", help="관절 한계·작업 영역·바닥 검사를 모두 끈다 (한 주기 이동량 한계와 과열·과부하 감시는 유지). 매우 조심해서만")
     ap.add_argument("--safety-margin", type=float, help="팔 관절 한계를 이만큼(°) 안쪽으로 줄인다. 음수면 실제 가동 범위까지 넓힌다")
     ap.add_argument("--box", help="허용 범위(작업대 좌표 mm): x최소,x최대,y최소,y최대,z최소,z최대. z는 작업대 면 위 낮은 턱 끝 높이. 'none'이면 제한 없음")
+    ap.add_argument("--record-hz", type=int, help="record: 기록 주기 Hz를 이번만 바꾼다 (기본: 설정 record_hz)")
+    ap.add_argument("--record-max-s", type=float, help="record: 최대 기록 시간(초)을 이번만 바꾼다 (기본: 설정 record_max_s)")
+    ap.add_argument("--seg-speed", help="replay: 구간별 속도 배율 '번호=배율,...' 예: 1=0.5,3=2 (구간 번호는 info로 본다)")
     ap.add_argument("--free", action="store_true", help="작업대 가장자리 검사를 끈다 (바닥과 관절 한계는 유지). 손으로 움직이는 조종·재생용")
     ap.add_argument("--until-limit", action="store_true", help="replay: 한계나 바닥을 처음 넘는 자세 앞까지만 재생")
     ap.add_argument("--trace", action="store_true", help="keys: 명령·실제 관절 위치를 빠르게 기록하고 떨림 요약 (runs/.../trace.csv)")
@@ -177,13 +186,21 @@ def main(argv=None) -> None:
             for n in (3, 2, 1):
                 print(f"  {n}...", flush=True)
                 time.sleep(1)
-            svc.record_start()
+            svc.record_start(a.record_hz, a.record_max_s)
             input("토크가 꺼졌습니다. 손으로 천천히 움직이세요. 끝나면 Enter... ")
             print("저장:", svc.record_stop(name))
             if svc.teach.truncated:
-                print(f"기록은 최대 {MAX_RECORD_S:.0f}초라 앞부분만 저장했습니다.")
+                print(f"기록은 최대 {svc.teach.max_s:.0f}초라 앞부분만 저장했습니다.")
+            print_info(svc.record_info(name))
+        elif c == "info":
+            print_info(svc.record_info(v[0] if v else ap.error("info: 이름이 필요하다")))
         elif c in ("replay", "seq"):
-            print(fmt(svc.replay(v[0] if v else ap.error(f"{c}: 이름이 필요하다"), a.speed / 100 if a.speed else 1.0, a.until_limit)))
+            seg = {int(k): float(x) for k, x in (p.split("=") for p in a.seg_speed.split(","))} if a.seg_speed else None
+            try:
+                res = svc.replay(v[0] if v else ap.error(f"{c}: 이름이 필요하다"), a.speed / 100 if a.speed else 1.0, a.until_limit, seg)
+            except ValueError as e:
+                sys.exit(f"재생 설정 오류: {e}")
+            print(fmt(res))
             if svc.teach.last_cut:
                 kept, total, why = svc.teach.last_cut
                 print(f"한계 앞에서 잘랐습니다: {total}점 중 {kept}점 재생 ({why})")

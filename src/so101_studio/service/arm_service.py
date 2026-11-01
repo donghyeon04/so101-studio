@@ -214,18 +214,24 @@ class ArmService:
     def jog(self, mode: str, velocity) -> bool:
         return self.ctl.jog(mode, velocity)
 
-    def record_start(self) -> None:
-        self._log("record_start", {})
-        self.teach.record_start()
+    def record_start(self, hz: int | None = None, max_s: float | None = None) -> None:
+        """hz: 기록 주기, max_s: 최대 기록 시간. 안 주면 설정값(record_hz, record_max_s)."""
+        self._log("record_start", {"hz": hz, "max_s": max_s})
+        self.teach.record_start(hz, max_s)
+
+    def record_info(self, name: str) -> dict:
+        """기록의 길이, 평균·최대 속도, 속도 구간(멈춤/느림/빠름) 목록. GUI가 구간별 속도 조절 화면을 그릴 때 쓴다."""
+        return self.teach.info(name)
 
     def record_stop(self, name: str):
         path = self.teach.record_stop(name)
         self._log("record_stop", {"name": name, "path": str(path)})
         return path
 
-    def replay(self, name: str, speed: float = 1.0, until_limit: bool = False) -> MotionResult:
+    def replay(self, name: str, speed: float = 1.0, until_limit: bool = False, segment_speeds: dict[int, float] | None = None) -> MotionResult:
         self.driver.set_torque(True)
-        return self._done("replay", self.teach.replay(name, speed, until_limit), name=name, speed=speed, until_limit=until_limit)
+        return self._done("replay", self.teach.replay(name, speed, until_limit, segment_speeds), name=name, speed=speed,
+                          until_limit=until_limit, segment_speeds=segment_speeds)
 
     def run_sequence(self, name: str) -> MotionResult:
         return self.replay(name, 1.0)

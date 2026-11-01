@@ -23,6 +23,11 @@ class RobotConfig:
     speed_pct_default: int = 30
     servo_acceleration: int = 25
     physical_limits_deg: dict = field(default_factory=dict)  # 캘리브레이션으로 잰 실제 가동 범위. 안전 한계를 넓혀도 이 범위는 넘지 않는다
+    record_hz: int = 20  # 교시 기록 주기
+    record_max_s: float = 90.0  # 한 번에 기록하는 최대 시간(레퍼런스 myCobot 권장값에서 따옴)
+    seg_pause_deg_s: float = 3.0  # 이 속도(°/s, 가장 빠른 관절 기준) 미만이면 멈춤 구간
+    seg_fast_deg_s: float = 40.0  # 이 속도 이상이면 빠른 구간, 그 사이는 느린 구간
+    seg_min_s: float = 0.5  # 이보다 짧은 구간은 이웃에 합친다
     gripper_acceleration: int = 25  # 그리퍼는 접촉 감지(명령-실측 지연)를 이 값에서 맞췄으므로 팔 관절과 따로 둔다
     joint_v_max_deg_s: float = 90
     tool_v_max_mm_s: float = 100
