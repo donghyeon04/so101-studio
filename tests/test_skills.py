@@ -94,7 +94,8 @@ def test_hand_tilts_when_open_and_straightens_while_closing(kin):
     top = max(q.gripper for q in d.log)
     i_open = max(i for i, q in enumerate(d.log) if q.gripper == top)
     opened = d.log[i_open]
-    assert kin.fk(opened).pitch_deg == pytest.approx(-90 - CFG.grasp_tilt_deg, abs=4)  # 벌린 상태: 가동 턱 반대쪽으로 기울임
+    expected = min(CFG.grasp_tilt_deg, 0.607 * top)  # θ/2, 손목 한계에서 자른다
+    assert kin.fk(opened).pitch_deg == pytest.approx(-90 - expected, abs=4)  # 벌린 상태: 가동 턱 반대쪽으로 기울임
     at_contact = next(q for q in d.log[i_open:] if q.gripper <= BLOCK + 1.0)
     assert abs(kin.fk(at_contact).pitch_deg + 90) < abs(kin.fk(opened).pitch_deg + 90) - 5  # 닫을수록 기울기가 줄어든다
 
