@@ -38,6 +38,9 @@ class SimDriver:
     def read_power(self) -> tuple[float, dict, dict]:
         return 12.0, {m: 0.0 for m in JOINTS}, {m: 0.0 for m in JOINTS}
 
+    def read_loads_signed(self) -> dict:
+        return {m: 0.0 for m in JOINTS}
+
     def get_p(self) -> dict:
         return dict(getattr(self, "_p", {m: 16 for m in JOINTS}))
 

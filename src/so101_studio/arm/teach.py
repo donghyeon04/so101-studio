@@ -52,7 +52,8 @@ class Teach:
             self._saved_torque = (drv.get_torque_limits(), drv.get_p())
             drv.set_torque(True)
             drv.set_torque_limits({n: int(min(self._saved_torque[0].get(n, 1000), max(50, v * stiffness))) for n, v in self.cfg.teach_torque.items()})
-            drv.set_p({n: max(1, round(v * stiffness)) for n, v in self.cfg.teach_p.items()})
+            p = {**self.cfg.teach_p, **(self.cfg.teach_p_gravity if self.ctl.gravity is not None else {})}
+            drv.set_p({n: max(1, round(v * stiffness)) for n, v in p.items()})
             self.ctl.follow_dead_deg = self.cfg.teach_dead_deg
             if not self.ctl.follow(True):
                 self._restore_servo(drv)

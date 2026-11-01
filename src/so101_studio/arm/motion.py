@@ -41,6 +41,8 @@ class MotionController:
         self._jog = None  # (mode, 속도 벡터, 마지막 입력 시각)
         self._jog_v = np.zeros(6)  # 가속도 제한을 거친 지금 조그 속도
         self._jog_t = 0.0  # 직전 조그 틱 시각
+        self.gravity = None  # 중력 보상 모델(arm/gravity.py). 있으면 추종 교시에서 목표에 중력분을 미리 더한다
+        self.gravity_gain = 1.0
         self.follow_dead_deg = 1.0  # 추종 교시: 목표와 실제 위치가 이만큼 넘게 어긋나면 손으로 민 것으로 보고 목표를 따라 옮긴다
         self._follow = False
         self.follow_block = None  # 추종이 안전 검사에 막힌 이유
@@ -243,7 +245,11 @@ class MotionController:
             self.follow_block = why
             if not why:
                 self._last = q
-        self.driver.write_joints(self._last)
+        cmd = self._last
+        if self.gravity is not None:  # 팔 무게를 버티는 만큼 목표를 미리 앞에 둔다(P를 낮춰도 처지지 않게)
+            ff = self.gravity.ff_deg(JointState(*present), self.gravity_gain)
+            cmd = JointState(*(np.array(astuple(self._last)) + ff).tolist())
+        self.driver.write_joints(cmd)
         self.health.comm_ok()
 
     def _tick_jog(self) -> None:

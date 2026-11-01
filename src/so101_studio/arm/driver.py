@@ -105,6 +105,11 @@ class ArmDriver:
         return {m: self._bus.read("Torque_Limit", m, normalize=False) for m in self._bus.motors}
 
     @_locked
+    def read_loads_signed(self) -> dict[str, float]:
+        """서보별 부하(±1000, 방향 부호 포함). 정지 자세에서는 중력을 버티는 힘이다."""
+        return {m: float(v) for m, v in self._bus.sync_read("Present_Load").items()}
+
+    @_locked
     def get_p(self) -> dict[str, int]:
         return {m: self._bus.read("P_Coefficient", m, normalize=False) for m in self._bus.motors}
 
