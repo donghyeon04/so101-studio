@@ -9,7 +9,7 @@ from ..core.config import load_robot, load_workspace
 from ..core.types import DetectedObject, JointState, ToolPose
 from ..service.arm_service import ArmService, plan_goto  # noqa: F401  plan_goto는 테스트가 이 경로로도 쓴다
 
-COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "jog", "keys", "powertest", "shaketest", "servoinfo", "gravcal", "record", "replay", "seq"]
+COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "jog", "keys", "powertest", "shaketest", "servoinfo", "gravcal", "linkwatch", "record", "replay", "seq"]
 
 
 def make_driver(sim: bool, cfg):
@@ -95,6 +95,11 @@ def main(argv=None) -> None:
         grasp_bias_mm=cfg.grasp_bias_mm if a.bias is None else a.bias,
         control_hz=cfg.control_hz if a.hz is None else a.hz,
     )
+    if a.command == "linkwatch":  # 서보 연결 없이 포트만 쓴다
+        from .linkwatch import run_linkwatch
+
+        run_linkwatch(cfg.port)
+        return
     svc = ArmService(make_driver(a.sim, cfg), cfg, load_workspace(), a.speed or cfg.speed_pct_default)
     ok, msg = svc.connect()
     if not ok:
