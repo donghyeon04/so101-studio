@@ -32,6 +32,10 @@ class RobotConfig:
     gripper_open: float = 60
     gripper_width_mm: list[list[float]] = field(default_factory=lambda: [[0, 0], [100, 90]])
     a_max_deg_s2: float = 120
+    trajectory_profile: str = "quintic"
+    joint_jerk_max_deg_s3: float = 300
+    tool_a_max_mm_s2: float = 500
+    tool_jerk_max_mm_s3: float = 3000
     joint_offsets_deg: dict[str, float] = field(default_factory=dict)
     joint_limits_deg: dict[str, list[float]] = field(default_factory=dict)
     poses: dict[str, list[float]] = field(default_factory=dict)

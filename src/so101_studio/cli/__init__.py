@@ -7,7 +7,7 @@ from ..arm.motion import MotionController
 from ..arm.safety import Safety
 from ..arm.sim_driver import SimDriver
 from ..arm.skills import Skills
-from ..arm.trajectory import move_j, move_l
+from ..arm.trajectory import cfg_move_j, cfg_move_l
 from ..core.config import load_robot, load_workspace
 from ..core.types import DetectedObject, JointState, ToolPose
 
@@ -26,18 +26,17 @@ def status(driver, cfg) -> str:
 
 def plan_goto(kin, cfg, q0: JointState, goal: ToolPose, speed_pct: float):
     """직선(MoveL)으로 못 가면 목표 위 approach_height_mm 지점으로 MoveJ한 뒤 수직으로 내려간다(pick과 같은 순서)."""
-    v = cfg.tool_v_max_mm_s * speed_pct / 100
-    traj = move_l(kin, kin.fk(q0), goal, q0, v)
+    traj = cfg_move_l(cfg, kin, kin.fk(q0), goal, q0, speed_pct)
     if traj is not None:
         return [traj]
     hover = replace(goal, z_mm=goal.z_mm + cfg.approach_height_mm)
     q_hover = kin.ik(hover, q0)
     if q_hover is None:
         return None
-    down = move_l(kin, hover, goal, q_hover, v)
+    down = cfg_move_l(cfg, kin, hover, goal, q_hover, speed_pct)
     if down is None:
         return None
-    return [move_j(q0, q_hover, cfg.joint_v_max_deg_s * speed_pct / 100, cfg.a_max_deg_s2), down]
+    return [cfg_move_j(cfg, q0, q_hover, speed_pct), down]
 
 
 def run_skill(driver, cfg, a) -> str:
@@ -63,6 +62,24 @@ def run_skill(driver, cfg, a) -> str:
         ctl.close()
 
 
+def open_gripper(driver, cfg, value: float, as_width: bool, speed_pct: float) -> str:
+    """그리퍼만 움직인다. 벌림 폭(mm)을 눈으로 확인하는 데 쓴다 (예: 카드 폭 54mm)."""
+    import numpy as np
+
+    pts = sorted((mm, v) for v, mm in cfg.gripper_width_mm)
+    v = float(np.interp(value, [p[0] for p in pts], [p[1] for p in pts])) if as_width else value
+    lo, hi = cfg.joint_limits_deg["gripper"]
+    v = min(max(v, lo), hi)
+    ctl = MotionController(driver, None, Safety(cfg.joint_limits_deg), cfg.control_hz)
+    try:
+        driver.set_torque(True)
+        q = driver.read_joints()
+        r = ctl.execute(cfg_move_j(cfg, q, replace(q, gripper=v), speed_pct)).wait()
+        return f"{r.status}  그리퍼 값 {v:.1f}"
+    finally:
+        ctl.close()
+
+
 def move(driver, cfg, goal: JointState | ToolPose, speed_pct: float) -> str:
     from ..arm.kinematics import Kinematics
 
@@ -76,7 +93,7 @@ def move(driver, cfg, goal: JointState | ToolPose, speed_pct: float) -> str:
             if trajs is None:
                 return "ik_fail  해가 없는 점이 있다 (움직이지 않음)"
         else:
-            trajs = [move_j(q0, goal, cfg.joint_v_max_deg_s * speed_pct / 100, cfg.a_max_deg_s2)]
+            trajs = [cfg_move_j(cfg, q0, goal, speed_pct)]
         driver.set_torque(True)  # 현재 위치를 목표로 쓴 뒤 켜므로 튀지 않는다
         out = []
         for traj in trajs:
@@ -94,11 +111,12 @@ def main(argv=None) -> None:
     ap = argparse.ArgumentParser(prog="so101_studio")
     ap.add_argument("--sim", action="store_true", help="SimDriver로 실행")
     ap.add_argument("--place", help="pick 뒤에 놓을 배출 구역 이름 (place 명령은 필수)")
+    ap.add_argument("--width", action="store_true", help="gripper: 값을 그리퍼 값이 아니라 벌림 폭(mm)으로 해석")
     ap.add_argument("--margin", type=float, help="pick: gripper_margin_mm(물체 폭보다 더 벌리는 양)를 이번만 바꿔 시험")
     ap.add_argument("--bias", type=float, help="pick: grasp_bias_mm를 이번만 바꿔 시험 (가동 턱 쪽이 +)")
     ap.add_argument("--config", default="config/robot.yaml")
     ap.add_argument("--speed", type=float, help="속도 %% (기본: 설정값)")
-    ap.add_argument("command", choices=["status", "home", "park", "movej", "goto", "pick", "place"])
+    ap.add_argument("command", choices=["status", "home", "park", "movej", "goto", "pick", "place", "gripper"])
     ap.add_argument("values", nargs="*", type=float, help="movej: 관절 6개 값(도, gripper 0~100) / goto: x y z yaw (작업대 좌표 mm, 도) / pick: x y 각도 폭")
     a = ap.parse_args(argv)
     cfg = load_robot(a.config)
@@ -109,6 +127,11 @@ def main(argv=None) -> None:
             print(status(driver, cfg))
             return
         speed = a.speed or cfg.speed_pct_default
+        if a.command == "gripper":
+            if len(a.values) != 1:
+                ap.error("gripper: 값 1개(0~100, --width를 주면 벌림 mm)가 필요하다")
+            print(open_gripper(driver, cfg, a.values[0], a.width, speed))
+            return
         if a.command in ("pick", "place"):
             if a.command == "pick" and len(a.values) != 4:
                 ap.error("pick: x y 각도 폭 4개가 필요하다 (작업대 좌표 mm, 도, mm)")

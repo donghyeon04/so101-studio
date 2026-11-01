@@ -107,3 +107,31 @@ def test_new_trajectory_may_start_far_from_last_command():
     r = c.execute(move_j(JointState(2, 0, 0, 0, 0, 0), JointState(20, 0, 0, 0, 0, 0), 200, 1000)).wait(5)
     c.close()
     assert r.status == "ok"
+
+
+def test_ruckig_move_j_respects_limits_and_ends_at_rest():
+    t = move_j(A, B, 27, 60, profile="ruckig", j_max_deg_s3=200)
+    ts = [t.duration_s * i / 400 for i in range(401)]
+    assert t.sample(0) == A
+    end = t.sample(t.duration_s)
+    assert np.allclose(np.array(list(vars(end).values())), np.array(list(vars(B).values())), atol=1e-6)
+    vel = np.array([t.velocity(x) for x in ts])
+    assert np.abs(vel).max() <= 27 * 1.001 and np.allclose(vel[0], 0) and np.allclose(vel[-1], 0, atol=1e-6)
+    acc = np.abs(np.diff(vel, axis=0)).max() / (t.duration_s / 400)
+    assert acc <= 60 * 1.1
+    assert all(abs(t.velocity(x)).max() <= 27.001 for x in ts)
+
+
+def test_ruckig_is_faster_than_quintic_at_the_same_speed_limit():
+    q = move_j(A, B, 27, 120)
+    r = move_j(A, B, 27, 120, profile="ruckig", j_max_deg_s3=600)
+    assert r.duration_s < q.duration_s
+
+
+def test_controller_runs_a_ruckig_trajectory_in_sim():
+    d = SimDriver()
+    c = MotionController(d, safety=Safety(LIMITS), hz=200)
+    r = c.execute(move_j(A, JointState(10, 0, 0, 0, 0, 20), 200, 800, profile="ruckig", j_max_deg_s3=8000)).wait(5)
+    c.close()
+    assert r.status == "ok"
+    assert np.allclose(np.array(list(vars(d.read_joints()).values())), [10, 0, 0, 0, 0, 20], atol=1e-6)

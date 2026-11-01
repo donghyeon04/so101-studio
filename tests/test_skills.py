@@ -137,3 +137,10 @@ def test_pick_returns_to_hover_for_every_angle(kin, angle):
     ctl.close()
     assert r.status == "ok"
     assert kin.fk(d.log[-1]).z_mm == pytest.approx(CFG.grasp_height_mm + CFG.approach_height_mm, abs=3)
+
+
+def test_width_table_follows_urdf_geometry(kin):
+    _d, ctl, sk = rig(kin)
+    ctl.close()
+    assert sk.gripper_for_width(50) == pytest.approx(30.4, abs=1.0)  # 벌림 50mm는 값 약 30 (기하 계산)
+    assert sk.gripper_for_width(94) == pytest.approx(63.6, abs=1.5)

@@ -2,7 +2,7 @@
 name = "so101-studio"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["pyyaml"]
+dependencies = ["pyyaml", "ruckig"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

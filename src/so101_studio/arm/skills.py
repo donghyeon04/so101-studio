@@ -5,7 +5,7 @@ from dataclasses import replace
 import numpy as np
 
 from ..core.types import DetectedObject, JointState, MotionResult, ToolPose
-from .trajectory import move_j, move_l
+from .trajectory import cfg_move_j, cfg_move_l
 
 SEEDS = [JointState(0, -30, 30, 60, 0, 0), JointState(0, -60, 60, 30, 0, 0), JointState(0, 0, 60, 30, 0, 0)]
 
@@ -28,7 +28,7 @@ class Skills:
         return r
 
     def _joint_move(self, goal: JointState):
-        return move_j(self._q(), goal, self.cfg.joint_v_max_deg_s * self.speed / 100, self.cfg.a_max_deg_s2)
+        return cfg_move_j(self.cfg, self._q(), goal, self.speed)
 
     def _gripper(self, value: float):
         return self._joint_move(replace(self._q(), gripper=value))
@@ -42,7 +42,7 @@ class Skills:
         return None
 
     def _line(self, start_q: JointState, goal: ToolPose):
-        return move_l(self.kin, self.kin.fk(start_q), goal, start_q, self.cfg.tool_v_max_mm_s * self.speed / 100)
+        return cfg_move_l(self.cfg, self.kin, self.kin.fk(start_q), goal, start_q, self.speed)
 
     def gripper_for_width(self, width_mm: float) -> float:
         """벌어진 폭(mm) -> 그리퍼 값. 대응표는 robot.yaml의 gripper_width_mm (T7에서 측정, 지금은 자리표시)."""
