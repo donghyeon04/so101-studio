@@ -12,6 +12,7 @@ class Safety:
                  max_step_deg: float = 5.0, z_floor_mm: float = 4.0, table_z_mm: float = 0.0):
         self.limits, self.ws, self.kin = joint_limits, ws, kin
         self.max_step_deg, self.z_floor_mm, self.table_z_mm = max_step_deg, z_floor_mm, table_z_mm
+        self.check_xy = True  # False면 작업대 가장자리 검사를 건너뛰고 바닥(턱 끝 높이)만 본다. 전원·부하 시험이 팔을 끝까지 펼 때만 임시로 끈다
 
     def check_goal(self, q: JointState) -> str | None:
         for name, (lo, hi) in self.limits.items():
@@ -23,7 +24,7 @@ class Safety:
         if self.ws is None or self.kin is None:
             return None
         p, m = self.kin.fk(q), self.ws.safety_margin_mm
-        if not (m <= p.x_mm <= self.ws.table_mm["x"] - m and m <= p.y_mm <= self.ws.table_mm["y"] - m):
+        if self.check_xy and not (m <= p.x_mm <= self.ws.table_mm["x"] - m and m <= p.y_mm <= self.ws.table_mm["y"] - m):
             return "workspace"
         f, mt = self.kin.jaw_tip_offsets(p.pitch_deg, p.yaw_deg, q.gripper)  # 낮은 턱 끝 기준: 기준점(고정 턱 면)은 수직일 때 턱 끝보다 약 7mm 위라 기준점으로 재면 느슨하다
         if p.z_mm + min(f[2], mt[2], 0.0) - self.table_z_mm < self.z_floor_mm:

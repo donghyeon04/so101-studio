@@ -104,6 +104,8 @@ def test_powertest_runs_in_sim_and_writes_csv(svc, monkeypatch):
     res = powertest.run_powertest(svc, repeats=1, out=out.append)
     assert set(res["moves"]) == {"ok"} and res["baseline_v"] == 12.0 and res["sample_hz"] > 20
     assert svc.driver.acceleration == CFG.servo_acceleration  # 시험 뒤 서보 가속 한계를 되돌린다
+    assert svc.safety.check_xy and svc.safety.max_step_deg == 5.0  # 안전 검사도 되돌린다
+    assert res["skipped"] == []  # 끝까지 편 자세도 바닥 검사를 통과한다
     assert (svc.logger.dir / "powertest.csv").exists()
 
 

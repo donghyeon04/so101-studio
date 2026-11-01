@@ -1,7 +1,8 @@
 """전원·부하 시험: 팔을 크게, 최대 속도로 휘두르는 동안 전압, 서보별 전류, 서보별 부하를 최대한 빠르게 읽는다.
 건강 읽기(2Hz)로는 출발·정지 순간의 강하를 놓치기 때문에 따로 만들었다. 어댑터 교체 전에 근거를 얻는 용도다.
-안전: 목표와 경로는 평소와 같은 검사(관절 한계, 작업 영역, 바닥)를 통과한 것만 실행하고, 통과하지 못한 자세는 건너뛴다.
-시험 동안만 서보 가속 한계를 최대(254)로 올리고 끝나면 설정값으로 되돌린다."""
+안전: 목표와 경로는 관절 한계와 바닥(턱 끝 높이) 검사를 통과한 것만 실행하고, 통과하지 못한 자세는 건너뛴다.
+팔을 끝까지 펴면 작업대 가장자리 밖으로 나가므로 이 시험 동안만 작업대 가장자리 검사(check_xy)를 끈다(주변 공간을 비워야 한다).
+시험 동안만 서보 가속 한계를 최대(254)로, 한 주기 이동량 한계를 8°로 올리고 끝나면 설정값으로 되돌린다."""
 import csv
 import threading
 import time
@@ -10,29 +11,37 @@ from ..arm.trajectory import move_j
 from ..core.types import JointState
 
 SETTLE_S = 1.0
-A_MAX_DEG_S2 = 600.0  # 평소(120)보다 훨씬 거친 가속
+V_MAX_DEG_S = 200.0  # 100% 기준 속도. 한 주기 이동량 한계(5°/주기 = 250°/s) 안에서 가장 빠르게
+A_MAX_DEG_S2 = 1500.0
 # 큰 스윙 자세: pan, lift, elbow, wrist_flex, wrist_roll, gripper (시작 자세에서 출발해 차례로 갔다가 돌아온다)
 SWINGS = [
     [60, -40, 30, 50, 120, 60],
     [-60, -20, 10, 20, -120, 3],
     [100, -70, 70, -40, 160, 90],
     [-100, -30, 50, 80, -160, 3],
-    [0, 0, 0, 0, 0, 60],
+    [0, 85, -75, -10, 0, 3],  # 팔을 끝까지 편 자세(도달 약 440mm, 턱 끝이 작업대에서 약 95mm 위)
+    [80, 85, -75, -10, 0, 3],  # 편 채로 오른쪽으로 크게 휘두름 (작업대 밖으로 나간다)
+    [-80, 85, -75, -10, 0, 3],  # 편 채로 왼쪽으로 크게 휘두름
+    [0, 70, -65, -10, 0, 3],  # 편 채로 더 높게(턱 끝 약 150mm)
 ]
 
 
 def run_powertest(svc, repeats: int = 3, speed_pct: float = 100.0, out=print) -> dict:
     svc.driver.set_torque(True)
+    svc.safety.check_xy = False
+    rest_step = svc.safety.max_step_deg
+    svc.safety.max_step_deg = 8.0  # 200°/s는 주기당 4°라 평소 한계(5°)에 여유가 없다. 이 시험 동안만 올린다
     start = svc.driver.read_joints()
     rest_acc = svc.driver.acceleration
     targets, skipped = [], []
     here = start
     for i, s in enumerate(SWINGS):
         q = JointState(*s)
-        why = svc.safety.check_path(move_j(here, q, svc.cfg.joint_v_max_deg_s * speed_pct / 100, A_MAX_DEG_S2))
+        why = svc.safety.check_path(move_j(here, q, V_MAX_DEG_S * speed_pct / 100, A_MAX_DEG_S2))
         (skipped.append((i + 1, why)) if why else targets.append(q))
         here = q if not why else here
     if not targets:
+        svc.safety.check_xy, svc.safety.max_step_deg = True, rest_step
         out(f"안전 검사를 통과한 자세가 없어 시험하지 않았습니다: {skipped}")
         return {}
     rows, stop, mark = [], threading.Event(), {}
@@ -54,10 +63,12 @@ def run_powertest(svc, repeats: int = 3, speed_pct: float = 100.0, out=print) ->
         svc.driver.set_acceleration(254)
         for _ in range(repeats):
             for q in [*targets, start]:
-                traj = move_j(svc.driver.read_joints(), q, svc.cfg.joint_v_max_deg_s * speed_pct / 100, A_MAX_DEG_S2)
+                traj = move_j(svc.driver.read_joints(), q, V_MAX_DEG_S * speed_pct / 100, A_MAX_DEG_S2)
                 results.append(svc._run([traj]).status)
                 time.sleep(0.2)
     finally:
+        svc.safety.check_xy = True
+        svc.safety.max_step_deg = rest_step
         svc.driver.set_acceleration(rest_acc)
         mark["t1"] = time.perf_counter()
         time.sleep(0.5)
