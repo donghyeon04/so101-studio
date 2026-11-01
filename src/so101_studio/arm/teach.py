@@ -49,11 +49,13 @@ class Teach:
         self._saved_torque = None
         if follow:
             drv = self.ctl.driver
-            self._saved_torque = drv.get_torque_limits()
+            self._saved_torque = (drv.get_torque_limits(), drv.get_p())
             drv.set_torque(True)
-            drv.set_torque_limits({n: int(min(self._saved_torque.get(n, 1000), max(50, v * stiffness))) for n, v in self.cfg.teach_torque.items()})
+            drv.set_torque_limits({n: int(min(self._saved_torque[0].get(n, 1000), max(50, v * stiffness))) for n, v in self.cfg.teach_torque.items()})
+            drv.set_p({n: max(1, round(v * stiffness)) for n, v in self.cfg.teach_p.items()})
+            self.ctl.follow_dead_deg = self.cfg.teach_dead_deg
             if not self.ctl.follow(True):
-                drv.set_torque_limits(self._saved_torque)
+                self._restore_servo(drv)
                 raise RuntimeError("지금은 추종 교시를 시작할 수 없습니다 (동작 중이거나 정지·fault 상태)")
         else:
             self.ctl.driver.set_torque(False)
@@ -67,6 +69,12 @@ class Teach:
         self._thread = threading.Thread(target=loop, daemon=True)
         self._thread.start()
 
+    def _restore_servo(self, drv) -> None:
+        limits, p = self._saved_torque
+        drv.set_torque_limits(limits)
+        drv.set_p(p)
+        self._saved_torque = None
+
     def record_stop(self, name: str) -> Path:
         """기록을 config/sequences/<name>.json으로 저장하고 토크를 켠다(현재 자세를 목표로 쓴 뒤 켜므로 튀지 않는다)."""
         self._stop.set()
@@ -74,8 +82,7 @@ class Teach:
         self._thread = None
         if self._saved_torque is not None:  # 추종 교시: 추종을 끄고 토크 제한을 되돌린다
             self.ctl.follow(False)
-            self.ctl.driver.set_torque_limits(self._saved_torque)
-            self._saved_torque = None
+            self._restore_servo(self.ctl.driver)
         self.ctl.driver.set_torque(True)
         self.ctl.sync()
         self.dir.mkdir(parents=True, exist_ok=True)

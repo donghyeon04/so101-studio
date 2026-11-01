@@ -105,6 +105,16 @@ class ArmDriver:
         return {m: self._bus.read("Torque_Limit", m, normalize=False) for m in self._bus.motors}
 
     @_locked
+    def get_p(self) -> dict[str, int]:
+        return {m: self._bus.read("P_Coefficient", m, normalize=False) for m in self._bus.motors}
+
+    @_locked
+    def set_p(self, values: dict[str, int]) -> None:
+        """서보별 P 계수(위치 오차에 대한 힘의 비례). 낮추면 손으로 쉽게 밀린다. 연결할 때 설정값(pid)으로 항상 다시 쓴다."""
+        for m, v in values.items():
+            self._bus.write("P_Coefficient", m, int(v))
+
+    @_locked
     def set_torque_limits(self, limits: dict[str, int]) -> None:
         """서보별 토크 제한(0~1000, RAM)을 바꾼다. 교시처럼 손으로 밀릴 만큼만 힘을 내게 할 때 쓴다."""
         for m, v in limits.items():

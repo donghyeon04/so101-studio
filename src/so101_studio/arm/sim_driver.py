@@ -38,6 +38,12 @@ class SimDriver:
     def read_power(self) -> tuple[float, dict, dict]:
         return 12.0, {m: 0.0 for m in JOINTS}, {m: 0.0 for m in JOINTS}
 
+    def get_p(self) -> dict:
+        return dict(getattr(self, "_p", {m: 16 for m in JOINTS}))
+
+    def set_p(self, values: dict) -> None:
+        self._p = {**self.get_p(), **values}
+
     def get_torque_limits(self) -> dict:
         return dict(getattr(self, "_torque_limits", {m: 1000 for m in JOINTS}))
 
