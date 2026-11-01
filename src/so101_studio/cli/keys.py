@@ -173,7 +173,7 @@ class KeysSession:
             mode = getattr(self, mode + "_mode")()
 
 
-def run_keys(svc, speed_deg_s: float = 20.0) -> None:
+def run_keys(svc, speed_deg_s: float = 20.0, trace: bool = False) -> None:
     import ctypes
     import msvcrt
 
@@ -194,4 +194,14 @@ def run_keys(svc, speed_deg_s: float = 20.0) -> None:
     for name in ("joint_mode", "jog_mode"):
         orig = getattr(sess, name)
         setattr(sess, name, lambda orig=orig: (flush(), orig())[1])
-    sess.run()
+    tracer = None
+    if trace:
+        from .trace import Tracer
+
+        tracer = Tracer(svc)
+        tracer.start()
+    try:
+        sess.run()
+    finally:
+        if tracer:
+            tracer.stop()

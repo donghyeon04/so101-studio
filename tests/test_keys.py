@@ -104,3 +104,17 @@ def test_powertest_runs_in_sim_and_writes_csv(svc, monkeypatch):
     res = powertest.run_powertest(svc, repeats=1, out=out.append)
     assert res["moves"] == ["ok", "ok"] and res["baseline_v"] == 12.0 and res["sample_hz"] > 20
     assert (svc.logger.dir / "powertest.csv").exists()
+
+
+def test_tracer_analysis_finds_the_shaking_joint_and_frequency():
+    from so101_studio.cli.trace import analyze
+
+    hz = 200
+    t = np.arange(0, 3, 1 / hz)
+    goal = np.zeros((len(t), 6))
+    goal[:, 0] = 10 * t  # 1번 관절이 움직인다
+    meas = goal.copy()
+    meas[:, 0] += 0.5 * np.sin(2 * np.pi * 30 * t)  # 30Hz로 떤다
+    res = analyze(t, meas, goal)
+    assert res[0]["dominant_hz"] == pytest.approx(30, abs=2) and res[0]["tremor_rms_deg"] == pytest.approx(0.35, abs=0.08)
+    assert "tremor_rms_deg" not in res[1]  # 안 움직이는 관절은 판정하지 않는다
