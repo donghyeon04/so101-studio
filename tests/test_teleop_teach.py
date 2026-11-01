@@ -214,3 +214,17 @@ def test_jog_can_leave_a_pose_beyond_the_joint_limit_but_not_go_further_out():
     jog_for(ctl, "joint", [0, 0, 20, 0, 0, 0], 0.6)  # 다시 바깥쪽으로 밀어도
     ctl.close()
     assert inside < 96.5 - 2 and d.read_joints().elbow_flex <= LIMITS["elbow_flex"][1] + 1e-6
+
+
+def test_jog_write_period_batches_goals_and_flushes_the_last_one():
+    d, ctl = rig()
+    ctl.jog_write_s = 0.1
+    log = []
+    orig = d.write_joints
+    d.write_joints = lambda q: (log.append(astuple(q)), orig(q))[1]
+    jog_for(ctl, "joint", [20, 0, 0, 0, 0, 0], 0.6)
+    ctl.jog_stop()
+    time.sleep(0.4)
+    ctl.close()
+    assert 4 <= len(log) <= 12  # 매 틱(약 30번)이 아니라 0.1초마다
+    assert abs(log[-1][0] - ctl._last.shoulder_pan) < 1e-9  # 마지막 목표까지 내보냈다
