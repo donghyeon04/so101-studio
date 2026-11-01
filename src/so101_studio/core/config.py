@@ -25,6 +25,9 @@ class RobotConfig:
     approach_height_mm: float = 80
     grasp_height_mm: float = 15
     gripper_margin_mm: float = 20
+    place_height_mm: float = 30
+    gripper_open: float = 60
+    gripper_width_mm: list[list[float]] = field(default_factory=lambda: [[0, 0], [100, 90]])
     a_max_deg_s2: float = 120
     joint_offsets_deg: dict[str, float] = field(default_factory=dict)
     joint_limits_deg: dict[str, list[float]] = field(default_factory=dict)

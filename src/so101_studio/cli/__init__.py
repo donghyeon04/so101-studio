@@ -6,9 +6,10 @@ from ..arm.driver import ArmDriver
 from ..arm.motion import MotionController
 from ..arm.safety import Safety
 from ..arm.sim_driver import SimDriver
+from ..arm.skills import Skills
 from ..arm.trajectory import move_j, move_l
 from ..core.config import load_robot, load_workspace
-from ..core.types import JointState, ToolPose
+from ..core.types import DetectedObject, JointState, ToolPose
 
 
 def make_driver(sim: bool, cfg):
@@ -37,6 +38,27 @@ def plan_goto(kin, cfg, q0: JointState, goal: ToolPose, speed_pct: float):
     if down is None:
         return None
     return [move_j(q0, q_hover, cfg.joint_v_max_deg_s * speed_pct / 100, cfg.a_max_deg_s2), down]
+
+
+def run_skill(driver, cfg, a) -> str:
+    from ..arm.kinematics import Kinematics
+
+    ws = load_workspace()
+    kin = Kinematics(cfg.urdf, ws.base)
+    ctl = MotionController(driver, kin, Safety(cfg.joint_limits_deg, ws, kin), cfg.control_hz)
+    sk = Skills(ctl, kin, cfg, ws, a.speed or cfg.speed_pct_default)
+    try:
+        driver.set_torque(True)
+        if a.command == "pick":
+            x, y, angle, width = a.values
+            r = sk.pick(DetectedObject("cli", x, y, angle, width, width, 1.0, "manual"))
+            if r.status == "ok" and a.place:
+                r = sk.place(a.place)
+        else:
+            r = sk.place(a.place)
+        return f"{r.status}  마지막 동작 {r.duration_s:.2f} s"
+    finally:
+        ctl.close()
 
 
 def move(driver, cfg, goal: JointState | ToolPose, speed_pct: float) -> str:
@@ -69,10 +91,11 @@ def move(driver, cfg, goal: JointState | ToolPose, speed_pct: float) -> str:
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(prog="so101_studio")
     ap.add_argument("--sim", action="store_true", help="SimDriver로 실행")
+    ap.add_argument("--place", help="pick 뒤에 놓을 배출 구역 이름 (place 명령은 필수)")
     ap.add_argument("--config", default="config/robot.yaml")
     ap.add_argument("--speed", type=float, help="속도 %% (기본: 설정값)")
-    ap.add_argument("command", choices=["status", "home", "park", "movej", "goto"])
-    ap.add_argument("values", nargs="*", type=float, help="movej: 관절 6개 값(도, gripper 0~100) / goto: x y z yaw (작업대 좌표 mm, 도)")
+    ap.add_argument("command", choices=["status", "home", "park", "movej", "goto", "pick", "place"])
+    ap.add_argument("values", nargs="*", type=float, help="movej: 관절 6개 값(도, gripper 0~100) / goto: x y z yaw (작업대 좌표 mm, 도) / pick: x y 각도 폭")
     a = ap.parse_args(argv)
     cfg = load_robot(a.config)
     driver = make_driver(a.sim, cfg)
@@ -82,6 +105,13 @@ def main(argv=None) -> None:
             print(status(driver, cfg))
             return
         speed = a.speed or cfg.speed_pct_default
+        if a.command in ("pick", "place"):
+            if a.command == "pick" and len(a.values) != 4:
+                ap.error("pick: x y 각도 폭 4개가 필요하다 (작업대 좌표 mm, 도, mm)")
+            if a.command == "place" and not a.place:
+                ap.error("place: --place <구역 이름>이 필요하다")
+            print(run_skill(driver, cfg, a))
+            return
         if a.command == "goto":
             if len(a.values) != 4:
                 ap.error("goto: x y z yaw 4개가 필요하다")
