@@ -15,8 +15,8 @@
 ## T1 환경
 | 항목 | 결과 |
 |---|---|
-| Python, LeRobot 버전 | |
-| `import placo` (성공 / 실패 → 대체안) | |
+| Python, LeRobot 버전 | Python 3.12.16 (conda env `so101`, Miniforge 26.9.4), lerobot 0.6.1 (`lerobot[feetech]`) |
+| `import placo` (성공 / 실패 → 대체안) | pip `lerobot[feetech,kinematics]`는 실패(placo 0.9.15 sdist, Windows 휠 없음, 빌드 의존성 설치 오류). 대체: `conda install -c conda-forge placo=0.9.25` → `import placo`, `RobotKinematics` import 성공. lerobot 요구 범위(<0.9.16)를 벗어난 버전이라 T3·T6에서 FK/IK 동작 확인 필요 |
 
 ## T2 정지 자세 30초 관찰
 | 관절 | 떨림 (있음/없음, 폭 °) | 최고 온도 °C | 최대 부하 % |
