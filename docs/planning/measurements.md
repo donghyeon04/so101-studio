@@ -12,6 +12,9 @@
 | 캘리브레이션 파일 이름 | `so101_follower_01.json` (원본: `~/.cache/huggingface/lerobot/calibration/robots/so_follower/`, 사본: `config/calibration/`). 앞선 3번(통신 끊김 2회, 가운데 자세 불량으로 shoulder_lift·elbow_flex 범위가 0~4095로 튄 1회) 후 4번째 시도에서 공식 영상 자세로 재캘리브레이션. 범위(raw): pan 683~3403, lift 843~3224, elbow 880~3094, wrist_flex 937~3278, gripper 2047~3469 | 2026-11-01 |
 | 첫 구동 이상 여부 (떨림·이상음·과열) | | |
 
+T0-5 읽기 확인 (토크 끔, 손으로 이동): 6개 관절 모두 한 방향으로 매끄럽게 변함, 튐·뒤집힘 없음, 가운데 ≈ 0°.
+pan ±119.5°, lift −104.3~+104.4°, elbow −97.2~+97.1°, wrist_flex −101.8~+102.6°, wrist_roll −164.2~+169.7°, gripper 0.8~99.6 (0~100).
+
 ## T1 환경
 | 항목 | 결과 |
 |---|---|
