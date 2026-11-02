@@ -20,6 +20,7 @@
 | `docs/planning/measurements.md` | 기획 | 초안 | 로컬 개발 세션의 측정 기록 (T0~T11, 떨림·전원·그리퍼 시험) |
 | `docs/planning/arm-dev-status.md` | 기획 | 초안 | 팔 개발 현황과 인수인계: 상태, 구현 목록, 이 세션에서 한 일, 현재 설정값, 설계서와 다른 점, 사용법, GUI 연결 API, 조사·측정 결과, 알려진 문제, 남은 일 |
 | `docs/planning/gui-spec.md` | 기획 | 확정 | GUI 설계서(1차 기본 골자): 원칙, 공통 틀, 13개 페이지, 디자인 기본값, 범위, 폴더 구조, 실행 구조, 작업 순서 G0~G10 |
+| `docs/planning/gui-dev-status.md` | 기획 | 초안 | GUI 개발 현황과 인수인계: 환경, 작업 진행(G0~G10), 보낸 요청 |
 | `docs/planning/session-requests.md` | 기획 | 초안 | 세션 간 요청 대장 (REQ 번호, 보냄·받음, 상태). 받은 세션이 갱신 |
 | `docs/planning/hardware.md` | 기획 | 초안 | 부품 구성(BOM), 보유 현황, 예상 비용, 전기적 주의사항 |
 | `docs/planning/comparison-experiment.md` | 기획 | 초안 | 초음파·카메라 인식 비교 실험의 통제 변인, 평가 기준, 환경 조건 가설 |
