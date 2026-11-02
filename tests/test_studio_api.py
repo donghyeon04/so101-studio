@@ -240,3 +240,37 @@ def test_req009_resume_after_estop(svc):
     svc.resume()
     assert svc.driver.read_joints() == before  # 해제만으로는 움직이지 않는다
     assert svc.move_joints(goal).status == "ok"
+
+
+def test_req013_start_after_stop_waits_at_first_step():
+    st = make_studio()
+    st.start(step_mode=True)
+    time.sleep(0.2)
+    st.stop()  # step 신호를 남긴다
+    st._thread.join(2)
+    seen = []
+    st.bus.subscribe("task", lambda e: seen.append(e.state))
+    st.start(step_mode=True)
+    time.sleep(0.3)
+    assert seen == ["PREPARE"]  # 남은 신호로 지나가지 않고 기다린다
+    st.stop()
+    st._thread.join(2)
+
+
+def test_req013_pause_stops_at_next_state_and_resume_continues():
+    st = make_studio()
+    seen = []
+
+    def on_event(e):
+        seen.append(e.state)
+        if e.state == "SCAN":
+            st.pause()  # 작업 중 다른 스레드에서 불러도 되는 함수
+
+    st.bus.subscribe("task", on_event)
+    st.start()
+    time.sleep(0.4)
+    assert seen[-1] == "SCAN"  # pause한 상태 변화(이벤트 처리 직후)에서 멈추고 다음으로 가지 않는다
+    st.resume()
+    st._thread.join(3)
+    assert not st._thread.is_alive() and st.result["picked"] == ["obj-1"]
+

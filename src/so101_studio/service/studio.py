@@ -22,11 +22,13 @@ class Studio:
         self._thread: threading.Thread | None = None
         self.perception = PerceptionManager(self, source)
         self._step = threading.Event()
+        self._waiting = False
         self.task.wait_step = self._wait_step  # 단계별 모드: step()이 올 때까지 기다린다 (CLI는 이 함수를 Enter 입력으로 바꿔 쓴다)
         self.result: dict | None = None
 
     def start(self, step_mode: bool = False, blocking: bool = False) -> dict | None:
         """작업을 시작한다. blocking=False면 스레드에서 돌고 status()로 본다."""
+        self._step.clear()  # 이전 stop()·step()이 남긴 신호 때문에 첫 단계가 기다리지 않고 지나가지 않게
         run = lambda: setattr(self, "result", self.task.run(step_mode))
         if blocking:
             run()
@@ -36,8 +38,20 @@ class Studio:
         return None
 
     def _wait_step(self) -> None:
+        self._waiting = True
         self._step.wait()
         self._step.clear()
+        self._waiting = False
+
+    def pause(self) -> None:
+        """다음 상태 변화에서 멈춘다(단계별 모드로 바꾼다). step()으로 한 단계씩, resume()으로 이어 간다. 어느 스레드에서든 부를 수 있다 (REQ-013)."""
+        self.task._step_mode = True
+
+    def resume(self) -> None:
+        """일시정지나 단계별 모드를 풀고 끝까지 이어 간다. 기다리는 중이면 풀어 준다."""
+        self.task._step_mode = False
+        if self._waiting:
+            self._step.set()
 
     def step(self) -> None:
         """단계별 모드(start(step_mode=True))에서 다음 단계로 진행한다. 어느 스레드에서든 부를 수 있다."""
