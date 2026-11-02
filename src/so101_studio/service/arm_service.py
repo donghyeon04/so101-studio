@@ -15,6 +15,8 @@ from ..arm.trajectory import cfg_move_j, cfg_move_l
 from ..core.config import RobotConfig, WorkspaceConfig, load_workspace
 from ..core.logging import RunLogger
 from ..core.types import ArmStatus, DetectedObject, JointState, MotionResult, ToolPose
+from . import diagnostics as _diag
+from . import params as _params
 from .targets import point_to_pose, tip_vector
 
 STATUS_HZ = 10
@@ -43,6 +45,7 @@ class ArmService:
         self.ws = ws or load_workspace()
         self.speed = speed_pct if speed_pct is not None else cfg.speed_pct_default
         self.log_root = log_root
+        self.preset_dir = "config/presets"
         self.logger: RunLogger | None = None
         self.kin = self.safety = self.ctl = self.skills = self.teach = None
         self._callbacks: list = []
@@ -181,6 +184,27 @@ class ArmService:
         self.safety.settings = SafetySettings(mode, margin, box)
         self._log("safety", asdict(self.safety.settings))
         return self.get_safety()
+
+    def get_params(self) -> dict:
+        """조정할 수 있는 파라미터: {이름: {value, default, timing}}. timing = now | next_motion | reconnect (REQ-004)."""
+        return _params.get_params(self)
+
+    def set_params(self, changes: dict) -> dict:
+        """{이름: 값}을 한꺼번에 검증해 적용한다. 틀린 값이 있으면 ValueError(아무것도 안 바뀜). {이름: 적용 시점}을 돌려준다."""
+        return _params.set_params(self, changes)
+
+    def save_preset(self, name: str):
+        return _params.save_preset(self, name)
+
+    def load_preset(self, name: str) -> dict:
+        return _params.load_preset(self, name)
+
+    def list_presets(self) -> list[str]:
+        return _params.list_presets(self)
+
+    def run_diagnostic(self, name: str, progress=None, stop=None, **kw) -> dict:
+        """servoinfo | linkwatch | powertest | shaketest를 결과 dict, 진행 콜백, 중단과 함께 실행한다 (블로킹, REQ-006). 자세한 인자는 diagnostics.py."""
+        return _diag.run_diagnostic(self, name, progress, stop, **kw)
 
     def preview_tool(self, pose: ToolPose):
         """움직이지 않고 목표가 가능한지만 본다. (이유 또는 None, 풀린 관절값). GUI가 점 위에 마우스를 올릴 때 미리보기로 쓴다."""
