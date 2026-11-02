@@ -4,7 +4,7 @@ import sys
 
 from nicegui import app, background_tasks, run, ui
 
-from . import theme
+from . import scene3d, theme
 from .backend import Backend
 from .state import EMPTY, page_state
 from .watchdog_link import BROWSER_HB_JS, WatchdogLink
@@ -21,6 +21,7 @@ PAGES = (
     ("설정", (("/params", "파라미터·프리셋", "G7"), ("/safety", "안전", "G7"), ("/table", "작업대·좌표", "G7"))),
     ("시스템", (("/runs", "실행 기록", "G8"), ("/logs", "로그", "G8"))),
 )
+SCENE_PAGES = {"/", "/manual"}  # 3D 칸이 있는 페이지 (gui-spec 3절)
 TOP_STATS = ("센서", "실행 방식", "전압", "최고 온도", "속도", "조작권")  # 감시 칸은 아이콘이 있어 따로 그린다
 BOTTOM_STATS = ("손끝 좌표", "닿는지·오차", "안전 모드", "토크", "기록 폴더")
 
@@ -39,7 +40,6 @@ def make_root(backend: Backend):
         nav: dict[str, ui.button] = {}
         stats: dict[str, ui.label] = {}
         badge: list[ui.badge] = []
-        owner = backend.claim(client.id)
         beating: list[bool] = []  # 이 브라우저가 지금 감시 프로세스에 heartbeat를 보내는가
         ui.add_head_html(BROWSER_HB_JS)
 
@@ -53,6 +53,8 @@ def make_root(backend: Backend):
                 text = page_state(backend.state.status)
                 badge[:] = [ui.badge(text, color=theme.STATE_COLORS[text]).classes("page-state").mark("page-state")]
             ui.label(f"{task}에서 만든다.").classes("page-body")
+            if backend.scene and path in SCENE_PAGES:
+                ui.element("iframe").props(f'src={backend.scene.url} title="3D 보기"').classes("scene3d").mark("scene3d")
 
         def refresh() -> None:
             for name, value in backend.readout().items():
@@ -86,7 +88,7 @@ def make_root(backend: Backend):
                 stats["감시"] = _stat("감시")
             for label in TOP_STATS:
                 stats[label] = _stat(label)
-            stats["조작권"].text = "이 브라우저" if owner else "보기 전용"
+            stats["조작권"].text = "보기 전용"
             take = ui.button("조작권 받기", on_click=lambda: backend.claim(client.id)).props("outline no-caps").mark("take")
             take.visible = False
 
@@ -109,9 +111,9 @@ def make_root(backend: Backend):
             {path: lambda p=path, t=title, k=task: show(p, t, k) for _, pages in PAGES for path, title, task in pages}
         ).classes("w-full")
 
+        # 페이지를 그릴 때 받으면 소켓을 열지 않는 HTTP 요청(curl, 미리 읽기)이 조작권을 가져간다
         client.on_connect(lambda: backend.claim(client.id))
         client.on_disconnect(lambda: backend.disconnected(client.id))
-        client.on_delete(lambda: backend.disconnected(client.id))  # 소켓이 붙기 전에 사라진 브라우저
         ui.timer(REFRESH_S, refresh)
 
     return root
@@ -125,7 +127,9 @@ def main(args) -> None:
     link = WatchdogLink(sim=True)
     link.start()
     try:
-        backend = Backend(speed=getattr(args, "speed", None), link=link)
+        backend = Backend(
+            speed=getattr(args, "speed", None), link=link, viser_port=getattr(args, "viser_port", scene3d.DEFAULT_PORT)
+        )
     except RuntimeError as e:
         link.stop()
         sys.exit(f"연결 실패: {e}")

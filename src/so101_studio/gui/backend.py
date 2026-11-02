@@ -2,17 +2,21 @@
 
 from ..arm.sim_driver import SimDriver
 from ..core.config import load_robot, load_workspace
+from ..perception.manual import ManualSource
 from ..service.arm_service import ArmService
 from ..service.targets import tip_vector
+from .scene3d import Scene3D
 from .state import EMPTY, SAFETY_TEXT, State, hottest_text
 from .watchdog_link import WatchdogLink
 
 
 class Backend:
-    def __init__(self, speed: float | None = None, log_root: str | None = "runs", link: WatchdogLink | None = None):
+    def __init__(self, speed: float | None = None, log_root: str | None = "runs", link: WatchdogLink | None = None,
+                 viser_port: int | None = None):
         cfg = load_robot()
         self.state = State()
         self.link = link
+        self.scene: Scene3D | None = None
         self._listener = None
         self.owner: str | None = None  # 조작권을 가진 브라우저. NiceGUI 이벤트 루프에서만 바꾼다
         self.arm = ArmService(SimDriver(cfg.poses.get("home")), cfg, load_workspace(), speed, log_root)
@@ -20,6 +24,10 @@ class Backend:
         if not ok:
             raise RuntimeError(msg)
         self.arm.status_stream(self.state.update)
+        if viser_port is not None:
+            self.scene = Scene3D(cfg, self.arm.ws, self.arm.kin, viser_port)
+            self.scene.set_objects(ManualSource().scan().objects)
+            self.arm.status_stream(self.scene.update_status)
         if link and link.available:  # 감시 프로세스의 정지 명령을 받는다
             from ..service.stop_listener import StopListener
 
@@ -56,6 +64,8 @@ class Backend:
         if self._listener:
             self._listener.close()
         self.arm.disconnect()
+        if self.scene:
+            self.scene.close()
         if self.link:
             self.link.stop()
 

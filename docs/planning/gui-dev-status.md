@@ -5,9 +5,9 @@
 GUI 세션의 인수인계 문서다. 기준 문서는 `planning/gui-spec.md`, 절차는 `guides/session-workflow.md`이다.
 
 ## 환경
-- 폴더 `C:/Users/c/Desktop/so101-studio-gui`. PR은 `main` 대상이고 G 단위로 끊는다. G0~G1은 `dev/gui-shell`(PR #7), G2는 그 위의 `dev/gui-state`(PR #11), G2b는 그 위의 `dev/gui-watchdog`다. 이 순서로 합친다.
+- 폴더 `C:/Users/c/Desktop/so101-studio-gui`. PR은 `main` 대상이고 G 단위로 끊는다. G0~G1은 `dev/gui-shell`(PR #7), G2는 그 위의 `dev/gui-state`(PR #11), G2b는 그 위의 `dev/gui-watchdog`(PR #12)였고 모두 합쳐졌다. G3은 `dev/gui-3d`다.
 - 출발점은 2fc1293(기획 브랜치)이고, 이 커밋은 PR #3(e5f3a48)으로 `main`에 들어갔다. 다시 만들거나 rebase하지 않는다.
-- 설치: viser 1.1.1, nicegui 3.18.0. numpy는 2.2.6 conda 설치본 그대로다.
+- 설치: viser[urdf] 1.1.1, nicegui 3.18.0. numpy는 2.2.6 conda 설치본 그대로다.
 - 실행: `$env:PYTHONPATH="C:/Users/c/Desktop/so101-studio-gui/src"` 후 `python -m so101_studio.gui --sim [--port 8080]`. 아직 `--sim`만 된다. 주소는 `127.0.0.1`로 고정했다(NiceGUI 기본값은 `0.0.0.0`).
 
 ## 작업 진행
@@ -17,7 +17,8 @@ GUI 세션의 인수인계 문서다. 기준 문서는 `planning/gui-spec.md`, �
 | G1 | 완료 | 앱 틀과 빈 페이지 13개, E-STOP. `python -m pytest -q` 179 passed(GUI 37개 포함), ruff 통과. 브라우저에서 메뉴 이동, 새로고침 후 경로 유지, 사이드바 접기, E-STOP 알림 확인(1280×720, 1920×1080) |
 | G2 | 완료 | `backend`·`state`, 10Hz 상태줄, 조작권. `python -m pytest -q` 197 passed, ruff 통과. 브라우저 탭 2개로 확인: 팔이 움직이면 손끝 좌표와 배지가 바뀜, 둘째 탭은 보기 전용, 첫 탭을 닫으면 동작이 stopped로 멈추고 둘째 탭에 "조작권 받기"가 뜸, 새로고침해도 조작권 유지, E-STOP 후 배지 `정지` |
 | G2b | 완료(REQ-011 합류 대기) | 감시 프로세스 함께 띄우기, 서버·브라우저 heartbeat, 등록, 상태 표시, 실제 팔 명령 막기. `dev/arm-req-watchdog`를 합친 임시 폴더에서 실제 감시 프로세스로 확인: 서버 루프 2초 멈춤과 탭 닫기가 `--sim` 기록에 `trip_ignored`로 남음, `--sim` 없이 탭 닫기는 `trip acked=true`로 시뮬레이션 팔에 정지 도착, GUI는 살아 있음 |
-| G3~G10 | 대기 | |
+| G3 | 완료 | Viser를 직접 조작·작업 공간 페이지에 넣음, 실제 팔·계산 자세 두 개, 작업대·좌표축·물체·배출 구역. 내장 브라우저에서 WebGL 표시 확인(Playwright CLI 필요 없음). 지연: 측정 스크립트로 상태 갱신 -> 소켓 도착 중앙 25ms, 최대 34ms. 상태 주기 100ms와 화면 한 프레임을 더한 계산값이 0.2초 안이다. 브라우저 화면까지 직접 잰 값은 아니다(패널이 숨겨져 있었음) |
+| G4~G10 | 대기 | |
 
 ## G1에서 정해 둔 것
 - 사이드바는 1080p에서 스크롤 없이 다 보이고, 720p에서는 스크롤한다. 메뉴 높이 44px을 지키기 위해서다.
@@ -28,6 +29,14 @@ GUI 세션의 인수인계 문서다. 기준 문서는 `planning/gui-spec.md`, �
 - 조작권: 처음 연 브라우저가 가진다. 연결이 끊기면 `stop()` 후 비워 두고, 보기 전용 브라우저는 "조작권 받기"를 눌러야 가져간다. 자동으로 넘기면 조작 노트북을 새로고침하는 사이 프로젝터 탭이 조작권을 가져갈 수 있어서다.
 - E-STOP은 보기 전용 브라우저도 누를 수 있다. 설계서의 "버튼이 꺼진 보기 전용"에서 E-STOP만 뺐다.
 - 아직 팔을 움직이는 버튼이 없어, 조작권이 실제로 막는 버튼은 G4부터 생긴다.
+
+## G3에서 정해 둔 것
+- 메시: 원본 STL은 면 40만 개라 `simplify()`가 2mm 격자로 합쳐 2.8만 개로 줄인다. 새 의존성은 없다. 초기 전송량 0.74MB, 내장 브라우저에서 3초 안에 다 보인다. 줄이기 전에는 8초 넘게 비어 있었다.
+- 계산 자세 팔은 `set_preview(q)`로 켠다. 평소에는 숨긴다(같은 자리에 겹치면 깜박인다). G4의 미리보기에 연결한다.
+- 3D 칸은 `/`와 `/manual`에만 둔다. 페이지를 옮길 때마다 iframe을 다시 만들어 메시를 다시 받는다. 3초가 거슬리면 G4에서 하나를 살려 두는 방식을 검토한다.
+- Viser 패널은 접어 둔다. 시점 버튼과 작업대 클릭, 끌기 손잡이는 G4에서 만든다.
+- `pyproject.toml`의 `gui` 묶음을 `viser[urdf]`로 바꿨다. numpy는 그대로다.
+- G2 버그 수정: 페이지를 그릴 때 조작권을 받아서 소켓을 열지 않는 HTTP 요청(curl 등)이 조작권을 가져갔다. 소켓이 연결될 때 받게 고치고 테스트를 넣었다.
 
 ## G2b에서 정해 둔 것
 - 임시 우회: `watchdog_link.py`의 `# REQ-011 임시`. 감시 모듈이 `main`에 없으면 감시 칸을 `없음`으로 두고 시뮬레이션만 허용한다. `main`에 들어오면 이 분기와 `test_missing_module_reads_as_none`을 지운다.

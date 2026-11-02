@@ -24,6 +24,13 @@ WATCH_STYLES = {
     "없음": ("remove_circle_outline", "warning"),
 }
 
+
+
+def rgb(color: str) -> tuple[int, int, int]:
+    """'#rrggbb'를 Viser가 받는 (r, g, b)로."""
+    return tuple(int(color[i : i + 2], 16) for i in (1, 3, 5))
+
+
 CONTROL_H = 44
 BODY_PX = 15
 RADIUS = 10
@@ -51,6 +58,7 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 .nav-item.nav-active {{ color: {ACCENT}; background: {BG}; font-weight: 600; box-shadow: inset 3px 0 0 {ACCENT}; }}
 .page-title {{ font-size: 24px; font-weight: 600; line-height: 32px; }}
 .page-body {{ color: {MUTED}; }}
+.scene3d {{ width: 100%; height: 62vh; min-height: 360px; border: 1px solid {LINE}; border-radius: {RADIUS}px; background: {CARD}; }}
 .estop {{ width: {ESTOP_D}px; height: {ESTOP_D}px; font-weight: 600; border: 3px solid {CARD}; outline: 2px solid {DANGER}; }}
 .nicegui-content {{ padding: {GAP}px; gap: {GAP}px; padding-bottom: {ESTOP_D + 2 * GAP}px; }}
 .q-field--outlined .q-field__control:before {{ border-color: {CONTROL_BORDER}; }}

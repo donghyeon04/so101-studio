@@ -77,6 +77,15 @@ def test_first_browser_owns_control(backend):
     in_app(backend, check)
 
 
+def test_http_request_without_socket_does_not_take_control(backend):
+    async def go():
+        async with user_simulation(gui_app.make_root(backend)) as user:
+            assert (await user.http_client.get("/")).status_code == 200
+            assert backend.owner is None
+
+    asyncio.run(go())
+
+
 def test_second_browser_is_view_only_until_it_takes_free_control(backend):
     backend.owner = "다른 브라우저"
 
@@ -116,7 +125,7 @@ def test_view_only_browser_can_still_estop(backend):
 
 def test_main_binds_localhost_and_needs_sim(monkeypatch):
     class FakeBackend:
-        def __init__(self, speed=None, link=None):
+        def __init__(self, speed=None, link=None, viser_port=None):
             self.speed = speed
 
         def close(self):
