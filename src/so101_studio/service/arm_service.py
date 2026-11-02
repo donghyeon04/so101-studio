@@ -290,3 +290,8 @@ class ArmService:
     def estop(self) -> None:
         self.ctl.estop()
         self._log("estop", {})
+
+    def resume(self) -> None:
+        """stop·estop(상태 stopped)이나 fault 뒤에 다시 움직일 수 있게 idle로 되돌린다. 팔은 움직이지 않는다 (REQ-009)."""
+        self.ctl.resume()
+        self._log("resume", {})

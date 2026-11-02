@@ -119,6 +119,7 @@ import pytest
 
 from so101_studio.arm.sim_driver import SimDriver
 from so101_studio.core.config import load_robot
+from so101_studio.core.types import JointState
 from so101_studio.service.arm_service import ArmService
 
 CFG = load_robot("config/robot.yaml")
@@ -229,3 +230,13 @@ def test_req008_preview_path_does_not_move_and_matches_goal(svc):
     assert r["tool"][0]["t"] == 0 and abs(r["tool"][-1]["t"] - r["duration_s"]) < 1e-9
     far = svc.preview_path(svc.point_pose(900, 900, 40))
     assert not far["ok"] and far["reason"]
+
+
+def test_req009_resume_after_estop(svc):
+    goal = JointState(10, -80, 90, 0, 0, 3)
+    svc.estop()
+    assert svc.move_joints(goal).status == "stopped"
+    before = svc.driver.read_joints()
+    svc.resume()
+    assert svc.driver.read_joints() == before  # 해제만으로는 움직이지 않는다
+    assert svc.move_joints(goal).status == "ok"
