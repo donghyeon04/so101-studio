@@ -24,7 +24,7 @@ def build(backend, client_id: str, actions) -> None:
             ui.notify(result, type="negative")
 
     with actions:
-        ui.button("정지", color="negative", on_click=lambda: run.io_bound(backend.arm.stop)).props("outline no-caps").mark("stop")
+        ui.button("정지", color="negative", on_click=lambda: run.io_bound(backend.stop_all)).props("outline no-caps").mark("stop")
         control(ui.button("홈", on_click=guarded(lambda: act(backend.home))).props("outline no-caps").mark("home"))
         control(ui.button("파크", on_click=guarded(lambda: act(backend.park))).props("outline no-caps").mark("park"))
 

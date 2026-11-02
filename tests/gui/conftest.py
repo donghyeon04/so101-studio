@@ -18,4 +18,5 @@ def backend(shared_backend):
     shared_backend.owner = None
     shared_backend.arm.ctl.resume()
     shared_backend.paused = False
+    shared_backend.mode, shared_backend.pending = "sim", None
     return shared_backend
