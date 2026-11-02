@@ -4,6 +4,7 @@ from ..arm.sim_driver import SimDriver
 from ..core.config import load_robot, load_workspace
 from ..perception.manual import ManualSource
 from ..service.arm_service import ArmService
+from ..service.stop_listener import StopListener
 from ..service.targets import tip_vector
 from .scene3d import Scene3D
 from .state import EMPTY, SAFETY_TEXT, State, hottest_text
@@ -28,9 +29,7 @@ class Backend:
             self.scene = Scene3D(cfg, self.arm.ws, self.arm.kin, viser_port)
             self.scene.set_objects(ManualSource().scan().objects)
             self.arm.status_stream(self.scene.update_status)
-        if link and link.available:  # 감시 프로세스의 정지 명령을 받는다
-            from ..service.stop_listener import StopListener
-
+        if link:  # 감시 프로세스의 정지 명령을 받는다
             self._listener = StopListener(self.arm, link.stop_port).start()
 
     def claim(self, client: str) -> bool:

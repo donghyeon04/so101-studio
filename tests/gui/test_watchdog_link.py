@@ -127,11 +127,18 @@ def test_real_arm_blocked_without_a_live_watchdog(fake_watchdog, backend):
         backend.link = None
 
 
-def test_missing_module_reads_as_none(monkeypatch):
-    # REQ-011 임시: 모듈이 main에 들어오면 이 분기와 함께 지운다
-    monkeypatch.setattr("importlib.util.find_spec", lambda name: None)
-    link = WatchdogLink()
-    link.start()
-    assert link.text() == "없음"
-    assert not link.alive
-    asyncio.run(asyncio.wait_for(link.run(), 0.1))
+def test_start_reuses_a_running_watchdog(fake_watchdog, monkeypatch):
+    spawned = []
+    monkeypatch.setattr("subprocess.Popen", lambda *a, **k: spawned.append(a))
+    _link(fake_watchdog).start()
+    assert spawned == []
+
+
+def test_start_spawns_when_nothing_answers(monkeypatch):
+    spawned = []
+    monkeypatch.setattr("subprocess.Popen", lambda cmd, **k: spawned.append(cmd))
+    WatchdogLink(sim=True, port=1).start()
+    assert spawned and spawned[0][1:4] == ["-m", "so101_studio.watchdog", "--port"] and "--sim" in spawned[0]
+    spawned.clear()
+    WatchdogLink(sim=False, port=1).start()
+    assert "--sim" not in spawned[0]
