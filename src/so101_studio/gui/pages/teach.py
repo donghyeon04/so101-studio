@@ -95,6 +95,7 @@ def build(backend, client_id: str, actions) -> None:
         state["data"], state["factors"] = None, {}
         expected.text = ""
         if name:
+            summary.text = "불러오는 중"
             state["data"] = await run.io_bound(backend.sequence, name)
             info = state["data"]["info"]
             summary.text = f"{info['duration_s']:.1f}초 · 표본 {info['points']}개 · 최대 {info['max_deg_s']:.0f}°/s · 구간 {len(info['segments'])}개"

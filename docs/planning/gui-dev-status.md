@@ -5,7 +5,7 @@
 GUI 세션의 인수인계 문서다. 기준 문서는 `planning/gui-spec.md`, 절차는 `guides/session-workflow.md`이다.
 
 ## 다음 할 일
-- G4는 PR #16. G5는 `dev/gui-teach`(`dev/gui-manual` 위). REQ-012는 `dev/arm-req-jog-torque`에 구현됐고 합쳐지면 임시 우회를 지운다. G5 브라우저 확인과 PR이 남았다. 그 뒤 G9까지 G9까지 `--sim`으로 이어 간다. PR은 올리되 합치지 않고, 다음 G는 앞 브랜치 위에 쌓는다. G10(실제 팔)은 사용자와 함께 한다.
+- G4는 PR #16. G5는 `dev/gui-teach`(`dev/gui-manual` 위). REQ-012는 `dev/arm-req-jog-torque`에 구현됐고 합쳐지면 임시 우회를 지운다. 그 뒤 G9까지 `--sim`으로 이어 간다. PR은 올리되 합치지 않고, 다음 G는 앞 브랜치 위에 쌓는다. G10(실제 팔)은 사용자와 함께 한다.
 
 ## 환경
 - 폴더 `C:/Users/c/Desktop/so101-studio-gui`. PR은 `main` 대상이고 G 단위로 끊는다. G0~G1은 `dev/gui-shell`(PR #7), G2는 그 위의 `dev/gui-state`(PR #11), G2b `dev/gui-watchdog`(PR #12), G3 `dev/gui-3d`(PR #14)까지 합쳐졌다. G4는 `dev/gui-manual`이다.
