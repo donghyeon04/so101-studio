@@ -47,4 +47,7 @@ def make_server(wd, port: int = 8090) -> ThreadingHTTPServer:
         def log_message(self, *a):  # 20Hz heartbeat 기록이 화면을 덮지 않게
             pass
 
-    return ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    class Server(ThreadingHTTPServer):
+        allow_reuse_address = False  # Windows에서는 켜 두면 같은 포트에 감시 프로세스가 둘 뜰 수 있다
+
+    return Server(("127.0.0.1", port), Handler)
