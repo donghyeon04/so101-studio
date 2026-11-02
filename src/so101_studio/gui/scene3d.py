@@ -21,6 +21,21 @@ TABLE_T_M = 0.01
 OBJECT_H_M = 0.03
 PREVIEW_ALPHA = 0.4
 MESH_CELL_M = 0.002
+DEFAULT_PICK_H_MM = 40.0  # 작업대를 클릭했을 때의 높이. 0이면 턱 끝이 작업대에 닿는다
+# (카메라 위치, 보는 점, 위쪽). 작업대 600x400mm 기준
+VIEWS = {
+    "위": ((0.3, 0.2, 0.55), (0.3, 0.2, 0.0), (0.0, 1.0, 0.0)),
+    "앞": ((0.3, -0.45, 0.12), (0.3, 0.2, 0.1), (0.0, 0.0, 1.0)),
+    "옆": ((-0.4, 0.2, 0.12), (0.3, 0.2, 0.1), (0.0, 0.0, 1.0)),
+}
+
+
+def table_hit(origin, direction) -> tuple[float, float] | None:
+    """클릭 광선과 작업대 면(z = 0)의 교점을 작업대 mm로. 면을 향하지 않으면 None."""
+    if direction[2] >= 0 or origin[2] <= 0:
+        return None
+    t = -origin[2] / direction[2]
+    return (origin[0] + t * direction[0]) * 1000, (origin[1] + t * direction[1]) * 1000
 
 
 def urdf_cfg(q, names) -> np.ndarray:
@@ -96,6 +111,12 @@ class Scene3D:
             mesh_color_override=(*(c / 255 for c in theme.rgb(theme.PREVIEW)), PREVIEW_ALPHA),
         )
         self._names = self._real.get_actuated_joint_names()
+        self.picked = (0, 0.0, 0.0, 0.0)  # (번호, x, y, 높이). 번호가 바뀌면 새 점이다
+        self._handle = scene.add_transform_controls(
+            "/handle", scale=0.09, disable_rotations=True, depth_test=False, visible=True
+        )
+        self._handle.on_update(self._on_drag)
+        scene.on_click()(self._on_click)
         cam = self.server.initial_camera
         cam.position, cam.look_at = (w / 2, -0.22, 0.34), (w / 2, h / 2 - 0.02, 0.06)
 
@@ -129,6 +150,53 @@ class Scene3D:
                     dimensions=(o.length_mm / 1000, o.width_mm / 1000, OBJECT_H_M),
                     position=(o.x_mm / 1000, o.y_mm / 1000, OBJECT_H_M / 2), wxyz=_yaw(o.angle_deg),
                 )
+
+    def pick(self, x_mm: float, y_mm: float, h_mm: float) -> None:
+        """작업대 클릭이나 손잡이로 고른 점을 남긴다. Viser 스레드에서 불리고, 화면 타이머가 picked로 읽는다."""
+        self.picked = (self.picked[0] + 1, x_mm, y_mm, h_mm)
+
+    def _on_click(self, event) -> None:
+        hit = table_hit(event.ray_origin, event.ray_direction)
+        if hit is not None:
+            self.pick(hit[0], hit[1], DEFAULT_PICK_H_MM)
+
+    def _on_drag(self, _event) -> None:
+        x, y, z = np.asarray(self._handle.position) * 1000
+        self.pick(float(x), float(y), max(float(z), 0.0))
+
+    def show_target(self, x_mm: float, y_mm: float, h_mm: float, ok: bool, tool_path=None) -> None:
+        """고른 점(닿으면 강조색, 안 닿으면 위험색)과 손끝 경로(점선)를 그린다. tool_path는 preview_path의 tool 목록이다."""
+        scene = self.server.scene
+        position = (x_mm / 1000, y_mm / 1000, h_mm / 1000)
+        with self.server.atomic():
+            scene.add_icosphere(
+                "/target", radius=0.008, position=position, color=theme.rgb(theme.ACCENT if ok else theme.DANGER)
+            )
+            self._handle.position = position
+            scene.remove_by_name("/path")
+            if tool_path:
+                points = np.array([(p["x_mm"], p["y_mm"], p["z_mm"] - self._table_z) for p in tool_path]) / 1000
+                dashes = np.stack([points[:-1:2], points[1::2][: len(points[:-1:2])]], axis=1)
+                if len(dashes):
+                    scene.add_line_segments(
+                        "/path", dashes, theme.rgb(theme.PREVIEW), thickness=3.0, thickness_units="screen"
+                    )
+
+    def clear_target(self) -> None:
+        scene = self.server.scene
+        with self.server.atomic():
+            scene.remove_by_name("/target")
+            scene.remove_by_name("/path")
+            self.set_preview(None)
+
+    def set_view(self, name: str) -> None:
+        """시점을 위/앞/옆으로 옮긴다. 열려 있는 3D 칸 모두에 적용된다."""
+        position, look_at, up = VIEWS[name]
+        for client in self.server.get_clients().values():
+            with client.atomic():
+                client.camera.up_direction = up
+                client.camera.position = position
+                client.camera.look_at = look_at
 
     def close(self) -> None:
         self.server.stop()

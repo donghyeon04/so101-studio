@@ -6,6 +6,7 @@ from nicegui import app, background_tasks, run, ui
 
 from . import scene3d, theme
 from .backend import Backend
+from .pages import manual
 from .state import EMPTY, page_state
 from .watchdog_link import BROWSER_HB_JS, WatchdogLink
 
@@ -21,7 +22,8 @@ PAGES = (
     ("설정", (("/params", "파라미터·프리셋", "G7"), ("/safety", "안전", "G7"), ("/table", "작업대·좌표", "G7"))),
     ("시스템", (("/runs", "실행 기록", "G8"), ("/logs", "로그", "G8"))),
 )
-SCENE_PAGES = {"/", "/manual"}  # 3D 칸이 있는 페이지 (gui-spec 3절)
+BUILDERS = {"/manual": manual.build}  # 만든 페이지. 나머지는 자리만 있다
+SCENE_PAGES = {"/"}  # 자리만 있지만 3D 칸을 먼저 보여 주는 페이지
 TOP_STATS = ("센서", "실행 방식", "전압", "최고 온도", "속도", "조작권")  # 감시 칸은 아이콘이 있어 따로 그린다
 BOTTOM_STATS = ("손끝 좌표", "닿는지·오차", "안전 모드", "토크", "기록 폴더")
 
@@ -40,6 +42,7 @@ def make_root(backend: Backend):
         nav: dict[str, ui.button] = {}
         stats: dict[str, ui.label] = {}
         badge: list[ui.badge] = []
+        resume: list[ui.button] = []
         beating: list[bool] = []  # 이 브라우저가 지금 감시 프로세스에 heartbeat를 보내는가
         ui.add_head_html(BROWSER_HB_JS)
 
@@ -48,10 +51,19 @@ def make_root(backend: Backend):
                 btn.classes(remove="nav-active").props(remove="aria-current")
             nav[path].classes(add="nav-active").props("aria-current=page")
             ui.page_title(f"{title} · SO-101 Studio")
+            if backend.scene:
+                backend.scene.clear_target()
             with ui.row().classes("w-full items-center"):
                 ui.label(title).classes("page-title").mark("page-title")
                 text = page_state(backend.state.status)
                 badge[:] = [ui.badge(text, color=theme.STATE_COLORS[text]).classes("page-state").mark("page-state")]
+                resume[:] = [ui.button("정지 해제", on_click=resume_arm).props("outline no-caps").mark("resume")]
+                resume[0].visible = False
+                ui.space()
+                actions = ui.row().classes("items-center gap-2")
+            if path in BUILDERS:
+                BUILDERS[path](backend, client.id, actions)
+                return
             ui.label(f"{task}에서 만든다.").classes("page-body")
             if backend.scene and path in SCENE_PAGES:
                 ui.element("iframe").props(f'src={backend.scene.url} title="3D 보기"').classes("scene3d").mark("scene3d")
@@ -72,6 +84,12 @@ def make_root(backend: Backend):
             if badge and not badge[0].is_deleted and badge[0].text != text:
                 badge[0].text = text
                 badge[0].props(f"color={theme.STATE_COLORS[text]}")
+            if resume and not resume[0].is_deleted:
+                resume[0].visible = mine and text in ("정지", "오류")
+
+        async def resume_arm() -> None:
+            if backend.owner == client.id:
+                await run.io_bound(backend.resume)
 
         async def estop() -> None:  # 보기 전용 브라우저도 누를 수 있다. 세우는 일은 조작권과 상관없다
             await run.io_bound(backend.estop)
