@@ -205,3 +205,12 @@ def test_unresponsive_target_process_is_terminated():
     finally:
         stop.set()
         dummy.kill()
+
+
+def test_second_watchdog_cannot_bind_the_same_port():
+    srv = make_server(Watchdog(sim=True), 0)
+    try:
+        with pytest.raises(OSError):
+            make_server(Watchdog(sim=True), srv.server_address[1])
+    finally:
+        srv.server_close()
