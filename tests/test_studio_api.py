@@ -171,7 +171,7 @@ def test_req005_gui_command_dispatches_or_explains(monkeypatch):
 
     from so101_studio.cli import main
 
-    monkeypatch.delitem(sys.modules, "so101_studio.gui", raising=False)
+    monkeypatch.setitem(sys.modules, "so101_studio.gui", None)  # None이면 import가 ModuleNotFoundError: GUI 모듈이 없는 경우를 흉내
     with pytest.raises(SystemExit) as e:  # GUI 모듈이 없으면 안내
         main(["--sim", "gui"])
     assert "GUI" in str(e.value)

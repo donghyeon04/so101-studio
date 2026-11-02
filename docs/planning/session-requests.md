@@ -17,3 +17,4 @@
 | REQ-007 | 작업 이벤트 상세: `TaskEvent.detail`에 스캔한 물체 목록, 고른 물체와 이유, 계산한 경로 시간을 담음. `Studio.bus` 구독 방법 문서화 | 기획 → 팔 | 추가 | 완료 | #4 합쳐짐 | 작업 공간 진행 막대, 이벤트 기록 |
 | REQ-008 | `preview_path(pose)`: 움직이지 않고 관절 궤적 샘플과 손끝 경로(작업대 좌표 점 목록)를 돌려줌 | 기획 → 팔 | 추가 | 완료 | #5 합쳐짐 | 3D 경로 선. 지금 `preview_tool`은 끝 관절값만 |
 | REQ-009 | `ArmService.resume()`: stop·estop 뒤 상태를 idle로 되돌림(팔은 안 움직임) | GUI → 팔 | 추가 | 완료 | dev/arm-req-resume | E-STOP 뒤 "정지 해제" 버튼. fault에서도 idle로 돌아옴 |
+| REQ-010 | `test_req005_gui_command_dispatches_or_explains`가 GUI 모듈이 있으면 실패함: 앞부분을 `sys.modules["so101_studio.gui"] = None`으로 바꿈 | GUI → 팔 | 테스트만 | 완료 | dev/arm-req-resume (PR #8) | GUI PR #7보다 먼저 합쳐야 함. dev/gui-state에서 통과 확인 |
