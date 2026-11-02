@@ -27,14 +27,18 @@ SWINGS = [
 ]
 
 
-def run_powertest(svc, repeats: int = 3, speed_pct: float = 100.0, out=print) -> dict:
+class _Aborted(Exception):
+    pass
+
+
+def run_powertest(svc, repeats: int = 3, speed_pct: float = 100.0, out=print, stop=lambda: False) -> dict:
     svc.driver.set_torque(True)
     # 200°/s는 주기당 4°라 평소 한계(5°)에 여유가 없다. 이 시험 동안만 8°로 올리고, 작업대 가장자리 검사는 끈다
     with svc.safety.relaxed(check_xy=False, max_step_deg=8.0):
-        return _powertest(svc, repeats, speed_pct, out)
+        return _powertest(svc, repeats, speed_pct, out, stop)
 
 
-def _powertest(svc, repeats: int, speed_pct: float, out) -> dict:
+def _powertest(svc, repeats: int, speed_pct: float, out, stop_req) -> dict:
     start = svc.driver.read_joints()
     rest_acc = svc.driver.acceleration
     targets, skipped = [], []
@@ -66,9 +70,15 @@ def _powertest(svc, repeats: int, speed_pct: float, out) -> dict:
         svc.driver.set_acceleration(254)
         for _ in range(repeats):
             for q in [*targets, start]:
+                if stop_req():
+                    out("중단 요청: 시작 자세로 돌아간다")
+                    results.append(svc._run([move_j(svc.driver.read_joints(), start, V_MAX_DEG_S * speed_pct / 100, A_MAX_DEG_S2)]).status)
+                    raise _Aborted
                 traj = move_j(svc.driver.read_joints(), q, V_MAX_DEG_S * speed_pct / 100, A_MAX_DEG_S2)
                 results.append(svc._run([traj]).status)
                 time.sleep(0.2)
+    except _Aborted:
+        pass
     finally:
         svc.driver.set_acceleration(rest_acc)
         mark["t1"] = time.perf_counter()

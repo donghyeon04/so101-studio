@@ -134,6 +134,36 @@ def svc(tmp_path):
     s.disconnect()
 
 
+def test_req004_get_set_params_with_timing(svc):
+    p = svc.get_params()
+    assert p["speed_pct"] == {"value": 50, "default": 30, "timing": "now"}
+    assert p["servo_acceleration"]["timing"] == "reconnect" and p["approach_height_mm"]["timing"] == "next_motion"
+    assert svc.set_params({"speed_pct": "70", "approach_height_mm": 55}) == {"speed_pct": "now", "approach_height_mm": "next_motion"}
+    assert svc.speed == 70 and svc.skills.speed == 70 and svc.cfg.approach_height_mm == 55.0
+
+
+def test_req004_invalid_changes_apply_nothing(svc):
+    for bad in ({"approach_height_mm": 10, "nope": 1}, {"approach_height_mm": 10, "trajectory_profile": "x"},
+                {"approach_height_mm": "abc"}, {"speed_pct": 0}):
+        with pytest.raises(ValueError):
+            svc.set_params(bad)
+    assert svc.cfg.approach_height_mm == CFG.approach_height_mm and svc.speed == 50
+
+
+def test_req004_presets_roundtrip(svc):
+    svc.set_params({"approach_height_mm": 61, "grasp_open_policy": "fit"})
+    svc.save_preset("fast")
+    svc.set_params({"approach_height_mm": 20, "grasp_open_policy": "max"})
+    assert svc.list_presets() == ["fast"]
+    svc.load_preset("fast")
+    assert svc.cfg.approach_height_mm == 61 and svc.cfg.grasp_open_policy == "fit"
+    for bad in ("../x", "a/b"):
+        with pytest.raises(ValueError):
+            svc.save_preset(bad)
+    with pytest.raises(FileNotFoundError):
+        svc.load_preset("none")
+
+
 def test_req005_gui_command_dispatches_or_explains(monkeypatch):
     import sys
     import types as t
@@ -150,6 +180,27 @@ def test_req005_gui_command_dispatches_or_explains(monkeypatch):
     monkeypatch.setitem(sys.modules, "so101_studio.gui", fake)
     main(["--sim", "--speed", "20", "gui"])
     assert got[0].sim and got[0].speed == 20 and got[0].command == "gui"
+
+
+def test_req006_diagnostics_progress_result_and_stop(svc, monkeypatch):
+    from so101_studio.cli import powertest, shaketest
+
+    monkeypatch.setattr(powertest, "SETTLE_S", 0.2)
+    monkeypatch.setattr(shaketest, "SPEEDS", (200.0,))
+    info = svc.run_diagnostic("servoinfo")
+    assert info["name"] == "servoinfo" and not info["aborted"] and info["result"]
+    lines = []
+    r = svc.run_diagnostic("powertest", progress=lines.append, repeats=1)
+    assert "peak_total_ma" in r["result"] and lines and not r["aborted"]
+    # 중단: 첫 이동 전에 멈추면 이동이 없고 aborted가 켜진다. 팔 설정(가속 한계)은 복원된다
+    acc = svc.driver.acceleration
+    lines.clear()
+    r = svc.run_diagnostic("shaketest", progress=lines.append, stop=lambda: True, reps=1)
+    assert r["aborted"] and r["result"] == [] and svc.driver.acceleration == acc
+    with pytest.raises(ValueError):
+        svc.run_diagnostic("linkwatch")  # 시뮬레이션
+    with pytest.raises(ValueError):
+        svc.run_diagnostic("nope")
 
 
 def test_req007_task_events_carry_decision_details():
