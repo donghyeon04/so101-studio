@@ -1,7 +1,11 @@
 """ArmService·Studio를 감싸는 유일한 창구 (gui-spec 7·8절). 실행 방식, 조작권, REQ 임시 우회를 여기에 둔다."""
 
 import contextlib
+import csv
+import json
+import logging
 import re
+from collections import deque
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -11,12 +15,13 @@ from ..core.config import load_robot, load_workspace
 from ..core.types import DetectedObject, JointState
 from ..perception.manual import ManualSource
 from ..service.arm_service import ArmService
+from ..service.diagnostics import BIG_MOVES  # noqa: F401  페이지가 쓴다
 from ..service.stop_listener import StopListener
 from ..service.studio import Studio
 from ..service.targets import reason_text, tip_vector
 from ..task.policy import reachable
 from .scene3d import Scene3D
-from .state import EMPTY, SAFETY_TEXT, State, hottest_text
+from .state import EMPTY, SAFETY_TEXT, LogBook, LogRecord, State, hottest_text
 from .watchdog_link import WatchdogLink
 
 JOG_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll")  # JointState 순서
@@ -25,6 +30,8 @@ JOINT_TEXT = {
     "gripper": "그리퍼",
 }  # JointState 순서
 CART_AXES = ("x", "y", "z", "yaw")  # 작업대 좌표계
+DIAGNOSTICS = {"servoinfo": "서보 설정 읽기", "linkwatch": "연결 끊김 찾기", "powertest": "전원 시험", "shaketest": "떨림 시험"}
+RUN_POINTS = 600  # 실행 기록 그래프로 보내는 점의 상한
 SEQUENCE_POINTS = 300  # 화면에 보내는 기록 표본 수의 상한
 JOG_TOOL_MM_S = 100.0  # 속도 100%일 때. 컨트롤러가 60mm/s로 한 번 더 자른다
 JOG_YAW_DEG_S = 60.0
@@ -76,6 +83,11 @@ class Backend:
         self.link = link
         self.scene: Scene3D | None = None
         self.reach = EMPTY
+        self.runs_root = log_root or "runs"
+        self.logbook = LogBook()
+        logging.getLogger().addHandler(self.logbook)
+        self._event_log: deque = deque(maxlen=2000)
+        self._log_offset = 0
         self._next_object = 0
         self._path_kin: Kinematics | None = None
         self._listener = None
@@ -346,6 +358,69 @@ class Backend:
         path.write_text(update_workspace_text(path.read_text(encoding="utf-8"), values, zone), encoding="utf-8")
         return None
 
+    # ---- 장치·시스템
+    def diagnostic_available(self, name: str) -> bool:
+        return name != "linkwatch"  # shortcut: 포트를 직접 열어 시뮬레이션에서는 못 쓴다, G10에서 실제 팔 연결을 끊고 부르게 한다
+
+    def run_diagnostic(self, name: str, progress=None, stop=None) -> tuple[dict | None, str | None]:
+        """(결과, 실패 이유). 블로킹이므로 스레드에서 부른다."""
+        kw = {"repeats": 1} if name == "powertest" else {}
+        try:
+            return self.arm.run_diagnostic(name, progress, stop, **kw), None
+        except ValueError as e:
+            return None, str(e)
+        except RuntimeError:
+            return None, BUSY_TEXT
+
+    def run_names(self) -> list[str]:
+        """실행 기록 폴더 이름. 최근 것이 먼저다."""
+        root = Path(self.runs_root)
+        if not root.is_dir():
+            return []
+        return sorted((d.name for d in root.iterdir() if d.is_dir() and (d / "events.jsonl").exists()), reverse=True)
+
+    def load_run(self, name: str) -> dict:
+        """실행 하나의 이벤트와 전압·온도. 화면에 보내는 점은 RUN_POINTS 이하로 줄인다."""
+        if name not in self.run_names():  # 화면에서 온 이름으로 다른 경로를 읽지 않는다
+            raise ValueError(f"없는 실행: {name}")
+        folder = Path(self.runs_root) / name
+        events = []
+        for line in (folder / "events.jsonl").read_text(encoding="utf-8").splitlines():
+            with contextlib.suppress(ValueError):  # 강제 종료로 마지막 줄이 잘렸을 수 있다
+                row = json.loads(line)
+                events.append({"t": row["t"], "kind": row["kind"], "text": json.dumps(row["data"], ensure_ascii=False)[:200]})
+        rows = []
+        path = folder / "status.csv"
+        if path.exists():
+            with path.open(encoding="utf-8", newline="") as f:
+                for row in csv.DictReader(f):
+                    with contextlib.suppress(ValueError, TypeError):
+                        rows.append((float(row["t"]), float(row["voltage_v"]), float(row["max_temp_c"])))
+        stride = max(1, len(rows) // RUN_POINTS)
+        t0 = rows[0][0] if rows else 0.0
+        return {
+            "name": name, "events": events, "rows": len(rows), "duration_s": rows[-1][0] - t0 if rows else 0.0,
+            "voltage": [[round(t - t0, 2), v] for t, v, _ in rows[::stride]],
+            "temperature": [[round(t - t0, 2), c] for t, _, c in rows[::stride]],
+        }
+
+    def logs(self) -> list[LogRecord]:
+        """이번 실행의 이벤트와 파이썬 로그를 시간순으로."""
+        logger = self.arm.logger
+        if logger:
+            path = logger.dir / "events.jsonl"
+            with path.open(encoding="utf-8") as f:
+                f.seek(self._log_offset)
+                while line := f.readline():
+                    if not line.endswith("\n"):
+                        break
+                    self._log_offset = f.tell()
+                    with contextlib.suppress(ValueError):
+                        row = json.loads(line)
+                        level = "ERROR" if row["kind"] == "fault" else "WARNING" if row["kind"] in ("estop", "safety") else "INFO"
+                        self._event_log.append(LogRecord(row["t"], level, f"{row['kind']}: {json.dumps(row['data'], ensure_ascii=False)[:300]}"))
+        return sorted([*self._event_log, *self.logbook.records], key=lambda r: r.t)
+
     # ---- 교시
     def sequences(self) -> list[str]:
         return self.arm.teach.names()
@@ -395,9 +470,11 @@ class Backend:
     def estop(self) -> None:
         self.paused = False
         self.studio.task._step_mode = False  # REQ-013 임시
-        self.studio.estop()
+        self.studio.stop()
+        self.arm.estop()  # Studio.estop은 실행 기록에 남기지 않는다
 
     def close(self) -> None:
+        logging.getLogger().removeHandler(self.logbook)
         if self._listener:
             self._listener.close()
         self.arm.disconnect()

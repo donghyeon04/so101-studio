@@ -66,6 +66,14 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 .page-title {{ font-size: 24px; font-weight: 600; line-height: 32px; }}
 .page-body {{ color: {MUTED}; }}
 .card-title {{ font-weight: 600; }}
+.diag-output {{ min-height: 120px; }}
+.run-list {{ width: 280px; flex: none; }}
+.run-chart {{ height: 24vh; min-height: 180px; }}
+.run-events {{ height: 30vh; }}
+.log-area {{ height: 66vh; background: {CARD}; border: 1px solid {LINE}; border-radius: {RADIUS}px; }}
+.log-line {{ font-family: 'IBM Plex Mono', 'IBM Plex Sans KR', Consolas, monospace; font-size: 14px; line-height: 22px; white-space: pre-wrap; }}
+.log-warning {{ color: {WARN}; font-weight: 600; }}
+.log-error {{ color: {DANGER}; font-weight: 600; }}
 .axis-label {{ width: 36px; flex: none; }}
 .stat-danger {{ background: {DANGER}; color: #ffffff; padding: 0 6px; border-radius: 4px; }}
 .param-row {{ padding: 2px 6px; border-radius: 4px; }}

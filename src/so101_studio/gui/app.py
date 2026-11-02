@@ -6,7 +6,7 @@ from nicegui import app, background_tasks, run, ui
 
 from . import scene3d, sensors, theme
 from .backend import Backend
-from .pages import manual, params, safety, table, teach, workspace
+from .pages import arm, logs, manual, params, runs, safety, table, teach, workspace
 from .state import EMPTY, page_state
 from .watchdog_link import BROWSER_HB_JS, WatchdogLink
 
@@ -22,7 +22,7 @@ PAGES = (
     ("설정", (("/params", "파라미터·프리셋", "G7"), ("/safety", "안전", "G7"), ("/table", "작업대·좌표", "G7"))),
     ("시스템", (("/runs", "실행 기록", "G8"), ("/logs", "로그", "G8"))),
 )
-BUILDERS = {"/": workspace.build, "/manual": manual.build, "/teach": teach.build, "/params": params.build, "/safety": safety.build, "/table": table.build, **sensors.pages()}  # 만든 페이지. 나머지는 자리만 있다
+BUILDERS = {"/": workspace.build, "/manual": manual.build, "/teach": teach.build, "/params": params.build, "/safety": safety.build, "/table": table.build, "/arm": arm.build, "/runs": runs.build, "/logs": logs.build, **sensors.pages()}  # 만든 페이지. 나머지는 자리만 있다
 TOP_STATS = ("센서", "실행 방식", "전압", "최고 온도", "속도", "조작권")  # 감시 칸은 아이콘이 있어 따로 그린다
 BOTTOM_STATS = ("손끝 좌표", "닿는지·오차", "안전 모드", "토크", "기록 폴더")
 
