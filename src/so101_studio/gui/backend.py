@@ -1,15 +1,18 @@
 """ArmService·Studio를 감싸는 유일한 창구 (gui-spec 7·8절). 실행 방식, 조작권, REQ 임시 우회를 여기에 둔다."""
 
+import contextlib
 from dataclasses import dataclass, replace
 
 from ..arm.kinematics import Kinematics
 from ..arm.sim_driver import SimDriver
 from ..core.config import load_robot, load_workspace
-from ..core.types import JointState
+from ..core.types import DetectedObject, JointState
 from ..perception.manual import ManualSource
 from ..service.arm_service import ArmService
 from ..service.stop_listener import StopListener
+from ..service.studio import Studio
 from ..service.targets import reason_text, tip_vector
+from ..task.policy import reachable
 from .scene3d import Scene3D
 from .state import EMPTY, SAFETY_TEXT, State, hottest_text
 from .watchdog_link import WatchdogLink
@@ -23,6 +26,7 @@ CART_AXES = ("x", "y", "z", "yaw")  # 작업대 좌표계
 SEQUENCE_POINTS = 300  # 화면에 보내는 기록 표본 수의 상한
 JOG_TOOL_MM_S = 100.0  # 속도 100%일 때. 컨트롤러가 60mm/s로 한 번 더 자른다
 JOG_YAW_DEG_S = 60.0
+BUSY_TEXT = "팔이 아직 움직이고 있습니다"
 MOTION_TEXT = {
     "ik_fail": reason_text("ik_fail"),
     "out_of_bounds": "허용 범위 밖이라 움직이지 않았습니다",
@@ -47,6 +51,7 @@ class Backend:
         self.link = link
         self.scene: Scene3D | None = None
         self.reach = EMPTY
+        self._next_object = 0
         self._path_kin: Kinematics | None = None
         self._listener = None
         self.owner: str | None = None  # 조작권을 가진 브라우저. NiceGUI 이벤트 루프에서만 바꾼다
@@ -55,9 +60,13 @@ class Backend:
         if not ok:
             raise RuntimeError(msg)
         self.arm.status_stream(self.state.update)
+        self.source = ManualSource()
+        self.studio = Studio(self.arm, self.source, dry_run=True)  # 시뮬레이션에는 잡히는 물체가 없다. 접촉 없음도 성공으로 본다
+        self.studio.bus.subscribe("task", self._on_task)
+        self.paused = False
         if viser_port is not None:
             self.scene = Scene3D(cfg, self.arm.ws, self.arm.kin, viser_port)
-            self.scene.set_objects(ManualSource().scan().objects)
+            self.scene.set_objects(self.objects())
             self.arm.status_stream(self.scene.update_status)
         if link:  # 감시 프로세스의 정지 명령을 받는다
             self._listener = StopListener(self.arm, link.stop_port).start()
@@ -81,20 +90,24 @@ class Backend:
             self.link.rearm()
 
     # ---- 직접 조작. 실패하면 이유 문장을, 성공하면 None을 돌려준다. 스레드에서 부른다
-    def _result(self, result) -> str | None:
+    def _motion(self, fn, *args, **kwargs) -> str | None:
+        try:
+            result = fn(*args, **kwargs)
+        except RuntimeError:  # 컨트롤러가 이미 다른 동작을 실행 중이다
+            return BUSY_TEXT
         return None if result.status == "ok" else MOTION_TEXT.get(result.status, result.status)
 
     def home(self) -> str | None:
-        return self._result(self.arm.home())
+        return self._motion(self.arm.home)
 
     def park(self) -> str | None:
-        return self._result(self.arm.park())
+        return self._motion(self.arm.park)
 
     def gripper(self, value: float) -> str | None:
-        return self._result(self.arm.set_gripper(value))
+        return self._motion(self.arm.set_gripper, value)
 
     def gripper_width(self, mm: float) -> str | None:
-        return self._result(self.arm.set_gripper(mm, as_width=True))
+        return self._motion(self.arm.set_gripper, mm, as_width=True)
 
     def set_speed(self, pct: float) -> None:
         self.arm.set_speed(pct)
@@ -117,12 +130,18 @@ class Backend:
         return Plan(ok, text)
 
     def move_to(self, x: float, y: float, h: float, yaw: float) -> str | None:
-        result = self.arm.move_tool(self.arm.point_pose(x, y, h, yaw))
+        results = []
+
+        def run():
+            results.append(self.arm.move_tool(self.arm.point_pose(x, y, h, yaw)))
+            return results[0]
+
+        reason = self._motion(run)
         if self.scene:
             self.scene.clear_target()
-        if result.position_error_mm is not None:
-            self.reach = f"오차 {result.position_error_mm:.1f} mm"
-        return self._result(result)
+        if results and results[0].position_error_mm is not None:
+            self.reach = f"오차 {results[0].position_error_mm:.1f} mm"
+        return reason
 
     def jog(self, mode: str, index: int, sign: int) -> bool:
         """누르는 동안 조그. 입력이 0.3초 끊기면 컨트롤러가 스스로 멈춘다."""
@@ -146,13 +165,101 @@ class Backend:
         q = self.arm.status().joints
         if mode == "joint":
             name = JOG_JOINTS[index]
-            return self._result(self.arm.move_joints(replace(q, **{name: getattr(q, name) + amount})))
+            return self._motion(self.arm.move_joints, replace(q, **{name: getattr(q, name) + amount}))
         delta = [0.0] * 4
         delta[index] = amount
         goal = self.arm.kin.step(q, *delta)
         if goal is None:
             return reason_text("ik_fail")
-        return self._result(self.arm.move_joints(goal))
+        return self._motion(self.arm.move_joints, goal)
+
+    # ---- 작업
+    def objects(self) -> list[DetectedObject]:
+        return self.source.scan().objects
+
+    def object_reachable(self, obj: DetectedObject) -> bool:
+        return reachable(obj, self.arm.ws)
+
+    def _on_task(self, event) -> None:
+        self.state.on_task(event)
+        if self.scene and event.state in ("DECIDE", "PLACE", "DONE", "STOPPED"):
+            self.scene.set_objects(self.objects(), self.state.chosen)
+
+    def task_running(self) -> bool:
+        thread = self.studio._thread
+        return thread is not None and thread.is_alive()
+
+    def scan(self) -> list[DetectedObject]:
+        objects = self.studio.perception.scan().objects
+        if self.scene:
+            self.scene.set_objects(objects, self.state.chosen)
+        return objects
+
+    def start_task(self, step_mode: bool = False) -> str | None:
+        """작업을 시작한다. 시작하지 못하면 이유를 돌려준다."""
+        if self.task_running():
+            return "이미 실행 중입니다"
+        if self.arm.ctl.state != "idle":  # 작업 스레드에서 동작 충돌이 나면 조용히 끝난다
+            return MOTION_TEXT["stopped"] if self.arm.ctl.state in ("stopped", "fault") else BUSY_TEXT
+        self.state.placed, self.paused = 0, step_mode
+        self.studio._step.clear()  # REQ-013 임시: 앞선 stop()이 남긴 신호로 첫 단계를 건너뛴다
+        self.studio.start(step_mode=step_mode)
+        return None
+
+    def step_task(self) -> str | None:
+        """멈춘 작업을 한 단계 진행한다. 작업이 없으면 단계별 모드로 시작한다."""
+        if self.task_running():
+            self.studio.step()
+            return None
+        return self.start_task(step_mode=True)
+
+    def toggle_pause(self) -> None:
+        """다음 상태 변화에서 멈추거나 다시 이어 간다."""
+        if not self.task_running():
+            return
+        self.paused = not self.paused
+        self.studio.task._step_mode = self.paused  # REQ-013 임시: Studio에 일시정지가 없다
+        if not self.paused:
+            self.studio.step()
+
+    def stop_task(self) -> None:
+        self.paused = False
+        self.studio.task._step_mode = False  # REQ-013 임시: 단계별 모드에서 stop()은 다음 단계에서 다시 기다린다
+        self.studio.stop()
+        self.arm.stop()
+
+    def _changed_objects(self) -> None:
+        if self.scene:
+            self.scene.set_objects(self.objects(), self.state.chosen)
+
+    def add_object(self, x: float, y: float, angle: float = 0.0, width: float = 30.0, length: float = 100.0) -> str:
+        """클릭한 자리에 물체를 놓고 id를 돌려준다."""
+        self._next_object += 1
+        object_id = f"added-{self._next_object}"
+        self.source.add(DetectedObject(object_id, x, y, angle, width, length, 1.0, "manual"))
+        self._changed_objects()
+        return object_id
+
+    def move_object(self, object_id: str, x: float, y: float) -> None:
+        old = next(o for o in self.objects() if o.id == object_id)
+        self.source.remove(object_id)
+        self.source.add(replace(old, x_mm=x, y_mm=y))
+        self._changed_objects()
+
+    def remove_object(self, object_id: str) -> None:
+        self.source.remove(object_id)
+        self._changed_objects()
+
+    def reset_objects(self) -> None:
+        """파일에 적힌 처음 물체로 되돌린다(옮긴 표시도 지운다). 지금 있는 물체는 지운다."""
+        for obj in self.objects():
+            self.source.remove(obj.id)
+        for obj in ManualSource().scan().objects:
+            with contextlib.suppress(KeyError):
+                self.source.remove(obj.id)  # 이미 옮겨 scan에 안 보이는 물체
+            self.source.add(obj)
+        self.state.placed = 0
+        self._changed_objects()
 
     # ---- 교시
     def sequences(self) -> list[str]:
@@ -180,9 +287,11 @@ class Backend:
             result = self.arm.replay(name, speed, until_limit, segment_speeds)
         except ValueError as e:  # 배율 때문에 속도 한계를 넘는 경우
             return str(e)
+        except RuntimeError:
+            return BUSY_TEXT
         if result.status == "out_of_bounds" and not until_limit:
             return "기록에 허용 범위 밖 자세가 있어 재생하지 않았습니다(첫 자세까지는 이동합니다). 한계 앞까지만 재생을 켜 보세요"
-        return self._result(result)
+        return self._motion(lambda: result)
 
     def replay_cut(self) -> str | None:
         """한계 앞까지만 재생했을 때 어디서 잘렸는지."""
@@ -196,10 +305,12 @@ class Backend:
         """조작하던 브라우저의 연결이 끊기면 팔을 세운다(토크는 유지)."""
         if self.owner == client:
             self.owner = None
-            self.arm.stop()
+            self.stop_task()
 
     def estop(self) -> None:
-        self.arm.estop()
+        self.paused = False
+        self.studio.task._step_mode = False  # REQ-013 임시
+        self.studio.estop()
 
     def close(self) -> None:
         if self._listener:

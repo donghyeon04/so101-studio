@@ -66,6 +66,13 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 .page-title {{ font-size: 24px; font-weight: 600; line-height: 32px; }}
 .page-body {{ color: {MUTED}; }}
 .card-title {{ font-weight: 600; }}
+.progress-step {{ text-align: center; line-height: {CONTROL_H}px; background: {CARD}; color: {MUTED}; border: 1px solid {LINE}; border-radius: 6px; }}
+.progress-step.progress-active {{ background: {ACCENT}; color: #ffffff; font-weight: 600; border-color: {ACCENT}; }}
+.event-line {{ font-size: 14px; line-height: 22px; }}
+.joint-name {{ width: 72px; flex: none; font-size: 14px; }}
+.joint-value {{ width: 56px; flex: none; text-align: right; font-size: 14px; }}
+.plane {{ border-radius: 6px; }}
+.plane-large {{ max-width: 84vh; }}
 .scene3d.scene3d-short {{ height: 44vh; min-height: 280px; }}
 .joint-chart {{ height: 30vh; min-height: 220px; }}
 .segment-bar {{ gap: 2px; }}

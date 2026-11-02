@@ -132,6 +132,6 @@ def build(backend, client_id: str, actions) -> None:
 
     def tick() -> None:
         controls.refresh()
-        play_button.enabled = bool(controls.mine and state["data"] and backend.state.status and backend.state.status.state == "idle")
+        play_button.enabled = bool(controls.allowed and state["data"] and backend.state.status and backend.state.status.state == "idle")
 
     ui.timer(0.2, tick)

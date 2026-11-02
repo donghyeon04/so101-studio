@@ -4,9 +4,9 @@ import sys
 
 from nicegui import app, background_tasks, run, ui
 
-from . import scene3d, theme
+from . import scene3d, sensors, theme
 from .backend import Backend
-from .pages import manual, teach
+from .pages import manual, teach, workspace
 from .state import EMPTY, page_state
 from .watchdog_link import BROWSER_HB_JS, WatchdogLink
 
@@ -17,13 +17,12 @@ REFRESH_S = 0.1
 # (그룹, 페이지들). 페이지는 (경로, 제목, 채우는 작업). gui-spec 3절
 PAGES = (
     ("작업", (("/", "작업 공간", "G6"), ("/manual", "직접 조작", "G4"), ("/teach", "교시", "G5"))),
-    ("인식", (("/ultrasonic", "초음파 A·B", "3단계"), ("/camera", "카메라", "4단계"), ("/input", "수동 입력", "G6"))),
+    ("인식", sensors.menu()),
     ("장치", (("/arm", "팔", "G8"), ("/esp32", "ESP32 센서 보드", "3단계"))),
     ("설정", (("/params", "파라미터·프리셋", "G7"), ("/safety", "안전", "G7"), ("/table", "작업대·좌표", "G7"))),
     ("시스템", (("/runs", "실행 기록", "G8"), ("/logs", "로그", "G8"))),
 )
-BUILDERS = {"/manual": manual.build, "/teach": teach.build}  # 만든 페이지. 나머지는 자리만 있다
-SCENE_PAGES = {"/"}  # 자리만 있지만 3D 칸을 먼저 보여 주는 페이지
+BUILDERS = {"/": workspace.build, "/manual": manual.build, "/teach": teach.build, **sensors.pages()}  # 만든 페이지. 나머지는 자리만 있다
 TOP_STATS = ("센서", "실행 방식", "전압", "최고 온도", "속도", "조작권")  # 감시 칸은 아이콘이 있어 따로 그린다
 BOTTOM_STATS = ("손끝 좌표", "닿는지·오차", "안전 모드", "토크", "기록 폴더")
 
@@ -65,8 +64,6 @@ def make_root(backend: Backend):
                 BUILDERS[path](backend, client.id, actions)
                 return
             ui.label(f"{task}에서 만든다.").classes("page-body")
-            if backend.scene and path in SCENE_PAGES:
-                ui.element("iframe").props(f'src={backend.scene.url} title="3D 보기"').classes("scene3d").mark("scene3d")
 
         def refresh() -> None:
             for name, value in backend.readout().items():
