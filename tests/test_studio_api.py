@@ -240,3 +240,21 @@ def test_req009_resume_after_estop(svc):
     svc.resume()
     assert svc.driver.read_joints() == before  # 해제만으로는 움직이지 않는다
     assert svc.move_joints(goal).status == "ok"
+
+
+def test_req012_jog_turns_torque_on_once_without_bus_reads(svc):
+    svc.driver.set_torque(False)
+    reads = []
+    real = svc.driver.torque_enabled
+    svc.driver.torque_enabled = lambda: reads.append(1) or real()
+    assert svc.jog("joint", [5, 0, 0, 0, 0, 0]) and svc.driver.torque_enabled()
+    n = len(reads)
+    svc.ctl.jog_stop()
+    for _ in range(20):  # 10Hz로 계속 불러도 버스를 다시 읽지 않는다
+        svc.jog("joint", [5, 0, 0, 0, 0, 0])
+    assert len(reads) == n
+    svc._torque_on = False  # 교시 등으로 토크가 꺼진 뒤에는 다시 확인한다
+    svc.driver.set_torque(False)
+    svc.jog("joint", [5, 0, 0, 0, 0, 0])
+    assert svc.driver.torque_enabled()
+
