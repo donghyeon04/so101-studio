@@ -23,6 +23,7 @@ class RobotConfig:
     speed_pct_default: int = 30
     servo_acceleration: int = 25
     physical_limits_deg: dict = field(default_factory=dict)  # 캘리브레이션으로 잰 실제 가동 범위. 안전 한계를 넓혀도 이 범위는 넘지 않는다
+    watchdog_hotkey: str = "F9"  # E-STOP 감시 프로세스의 전역 단축키 (REQ-011)
     record_hz: int = 20  # 교시 기록 주기
     record_max_s: float = 90.0  # 한 번에 기록하는 최대 시간(레퍼런스 myCobot 권장값에서 따옴)
     seg_pause_deg_s: float = 3.0  # 이 속도(°/s, 가장 빠른 관절 기준) 미만이면 멈춤 구간
