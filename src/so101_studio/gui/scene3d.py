@@ -21,6 +21,7 @@ TABLE_T_M = 0.01
 OBJECT_H_M = 0.03
 PREVIEW_ALPHA = 0.4
 MESH_CELL_M = 0.002
+ALLOWED_TOP_MM = 300.0  # 높이 제한이 없을 때 허용 상자를 그리는 높이
 DEFAULT_PICK_H_MM = 40.0  # 작업대를 클릭했을 때의 높이. 0이면 턱 끝이 작업대에 닿는다
 # (카메라 위치, 보는 점, 위쪽). 작업대 600x400mm 기준
 VIEWS = {
@@ -197,12 +198,27 @@ class Scene3D:
                     thickness=3.0, thickness_units="screen",
                 )
 
+    def show_allowed(self, box: dict | None) -> None:
+        """허용 상자를 반투명으로 그린다. box는 x, y, z의 [최소, 최대] mm이고 z 최대가 None이면 ALLOWED_TOP_MM까지 그린다. None이면 지운다."""
+        scene = self.server.scene
+        scene.remove_by_name("/allowed")
+        if box is None:
+            return
+        (x0, x1), (y0, y1) = box["x"], box["y"]
+        z0, z1 = box["z"][0] or 0.0, box["z"][1] if box["z"][1] is not None else ALLOWED_TOP_MM
+        scene.add_box(
+            "/allowed", color=theme.rgb(theme.ACCENT), opacity=0.12,
+            dimensions=((x1 - x0) / 1000, (y1 - y0) / 1000, (z1 - z0) / 1000),
+            position=((x0 + x1) / 2000, (y0 + y1) / 2000, (z0 + z1) / 2000),
+        )
+
     def clear_target(self) -> None:
         scene = self.server.scene
         with self.server.atomic():
             scene.remove_by_name("/target")
             scene.remove_by_name("/path")
             scene.remove_by_name("/trajectory")
+            scene.remove_by_name("/allowed")
             self.set_preview(None)
 
     def set_view(self, name: str) -> None:
