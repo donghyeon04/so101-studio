@@ -6,7 +6,7 @@ from nicegui import app, background_tasks, run, ui
 
 from . import scene3d, theme
 from .backend import Backend
-from .pages import manual
+from .pages import manual, teach
 from .state import EMPTY, page_state
 from .watchdog_link import BROWSER_HB_JS, WatchdogLink
 
@@ -22,7 +22,7 @@ PAGES = (
     ("설정", (("/params", "파라미터·프리셋", "G7"), ("/safety", "안전", "G7"), ("/table", "작업대·좌표", "G7"))),
     ("시스템", (("/runs", "실행 기록", "G8"), ("/logs", "로그", "G8"))),
 )
-BUILDERS = {"/manual": manual.build}  # 만든 페이지. 나머지는 자리만 있다
+BUILDERS = {"/manual": manual.build, "/teach": teach.build}  # 만든 페이지. 나머지는 자리만 있다
 SCENE_PAGES = {"/"}  # 자리만 있지만 3D 칸을 먼저 보여 주는 페이지
 TOP_STATS = ("센서", "실행 방식", "전압", "최고 온도", "속도", "조작권")  # 감시 칸은 아이콘이 있어 따로 그린다
 BOTTOM_STATS = ("손끝 좌표", "닿는지·오차", "안전 모드", "토크", "기록 폴더")

@@ -45,3 +45,8 @@ def test_watch_states_differ_by_icon_not_only_color():
 
 def test_control_height_meets_touch_size():
     assert theme.CONTROL_H >= 44
+
+
+def test_segment_labels_are_readable_on_their_fill():
+    for label, fill in theme.SEGMENT_COLORS.items():
+        assert _contrast(theme.SEGMENT_INK[label], fill) >= 4.5, label

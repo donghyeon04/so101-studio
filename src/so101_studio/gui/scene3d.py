@@ -182,11 +182,27 @@ class Scene3D:
                         "/path", dashes, theme.rgb(theme.PREVIEW), thickness=3.0, thickness_units="screen"
                     )
 
+    def show_trajectory(self, segments) -> None:
+        """기록의 손끝 궤적을 구간 색으로 그린다. segments는 (라벨, [(x, y, z) 작업대 mm, z는 모델 z]) 목록이다."""
+        scene = self.server.scene
+        with self.server.atomic():
+            scene.remove_by_name("/trajectory")
+            scene.add_frame("/trajectory", show_axes=False)
+            for i, (label, points) in enumerate(segments):
+                if len(points) < 2:
+                    continue
+                xyz = (np.array(points, float) - (0.0, 0.0, self._table_z)) / 1000
+                scene.add_line_segments(
+                    f"/trajectory/{i}", np.stack([xyz[:-1], xyz[1:]], axis=1), theme.rgb(theme.SEGMENT_LINE[label]),
+                    thickness=3.0, thickness_units="screen",
+                )
+
     def clear_target(self) -> None:
         scene = self.server.scene
         with self.server.atomic():
             scene.remove_by_name("/target")
             scene.remove_by_name("/path")
+            scene.remove_by_name("/trajectory")
             self.set_preview(None)
 
     def set_view(self, name: str) -> None:

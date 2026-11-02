@@ -3,39 +3,20 @@
 from nicegui import run, ui
 
 from .. import theme
-from ..backend import CART_AXES, JOG_JOINTS
+from ..backend import CART_AXES, JOG_JOINTS, JOINT_TEXT
 from ..scene3d import VIEWS
+from .common import Controls, scene_frame
 
-JOINT_NAMES = {
-    "shoulder_pan": "어깨 회전", "shoulder_lift": "어깨 들기", "elbow_flex": "팔꿈치", "wrist_flex": "손목 굽힘", "wrist_roll": "손목 회전",
-}
 STEPS = {0: "누르기", 1: "1", 5: "5", 10: "10"}
 DEFAULT_TARGET = {"x": 300.0, "y": 200.0, "h": 40.0, "yaw": 90.0}
 
 
 def build(backend, client_id: str, actions) -> None:
-    controls: list = []  # 조작권이 있어야 켜지는 것들
+    gate = Controls(backend, client_id)
+    control, guarded, owner = gate.add, gate.guard, lambda: gate.mine
     held: list = []  # 지금 누르고 있는 조그 (mode, index, sign)
     plan_state = {"dirty": True, "busy": False, "plan": None, "seq": backend.scene.picked[0]}
     target = dict(DEFAULT_TARGET)
-
-    def owner() -> bool:
-        return backend.owner == client_id
-
-    def guarded(fn):
-        """화면 버튼을 꺼 둬도 서버에서 한 번 더 막는다."""
-
-        async def call(*args):
-            if not owner():
-                ui.notify("보기 전용입니다", type="warning")
-                return None
-            return await fn(*args)
-
-        return call
-
-    def control(element):
-        controls.append(element)
-        return element
 
     async def act(fn, *args) -> None:
         result = await run.io_bound(fn, *args)
@@ -72,7 +53,7 @@ def build(backend, client_id: str, actions) -> None:
 
     with ui.row().classes("w-full no-wrap items-start gap-4"):
         with ui.column().classes("flex-1 min-w-0 gap-2 scene-column"):
-            ui.element("iframe").props(f'src={backend.scene.url} title="3D 보기"').classes("scene3d").mark("scene3d")
+            scene_frame(backend)
             with ui.row().classes("items-center gap-2"):
                 ui.label("시점").classes("stat-label")
                 for name in VIEWS:
@@ -101,7 +82,7 @@ def build(backend, client_id: str, actions) -> None:
                 with ui.tab_panels(tabs, value=joint_tab).classes("w-full"):
                     with ui.tab_panel(joint_tab).classes("p-0 gap-1"):
                         for i, name in enumerate(JOG_JOINTS):
-                            _jog_row(backend, JOINT_NAMES[name], ("joint", i), "°", held, step, control, guarded)
+                            _jog_row(backend, JOINT_TEXT[name], ("joint", i), "°", held, step, control, guarded)
                     with ui.tab_panel(cart_tab).classes("p-0 gap-1"):
                         for i, name in enumerate(CART_AXES):
                             unit = "°" if name == "yaw" else "mm"
@@ -153,8 +134,7 @@ def build(backend, client_id: str, actions) -> None:
             if not plan.ok:
                 ui.notify(plan.text, type="warning")
         mine = owner()
-        for element in controls:
-            element.enabled = mine
+        gate.refresh()
         status = backend.state.status
         idle = status is not None and status.state == "idle"
         plan = plan_state["plan"]

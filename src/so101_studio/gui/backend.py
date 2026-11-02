@@ -2,8 +2,10 @@
 
 from dataclasses import dataclass, replace
 
+from ..arm.kinematics import Kinematics
 from ..arm.sim_driver import SimDriver
 from ..core.config import load_robot, load_workspace
+from ..core.types import JointState
 from ..perception.manual import ManualSource
 from ..service.arm_service import ArmService
 from ..service.stop_listener import StopListener
@@ -13,7 +15,12 @@ from .state import EMPTY, SAFETY_TEXT, State, hottest_text
 from .watchdog_link import WatchdogLink
 
 JOG_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll")  # JointState 순서
+JOINT_TEXT = {
+    "shoulder_pan": "어깨 회전", "shoulder_lift": "어깨 들기", "elbow_flex": "팔꿈치", "wrist_flex": "손목 굽힘", "wrist_roll": "손목 회전",
+    "gripper": "그리퍼",
+}  # JointState 순서
 CART_AXES = ("x", "y", "z", "yaw")  # 작업대 좌표계
+SEQUENCE_POINTS = 300  # 화면에 보내는 기록 표본 수의 상한
 JOG_TOOL_MM_S = 100.0  # 속도 100%일 때. 컨트롤러가 60mm/s로 한 번 더 자른다
 JOG_YAW_DEG_S = 60.0
 MOTION_TEXT = {
@@ -40,6 +47,7 @@ class Backend:
         self.link = link
         self.scene: Scene3D | None = None
         self.reach = EMPTY
+        self._path_kin: Kinematics | None = None
         self._listener = None
         self.owner: str | None = None  # 조작권을 가진 브라우저. NiceGUI 이벤트 루프에서만 바꾼다
         self.arm = ArmService(SimDriver(cfg.poses.get("home")), cfg, load_workspace(), speed, log_root)
@@ -145,6 +153,44 @@ class Backend:
         if goal is None:
             return reason_text("ik_fail")
         return self._result(self.arm.move_joints(goal))
+
+    # ---- 교시
+    def sequences(self) -> list[str]:
+        return self.arm.teach.names()
+
+    def sequence(self, name: str) -> dict:
+        """기록의 요약, 화면용 표본, 3D 궤적. 궤적을 그리고 돌려준다. 스레드에서 부른다."""
+        info = self.arm.record_info(name)
+        q, t = self.arm.teach.load(name)
+        stride = max(1, len(q) // SEQUENCE_POINTS)
+        q, t = q[::stride], t[::stride] - t[0]
+        if self._path_kin is None:  # 팔의 Kinematics는 다른 스레드도 쓰므로 궤적 계산에는 따로 둔다
+            self._path_kin = Kinematics(self.arm.cfg.urdf, self.arm.ws.base, self.arm.cfg.joint_limits_deg)
+        tips = [self._path_kin.fk(JointState(*row)) for row in q.tolist()]
+        segments = [
+            (s["label"], [(p.x_mm, p.y_mm, p.z_mm) for p, at in zip(tips, t, strict=True) if s["start_s"] <= at <= s["end_s"]])
+            for s in info["segments"]
+        ]
+        if self.scene:
+            self.scene.show_trajectory(segments)
+        return {"info": info, "t": t.round(3).tolist(), "q": q.round(2).tolist()}
+
+    def replay(self, name: str, speed: float, until_limit: bool = False, segment_speeds: dict[int, float] | None = None) -> str | None:
+        try:
+            result = self.arm.replay(name, speed, until_limit, segment_speeds)
+        except ValueError as e:  # 배율 때문에 속도 한계를 넘는 경우
+            return str(e)
+        if result.status == "out_of_bounds" and not until_limit:
+            return "기록에 허용 범위 밖 자세가 있어 재생하지 않았습니다(첫 자세까지는 이동합니다). 한계 앞까지만 재생을 켜 보세요"
+        return self._result(result)
+
+    def replay_cut(self) -> str | None:
+        """한계 앞까지만 재생했을 때 어디서 잘렸는지."""
+        cut = self.arm.teach.last_cut
+        if cut is None:
+            return None
+        at, total, why = cut
+        return f"표본 {total}개 중 {at}개까지 재생했습니다: {reason_text(why)}"
 
     def disconnected(self, client: str) -> None:
         """조작하던 브라우저의 연결이 끊기면 팔을 세운다(토크는 유지)."""
