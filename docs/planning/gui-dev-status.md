@@ -4,8 +4,11 @@
 
 GUI 세션의 인수인계 문서다. 기준 문서는 `planning/gui-spec.md`, 절차는 `guides/session-workflow.md`이다.
 
+## 다음 할 일
+- G4 진행 중(`dev/gui-manual`, PR #14까지 합쳐진 `main`에서 시작). 끝나면 G5부터 G9까지 `--sim`으로 이어 간다. PR은 올리되 합치지 않고, 다음 G는 앞 브랜치 위에 쌓는다. G10(실제 팔)은 사용자와 함께 한다.
+
 ## 환경
-- 폴더 `C:/Users/c/Desktop/so101-studio-gui`. PR은 `main` 대상이고 G 단위로 끊는다. G0~G1은 `dev/gui-shell`(PR #7), G2는 그 위의 `dev/gui-state`(PR #11), G2b는 그 위의 `dev/gui-watchdog`(PR #12)였고 모두 합쳐졌다. G3은 `dev/gui-3d`다.
+- 폴더 `C:/Users/c/Desktop/so101-studio-gui`. PR은 `main` 대상이고 G 단위로 끊는다. G0~G1은 `dev/gui-shell`(PR #7), G2는 그 위의 `dev/gui-state`(PR #11), G2b `dev/gui-watchdog`(PR #12), G3 `dev/gui-3d`(PR #14)까지 합쳐졌다.
 - 출발점은 2fc1293(기획 브랜치)이고, 이 커밋은 PR #3(e5f3a48)으로 `main`에 들어갔다. 다시 만들거나 rebase하지 않는다.
 - 설치: viser[urdf] 1.1.1, nicegui 3.18.0. numpy는 2.2.6 conda 설치본 그대로다.
 - 실행: `$env:PYTHONPATH="C:/Users/c/Desktop/so101-studio-gui/src"` 후 `python -m so101_studio.gui --sim [--port 8080]`. 아직 `--sim`만 된다. 주소는 `127.0.0.1`로 고정했다(NiceGUI 기본값은 `0.0.0.0`).
