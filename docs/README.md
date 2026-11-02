@@ -51,3 +51,4 @@
 | `docs/decisions/0023-app-shell-nicegui-viser.md` | 결정 | 확정 | GUI는 완성형 앱: NiceGUI 앱 틀 + Viser 3D, 센서별 화면 등록(초음파 2D 평면, 카메라는 나중), 실행 방식 설정, 조작권 한 곳 |
 | `docs/decisions/0024-session-roles-and-requests.md` | 결정 | 확정 | 로컬 개발을 GUI 세션과 팔 세션으로 나누고(worktree), 상대 영역은 요청서(REQ)로 주고받음, 설계 변경은 기획으로 |
 | `docs/decisions/0025-gui-screen-check-and-design-refs.md` | 결정 | 확정 | GUI 화면 확인은 앱 내장 브라우저(예비 Playwright CLI), 기준 문서는 NiceGUI llms.md, 상태 표시는 Carbon 규칙, DESIGN.md 없음 (0022 대체) |
+| `docs/decisions/0026-estop-watchdog-process.md` | 결정 | 확정 | GUI E-STOP은 별도 감시 프로세스: 브라우저·서버 heartbeat가 1초 끊기면 정지 명령 → 0.3초 무응답이면 팔 프로세스 종료, 단축키 E-STOP, 감시 없으면 실제 팔 명령 막음 |

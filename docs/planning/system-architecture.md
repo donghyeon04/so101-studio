@@ -126,6 +126,9 @@ PPT 흐름도(캘리브레이션 → 스캔 → 판단 → 실행 → 남은 물
 | 상태 수집 | 10Hz | `ArmStatus` 발행, 2Hz로 온도·부하 |
 | 센서 수신 | 수신 즉시 | ESP32 시리얼 읽기 (3단계부터) |
 | 작업 실행 | 상태 전환마다 | 상태 머신 |
+| 정지 수신 (GUI 실행 시) | 수신 즉시 | 감시 프로세스의 정지 명령을 받아 `ctl.estop()` (`decisions/0026`) |
+
+GUI를 실행하면 감시 프로세스(`so101_studio.watchdog`)가 별도 프로세스로 함께 돈다. 브라우저와 GUI 서버의 heartbeat를 받고, 끊기면 팔 프로세스를 멈춘다(`decisions/0026`).
 
 장치 하나는 스레드 하나만 만진다. 다른 스레드는 큐로 요청한다.
 
@@ -139,6 +142,7 @@ src/so101_studio/
   service/       studio.py, arm_service.py
   cli/           __main__.py
   gui/           NiceGUI 앱 틀 + Viser 3D (gui-spec.md 7절, decisions/0023)
+  watchdog/      E-STOP 감시 프로세스 (decisions/0026, 팔 세션)
 firmware/esp32_scanner/   (3단계)
 config/          robot.yaml, workspace.yaml, manual_objects.yaml, sequences/, calibration/
 assets/          URDF, 메쉬
