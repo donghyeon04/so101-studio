@@ -70,6 +70,7 @@ class ArmService:
         self.logger = RunLogger(self.log_root) if self.log_root else None
         self._health = self.driver.read_health()
         self._connected = True
+        self._torque_on = False  # jog가 토크를 켠 뒤 true. 교시로 토크를 끄면 다시 false (REQ-012)
         self._stop_status.clear()
         self._status_thread = threading.Thread(target=self._status_loop, daemon=True)
         self._status_thread.start()
@@ -256,11 +257,18 @@ class ArmService:
         return self._done("gripper", self._run([cfg_move_j(self.cfg, q, replace(q, gripper=min(max(v, lo), hi)), self.speed)]), value=v)
 
     def jog(self, mode: str, velocity) -> bool:
+        """조그 한 걸음. 토크가 꺼져 있으면 먼저 켠다. 이미 켠 뒤에는 버스를 읽지 않으므로 10Hz로 불러도 된다 (REQ-012).
+        밖에서 토크가 꺼진 경우(전원 끊김 등)는 알 수 없다: 그때는 connect를 다시 하거나 move_*를 한 번 부른다."""
+        if not self._torque_on:
+            if not self.driver.torque_enabled():
+                self.driver.set_torque(True)
+            self._torque_on = True
         return self.ctl.jog(mode, velocity)
 
     def record_start(self, hz: int | None = None, max_s: float | None = None) -> None:
         """hz: 기록 주기, max_s: 최대 기록 시간. 안 주면 설정값(record_hz, record_max_s)."""
         self._log("record_start", {"hz": hz, "max_s": max_s})
+        self._torque_on = False  # 기록 중 토크가 꺼진다
         self.teach.record_start(hz, max_s)
 
     def record_info(self, name: str) -> dict:
