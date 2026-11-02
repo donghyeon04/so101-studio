@@ -138,7 +138,7 @@ src/so101_studio/
   task/          runner.py, policy.py (우선순위·도달 범위 판단)
   service/       studio.py, arm_service.py
   cli/           __main__.py
-  gui/           (기술 결정 후)
+  gui/           NiceGUI 앱 틀 + Viser 3D (gui-spec.md 7절, decisions/0023)
 firmware/esp32_scanner/   (3단계)
 config/          robot.yaml, workspace.yaml, manual_objects.yaml, sequences/, calibration/
 assets/          URDF, 메쉬
@@ -163,7 +163,8 @@ docs/
 | 0~2. 구동 점검, 동작 라이브러리, 작업 공간 | `core`, `arm`, `perception/manual`, `task`, `service`, `cli` |
 | 3. 초음파 인식 | `firmware/esp32_scanner`, `perception/ultrasonic` |
 | 4. 카메라 인식 | `perception/camera` |
-| 5. 비교 실험·GUI | `gui`, 실험 기능(F3, F4) |
+| GUI (2차 단계, 3단계와 병행) | `gui` (gui-spec.md, GUI 세션) |
+| 5. 비교 실험 | 실험 기능(F3, F4) |
 
 0~2단계가 끝나면 `ManualSource`로 "좌표 입력 → 자동으로 여러 물체 집어 옮기기"가 동작해야 한다. 센서가 붙으면 `ManualSource`를 `UltrasonicSource`로 바꾸기만 한다.
 

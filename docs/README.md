@@ -19,11 +19,13 @@
 | `docs/planning/arm-software-spec.md` | 기획 | 확정 | 팔 모듈 계층 구조, 데이터 타입, 모듈 API, 설정·출력 형식, 구현 작업 순서(T1~T11) |
 | `docs/planning/measurements.md` | 기획 | 초안 | 로컬 개발 세션의 측정 기록 (T0~T11, 떨림·전원·그리퍼 시험) |
 | `docs/planning/arm-dev-status.md` | 기획 | 초안 | 팔 개발 현황과 인수인계: 상태, 구현 목록, 이 세션에서 한 일, 현재 설정값, 설계서와 다른 점, 사용법, GUI 연결 API, 조사·측정 결과, 알려진 문제, 남은 일 |
-| `docs/planning/gui-spec.md` | 기획 | 초안 | GUI 설계서: 원칙, 공통 틀, 5개 그룹 13개 페이지, 화면 요소 규칙, 새로 필요한 API, 남은 일 |
+| `docs/planning/gui-spec.md` | 기획 | 확정 | GUI 설계서(1차 기본 골자): 원칙, 공통 틀, 13개 페이지, 디자인 기본값, 범위, 폴더 구조, 실행 구조, 작업 순서 G0~G10 |
+| `docs/planning/session-requests.md` | 기획 | 초안 | 세션 간 요청 대장 (REQ 번호, 보냄·받음, 상태). 받은 세션이 갱신 |
 | `docs/planning/hardware.md` | 기획 | 초안 | 부품 구성(BOM), 보유 현황, 예상 비용, 전기적 주의사항 |
 | `docs/planning/comparison-experiment.md` | 기획 | 초안 | 초음파·카메라 인식 비교 실험의 통제 변인, 평가 기준, 환경 조건 가설 |
 | `docs/guides/arm-hardware-setup.md` | 가이드 | 확정 | 팔 하드웨어 구성, COM 포트, 서보 ID 1~6, 캘리브레이션 파일 복사, 다른 PC에서 처음 연결하는 순서, 문제 해결 |
 | `docs/guides/tooling-setup.md` | 가이드 | 확정 | 계정마다 설치할 플러그인, MCP, 스킬 |
+| `docs/guides/session-workflow.md` | 가이드 | 확정 | 세션 역할, worktree와 브랜치, REQ 요청·완료 양식, 기획 요청, 포트 같이 쓰기 |
 | `docs/decisions/0001-claude-md-authoring.md` | 결정 | 확정 | CLAUDE.md는 짧게, 절차는 skill로 |
 | `docs/decisions/0002-docs-structure.md` | 결정 | 확정 | 문서 유형 4종, 색인, 상태값, 조사 원문 비보관 |
 | `docs/decisions/0003-arm-control-stack.md` | 결정 | 확정 | LeRobot SOFollower + placo IK, MoveJ/L/P는 얇게 직접 구현 |
@@ -47,3 +49,4 @@
 | `docs/decisions/0021-gui-viser-kinematic-twin.md` | 결정 | 대체됨(→ 0023) | GUI는 Viser 기반 Python 단일 프로세스(`so101 gui`), 실제·미리보기 팔 두 개, 시뮬레이션은 기구학 쌍둥이(MuJoCo는 보류), 연결 끊김 시 stop |
 | `docs/decisions/0022-gui-design-tooling.md` | 결정 | 확정 | GUI 디자인은 기획에서 Excalidraw 와이어프레임, 개발에서 Context7·Playwright MCP·design 플러그인·frontend-design으로 스크린샷 반복 |
 | `docs/decisions/0023-app-shell-nicegui-viser.md` | 결정 | 확정 | GUI는 완성형 앱: NiceGUI 앱 틀 + Viser 3D, 센서별 화면 등록(초음파 2D 평면, 카메라는 나중), 실행 방식 설정, 조작권 한 곳 |
+| `docs/decisions/0024-session-roles-and-requests.md` | 결정 | 확정 | 로컬 개발을 GUI 세션과 팔 세션으로 나누고(worktree), 상대 영역은 요청서(REQ)로 주고받음, 설계 변경은 기획으로 |
