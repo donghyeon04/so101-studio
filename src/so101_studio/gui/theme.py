@@ -23,6 +23,12 @@ WATCH_STYLES = {
     "작동함": ("report", "negative"),
     "없음": ("remove_circle_outline", "warning"),
 }
+# 관절 그래프 계열. dataviz 기본 범주 팔레트의 앞 6색(validate_palette 통과). 상태 색과 겹치지 않는다
+SERIES = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300")
+# 기록 구간: 한 색의 농도로 빠르기를 나타낸다. 글자를 함께 쓴다
+SEGMENT_COLORS = {"멈춤": LINE, "느림": "#9db7ee", "빠름": ACCENT}
+SEGMENT_INK = {"멈춤": TEXT, "느림": TEXT, "빠름": "#ffffff"}
+SEGMENT_LINE = {"멈춤": CONTROL_BORDER, "느림": "#5f8ae4", "빠름": ACCENT}  # 3D 궤적. 밝은 작업대 위에서 보이게 진하다
 REACH_STYLES = {True: ("check_circle", "positive"), False: ("block", "negative")}
 
 
@@ -60,6 +66,10 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 .page-title {{ font-size: 24px; font-weight: 600; line-height: 32px; }}
 .page-body {{ color: {MUTED}; }}
 .card-title {{ font-weight: 600; }}
+.scene3d.scene3d-short {{ height: 44vh; min-height: 280px; }}
+.joint-chart {{ height: 30vh; min-height: 220px; }}
+.segment-bar {{ gap: 2px; }}
+.segment {{ min-width: 0; height: {CONTROL_H}px; line-height: {CONTROL_H}px; text-align: center; overflow: hidden; border-radius: 4px; font-size: 13px; }}
 .control-column {{ width: 380px; flex: none; }}
 .scene-column {{ position: sticky; top: {GAP}px; }}
 .jog-button {{ min-width: {CONTROL_H}px; padding: 0 8px; }}
