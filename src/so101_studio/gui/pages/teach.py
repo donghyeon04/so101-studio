@@ -50,7 +50,7 @@ def build(backend, client_id: str, actions) -> None:
         ui.notify(reason or backend.replay_cut() or "재생을 마쳤습니다", type="negative" if reason else "positive")
 
     with actions:
-        ui.button("정지", color="negative", on_click=lambda: run.io_bound(backend.arm.stop)).props("outline no-caps").mark("stop")
+        ui.button("정지", color="negative", on_click=lambda: run.io_bound(backend.stop_all)).props("outline no-caps").mark("stop")
         play_button = controls.add(ui.button("재생", on_click=controls.guard(play)).props("no-caps").mark("play"))
 
     def update_expected() -> None:

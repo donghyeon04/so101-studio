@@ -2,6 +2,7 @@
 
 from nicegui import run, ui
 
+from ..backend import RUN_MODES
 from .common import Controls
 
 TIMING_TEXT = {"now": "바로", "next_motion": "다음 동작부터", "reconnect": "재시작"}
@@ -79,6 +80,12 @@ def build(backend, client_id: str, actions) -> None:
                 ui.label(note).classes("stat-label")
         rows[key] = row
 
+    def mode_changed(e) -> None:
+        reason = backend.set_run_mode(e.value)
+        if reason:
+            ui.notify(reason, type="warning")
+            run_mode.value = backend.mode
+
     async def apply() -> None:
         reason, timings = await run.io_bound(backend.set_params, changes())
         if reason:
@@ -125,8 +132,10 @@ def build(backend, client_id: str, actions) -> None:
         with ui.column().classes("w-full gap-4"):
             with ui.card().classes("w-full gap-2"):
                 ui.label("실행 방식").classes("card-title")
-                ui.label(backend.readout()["실행 방식"]).classes("event-line").mark("param-run-mode")
-                ui.label("시뮬레이션과 실제 팔을 함께 쓰는 방식은 G9에서 고릅니다").classes("page-body")
+                run_mode = controls.add(
+                    ui.toggle(RUN_MODES, value=backend.mode, on_change=mode_changed).props("no-caps spread").classes("w-full").mark("run-mode")
+                )
+                ui.label("직접 조작과 교시 재생에 적용됩니다. 위쪽 상태줄에 늘 보입니다").classes("page-body")
             with ui.card().classes("w-full gap-2"):
                 ui.label("프리셋").classes("card-title")
                 with ui.row().classes("w-full no-wrap items-center gap-2"):

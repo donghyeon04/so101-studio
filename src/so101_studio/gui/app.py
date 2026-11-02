@@ -50,8 +50,7 @@ def make_root(backend: Backend):
                 btn.classes(remove="nav-active").props(remove="aria-current")
             nav[path].classes(add="nav-active").props("aria-current=page")
             ui.page_title(f"{title} · SO-101 Studio")
-            if backend.scene:
-                backend.scene.clear_target()
+            backend.clear_plan()
             with ui.row().classes("w-full items-center"):
                 ui.label(title).classes("page-title").mark("page-title")
                 text = page_state(backend.state.status)
@@ -70,6 +69,9 @@ def make_root(backend: Backend):
                 stats[name].text = value
             stats["조작권"].text = "이 브라우저" if backend.owner == client.id else "보기 전용"
             take.visible = backend.owner is None
+            if backend.pending and backend.owner == client.id and not pending_dialog.value:
+                pending_text.text = f"시뮬레이션에서 '{backend.pending[0]}'을 마쳤습니다. 실제 팔로 실행할까요?"
+                pending_dialog.open()
             icon_name, icon_color = theme.WATCH_STYLES[stats["감시"].text]
             watch_icon.name = icon_name
             watch_icon.props(f"color={icon_color}")
@@ -89,6 +91,23 @@ def make_root(backend: Backend):
             if backend.owner == client.id:
                 await run.io_bound(backend.resume)
 
+        async def run_pending() -> None:
+            pending_dialog.close()
+            reason = await run.io_bound(backend.confirm_pending)
+            ui.notify(reason or "실제 팔로 실행했습니다", type="negative" if reason else "positive")
+
+        def skip_pending() -> None:
+            backend.cancel_pending()
+            pending_dialog.close()
+
+        with ui.dialog() as pending_dialog, ui.card().classes("gap-3"):
+            ui.label("실제 팔로 실행").classes("card-title")
+            pending_text = ui.label("").classes("page-body").mark("pending-text")
+            with ui.row().classes("w-full justify-end gap-2"):
+                ui.button("취소", on_click=skip_pending).props("outline no-caps").mark("pending-cancel")
+                ui.button("실행", color="negative", on_click=run_pending).props("no-caps").mark("pending-confirm")
+        pending_dialog.props("persistent")
+
         async def estop() -> None:  # 보기 전용 브라우저도 누를 수 있다. 세우는 일은 조작권과 상관없다
             await run.io_bound(backend.estop)
             ui.notify("비상 정지했습니다", type="negative")
@@ -98,7 +117,7 @@ def make_root(backend: Backend):
         with ui.header().classes("frame-bar frame-top items-center gap-6 px-3 py-1"):
             ui.button(icon="menu", on_click=drawer.toggle).props("flat round color=dark aria-label=메뉴").mark("menu")
             ui.label("SO-101 Studio").classes("text-lg font-semibold")
-            _stat("팔", "시뮬레이션")
+            stats["팔"] = _stat("팔")
             with ui.row().classes("items-center gap-1 no-wrap"):
                 watch_icon = ui.icon("remove_circle_outline", size="20px").mark("watch-icon")
                 stats["감시"] = _stat("감시")

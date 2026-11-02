@@ -5,6 +5,7 @@ import csv
 import json
 import logging
 import re
+import threading
 from collections import deque
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -12,7 +13,7 @@ from pathlib import Path
 from ..arm.kinematics import Kinematics
 from ..arm.sim_driver import SimDriver
 from ..core.config import load_robot, load_workspace
-from ..core.types import DetectedObject, JointState
+from ..core.types import DetectedObject, JointState, MotionResult, ToolPose
 from ..perception.manual import ManualSource
 from ..service.arm_service import ArmService
 from ..service.diagnostics import BIG_MOVES  # noqa: F401  페이지가 쓴다
@@ -35,6 +36,7 @@ RUN_POINTS = 600  # 실행 기록 그래프로 보내는 점의 상한
 SEQUENCE_POINTS = 300  # 화면에 보내는 기록 표본 수의 상한
 JOG_TOOL_MM_S = 100.0  # 속도 100%일 때. 컨트롤러가 60mm/s로 한 번 더 자른다
 JOG_YAW_DEG_S = 60.0
+RUN_MODES = {"sim": "시뮬레이션만", "real": "실제만", "both": "동시", "sim_first": "시뮬레이션 먼저"}
 REASON_EXTRA = {"z_ceiling": "허용 상자보다 높습니다"}  # service.targets에 아직 없는 이유
 BUSY_TEXT = "팔이 아직 움직이고 있습니다"
 MOTION_TEXT = {
@@ -77,7 +79,7 @@ class Backend:
     workspace_path = "config/workspace.yaml"
 
     def __init__(self, speed: float | None = None, log_root: str | None = "runs", link: WatchdogLink | None = None,
-                 viser_port: int | None = None):
+                 viser_port: int | None = None, real_driver=None):
         cfg = load_robot()
         self.state = State()
         self.link = link
@@ -92,19 +94,29 @@ class Backend:
         self._path_kin: Kinematics | None = None
         self._listener = None
         self.owner: str | None = None  # 조작권을 가진 브라우저. NiceGUI 이벤트 루프에서만 바꾼다
-        self.arm = ArmService(SimDriver(cfg.poses.get("home")), cfg, load_workspace(), speed, log_root)
-        ok, msg = self.arm.connect()
-        if not ok:
-            raise RuntimeError(msg)
+        ws = load_workspace()
+        # 실행 기록은 주 팔 하나만 남긴다. 같은 초에 만들면 폴더 이름이 겹친다
+        self.real = ArmService(real_driver, cfg, ws, speed, log_root) if real_driver else None
+        self.sim = ArmService(SimDriver(cfg.poses.get("home")), cfg, ws, speed, None if real_driver else log_root)
+        self.arm = self.real or self.sim  # 상태줄과 3D의 실제 팔이 읽는 쪽
+        self.mode = "sim"
+        self.pending: tuple | None = None  # 시뮬레이션 먼저: 실제 팔로 실행할지 묻는 동작 (이름, action)
+        self._planning = False
+        for arm in self._arms():
+            ok, msg = arm.connect()
+            if not ok:
+                raise RuntimeError(msg)
         self.arm.status_stream(self.state.update)
         self.source = ManualSource()
-        self.studio = Studio(self.arm, self.source, dry_run=True)  # 시뮬레이션에는 잡히는 물체가 없다. 접촉 없음도 성공으로 본다
+        self.studio = Studio(self.arm, self.source, dry_run=self.real is None)  # 시뮬레이션에는 잡히는 물체가 없어 접촉 없음도 성공으로 본다
         self.studio.bus.subscribe("task", self._on_task)
         self.paused = False
         if viser_port is not None:
             self.scene = Scene3D(cfg, self.arm.ws, self.arm.kin, viser_port)
             self.scene.set_objects(self.objects())
             self.arm.status_stream(self.scene.update_status)
+            if self.real:
+                self.sim.status_stream(self._on_twin_status)
         if link:  # 감시 프로세스의 정지 명령을 받는다
             self._listener = StopListener(self.arm, link.stop_port).start()
 
@@ -122,68 +134,159 @@ class Backend:
 
     def resume(self) -> None:
         """비상 정지를 풀고 감시 프로세스에 다시 등록한다. 팔은 움직이지 않는다."""
-        self.arm.resume()
+        for arm in self._arms():
+            arm.resume()
         if self.link:
             self.link.rearm()
 
-    # ---- 직접 조작. 실패하면 이유 문장을, 성공하면 None을 돌려준다. 스레드에서 부른다
-    def _motion(self, fn, *args, **kwargs) -> str | None:
+    # ---- 실행 방식 (gui-spec 8절). 실제 장치용과 SimDriver용 ArmService를 고른다
+    def set_run_mode(self, mode: str) -> str | None:
+        """실행 방식을 바꾼다. 못 바꾸면 이유를 돌려주고 그대로 둔다."""
+        if mode not in RUN_MODES:
+            return f"알 수 없는 실행 방식: {mode}"
+        if mode != "sim":
+            reason = self._real_blocked()
+            if reason:
+                return reason
+        self.mode, self.pending = mode, None
+        return None
+
+    def _real_blocked(self) -> str | None:
+        if self.real is None:
+            return "실제 팔이 연결되어 있지 않습니다. 시뮬레이션만 쓸 수 있습니다"
+        if not self.real_allowed():
+            return "감시 프로세스가 응답하지 않아 실제 팔을 움직일 수 없습니다"
+        return None
+
+    def _targets(self) -> list[ArmService]:
+        """지금 방식에서 바로 움직일 팔. 시뮬레이션 먼저는 시뮬레이션만 움직이고 확인을 기다린다."""
+        if self.mode == "real":
+            return [self.real]
+        if self.mode == "both":
+            return [self.real, self.sim]
+        return [self.sim]
+
+    def _model_arm(self) -> ArmService:
+        """미리보기를 계산할 팔. 다음에 움직일 팔을 기준으로 한다."""
+        return self.real if self.mode == "real" else self.sim
+
+    @staticmethod
+    def _run_on(arm: ArmService, action) -> str | None:
         try:
-            result = fn(*args, **kwargs)
+            result = action(arm)
         except RuntimeError:  # 컨트롤러가 이미 다른 동작을 실행 중이다
             return BUSY_TEXT
+        except ValueError as e:  # 배율 때문에 속도 한계를 넘는 경우 등
+            return str(e)
         return None if result.status == "ok" else MOTION_TEXT.get(result.status, result.status)
 
+    def _dispatch(self, action, label: str) -> str | None:
+        """action(ArmService) -> MotionResult를 실행 방식대로 부른다. 실패 이유 또는 None. 스레드에서 부른다."""
+        if self.mode != "sim":
+            reason = self._real_blocked()
+            if reason:
+                return reason
+        targets = self._targets()
+        if len(targets) == 1:
+            reason = self._run_on(targets[0], action)
+        else:
+            reasons: list = [None, None]
+
+            def run(i: int, arm: ArmService) -> None:
+                reasons[i] = self._run_on(arm, action)
+
+            threads = [threading.Thread(target=run, args=(i, arm), daemon=True) for i, arm in enumerate(targets)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+            reason = next((r for r in reasons if r), None)
+        if reason is None and self.mode == "sim_first":
+            self.pending = (label, action)
+        return reason
+
+    def confirm_pending(self) -> str | None:
+        """시뮬레이션에서 본 동작을 실제 팔로 실행한다."""
+        pending, self.pending = self.pending, None
+        if pending is None:
+            return None
+        reason = self._real_blocked()
+        return reason or self._run_on(self.real, pending[1])
+
+    def cancel_pending(self) -> None:
+        self.pending = None
+
+    def stop_all(self) -> None:
+        for arm in self._arms():
+            arm.stop()
+
+    def _arms(self) -> list[ArmService]:
+        return [self.sim] if self.real is None else [self.real, self.sim]
+
+    # ---- 직접 조작. 실패하면 이유 문장을, 성공하면 None을 돌려준다. 스레드에서 부른다
     def home(self) -> str | None:
-        return self._motion(self.arm.home)
+        return self._dispatch(lambda arm: arm.home(), "홈으로 이동")
 
     def park(self) -> str | None:
-        return self._motion(self.arm.park)
+        return self._dispatch(lambda arm: arm.park(), "파크로 이동")
 
     def gripper(self, value: float) -> str | None:
-        return self._motion(self.arm.set_gripper, value)
+        return self._dispatch(lambda arm: arm.set_gripper(value), f"그리퍼 {value:.0f}")
 
     def gripper_width(self, mm: float) -> str | None:
-        return self._motion(self.arm.set_gripper, mm, as_width=True)
+        return self._dispatch(lambda arm: arm.set_gripper(mm, as_width=True), f"그리퍼 폭 {mm:.0f} mm")
 
     def set_speed(self, pct: float) -> None:
-        self.arm.set_speed(pct)
+        for arm in self._arms():
+            arm.set_speed(pct)
 
     def plan(self, x: float, y: float, h: float, yaw: float) -> Plan:
         """움직이지 않고 (x, y, 높이)에 닿는지 본다. 3D에 점, 계산 자세, 손끝 경로를 그린다."""
-        pose = self.arm.point_pose(x, y, h, yaw)
-        reason, q = self.arm.preview_tool(pose)
+        arm = self._model_arm()
+        pose = arm.point_pose(x, y, h, yaw)
+        reason, q = arm.preview_tool(pose)
         path = None
         duration = 0.0
         if reason is None:
-            preview = self.arm.preview_path(pose)
+            preview = arm.preview_path(pose)
             reason, path, duration = preview["reason"], preview["tool"], preview["duration_s"]
         ok = reason is None
         text = f"닿습니다 · 약 {duration:.1f}초" if ok else REASON_EXTRA.get(reason) or reason_text(reason)
         self.reach = "닿음" if ok else "안 닿음"
+        self._planning = True
         if self.scene:
             self.scene.set_preview(q if ok else None)
             self.scene.show_target(x, y, h, ok, path)
         return Plan(ok, text)
 
+    def clear_plan(self) -> None:
+        self._planning = False
+        if self.scene:
+            self.scene.clear_target()
+
+    def _on_twin_status(self, status) -> None:
+        """실제 팔이 있으면 계산 자세 팔은 시뮬레이션 쪽 자세를 보여 준다."""
+        if self.scene and not self._planning:
+            self.scene.set_preview(status.joints)
+
     def move_to(self, x: float, y: float, h: float, yaw: float) -> str | None:
         results = []
 
-        def run():
-            results.append(self.arm.move_tool(self.arm.point_pose(x, y, h, yaw)))
-            return results[0]
+        def run(arm: ArmService):
+            result = arm.move_tool(arm.point_pose(x, y, h, yaw))
+            results.append(result)
+            return result
 
-        reason = self._motion(run)
-        if self.scene:
-            self.scene.clear_target()
+        reason = self._dispatch(run, f"x {x:.0f}, y {y:.0f}, 높이 {h:.0f}으로 이동")
+        self.clear_plan()
         if results and results[0].position_error_mm is not None:
             self.reach = f"오차 {results[0].position_error_mm:.1f} mm"
         return reason
 
     def jog(self, mode: str, index: int, sign: int) -> bool:
-        """누르는 동안 조그. 입력이 0.3초 끊기면 컨트롤러가 스스로 멈춘다."""
-        if not self.state.status or not self.state.status.torque_enabled:
-            self.arm.driver.set_torque(True)  # REQ-012 임시: ArmService.jog가 토크를 켜지 않는다
+        """누르는 동안 조그. 입력이 0.3초 끊기면 컨트롤러가 스스로 멈춘다. 시뮬레이션 먼저 방식은 시뮬레이션 팔만 움직인다."""
+        if self.mode != "sim" and self._real_blocked():
+            return False
         speed = self.arm.speed / 100
         if mode == "joint":
             velocity = [0.0] * 6
@@ -191,24 +294,34 @@ class Backend:
         else:
             velocity = [0.0] * 4
             velocity[index] = sign * (JOG_YAW_DEG_S if CART_AXES[index] == "yaw" else JOG_TOOL_MM_S) * speed
-        return self.arm.jog(mode, velocity)
+        moved = False
+        for arm in self._targets():
+            # REQ-012 임시: ArmService.jog가 토크를 켜지 않는다. 10Hz로 불리므로 주 팔은 버스 대신 상태 값을 본다
+            status = self.state.status if arm is self.arm else None
+            if not (status.torque_enabled if status else arm.driver.torque_enabled()):
+                arm.driver.set_torque(True)
+            moved = arm.jog(mode, velocity) or moved
+        return moved
 
     def jog_release(self, mode: str) -> None:
         """손을 떼면 속도를 0으로 내려 부드럽게 멈춘다."""
-        self.arm.jog(mode, [0.0] * (6 if mode == "joint" else 4))
+        for arm in self._targets():
+            arm.jog(mode, [0.0] * (6 if mode == "joint" else 4))
 
     def jog_step(self, mode: str, index: int, amount: float) -> str | None:
         """정해진 간격만큼 움직인다. 관절은 도, 직교는 mm(yaw는 도)."""
-        q = self.arm.status().joints
-        if mode == "joint":
-            name = JOG_JOINTS[index]
-            return self._motion(self.arm.move_joints, replace(q, **{name: getattr(q, name) + amount}))
-        delta = [0.0] * 4
-        delta[index] = amount
-        goal = self.arm.kin.step(q, *delta)
-        if goal is None:
-            return reason_text("ik_fail")
-        return self._motion(self.arm.move_joints, goal)
+
+        def run(arm: ArmService):
+            q = arm.status().joints
+            if mode == "joint":
+                name = JOG_JOINTS[index]
+                return arm.move_joints(replace(q, **{name: getattr(q, name) + amount}))
+            delta = [0.0] * 4
+            delta[index] = amount
+            goal = arm.kin.step(q, *delta)
+            return arm.move_joints(goal) if goal else MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0))
+
+        return self._dispatch(run, "조그 간격 이동")
 
     # ---- 작업
     def objects(self) -> list[DetectedObject]:
@@ -236,6 +349,10 @@ class Backend:
         """작업을 시작한다. 시작하지 못하면 이유를 돌려준다."""
         if self.task_running():
             return "이미 실행 중입니다"
+        if self.real and self.mode != "real":  # 작업은 주 팔(실제)에서 돈다. 다른 방식은 설계서가 나중으로 미뤘다
+            return "자동 작업은 실행 방식이 '실제만'일 때 씁니다"
+        if self.real and self._real_blocked():
+            return self._real_blocked()
         if self.arm.ctl.state != "idle":  # 작업 스레드에서 동작 충돌이 나면 조용히 끝난다
             return MOTION_TEXT["stopped"] if self.arm.ctl.state in ("stopped", "fault") else BUSY_TEXT
         self.state.placed, self.paused = 0, step_mode
@@ -263,7 +380,7 @@ class Backend:
         self.paused = False
         self.studio.task._step_mode = False  # REQ-013 임시: 단계별 모드에서 stop()은 다음 단계에서 다시 기다린다
         self.studio.stop()
-        self.arm.stop()
+        self.stop_all()
 
     def _changed_objects(self) -> None:
         if self.scene:
@@ -305,7 +422,8 @@ class Backend:
     def set_safety(self, mode: str, margin: float, box: dict | None) -> str | None:
         """안전 설정을 바꾼다. 잘못된 값이면 이유를 돌려주고 아무것도 바꾸지 않는다."""
         try:
-            self.arm.set_safety(mode, margin, box)
+            for arm in self._arms():
+                arm.set_safety(mode, margin, box)
         except ValueError as e:
             return str(e)
         self.show_safety_box()
@@ -326,7 +444,10 @@ class Backend:
     def set_params(self, changes: dict) -> tuple[str | None, dict]:
         """(실패 이유, {이름: 적용 시점}). 하나라도 틀리면 아무것도 바뀌지 않는다."""
         try:
-            return None, self.arm.set_params(changes)
+            timings = self.arm.set_params(changes)
+            if self.real:  # 설정 객체는 같이 쓰고 속도만 따로 있다
+                self.sim.set_speed(self.arm.speed)
+            return None, timings
         except ValueError as e:
             return str(e), {}
 
@@ -340,6 +461,8 @@ class Backend:
     def load_preset(self, name: str) -> str | None:
         try:
             self.arm.load_preset(name)
+            if self.real:
+                self.sim.set_speed(self.arm.speed)
         except (ValueError, FileNotFoundError) as e:
             return str(e)
         return None
@@ -365,6 +488,8 @@ class Backend:
     def run_diagnostic(self, name: str, progress=None, stop=None) -> tuple[dict | None, str | None]:
         """(결과, 실패 이유). 블로킹이므로 스레드에서 부른다."""
         kw = {"repeats": 1} if name == "powertest" else {}
+        if self.real and self._real_blocked():
+            return None, self._real_blocked()
         try:
             return self.arm.run_diagnostic(name, progress, stop, **kw), None
         except ValueError as e:
@@ -443,19 +568,14 @@ class Backend:
         return {"info": info, "t": t.round(3).tolist(), "q": q.round(2).tolist()}
 
     def replay(self, name: str, speed: float, until_limit: bool = False, segment_speeds: dict[int, float] | None = None) -> str | None:
-        try:
-            result = self.arm.replay(name, speed, until_limit, segment_speeds)
-        except ValueError as e:  # 배율 때문에 속도 한계를 넘는 경우
-            return str(e)
-        except RuntimeError:
-            return BUSY_TEXT
-        if result.status == "out_of_bounds" and not until_limit:
+        reason = self._dispatch(lambda arm: arm.replay(name, speed, until_limit, segment_speeds), f"{name} 재생")
+        if reason == MOTION_TEXT["out_of_bounds"] and not until_limit:
             return "기록에 허용 범위 밖 자세가 있어 재생하지 않았습니다(첫 자세까지는 이동합니다). 한계 앞까지만 재생을 켜 보세요"
-        return self._motion(lambda: result)
+        return reason
 
     def replay_cut(self) -> str | None:
         """한계 앞까지만 재생했을 때 어디서 잘렸는지."""
-        cut = self.arm.teach.last_cut
+        cut = self._model_arm().teach.last_cut
         if cut is None:
             return None
         at, total, why = cut
@@ -471,13 +591,16 @@ class Backend:
         self.paused = False
         self.studio.task._step_mode = False  # REQ-013 임시
         self.studio.stop()
-        self.arm.estop()  # Studio.estop은 실행 기록에 남기지 않는다
+        self.pending = None
+        for arm in self._arms():
+            arm.estop()  # Studio.estop은 실행 기록에 남기지 않는다
 
     def close(self) -> None:
         logging.getLogger().removeHandler(self.logbook)
         if self._listener:
             self._listener.close()
-        self.arm.disconnect()
+        for arm in self._arms():
+            arm.disconnect()
         if self.scene:
             self.scene.close()
         if self.link:
@@ -487,7 +610,8 @@ class Backend:
         """상태줄에 보일 값. 키는 상태줄 칸 이름이다."""
         arm = self.arm
         values = {
-            "실행 방식": "시뮬레이션만",
+            "팔": "실제" if self.real else "시뮬레이션",
+            "실행 방식": RUN_MODES[self.mode],
             "감시": self.link.text() if self.link else "없음",
             "속도": f"{arm.speed:.0f} %",
             "안전 모드": SAFETY_TEXT.get(arm.safety.settings.mode, arm.safety.settings.mode),
