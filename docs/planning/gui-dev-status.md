@@ -39,7 +39,7 @@ GUI 세션의 인수인계 문서다. 기준 문서는 `planning/gui-spec.md`, �
 - REQ-001~008은 기획이 미리 등록한 것을 팔 세션이 처리했다.
 
 ## 팔 세션 REQ 상태
-- REQ-001~008 모두 구현됐다고 알려 왔다. 아직 `main`에 없고 GUI에서 확인하지 않았다.
-- PR은 합치는 순서대로 #4 `dev/arm-req-workspace`(001·002·003·007), #5 `dev/arm-req-gui-entry`(+005·008), #6 `dev/arm-req-params-diag`(+004·006)이다.
-- `main`에 합쳐지면 `git fetch origin && git merge origin/main`으로 받고 `backend.py`의 임시 우회를 지운 뒤 팔 세션에 "반영됨"을 알린다.
+- REQ-001~008은 `main`에 합쳐졌고(8c002fe), `dev/gui-state`에 받았다. 임시 우회는 없었다. `python -m so101_studio --sim gui`로 REQ-005를 확인했고(HTTP 200), 나머지는 쓰는 작업에서 확인한다. 사용법은 `arm-dev-status.md` 14절이다.
+- REQ-009는 `dev/arm-req-resume`에 구현됐고 아직 `main`에 없다.
+- REQ-010(`test_req005` 수정)을 보냈다. 이 테스트는 GUI 모듈이 없다고 가정해서, GUI가 들어오면 실패한다. **PR #7은 이 수정이 `main`에 들어간 뒤에 합친다.** 그 전까지 `dev/gui-state`에서 `python -m pytest -q`는 이 테스트 하나가 실패한다.
 - G2·G6에 쓸 주의점: `studio.bus.subscribe("task", cb)`의 콜백은 작업 스레드에서 불리므로 큐로 넘긴다. `run_diagnostic`은 블로킹이고, `powertest`·`shaketest`는 확인 창이 필요하다.
