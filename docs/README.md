@@ -47,6 +47,7 @@
 | `docs/decisions/0019-record-segments-and-parameters.md` | 결정 | 확정 | 기록 주기·최대 시간·구간 기준을 설정과 파라미터로, 기록에 속도 요약 저장, 구간별 속도 배율 재생(GUI용 record_info/segment_speeds) |
 | `docs/decisions/0020-arm-phase1-freeze.md` | 결정 | 확정 | 팔 1차 완료 = API 동결, 하드웨어 실측·전원·그리퍼는 시뮬레이션·GUI와 병행 |
 | `docs/decisions/0021-gui-viser-kinematic-twin.md` | 결정 | 대체됨(→ 0023) | GUI는 Viser 기반 Python 단일 프로세스(`so101 gui`), 실제·미리보기 팔 두 개, 시뮬레이션은 기구학 쌍둥이(MuJoCo는 보류), 연결 끊김 시 stop |
-| `docs/decisions/0022-gui-design-tooling.md` | 결정 | 확정 | GUI 디자인은 기획에서 Excalidraw 와이어프레임, 개발에서 Context7·Playwright MCP·design 플러그인·frontend-design으로 스크린샷 반복 |
+| `docs/decisions/0022-gui-design-tooling.md` | 결정 | 대체됨(→ 0025) | GUI 디자인은 기획에서 Excalidraw 와이어프레임, 개발에서 Context7·Playwright MCP·design 플러그인·frontend-design으로 스크린샷 반복 |
 | `docs/decisions/0023-app-shell-nicegui-viser.md` | 결정 | 확정 | GUI는 완성형 앱: NiceGUI 앱 틀 + Viser 3D, 센서별 화면 등록(초음파 2D 평면, 카메라는 나중), 실행 방식 설정, 조작권 한 곳 |
 | `docs/decisions/0024-session-roles-and-requests.md` | 결정 | 확정 | 로컬 개발을 GUI 세션과 팔 세션으로 나누고(worktree), 상대 영역은 요청서(REQ)로 주고받음, 설계 변경은 기획으로 |
+| `docs/decisions/0025-gui-screen-check-and-design-refs.md` | 결정 | 확정 | GUI 화면 확인은 앱 내장 브라우저(예비 Playwright CLI), 기준 문서는 NiceGUI llms.md, 상태 표시는 Carbon 규칙, DESIGN.md 없음 (0022 대체) |
