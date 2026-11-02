@@ -33,5 +33,15 @@ def test_white_label_on_filled_button_is_readable(name):
     assert _contrast("#ffffff", getattr(theme, name)) >= 4.5
 
 
+@pytest.mark.parametrize("background", ["BG", "CARD"])
+def test_control_border_meets_non_text_contrast(background):
+    assert _contrast(theme.CONTROL_BORDER, getattr(theme, background)) >= 3
+
+
+def test_watch_states_differ_by_icon_not_only_color():
+    icons = [icon for icon, _ in theme.WATCH_STYLES.values()]
+    assert len(set(icons)) == len(icons)
+
+
 def test_control_height_meets_touch_size():
     assert theme.CONTROL_H >= 44
