@@ -35,7 +35,8 @@ def test_menu_click_changes_page(backend, path, title, task):
         with user.scope(marker="nav"):
             user.find(title).click()
         await user.should_see(marker="page-title", content=title)
-        await user.should_see(f"{task}에서 만든다.")
+        if path not in gui_app.BUILDERS:
+            await user.should_see(f"{task}에서 만든다.")
 
     in_app(backend, check)
 

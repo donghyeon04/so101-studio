@@ -7,7 +7,7 @@ from so101_studio.gui.backend import Backend
 
 @pytest.fixture(scope="module")
 def shared_backend():
-    backend = Backend(log_root=None)
+    backend = Backend(log_root=None, viser_port=8190)
     yield backend
     backend.close()
 

@@ -23,6 +23,7 @@ WATCH_STYLES = {
     "작동함": ("report", "negative"),
     "없음": ("remove_circle_outline", "warning"),
 }
+REACH_STYLES = {True: ("check_circle", "positive"), False: ("block", "negative")}
 
 
 
@@ -58,7 +59,13 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 .nav-item.nav-active {{ color: {ACCENT}; background: {BG}; font-weight: 600; box-shadow: inset 3px 0 0 {ACCENT}; }}
 .page-title {{ font-size: 24px; font-weight: 600; line-height: 32px; }}
 .page-body {{ color: {MUTED}; }}
+.card-title {{ font-weight: 600; }}
+.control-column {{ width: 380px; flex: none; }}
+.scene-column {{ position: sticky; top: {GAP}px; }}
+.jog-button {{ min-width: {CONTROL_H}px; padding: 0 8px; }}
+.jog-unit {{ width: 24px; }}
 .scene3d {{ width: 100%; height: 62vh; min-height: 360px; border: 1px solid {LINE}; border-radius: {RADIUS}px; background: {CARD}; }}
+.q-page-sticky {{ z-index: 5000; }}
 .estop {{ width: {ESTOP_D}px; height: {ESTOP_D}px; font-weight: 600; border: 3px solid {CARD}; outline: 2px solid {DANGER}; }}
 .nicegui-content {{ padding: {GAP}px; gap: {GAP}px; padding-bottom: {ESTOP_D + 2 * GAP}px; }}
 .q-field--outlined .q-field__control:before {{ border-color: {CONTROL_BORDER}; }}

@@ -1,14 +1,35 @@
 """ArmService·Studio를 감싸는 유일한 창구 (gui-spec 7·8절). 실행 방식, 조작권, REQ 임시 우회를 여기에 둔다."""
 
+from dataclasses import dataclass, replace
+
 from ..arm.sim_driver import SimDriver
 from ..core.config import load_robot, load_workspace
 from ..perception.manual import ManualSource
 from ..service.arm_service import ArmService
 from ..service.stop_listener import StopListener
-from ..service.targets import tip_vector
+from ..service.targets import reason_text, tip_vector
 from .scene3d import Scene3D
 from .state import EMPTY, SAFETY_TEXT, State, hottest_text
 from .watchdog_link import WatchdogLink
+
+JOG_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll")  # JointState 순서
+CART_AXES = ("x", "y", "z", "yaw")  # 작업대 좌표계
+JOG_TOOL_MM_S = 100.0  # 속도 100%일 때. 컨트롤러가 60mm/s로 한 번 더 자른다
+JOG_YAW_DEG_S = 60.0
+MOTION_TEXT = {
+    "ik_fail": reason_text("ik_fail"),
+    "out_of_bounds": "허용 범위 밖이라 움직이지 않았습니다",
+    "stopped": "정지 상태입니다. 정지 해제를 눌러 주세요",
+    "preempted": "다른 명령으로 바뀌었습니다",
+    "fault": "오류로 멈췄습니다",
+    "timeout": "시간 안에 끝나지 않았습니다",
+}
+
+
+@dataclass
+class Plan:
+    ok: bool
+    text: str
 
 
 class Backend:
@@ -18,6 +39,7 @@ class Backend:
         self.state = State()
         self.link = link
         self.scene: Scene3D | None = None
+        self.reach = EMPTY
         self._listener = None
         self.owner: str | None = None  # 조작권을 가진 브라우저. NiceGUI 이벤트 루프에서만 바꾼다
         self.arm = ArmService(SimDriver(cfg.poses.get("home")), cfg, load_workspace(), speed, log_root)
@@ -50,6 +72,80 @@ class Backend:
         if self.link:
             self.link.rearm()
 
+    # ---- 직접 조작. 실패하면 이유 문장을, 성공하면 None을 돌려준다. 스레드에서 부른다
+    def _result(self, result) -> str | None:
+        return None if result.status == "ok" else MOTION_TEXT.get(result.status, result.status)
+
+    def home(self) -> str | None:
+        return self._result(self.arm.home())
+
+    def park(self) -> str | None:
+        return self._result(self.arm.park())
+
+    def gripper(self, value: float) -> str | None:
+        return self._result(self.arm.set_gripper(value))
+
+    def gripper_width(self, mm: float) -> str | None:
+        return self._result(self.arm.set_gripper(mm, as_width=True))
+
+    def set_speed(self, pct: float) -> None:
+        self.arm.set_speed(pct)
+
+    def plan(self, x: float, y: float, h: float, yaw: float) -> Plan:
+        """움직이지 않고 (x, y, 높이)에 닿는지 본다. 3D에 점, 계산 자세, 손끝 경로를 그린다."""
+        pose = self.arm.point_pose(x, y, h, yaw)
+        reason, q = self.arm.preview_tool(pose)
+        path = None
+        duration = 0.0
+        if reason is None:
+            preview = self.arm.preview_path(pose)
+            reason, path, duration = preview["reason"], preview["tool"], preview["duration_s"]
+        ok = reason is None
+        text = f"닿습니다 · 약 {duration:.1f}초" if ok else reason_text(reason)
+        self.reach = "닿음" if ok else "안 닿음"
+        if self.scene:
+            self.scene.set_preview(q if ok else None)
+            self.scene.show_target(x, y, h, ok, path)
+        return Plan(ok, text)
+
+    def move_to(self, x: float, y: float, h: float, yaw: float) -> str | None:
+        result = self.arm.move_tool(self.arm.point_pose(x, y, h, yaw))
+        if self.scene:
+            self.scene.clear_target()
+        if result.position_error_mm is not None:
+            self.reach = f"오차 {result.position_error_mm:.1f} mm"
+        return self._result(result)
+
+    def jog(self, mode: str, index: int, sign: int) -> bool:
+        """누르는 동안 조그. 입력이 0.3초 끊기면 컨트롤러가 스스로 멈춘다."""
+        if not self.state.status or not self.state.status.torque_enabled:
+            self.arm.driver.set_torque(True)  # REQ-012 임시: ArmService.jog가 토크를 켜지 않는다
+        speed = self.arm.speed / 100
+        if mode == "joint":
+            velocity = [0.0] * 6
+            velocity[index] = sign * self.arm.cfg.joint_v_max_deg_s * speed
+        else:
+            velocity = [0.0] * 4
+            velocity[index] = sign * (JOG_YAW_DEG_S if CART_AXES[index] == "yaw" else JOG_TOOL_MM_S) * speed
+        return self.arm.jog(mode, velocity)
+
+    def jog_release(self, mode: str) -> None:
+        """손을 떼면 속도를 0으로 내려 부드럽게 멈춘다."""
+        self.arm.jog(mode, [0.0] * (6 if mode == "joint" else 4))
+
+    def jog_step(self, mode: str, index: int, amount: float) -> str | None:
+        """정해진 간격만큼 움직인다. 관절은 도, 직교는 mm(yaw는 도)."""
+        q = self.arm.status().joints
+        if mode == "joint":
+            name = JOG_JOINTS[index]
+            return self._result(self.arm.move_joints(replace(q, **{name: getattr(q, name) + amount})))
+        delta = [0.0] * 4
+        delta[index] = amount
+        goal = self.arm.kin.step(q, *delta)
+        if goal is None:
+            return reason_text("ik_fail")
+        return self._result(self.arm.move_joints(goal))
+
     def disconnected(self, client: str) -> None:
         """조작하던 브라우저의 연결이 끊기면 팔을 세운다(토크는 유지)."""
         if self.owner == client:
@@ -77,6 +173,7 @@ class Backend:
             "속도": f"{arm.speed:.0f} %",
             "안전 모드": SAFETY_TEXT.get(arm.safety.settings.mode, arm.safety.settings.mode),
             "기록 폴더": arm.logger.dir.name if arm.logger else EMPTY,
+            "닿는지·오차": self.reach,
         }
         st = self.state.status
         if st is None:

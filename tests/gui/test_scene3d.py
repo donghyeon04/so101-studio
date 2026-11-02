@@ -108,8 +108,9 @@ def test_scene_iframe_only_on_3d_pages(backend3d, path, shown):
         async with user_simulation(gui_app.make_root(backend3d)) as user:
             await user.open(path)
             await user.should_see(marker="page-title")
-            assert bool(user.find(marker="scene3d").elements if shown else False) == shown
-            if not shown:
+            if shown:
+                await user.should_see(marker="scene3d")
+            else:
                 await user.should_not_see(marker="scene3d")
 
     asyncio.run(go())
