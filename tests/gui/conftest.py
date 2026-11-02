@@ -17,4 +17,5 @@ def backend(shared_backend):
     """시뮬레이션 팔은 만드는 데 시간이 걸려 공유하고, 조작권과 정지 상태만 되돌린다."""
     shared_backend.owner = None
     shared_backend.arm.ctl.resume()
+    shared_backend.paused = False
     return shared_backend

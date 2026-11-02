@@ -133,7 +133,7 @@ def build(backend, client_id: str, actions) -> None:
             reach_icon.props(f"color={color}")
             if not plan.ok:
                 ui.notify(plan.text, type="warning")
-        mine = owner()
+        mine = gate.allowed
         gate.refresh()
         status = backend.state.status
         idle = status is not None and status.state == "idle"

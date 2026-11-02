@@ -138,17 +138,17 @@ class Scene3D:
         if joints is not None:
             self._preview.update_cfg(urdf_cfg(joints, self._names))
 
-    def set_objects(self, objects) -> None:
-        """물체 목록을 다시 그린다. objects는 DetectedObject들이다."""
+    def set_objects(self, objects, chosen: str | None = None) -> None:
+        """물체 목록을 다시 그린다. objects는 DetectedObject들이고, chosen은 강조한다."""
         scene = self.server.scene
         with self.server.atomic():
             scene.remove_by_name("/objects")
             scene.add_frame("/objects", show_axes=False)
             for o in objects:
                 scene.add_box(
-                    f"/objects/{o.id}", color=theme.rgb(theme.MUTED),
+                    f"/objects/{o.id}", color=theme.rgb(theme.ACCENT if o.id == chosen else theme.MUTED),
                     dimensions=(o.length_mm / 1000, o.width_mm / 1000, OBJECT_H_M),
-                    position=(o.x_mm / 1000, o.y_mm / 1000, OBJECT_H_M / 2), wxyz=_yaw(o.angle_deg),
+                    position=(o.x_mm / 1000, o.y_mm / 1000, OBJECT_H_M / 2), wxyz=_yaw(o.angle_deg or 0.0),
                 )
 
     def pick(self, x_mm: float, y_mm: float, h_mm: float) -> None:
