@@ -4,6 +4,9 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = ["pyyaml", "ruckig"]
 
+[project.optional-dependencies]
+gui = ["viser", "nicegui"]
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
