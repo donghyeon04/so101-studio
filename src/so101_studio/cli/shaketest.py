@@ -16,7 +16,7 @@ SPEEDS = (20.0, 60.0, 200.0)  # °/s (가장 많이 움직이는 관절 기준 �
 A_MAX_DEG_S2 = 1500.0
 
 
-def run_shaketest(svc, reps: int = 10, out=print, poll_mark=None, accels=None, speeds=None) -> list[dict]:
+def run_shaketest(svc, reps: int = 10, out=print, poll_mark=None, accels=None, speeds=None, stop=lambda: False) -> list[dict]:
     """poll_mark(): 호출할 때마다 떨림 표시 키가 눌렸는지(True/False)를 돌려주는 함수. 없으면 표시 기능을 쓰지 않는다."""
     accels, speeds = accels or ACCELS, speeds or SPEEDS
     svc.driver.set_torque(True)
@@ -39,6 +39,11 @@ def run_shaketest(svc, reps: int = 10, out=print, poll_mark=None, accels=None, s
                     out(f"\a=== 가속 한계 {acc}, 속도 {v:.0f}°/s ({reps}회 왕복) ===")
                     for rep in range(reps):
                         for name, q in (("갈 때", goal), ("올 때", start)):
+                            if stop():
+                                out("중단 요청")
+                                if name == "올 때":
+                                    svc._run([move_j(svc.driver.read_joints(), start, v, A_MAX_DEG_S2)])
+                                raise RuntimeError("stopped")
                             label = f"가속{acc}/{v:.0f}°/s/{rep + 1}번째 {name}"
                             t0 = time.perf_counter()
                             out(f"[{len(moves) + 1}/{total}] {label}  (시작 후 {t0 - t_begin:.0f}s)")

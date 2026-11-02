@@ -15,6 +15,8 @@ from ..arm.trajectory import cfg_move_j, cfg_move_l
 from ..core.config import RobotConfig, WorkspaceConfig, load_workspace
 from ..core.logging import RunLogger
 from ..core.types import ArmStatus, DetectedObject, JointState, MotionResult, ToolPose
+from . import diagnostics as _diag
+from . import params as _params
 from .targets import point_to_pose, tip_vector
 
 STATUS_HZ = 10
@@ -43,6 +45,7 @@ class ArmService:
         self.ws = ws or load_workspace()
         self.speed = speed_pct if speed_pct is not None else cfg.speed_pct_default
         self.log_root = log_root
+        self.preset_dir = "config/presets"
         self.logger: RunLogger | None = None
         self.kin = self.safety = self.ctl = self.skills = self.teach = None
         self._callbacks: list = []
@@ -182,12 +185,53 @@ class ArmService:
         self._log("safety", asdict(self.safety.settings))
         return self.get_safety()
 
+    def get_params(self) -> dict:
+        """조정할 수 있는 파라미터: {이름: {value, default, timing}}. timing = now | next_motion | reconnect (REQ-004)."""
+        return _params.get_params(self)
+
+    def set_params(self, changes: dict) -> dict:
+        """{이름: 값}을 한꺼번에 검증해 적용한다. 틀린 값이 있으면 ValueError(아무것도 안 바뀜). {이름: 적용 시점}을 돌려준다."""
+        return _params.set_params(self, changes)
+
+    def save_preset(self, name: str):
+        return _params.save_preset(self, name)
+
+    def load_preset(self, name: str) -> dict:
+        return _params.load_preset(self, name)
+
+    def list_presets(self) -> list[str]:
+        return _params.list_presets(self)
+
+    def run_diagnostic(self, name: str, progress=None, stop=None, **kw) -> dict:
+        """servoinfo | linkwatch | powertest | shaketest를 결과 dict, 진행 콜백, 중단과 함께 실행한다 (블로킹, REQ-006). 자세한 인자는 diagnostics.py."""
+        return _diag.run_diagnostic(self, name, progress, stop, **kw)
+
     def preview_tool(self, pose: ToolPose):
         """움직이지 않고 목표가 가능한지만 본다. (이유 또는 None, 풀린 관절값). GUI가 점 위에 마우스를 올릴 때 미리보기로 쓴다."""
         q = self.skills._ik(pose)
         if q is None:
             return "ik_fail", None
         return self.safety.check_goal(q), q
+
+    def preview_path(self, pose: ToolPose, speed_pct: float | None = None, dt: float = 0.05) -> dict:
+        """움직이지 않고 move_tool(pose)이 따라갈 경로를 계산한다 (REQ-008). 3D 경로 선용.
+        {"ok", "reason"(안전 검사에 걸린 이유 또는 ik_fail 또는 None), "duration_s", "joints": [{"t", "q"(JointState)}], "tool": [{"t", "x_mm", "y_mm", "z_mm"}]}.
+        t는 전체 경로의 시작부터 초. tool은 작업대 좌표 mm(z는 move_tool과 같은 모델 z). 직선으로 못 가면 move_tool처럼 위에서 내려오는 두 구간이다."""
+        trajs = plan_goto(self.kin, self.cfg, self.driver.read_joints(), pose, speed_pct or self.speed)
+        if trajs is None:
+            return {"ok": False, "reason": "ik_fail", "duration_s": 0.0, "joints": [], "tool": []}
+        reason, joints, tool, t0 = None, [], [], 0.0
+        for tr in trajs:
+            reason = reason or self.safety.check_path(tr)
+            n = max(1, round(tr.duration_s / dt))
+            for i in range(n + 1):
+                t = tr.duration_s * i / n
+                q = tr.sample(t)
+                f = self.kin.fk(q)
+                joints.append({"t": t0 + t, "q": q})
+                tool.append({"t": t0 + t, "x_mm": f.x_mm, "y_mm": f.y_mm, "z_mm": f.z_mm})
+            t0 += tr.duration_s
+        return {"ok": reason is None, "reason": reason, "duration_s": t0, "joints": joints, "tool": tool}
 
     def pick_and_place(self, obj: DetectedObject, zone: str | None = None) -> MotionResult:
         self.driver.set_torque(True)

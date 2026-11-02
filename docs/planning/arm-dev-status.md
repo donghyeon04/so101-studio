@@ -112,3 +112,14 @@ GUI는 `ArmService`만 호출한다.
 
 ## 13. 저장소 상태
 GitHub `donghyeon04/so101-studio`. `main`은 기획 문서 1차 병합(#1)까지이고, 개발은 `dev/arm-t0-t7` 브랜치에서 했다(커밋 약 100개). 결정 기록 0008~0019와 문서 색인은 `docs/README.md`.
+
+## 14. GUI용 추가 API 사용법 (REQ, 기존 동작은 바꾸지 않음)
+기획 세션이 설계서에 옮긴다. 대장은 `session-requests.md`.
+- **REQ-001 `Studio.step()`**: `st.start(step_mode=True)` 뒤 `st.step()`을 부를 때마다 한 상태씩 진행한다(어느 스레드에서든). `st.stop()`은 대기 중인 단계도 풀어 준다. CLI `--step`(Enter)은 `task.wait_step`을 바꿔 쓰므로 그대로다.
+- **REQ-002 `Studio.perception`**: `list()`(이름 목록), `active`, `select(name)`(작업 중이면 RuntimeError, 모르는 이름은 ValueError), `calibrate()`, `scan()`(ScanResult), `register(source)`(초음파·카메라 모듈이 생기면 등록).
+- **REQ-003 `ManualSource.add(obj)` / `remove(id)`**: 다음 `scan()`부터 반영, Lock으로 스레드 안전. id가 겹치면 ValueError, 없는 id를 지우면 KeyError.
+- **REQ-007 작업 이벤트 상세**: `studio.bus.subscribe("task", cb)`로 `TaskEvent`를 받는다(콜백은 작업 스레드에서 불린다). `DECIDE`의 `detail`에 `detail_n`, `scan_s`, `objects`(id, x_mm, y_mm, angle_deg, width_mm, radial_mm, reachable), `chosen`, `reason`이 들어 있다. 결과가 있는 `PICK`/`PLACE` 이벤트에는 `duration_s`(실제로 실행한 동작 시간)가 있다.
+- **REQ-005 `so101 gui`**: `so101.cmd [--sim] [--speed N] gui`가 `so101_studio.gui.main(args)`(argparse Namespace 하나)를 부른다. 팔은 연결하지 않으니 `gui.main`이 직접 `ArmService`를 만든다. GUI 모듈이 없으면 안내 후 종료, 의존성(nicegui·viser)이 없으면 `pip install -e .[gui]` 안내.
+- **REQ-008 `ArmService.preview_path(pose, speed_pct=None, dt=0.05)`**: 움직이지 않고 `move_tool(pose)`와 같은 계획의 경로를 돌려준다. `{"ok", "reason"(안전 검사에 걸린 이유 | "ik_fail" | None), "duration_s", "joints": [{"t", "q"}], "tool": [{"t", "x_mm", "y_mm", "z_mm"}]}`. 좌표는 작업대 mm, z는 `move_tool`과 같은 모델 z(작업대 면 위 높이가 아니다). `pose`는 `point_pose`로 만든다.
+- **REQ-004 파라미터·프리셋**: `ArmService.get_params()` -> `{이름: {value, default, timing}}`(`speed_pct` 포함, timing은 now | next_motion | reconnect). `set_params({이름: 값})`은 모두 검증한 뒤 적용하고 `{이름: 적용 시점}`을 돌려준다(하나라도 틀리면 ValueError, 아무것도 안 바뀜). `save_preset(name)`, `load_preset(name)`, `list_presets()`는 `config/presets/<이름>.yaml`을 쓴다. 다루는 값은 `RobotConfig`의 숫자·문자열 설정이다.
+- **REQ-006 진단 함수**: `ArmService.run_diagnostic(name, progress=None, stop=None, **kw)` -> `{"name", "result", "aborted"}`(블로킹, GUI는 스레드에서). name은 `servoinfo | linkwatch | powertest | shaketest`. `progress(text)`는 진행 문장, `stop()`이 True면 다음 이동 전에 시작 자세로 돌아와 설정을 복원하고 끝난다. kw: powertest(repeats, speed_pct), shaketest(reps, accels, speeds), linkwatch(period_s). `powertest`·`shaketest`는 팔을 크게 움직인다(`diagnostics.BIG_MOVES`, GUI는 확인 창). `linkwatch`는 포트를 직접 열어 시뮬레이션이나 팔 연결 중에는 ValueError.

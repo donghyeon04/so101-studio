@@ -1,5 +1,6 @@
 """CLI (arm-software-spec.md 9절). 모든 명령은 ArmService를 거친다."""
 import argparse
+import importlib
 import sys
 import time
 from dataclasses import asdict, replace
@@ -10,7 +11,7 @@ from ..core.config import load_robot, load_workspace
 from ..core.types import DetectedObject, JointState, ToolPose
 from ..service.arm_service import ArmService, plan_goto  # noqa: F401  plan_goto는 테스트가 이 경로로도 쓴다
 
-COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "jog", "keys", "powertest", "shaketest", "servoinfo", "linkwatch", "info", "record", "replay", "seq"]
+COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "jog", "keys", "powertest", "shaketest", "servoinfo", "linkwatch", "info", "record", "replay", "seq", "gui"]
 
 
 def make_driver(sim: bool, cfg):
@@ -103,6 +104,14 @@ def main(argv=None) -> None:
         grasp_bias_mm=cfg.grasp_bias_mm if a.bias is None else a.bias,
         control_hz=cfg.control_hz if a.hz is None else a.hz,
     )
+    if a.command == "gui":  # 팔은 GUI가 연결한다. 여기서는 연결하지 않는다 (REQ-005)
+        try:
+            gui = importlib.import_module("so101_studio.gui")
+        except ModuleNotFoundError as e:
+            what = "GUI 모듈이 이 브랜치에 없다 (GUI 브랜치가 합쳐진 뒤 쓸 수 있다)" if e.name == "so101_studio.gui" else f"GUI 의존성 {e.name}이 없다: pip install -e .[gui]"
+            sys.exit(what)
+        gui.main(a)
+        return
     if a.command == "linkwatch":  # 서보 연결 없이 포트만 쓴다
         from .linkwatch import run_linkwatch
 
