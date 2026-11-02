@@ -134,6 +134,24 @@ def svc(tmp_path):
     s.disconnect()
 
 
+def test_req005_gui_command_dispatches_or_explains(monkeypatch):
+    import sys
+    import types as t
+
+    from so101_studio.cli import main
+
+    monkeypatch.delitem(sys.modules, "so101_studio.gui", raising=False)
+    with pytest.raises(SystemExit) as e:  # GUI 모듈이 없으면 안내
+        main(["--sim", "gui"])
+    assert "GUI" in str(e.value)
+    got = []
+    fake = t.ModuleType("so101_studio.gui")
+    fake.main = lambda args: got.append(args)
+    monkeypatch.setitem(sys.modules, "so101_studio.gui", fake)
+    main(["--sim", "--speed", "20", "gui"])
+    assert got[0].sim and got[0].speed == 20 and got[0].command == "gui"
+
+
 def test_req007_task_events_carry_decision_details():
     st = make_studio([obj(1, 300, 250), obj(2, 300, 170), obj(3, 300, 600)])
     seen = []
@@ -149,3 +167,14 @@ def test_req007_task_events_carry_decision_details():
     assert last.detail["chosen"] is None and last.detail["reason"]
 
 
+def test_req008_preview_path_does_not_move_and_matches_goal(svc):
+    before = svc.driver.read_joints()
+    pose = svc.point_pose(300, 170, 40)
+    r = svc.preview_path(pose)
+    assert svc.driver.read_joints() == before  # 움직이지 않는다
+    assert r["ok"] and r["reason"] is None and r["duration_s"] > 0 and len(r["tool"]) == len(r["joints"]) > 2
+    end = r["tool"][-1]
+    assert abs(end["x_mm"] - pose.x_mm) < 2 and abs(end["y_mm"] - pose.y_mm) < 2 and abs(end["z_mm"] - pose.z_mm) < 2
+    assert r["tool"][0]["t"] == 0 and abs(r["tool"][-1]["t"] - r["duration_s"]) < 1e-9
+    far = svc.preview_path(svc.point_pose(900, 900, 40))
+    assert not far["ok"] and far["reason"]
