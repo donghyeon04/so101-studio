@@ -1,5 +1,6 @@
 """화면이 읽는 상태. 상태 스레드가 쓰고 화면 타이머가 읽는다 (gui-spec 8절)."""
 
+import logging
 from collections import deque
 from dataclasses import dataclass, field
 
@@ -45,6 +46,25 @@ class State:
             self.chosen = None
         elif event.state in ("DONE", "STOPPED", "FAULT"):
             self.chosen = None
+
+
+@dataclass
+class LogRecord:
+    t: float
+    level: str  # "INFO" | "WARNING" | "ERROR"
+    text: str
+
+
+class LogBook(logging.Handler):
+    """파이썬 로그를 모은다. 실행 기록(events.jsonl)과 합쳐 로그 페이지에 보인다."""
+
+    def __init__(self, maxlen: int = 2000):
+        super().__init__(level=logging.WARNING)
+        self.records: deque = deque(maxlen=maxlen)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        level = "ERROR" if record.levelno >= logging.ERROR else "WARNING"
+        self.records.append(LogRecord(record.created, level, f"{record.name}: {record.getMessage()}"))
 
 
 def page_state(status: ArmStatus | None) -> str:
