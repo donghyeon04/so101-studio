@@ -1,0 +1,151 @@
+"""GUI 세션이 쓰는 Studio/ArmService 추가 API (session-requests.md REQ-NNN)."""
+import threading
+import time
+import types
+
+from test_task import WS, ListSource, StubSkills, obj
+
+from so101_studio.service.studio import Studio
+
+
+def make_studio(objs=None, source=None):
+    arm = types.SimpleNamespace(ctl=StubSkills().ctl, kin=None, cfg=None, ws=WS, skills=StubSkills(), _log=lambda *a: None)
+    return Studio(arm, source or ListSource(objs or [obj(1, 300, 170)]))
+
+
+def test_req001_step_advances_one_state_at_a_time():
+    st = make_studio()
+    seen = []
+    st.bus.subscribe("task", lambda e: seen.append(e.state))
+    st.start(step_mode=True)
+    time.sleep(0.2)
+    assert seen == ["PREPARE"]  # 첫 상태에서 멈춰 기다린다
+    st.step()
+    time.sleep(0.2)
+    assert seen == ["PREPARE", "SCAN"]
+    for _ in range(30):
+        st.step()
+        time.sleep(0.02)
+    st._thread.join(2)
+    assert st.result["picked"] == ["obj-1"]
+
+
+def test_req001_stop_releases_a_waiting_step():
+    st = make_studio()
+    st.start(step_mode=True)
+    time.sleep(0.2)
+    st.stop()
+    st._thread.join(2)
+    assert not st._thread.is_alive() and st.result["end"] == "STOPPED"
+
+
+def test_req002_perception_select_calibrate_scan():
+    st = make_studio([obj(1, 300, 170)])
+    other = ListSource([obj(9, 300, 200)])
+    other.name = "other"
+    st.perception.register(other)
+    assert st.perception.list() == ["list", "other"] and st.perception.active == "list"
+    assert [o.id for o in st.perception.scan().objects] == ["obj-1"]
+    st.perception.select("other")
+    assert st.task.source is other and [o.id for o in st.perception.scan().objects] == ["obj-9"]
+    assert st.perception.calibrate() == {}
+    try:
+        st.perception.select("nope")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError
+
+
+def test_req002_select_refused_while_running():
+    st = make_studio()
+    st.start(step_mode=True)
+    time.sleep(0.2)
+    try:
+        st.perception.select("list")
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError
+    st.stop()
+    st._thread.join(2)
+
+
+def test_req003_manual_source_add_remove_thread_safe():
+    from so101_studio.perception.manual import ManualSource
+
+    src = ManualSource("config/manual_objects.yaml")
+    new = obj(9, 300, 200)
+    src.add(new)
+    assert "obj-9" in [o.id for o in src.scan().objects]
+    try:
+        src.add(new)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError
+    src.notify_picked("obj-9")
+    src.remove("obj-9")
+    src.add(new)  # 지운 뒤 같은 id를 다시 쓰면 집힌 표시도 사라져 있다
+    assert "obj-9" in [o.id for o in src.scan().objects]
+    try:
+        src.remove("nope")
+    except KeyError:
+        pass
+    else:
+        raise AssertionError
+    errs = []
+
+    def worker(k):
+        try:
+            for i in range(50):
+                o = obj(100 * k + i, 300, 200)
+                src.add(o)
+                src.scan()
+                src.remove(o.id)
+        except Exception as e:  # noqa: BLE001 스레드 안의 어떤 오류든 모은다
+            errs.append(e)
+
+    ts = [threading.Thread(target=worker, args=(k,)) for k in range(1, 5)]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    assert not errs
+
+
+# ---- ArmService 쪽 추가 API (시뮬레이션 드라이버)
+import dataclasses
+
+import pytest
+
+from so101_studio.arm.sim_driver import SimDriver
+from so101_studio.core.config import load_robot
+from so101_studio.service.arm_service import ArmService
+
+CFG = load_robot("config/robot.yaml")
+
+
+@pytest.fixture
+def svc(tmp_path):
+    s = ArmService(SimDriver(CFG.poses["home"]), dataclasses.replace(CFG), WS, speed_pct=50, log_root=str(tmp_path))
+    s.preset_dir = str(tmp_path / "presets")
+    ok, msg = s.connect()
+    assert ok, msg
+    yield s
+    s.disconnect()
+
+
+def test_req007_task_events_carry_decision_details():
+    st = make_studio([obj(1, 300, 250), obj(2, 300, 170), obj(3, 300, 600)])
+    seen = []
+    st.bus.subscribe("task", seen.append)
+    st.start(blocking=True)
+    d = next(e for e in seen if e.state == "DECIDE")
+    assert d.detail["detail_n"] == 3 and d.detail["chosen"] == "obj-2" and "가장 가까움" in d.detail["reason"]
+    rows = {r["id"]: r for r in d.detail["objects"]}
+    assert rows["obj-3"]["reachable"] is False and rows["obj-2"]["radial_mm"] < rows["obj-1"]["radial_mm"]
+    done = [e for e in seen if e.state == "PLACE" and e.result == "ok"]
+    assert done and "duration_s" in done[0].detail
+    last = [e for e in seen if e.state == "DECIDE"][-1]
+    assert last.detail["chosen"] is None and last.detail["reason"]
+
+

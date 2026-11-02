@@ -5,7 +5,7 @@ from collections.abc import Callable
 
 from ..core.events import EventBus
 from ..core.types import TaskEvent
-from .policy import choose
+from .policy import choose, explain
 
 MAX_CYCLES = 20  # 사이클 상한
 MAX_CONSECUTIVE_FAILS = 3  # 같은 물체를 연속으로 이만큼 실패하면 끝낸다
@@ -61,8 +61,8 @@ class TaskRunner:
                 return self._fault("park")
             self._emit("SCAN")
             scan = self.source.scan()
-            self._emit("DECIDE", detail_n=len(scan.objects))
             obj = choose(scan.objects, self.ws)
+            self._emit("DECIDE", detail_n=len(scan.objects), scan_s=scan.duration_s, **explain(scan.objects, self.ws, obj))
             if obj is None:
                 self._emit("DONE", result="no_objects")
                 return {"picked": self.picked, "failed": self.failed, "cycles": self.cycles, "end": "no_objects"}
@@ -81,7 +81,7 @@ class TaskRunner:
             if not self._ok(r):
                 fails[obj.id] = fails.get(obj.id, 0) + 1
                 self.failed.append(obj.id)
-                self._emit("PICK", obj.id, result=r.status)
+                self._emit("PICK", obj.id, result=r.status, duration_s=r.duration_s)
                 if fails[obj.id] >= MAX_CONSECUTIVE_FAILS:
                     self._emit("DONE", obj.id, result="repeated_failure")
                     return {"picked": self.picked, "failed": self.failed, "cycles": self.cycles, "end": "repeated_failure"}
@@ -95,4 +95,4 @@ class TaskRunner:
             fails.pop(obj.id, None)
             self.picked.append(obj.id)
             self.source.notify_picked(obj.id)
-            self._emit("PLACE", obj.id, result="ok")
+            self._emit("PLACE", obj.id, result="ok", duration_s=r.duration_s)
