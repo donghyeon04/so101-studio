@@ -117,7 +117,7 @@ def build(backend, client_id: str, actions) -> None:
                 for line in lines:
                     ui.label(line).classes("event-line")
         if state.status:
-            limits = backend.arm.safety.limits
+            limits = backend.arm.cfg.joint_limits_deg  # 안전 모드 "끔"에도 막대를 그릴 수 있게 설정값을 쓴다
             for name, value in zip(JOINT_TEXT, astuple(state.status.joints), strict=True):
                 lo, hi = limits[name]
                 bars[name].value = round(min(max((value - lo) / (hi - lo), 0.0), 1.0), 3)

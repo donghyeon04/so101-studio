@@ -100,7 +100,7 @@ def test_viser_binds_to_localhost_only(backend3d):
     assert backend3d.scene.server._websock_server._host == "127.0.0.1"
 
 
-@pytest.mark.parametrize("path,shown", [("/", True), ("/manual", True), ("/safety", False)])
+@pytest.mark.parametrize("path,shown", [("/", True), ("/manual", True), ("/safety", True), ("/logs", False)])
 def test_scene_iframe_only_on_3d_pages(backend3d, path, shown):
     backend3d.owner = None
 

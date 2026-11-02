@@ -1,7 +1,9 @@
 """ArmService·Studio를 감싸는 유일한 창구 (gui-spec 7·8절). 실행 방식, 조작권, REQ 임시 우회를 여기에 둔다."""
 
 import contextlib
+import re
 from dataclasses import dataclass, replace
+from pathlib import Path
 
 from ..arm.kinematics import Kinematics
 from ..arm.sim_driver import SimDriver
@@ -26,6 +28,7 @@ CART_AXES = ("x", "y", "z", "yaw")  # 작업대 좌표계
 SEQUENCE_POINTS = 300  # 화면에 보내는 기록 표본 수의 상한
 JOG_TOOL_MM_S = 100.0  # 속도 100%일 때. 컨트롤러가 60mm/s로 한 번 더 자른다
 JOG_YAW_DEG_S = 60.0
+REASON_EXTRA = {"z_ceiling": "허용 상자보다 높습니다"}  # service.targets에 아직 없는 이유
 BUSY_TEXT = "팔이 아직 움직이고 있습니다"
 MOTION_TEXT = {
     "ik_fail": reason_text("ik_fail"),
@@ -37,6 +40,26 @@ MOTION_TEXT = {
 }
 
 
+def _num(value: float) -> str:
+    return f"{value:g}"
+
+
+def update_workspace_text(text: str, values: dict, zone: str) -> str:
+    """workspace.yaml의 값만 바꾼다. yaml로 다시 쓰면 파일의 주석이 사라진다."""
+    rules = (
+        (r"^table_mm: \{.*?\}", f"table_mm: {{x: {_num(values['table_x'])}, y: {_num(values['table_y'])}}}"),
+        (r"^robot_base_in_table: \{.*?\}",
+         f"robot_base_in_table: {{x_mm: {_num(values['base_x'])}, y_mm: {_num(values['base_y'])}, yaw_deg: {_num(values['base_yaw'])}}}"),
+        (rf"^  {re.escape(zone)}: \{{.*?\}}", f"  {zone}: {{x_mm: {_num(values['zone_x'])}, y_mm: {_num(values['zone_y'])}}}"),
+        (r"^safety_margin_mm: \S+", f"safety_margin_mm: {_num(values['margin'])}"),
+    )
+    for pattern, replacement in rules:
+        text, count = re.subn(pattern, replacement, text, flags=re.MULTILINE)
+        if count != 1:
+            raise ValueError(f"workspace 파일에서 찾지 못한 항목: {pattern}")
+    return text
+
+
 @dataclass
 class Plan:
     ok: bool
@@ -44,6 +67,8 @@ class Plan:
 
 
 class Backend:
+    workspace_path = "config/workspace.yaml"
+
     def __init__(self, speed: float | None = None, log_root: str | None = "runs", link: WatchdogLink | None = None,
                  viser_port: int | None = None):
         cfg = load_robot()
@@ -122,7 +147,7 @@ class Backend:
             preview = self.arm.preview_path(pose)
             reason, path, duration = preview["reason"], preview["tool"], preview["duration_s"]
         ok = reason is None
-        text = f"닿습니다 · 약 {duration:.1f}초" if ok else reason_text(reason)
+        text = f"닿습니다 · 약 {duration:.1f}초" if ok else REASON_EXTRA.get(reason) or reason_text(reason)
         self.reach = "닿음" if ok else "안 닿음"
         if self.scene:
             self.scene.set_preview(q if ok else None)
@@ -260,6 +285,66 @@ class Backend:
             self.source.add(obj)
         self.state.placed = 0
         self._changed_objects()
+
+    # ---- 설정
+    def get_safety(self) -> dict:
+        return self.arm.get_safety()
+
+    def set_safety(self, mode: str, margin: float, box: dict | None) -> str | None:
+        """안전 설정을 바꾼다. 잘못된 값이면 이유를 돌려주고 아무것도 바꾸지 않는다."""
+        try:
+            self.arm.set_safety(mode, margin, box)
+        except ValueError as e:
+            return str(e)
+        self.show_safety_box()
+        return None
+
+    def show_safety_box(self) -> None:
+        if not self.scene:
+            return
+        now = self.arm.get_safety()
+        box = now["box_mm_effective"]
+        if now["mode"] == "off":
+            box = None
+        elif now["mode"] == "free" and box:  # 자유 모드는 x, y를 검사하지 않는다
+            table = self.arm.ws.table_mm
+            box = {**box, "x": [0, table["x"]], "y": [0, table["y"]]}
+        self.scene.show_allowed(box)
+
+    def set_params(self, changes: dict) -> tuple[str | None, dict]:
+        """(실패 이유, {이름: 적용 시점}). 하나라도 틀리면 아무것도 바뀌지 않는다."""
+        try:
+            return None, self.arm.set_params(changes)
+        except ValueError as e:
+            return str(e), {}
+
+    def save_preset(self, name: str) -> str | None:
+        try:
+            self.arm.save_preset(name)
+        except ValueError as e:
+            return str(e)
+        return None
+
+    def load_preset(self, name: str) -> str | None:
+        try:
+            self.arm.load_preset(name)
+        except (ValueError, FileNotFoundError) as e:
+            return str(e)
+        return None
+
+    def save_workspace(self, values: dict, zone: str) -> str | None:
+        """작업대·좌표를 파일에 저장한다. 주석은 그대로 둔다. 다시 시작해야 적용된다."""
+        if min(values["table_x"], values["table_y"]) <= 0:
+            return "작업대 크기는 0보다 커야 합니다"
+        if not (0 <= values["base_x"] <= values["table_x"] and 0 <= values["base_y"] <= values["table_y"]):
+            return "팔 받침이 작업대 밖입니다"
+        if not (0 <= values["zone_x"] <= values["table_x"] and 0 <= values["zone_y"] <= values["table_y"]):
+            return "배출 구역이 작업대 밖입니다"
+        if not 0 <= values["margin"] < min(values["table_x"], values["table_y"]) / 2:
+            return "가장자리 여유가 작업대보다 큽니다"
+        path = Path(self.workspace_path)
+        path.write_text(update_workspace_text(path.read_text(encoding="utf-8"), values, zone), encoding="utf-8")
+        return None
 
     # ---- 교시
     def sequences(self) -> list[str]:
