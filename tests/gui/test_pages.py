@@ -60,6 +60,15 @@ def test_status_bars_show_live_values(backend):
     in_app(backend, check)
 
 
+def test_watchdog_state_has_icon_and_text(backend):
+    async def check(user):
+        await user.should_see("감시")
+        await user.should_see(marker="watch-icon")
+        await user.should_see("없음")
+
+    in_app(backend, check)
+
+
 def test_first_browser_owns_control(backend):
     async def check(user):
         await user.should_see("이 브라우저")
@@ -107,14 +116,23 @@ def test_view_only_browser_can_still_estop(backend):
 
 def test_main_binds_localhost_and_needs_sim(monkeypatch):
     class FakeBackend:
-        def __init__(self, speed=None):
+        def __init__(self, speed=None, link=None):
             self.speed = speed
 
         def close(self):
             pass
 
+    class FakeLink:
+        def __init__(self, sim):
+            pass
+
+        def start(self):
+            pass
+
     calls = []
     monkeypatch.setattr(gui_app, "Backend", FakeBackend)
+    monkeypatch.setattr(gui_app, "WatchdogLink", FakeLink)
+    monkeypatch.setattr(gui_app.app, "on_startup", lambda fn: None)
     monkeypatch.setattr(gui_app.app, "on_shutdown", lambda fn: None)
     monkeypatch.setattr(gui_app, "make_root", lambda backend: backend)
     monkeypatch.setattr(gui_app.ui, "run", lambda root, **k: calls.append((root, k)))

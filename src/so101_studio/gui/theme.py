@@ -4,7 +4,8 @@ from nicegui import ui
 
 BG = "#f3f4f6"
 CARD = "#ffffff"
-LINE = "#d5dae0"  # 장식용 구분선. 입력칸 외곽선에는 대비(3:1)가 모자라 쓰지 않는다
+LINE = "#d5dae0"  # 카드 테두리·구분선 같은 장식에만
+CONTROL_BORDER = "#7d8794"  # 입력칸 외곽선 (WCAG 1.4.11의 3:1)
 TEXT = "#1b1f24"
 MUTED = "#5b6470"
 ACCENT = "#2457d6"
@@ -15,6 +16,13 @@ SENSOR = "#0b7285"
 PREVIEW = "#6d4fc2"
 
 STATE_COLORS = {"대기": "grey-8", "실행 중": "primary", "정지": "negative", "오류": "negative"}
+# 감시 상태: (아이콘, 색). 색 + 아이콘 + 글자 (decisions/0025)
+WATCH_STYLES = {
+    "정상": ("check_circle", "positive"),
+    "꺼짐": ("error", "negative"),
+    "작동함": ("report", "negative"),
+    "없음": ("remove_circle_outline", "warning"),
+}
 
 CONTROL_H = 44
 BODY_PX = 15
@@ -45,6 +53,9 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 .page-body {{ color: {MUTED}; }}
 .estop {{ width: {ESTOP_D}px; height: {ESTOP_D}px; font-weight: 600; border: 3px solid {CARD}; outline: 2px solid {DANGER}; }}
 .nicegui-content {{ padding: {GAP}px; gap: {GAP}px; padding-bottom: {ESTOP_D + 2 * GAP}px; }}
+.q-field--outlined .q-field__control:before {{ border-color: {CONTROL_BORDER}; }}
+.q-field--outlined.q-field--focused .q-field__control:after {{ border-color: {ACCENT}; border-width: 2px; }}
+:focus-visible {{ outline: 2px solid {ACCENT}; outline-offset: 2px; }}
 """
 
 

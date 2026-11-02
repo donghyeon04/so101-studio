@@ -2,11 +2,12 @@
 
 import sys
 
-from nicegui import app, run, ui
+from nicegui import app, background_tasks, run, ui
 
 from . import theme
 from .backend import Backend
 from .state import EMPTY, page_state
+from .watchdog_link import BROWSER_HB_JS, WatchdogLink
 
 HOST = "127.0.0.1"  # NiceGUI 기본값 0.0.0.0은 같은 네트워크 어디서나 팔을 조작할 수 있게 한다 (decisions/0023)
 DEFAULT_PORT = 8080
@@ -20,7 +21,7 @@ PAGES = (
     ("설정", (("/params", "파라미터·프리셋", "G7"), ("/safety", "안전", "G7"), ("/table", "작업대·좌표", "G7"))),
     ("시스템", (("/runs", "실행 기록", "G8"), ("/logs", "로그", "G8"))),
 )
-TOP_STATS = ("센서", "실행 방식", "전압", "최고 온도", "속도", "조작권")
+TOP_STATS = ("센서", "실행 방식", "전압", "최고 온도", "속도", "조작권")  # 감시 칸은 아이콘이 있어 따로 그린다
 BOTTOM_STATS = ("손끝 좌표", "닿는지·오차", "안전 모드", "토크", "기록 폴더")
 
 
@@ -39,6 +40,8 @@ def make_root(backend: Backend):
         stats: dict[str, ui.label] = {}
         badge: list[ui.badge] = []
         owner = backend.claim(client.id)
+        beating: list[bool] = []  # 이 브라우저가 지금 감시 프로세스에 heartbeat를 보내는가
+        ui.add_head_html(BROWSER_HB_JS)
 
         def show(path: str, title: str, task: str) -> None:
             for btn in nav.values():
@@ -56,6 +59,13 @@ def make_root(backend: Backend):
                 stats[name].text = value
             stats["조작권"].text = "이 브라우저" if backend.owner == client.id else "보기 전용"
             take.visible = backend.owner is None
+            icon_name, icon_color = theme.WATCH_STYLES[stats["감시"].text]
+            watch_icon.name = icon_name
+            watch_icon.props(f"color={icon_color}")
+            mine = backend.owner == client.id
+            if beating != [mine]:
+                beating[:] = [mine]
+                ui.run_javascript(f"so101Hb({str(mine).lower()})")
             text = page_state(backend.state.status)
             if badge and not badge[0].is_deleted and badge[0].text != text:
                 badge[0].text = text
@@ -71,6 +81,9 @@ def make_root(backend: Backend):
             ui.button(icon="menu", on_click=drawer.toggle).props("flat round color=dark aria-label=메뉴").mark("menu")
             ui.label("SO-101 Studio").classes("text-lg font-semibold")
             _stat("팔", "시뮬레이션")
+            with ui.row().classes("items-center gap-1 no-wrap"):
+                watch_icon = ui.icon("remove_circle_outline", size="20px").mark("watch-icon")
+                stats["감시"] = _stat("감시")
             for label in TOP_STATS:
                 stats[label] = _stat(label)
             stats["조작권"].text = "이 브라우저" if owner else "보기 전용"
@@ -109,10 +122,14 @@ def main(args) -> None:
     if not getattr(args, "sim", False):
         # shortcut: 실제 팔 연결이 아직 없다, G9·G10에서 backend가 연결하면 지운다
         sys.exit("아직 시뮬레이션만 지원한다: --sim을 붙여 실행한다")
+    link = WatchdogLink(sim=True)
+    link.start()
     try:
-        backend = Backend(speed=getattr(args, "speed", None))
+        backend = Backend(speed=getattr(args, "speed", None), link=link)
     except RuntimeError as e:
+        link.stop()
         sys.exit(f"연결 실패: {e}")
+    app.on_startup(lambda: background_tasks.create(link.run(), name="watchdog heartbeat"))
     app.on_shutdown(backend.close)
     ui.run(
         make_root(backend), host=HOST, port=getattr(args, "port", DEFAULT_PORT), title="SO-101 Studio",
