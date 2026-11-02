@@ -55,14 +55,15 @@ class WatchdogLink:
     def text(self) -> str:
         if not self.available:
             return "없음"
-        if self.status is None:
+        if not self.alive:
             return "꺼짐"
         return "작동함" if self.status.get("tripped") else "정상"
 
     @property
     def alive(self) -> bool:
-        """감시가 응답하는가. 아니면 실제 팔 명령을 막는다."""
-        return self.available and self.status is not None
+        """감시가 응답하는가. 아니면 실제 팔 명령을 막는다.
+        GUI가 강제로 꺼지면 감시 프로세스가 남는다. 남은 것이 --sim이면 기록만 하므로 실제 팔에서는 없는 것으로 친다."""
+        return self.available and self.status is not None and self.status.get("sim", self.sim) == self.sim
 
     def rearm(self) -> None:
         """정지 해제 뒤 부른다. 감시 프로세스의 작동 상태는 다시 등록해야 풀린다."""

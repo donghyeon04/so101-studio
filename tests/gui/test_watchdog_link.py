@@ -77,6 +77,13 @@ def test_silent_watchdog_is_off_and_blocks_real_arm():
     assert not link.alive
 
 
+def test_leftover_sim_watchdog_does_not_count_for_real_arm():
+    link = WatchdogLink(sim=False)
+    link.status = {"alive": True, "sim": True, "tripped": False}
+    assert not link.alive
+    assert link.text() == "꺼짐"
+
+
 def test_arms_only_after_a_browser_owns_control(fake_watchdog, backend):
     link = _link(fake_watchdog)
     backend.link = link
