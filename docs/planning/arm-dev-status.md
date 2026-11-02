@@ -112,3 +112,10 @@ GUI는 `ArmService`만 호출한다.
 
 ## 13. 저장소 상태
 GitHub `donghyeon04/so101-studio`. `main`은 기획 문서 1차 병합(#1)까지이고, 개발은 `dev/arm-t0-t7` 브랜치에서 했다(커밋 약 100개). 결정 기록 0008~0019와 문서 색인은 `docs/README.md`.
+
+## 14. GUI용 추가 API 사용법 (REQ, 기존 동작은 바꾸지 않음)
+기획 세션이 설계서에 옮긴다. 대장은 `session-requests.md`.
+- **REQ-001 `Studio.step()`**: `st.start(step_mode=True)` 뒤 `st.step()`을 부를 때마다 한 상태씩 진행한다(어느 스레드에서든). `st.stop()`은 대기 중인 단계도 풀어 준다. CLI `--step`(Enter)은 `task.wait_step`을 바꿔 쓰므로 그대로다.
+- **REQ-002 `Studio.perception`**: `list()`(이름 목록), `active`, `select(name)`(작업 중이면 RuntimeError, 모르는 이름은 ValueError), `calibrate()`, `scan()`(ScanResult), `register(source)`(초음파·카메라 모듈이 생기면 등록).
+- **REQ-003 `ManualSource.add(obj)` / `remove(id)`**: 다음 `scan()`부터 반영, Lock으로 스레드 안전. id가 겹치면 ValueError, 없는 id를 지우면 KeyError.
+- **REQ-007 작업 이벤트 상세**: `studio.bus.subscribe("task", cb)`로 `TaskEvent`를 받는다(콜백은 작업 스레드에서 불린다). `DECIDE`의 `detail`에 `detail_n`, `scan_s`, `objects`(id, x_mm, y_mm, angle_deg, width_mm, radial_mm, reachable), `chosen`, `reason`이 들어 있다. 결과가 있는 `PICK`/`PLACE` 이벤트에는 `duration_s`(실제로 실행한 동작 시간)가 있다.
