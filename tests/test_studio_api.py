@@ -263,7 +263,7 @@ def test_req013_pause_stops_at_next_state_and_resume_continues():
 
     def on_event(e):
         seen.append(e.state)
-        if e.state == "SCAN":
+        if e.state == "SCAN" and seen.count("SCAN") == 1:  # 첫 스캔에서만
             st.pause()  # 작업 중 다른 스레드에서 불러도 되는 함수
 
     st.bus.subscribe("task", on_event)
