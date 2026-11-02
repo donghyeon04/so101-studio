@@ -14,6 +14,8 @@ DANGER = "#c62828"
 SENSOR = "#0b7285"
 PREVIEW = "#6d4fc2"
 
+STATE_COLORS = {"대기": "grey-8", "실행 중": "primary", "정지": "negative", "오류": "negative"}
+
 CONTROL_H = 44
 BODY_PX = 15
 RADIUS = 10
@@ -34,7 +36,8 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 .frame-top {{ border-bottom: 1px solid {LINE}; }}
 .frame-bottom {{ border-top: 1px solid {LINE}; }}
 .stat-label {{ color: {MUTED}; font-size: 13px; line-height: 16px; }}
-.stat-value {{ font-family: 'IBM Plex Mono', 'IBM Plex Sans KR', Consolas, 'Malgun Gothic', monospace; font-weight: 600; line-height: 20px; }}
+.stat-value {{ font-family: 'IBM Plex Mono', 'IBM Plex Sans KR', Consolas, 'Malgun Gothic', monospace; font-weight: 600; line-height: 20px; white-space: pre; }}
+.page-state {{ font-size: {BODY_PX}px; padding: 4px 10px; }}
 .nav-group {{ color: {MUTED}; font-size: 13px; font-weight: 600; padding: 8px {GAP}px 2px; }}
 .nav-item {{ width: 100%; color: {TEXT}; font-size: {BODY_PX}px; }}
 .nav-item.nav-active {{ color: {ACCENT}; background: {BG}; font-weight: 600; box-shadow: inset 3px 0 0 {ACCENT}; }}

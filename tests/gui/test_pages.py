@@ -1,4 +1,4 @@
-"""공통 틀과 페이지 이동 (gui-spec G1). 브라우저 없이 NiceGUI user_simulation으로 돈다."""
+"""공통 틀과 페이지 이동 (gui-spec G1·G2). 브라우저 없이 NiceGUI user_simulation으로 돈다."""
 
 import argparse
 import asyncio
@@ -14,9 +14,9 @@ from so101_studio.gui import app as gui_app
 ALL_PAGES = [page for _, pages in gui_app.PAGES for page in pages]
 
 
-def in_app(check) -> None:
+def in_app(backend, check) -> None:
     async def go():
-        async with user_simulation(gui_app.root) as user:
+        async with user_simulation(gui_app.make_root(backend)) as user:
             await user.open("/")
             await check(user)
 
@@ -30,17 +30,17 @@ def test_thirteen_pages_in_five_groups():
 
 
 @pytest.mark.parametrize("path,title,task", ALL_PAGES)
-def test_menu_click_changes_page(path, title, task):
+def test_menu_click_changes_page(backend, path, title, task):
     async def check(user):
         with user.scope(marker="nav"):
             user.find(title).click()
         await user.should_see(marker="page-title", content=title)
         await user.should_see(f"{task}에서 만든다.")
 
-    in_app(check)
+    in_app(backend, check)
 
 
-def test_frame_stays_on_every_page():
+def test_frame_stays_on_every_page(backend):
     async def check(user):
         for _, title, _ in ALL_PAGES:
             with user.scope(marker="nav"):
@@ -48,22 +48,79 @@ def test_frame_stays_on_every_page():
             for text in ("SO-101 Studio", "시뮬레이션", "조작권", "손끝 좌표", "기록 폴더", "E-STOP"):
                 await user.should_see(text)
 
-    in_app(check)
+    in_app(backend, check)
 
 
-def test_estop_tells_user_nothing_is_connected():
+def test_status_bars_show_live_values(backend):
+    async def check(user):
+        await user.should_see("시뮬레이션만")
+        await user.should_see(backend.readout()["손끝 좌표"])
+        await user.should_see(backend.readout()["토크"])
+
+    in_app(backend, check)
+
+
+def test_first_browser_owns_control(backend):
+    async def check(user):
+        await user.should_see("이 브라우저")
+        assert backend.owner is not None
+
+    in_app(backend, check)
+
+
+def test_second_browser_is_view_only_until_it_takes_free_control(backend):
+    backend.owner = "다른 브라우저"
+
+    async def check(user):
+        await user.should_see("보기 전용")
+        await user.should_not_see("조작권 받기")
+        backend.owner = None
+        await user.should_see("조작권 받기")
+        user.find(marker="take").click()
+        await user.should_see("이 브라우저")
+        await user.should_not_see("조작권 받기")
+
+    in_app(backend, check)
+
+
+def test_estop_stops_arm_and_shows_state(backend):
+    async def check(user):
+        await user.should_see(marker="page-state", content="대기")
+        user.find(marker="estop").click()
+        await user.should_see("비상 정지했습니다")
+        await user.should_see(marker="page-state", content="정지")
+        assert backend.arm.ctl.state == "stopped"
+
+    in_app(backend, check)
+
+
+def test_view_only_browser_can_still_estop(backend):
+    backend.owner = "다른 브라우저"
+
     async def check(user):
         user.find(marker="estop").click()
-        await user.should_see("연결된 팔이 없다")
+        await user.should_see("비상 정지했습니다")
+        assert backend.arm.ctl.state == "stopped"
 
-    in_app(check)
+    in_app(backend, check)
 
 
 def test_main_binds_localhost_and_needs_sim(monkeypatch):
+    class FakeBackend:
+        def __init__(self, speed=None):
+            self.speed = speed
+
+        def close(self):
+            pass
+
     calls = []
-    monkeypatch.setattr(gui_app.ui, "run", lambda *a, **k: calls.append(k))
-    gui_app.main(argparse.Namespace(sim=True, port=9000))
+    monkeypatch.setattr(gui_app, "Backend", FakeBackend)
+    monkeypatch.setattr(gui_app.app, "on_shutdown", lambda fn: None)
+    monkeypatch.setattr(gui_app, "make_root", lambda backend: backend)
+    monkeypatch.setattr(gui_app.ui, "run", lambda root, **k: calls.append((root, k)))
+    gui_app.main(argparse.Namespace(sim=True, port=9000, speed=20))
     gui_app.main(argparse.Namespace(sim=True))  # so101 gui에는 port가 없다
-    assert [(c["host"], c["port"]) for c in calls] == [("127.0.0.1", 9000), ("127.0.0.1", gui_app.DEFAULT_PORT)]
+    assert [(k["host"], k["port"]) for _, k in calls] == [("127.0.0.1", 9000), ("127.0.0.1", gui_app.DEFAULT_PORT)]
+    assert calls[0][0].speed == 20
     with pytest.raises(SystemExit):
         gui_app.main(argparse.Namespace(sim=False))
