@@ -29,7 +29,16 @@ class Studio:
     def start(self, step_mode: bool = False, blocking: bool = False) -> dict | None:
         """작업을 시작한다. blocking=False면 스레드에서 돌고 status()로 본다."""
         self._step.clear()  # 이전 stop()·step()이 남긴 신호 때문에 첫 단계가 기다리지 않고 지나가지 않게
-        run = lambda: setattr(self, "result", self.task.run(step_mode))
+
+        def run() -> None:
+            try:
+                self.result = self.task.run(step_mode)
+            except Exception as e:
+                if blocking:
+                    raise
+                self.task._emit("FAULT", result="exception", error=repr(e))
+                self.result = {"picked": self.task.picked, "failed": self.task.failed, "cycles": self.task.cycles, "end": "FAULT", "error": repr(e)}
+
         if blocking:
             run()
             return self.result
@@ -38,6 +47,8 @@ class Studio:
         return None
 
     def _wait_step(self) -> None:
+        if self.task._stop:  # 정지 요청이 있으면 기다리지 않는다 (stop()의 신호는 한 번만 풀어 주므로)
+            return
         self._waiting = True
         self._step.wait()
         self._step.clear()

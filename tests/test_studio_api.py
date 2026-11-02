@@ -274,3 +274,23 @@ def test_req013_pause_stops_at_next_state_and_resume_continues():
     st._thread.join(3)
     assert not st._thread.is_alive() and st.result["picked"] == ["obj-1"]
 
+
+def test_req013_stop_in_step_mode_ends_the_thread():
+    st = make_studio()
+    st.start(step_mode=True)
+    time.sleep(0.2)
+    st.stop()  # PREPARE에서 기다리는 중
+    st._thread.join(2)
+    assert not st._thread.is_alive() and st.result["end"] == "STOPPED"
+
+
+def test_req013_thread_exception_becomes_fault_event():
+    st = make_studio()
+    st.task.skills.park = lambda: (_ for _ in ()).throw(RuntimeError("이미 동작 중"))
+    seen = []
+    st.bus.subscribe("task", seen.append)
+    st.start()
+    st._thread.join(2)
+    assert st.result["end"] == "FAULT" and "이미 동작 중" in st.result["error"]
+    assert seen[-1].state == "FAULT" and seen[-1].result == "exception"
+
