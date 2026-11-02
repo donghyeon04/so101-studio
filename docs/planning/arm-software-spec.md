@@ -1,12 +1,12 @@
 # 로봇팔 소프트웨어 설계서
 
-상태: 확정 · 갱신 2026-11-01
+상태: 확정 · 갱신 2026-11-02
 
 로컬 개발 세션이 이 문서만 보고 팔 모듈을 구현할 수 있도록, 구조·인터페이스·출력값·작업 순서를 정한다. 범위는 개발 0~2단계(구동 점검, 동작 라이브러리, 작업 공간 확정)다. 인식 모듈과 GUI는 팔 모듈과 맞닿는 인터페이스만 정한다.
 
 상위 문서: `system-architecture.md` (모듈 경계, 공통 타입, 폴더 구조).
 
-근거: `decisions/0003`(LeRobot 제어 스택), `0004`(인식–팔 분리), `0005`(개발 순서), `0006`(장치 구성), `features.md`.
+근거: `decisions/0003`(LeRobot 제어 스택), `0004`(인식–팔 분리), `0005`(개발 순서), `0006`(장치 구성), `features.md`. 구현 결과는 `decisions/0008~0019`, `arm-dev-status.md`, `measurements.md`에 있고 이 문서에 반영했다(2026-11-02). 설정의 실제 값은 `config/robot.yaml`이 기준이다.
 
 ## 1. 제어 방식 요약
 - STS3215는 PWM 서보가 아니라 **시리얼 버스 서보**다. PC가 USB–버스 보드를 거쳐 각 모터에 "목표 위치" 숫자를 보낸다. 위치 분해능은 12비트(0~4095, 약 0.088°/단계)다.
@@ -45,12 +45,15 @@ src/so101_studio/service/arm_service.py
 ## 4. 좌표계와 단위
 | 항목 | 규칙 |
 |---|---|
-| 작업대 좌표계 | 원점 = 작업대 왼쪽 아래 모서리, x = 긴 변 방향, y = 짧은 변 방향, z = 위. 인식 모듈과 GUI는 이 좌표만 쓴다 |
-| 로봇 좌표계 | 원점 = 어깨 회전축이 작업대와 만나는 점. 작업대 좌표계와의 관계(x, y, 회전각)는 `workspace.yaml`에 둔다 |
+| 작업대 좌표계 (`table` = world) | 원점 = 작업대 왼쪽 아래 모서리, x = 긴 변 방향, y = 짧은 변 방향, z = 위. 인식 모듈과 GUI는 이 좌표만 쓴다 |
+| 로봇 좌표계 (`robot` = base) | 원점 = 어깨 회전축, x = 앞, y = 왼쪽. 작업대 좌표계와의 관계(x, y, 회전각)는 `workspace.yaml`에 둔다 |
+| 툴 좌표계 (`tool`) | 상대 이동만 받는다. z = 도구 앞, x = 턱이 벌어지는 축. 5축이라 자세 변경(기울이기)은 받지 않는다 (`decisions/0013`) |
+| 높이 기준 | 모든 좌표계에서 높이는 **작업대 면 위 mm**다. 작업대 면의 모델 높이는 `table_z_mm`(현재 −25, 육안 추정, 실측 필요) |
+| 입력점 (TCP) | `tip` = 고정 턱 끝(기본), `ref` = 고정 턱 안쪽 면(URDF `gripper_frame` 점) |
 | 외부 단위 | 길이 mm, 각도 도(°). 서비스·인식·GUI 사이의 모든 값 |
 | 내부 단위 | 기구학·궤적 계산은 m, rad. 변환은 `frames.py`에서만 |
 | 물체 각도 | 작업대 x축 기준 반시계 방향, 0~180° (0/45/90/135는 인식 모듈의 분류값) |
-| 그리퍼 | 0(닫힘)~100(완전 열림), LeRobot 정규화 값. 폭(mm)과의 대응표는 T7에서 측정 |
+| 그리퍼 | 0(닫힘)~100(완전 열림), LeRobot 정규화 값. 폭(mm) 대응표 `gripper_width_mm`은 URDF 기하 + 카드 54mm 실측 1점(값 약 30). 20~30mm, 70~90mm는 미확인 |
 
 배치가 아직 미정이므로 코드는 로봇 위치를 하드코딩하지 않고 `workspace.yaml`에서 읽는다. 배치가 바뀌어도 설정 파일만 고친다.
 
@@ -64,8 +67,8 @@ class JointState:          # 관절 6개, 도 단위
 @dataclass
 class ToolPose:            # 작업대 좌표계
     x_mm: float; y_mm: float; z_mm: float
-    yaw_deg: float         # 위에서 내려다본 그리퍼 회전각
-    pitch_deg: float = -90 # -90 = 수직 하강
+    yaw_deg: float         # 턱이 벌어지는 축의 방향(위에서 본 각도). 집기 yaw = 물체 각도 + 90°
+    pitch_deg: float = -90 # -90 = 수직 하강, 부호 유지(-115 = 25° 기울임)
 
 # DetectedObject는 system-architecture.md 3절의 공통 타입을 쓴다
 
@@ -75,6 +78,7 @@ class ArmStatus:           # 상태 스트림, 10Hz
     temperature_c: dict[str, float]; load_pct: dict[str, float]; voltage_v: float
     torque_enabled: bool; state: str   # "idle" | "moving" | "teleop" | "teach" | "stopped" | "fault"
     fault: str | None
+    current_ma: float      # 서보 전류 합(추정)
 
 @dataclass
 class MotionResult:
@@ -87,10 +91,10 @@ class MotionResult:
 ### 6.1 장치: `ArmDriver` / `SimDriver`
 | 메서드 | 동작 |
 |---|---|
-| `connect(port, calibration_id)` / `disconnect()` | 연결. 연결 시 PID와 가속도 설정 적용 |
+| `connect(port, calibration_id)` / `disconnect()` | 연결. 연결 시 PID(16/0/32)와 서보 가속 한계(팔 10, 그리퍼 25, `decisions/0014`) 적용. 시리얼 포트는 잠금으로 한 스레드만 쓴다 |
 | `read_joints() -> JointState` | 현재 위치 (sync_read) |
 | `write_joints(JointState)` | 목표 위치 (sync_write, 응답 대기 없음) |
-| `read_health() -> dict` | 온도, 부하, 전압. 2Hz로만 호출 |
+| `read_health() -> dict` | 온도, 부하, 전압, 전류. 2Hz로만 호출 |
 | `set_torque(on: bool)` | 토크 켜기/끄기 |
 
 ### 6.2 기구학: `Kinematics`
@@ -99,57 +103,80 @@ class MotionResult:
 | `fk(JointState) -> ToolPose` | 순기구학 |
 | `ik(ToolPose, seed: JointState) -> JointState | None` | 역기구학. 해가 없거나 관절 한계를 넘으면 None |
 
-- 기본 구현은 LeRobot `RobotKinematics`(placo)다. Windows에서 설치되지 않으면 같은 인터페이스로 다른 구현을 끼운다(`decisions/0003`).
-- 5축 팔이라 "수직 하강 + 회전각" 자세에서 placo의 수치 해가 정확한지 T6에서 측정한다. 오차가 크면 수직 하강 전용 해석적 IK를 추가할지 정한다(미정 사항).
+- 구현: LeRobot `RobotKinematics` + placo 0.9.25. Windows에서는 pip가 실패해 conda-forge로 설치한다(`arm-hardware-setup.md`). FK 원점은 어깨 회전축으로 보정했다.
+- IK에 우리 관절 한계(`joint_limits_deg`)를 넣어 한계 밖 해를 만들지 않는다. 방향 가중치는 0.1(1.0이면 처짐 자세에서 위치 해가 3mm 넘게 어긋남).
+- 시뮬레이션에서 수직 하강 IK 왕복 오차는 1mm 이내다. 실제 끝 위치 정확도(T6 줄자 실측)는 아직 없어서, 해석적 IK 추가 여부는 그 뒤에 정한다.
+- 수직 하강으로 닿는 영역(계산): 높이 0~20mm에서 회전축 앞 80~260mm, 최대 높이 약 80mm. 작업 영역 판단은 `workspace.yaml`의 `reach_mm`(90~250)을 쓴다.
 
 ### 6.3 궤적: `trajectory.py`
 | 함수 | 동작 |
 |---|---|
-| `move_j(q_start, q_goal, v_max, a_max) -> Trajectory` | 관절 공간 5차 다항식. 가장 많이 움직이는 관절 기준으로 시간 결정 |
+| `move_j(q_start, q_goal, v_max, a_max) -> Trajectory` | 관절 공간 5차 다항식(기본). `trajectory_profile: ruckig`이면 속도·가속도·저크 한계 시간 최적(같은 한계에서 약 20% 빠르지만 떨림이 15~25% 큼) |
 | `move_l(pose_start, pose_goal, v_mm_s) -> Trajectory` | 직선 경로를 5mm 간격으로 나눠 각 점 IK. 한 점이라도 실패하면 전체 거부 |
 | `move_p(waypoints, v) -> Trajectory` | 경유점 사이를 블렌딩해 멈추지 않고 통과 (시퀀스·춤용) |
 
-`Trajectory`는 `sample(t) -> JointState`와 `duration_s`를 가진다. 참고: Robotics Toolbox for Python의 `jtraj`, `ctraj`, `mstraj`.
+`Trajectory`는 `sample(t) -> JointState`와 `duration_s`를 가진다. 참고: Robotics Toolbox for Python의 `jtraj`, `ctraj`, `mstraj`. 경로는 실행 전에 0.1초 간격으로 안전 검사한다. 직선이 안 되면 `goto`는 목표 위 접근 높이로 MoveJ한 뒤 수직으로 내려간다.
 
 ### 6.4 동작 실행: `MotionController`
 - 별도 스레드에서 50Hz로 돈다. 매 주기마다 궤적을 샘플링하고, 안전 검사를 거쳐 `write_joints`를 호출한다.
-- 장치는 이 스레드만 만진다. 다른 계층은 명령 큐로만 요청한다.
+- 장치는 이 스레드만 만진다. 다른 계층은 명령 큐로만 요청한다. 제어 주기는 50Hz가 최선이었다(100·200Hz와 5~10Hz 모두 더 떨림, `decisions/0014`).
 
 | 메서드 | 동작 |
 |---|---|
 | `execute(traj) -> MotionHandle` | 실행 시작. `handle.wait() -> MotionResult` |
-| `stop()` | 0.3초 안에 감속 정지 후 현재 위치 유지 |
+| `stop()` | 감속 0.2초로 정지 후 현재 위치 유지(실측 0.24~0.28초) |
 | `estop()` | 즉시 현재 위치 고정, 큐 비움, 상태 `stopped`. 토크는 끄지 않는다(끄면 팔이 떨어짐) |
-| `retarget(goal)` | 진행 중인 동작을 현재 위치·속도에서 새 목표로 매끄럽게 교체. 결과는 `preempted` |
+| `retarget(goal)` | 진행 중인 동작을 현재 위치·속도에서 새 목표로 매끄럽게 교체(Ruckig). 이전 동작의 결과는 `preempted` |
+| `jog(...)` | 원격 조종 속도 입력을 실제 경과 시간으로 적분해 목표를 갱신(틱 간격 요동 보정) |
 
 ### 6.5 안전: `safety.py`
 매 주기, 명령을 보내기 전에 검사한다. 하나라도 어기면 그 명령은 보내지 않고 `stop()`한다.
-- 관절 한계: URDF 한계에서 5° 안쪽
-- 작업 영역: 그리퍼 끝이 작업대 경계 안(여유 10mm), 높이는 작업대 위 5mm 이상
-- 한 주기 이동량: 관절당 최대 5° (LeRobot `max_relative_target`과 같은 개념)
-- 온도 60°C 이상, 부하 90% 이상 3초 지속, 통신 끊김 0.5초 이상 → `fault`
-- 원격 조종 중 입력이 0.3초 동안 들어오지 않으면 정지 (데드맨)
+- 관절 한계: 캘리브레이션으로 잰 가동 범위에서 1~3° 안쪽(`joint_limits_deg`). 팔꿈치 접는 쪽은 95°(96°에서 J2 모터에 닿음).
+- 작업 영역: 그리퍼 끝이 작업대 경계 안(여유 10mm). 바닥: 낮은 턱 끝이 작업대 면보다 `tip_floor_mm`(5mm) 위.
+- 한 주기 이동량: 관절당 최대 5° (LeRobot `ensure_safe_goal_position`).
+- 온도 60°C 이상 3회 연속(읽기 튐 걸러냄), 부하 90% 이상 3초, 통신 끊김 0.5초, **전류 합 4A 이상 2회 연속** → `fault`.
+- 원격 조종 중 입력이 0.3초 동안 들어오지 않으면 정지 (데드맨).
+- 한계 밖(받침에 기댄 팔꿈치 약 97° 등)에서 출발한 동작은 더 바깥으로 가지 않는 한 허용해 빠져나올 수 있다.
+
+안전 설정 `SafetySettings`는 실행 중에 바꿀 수 있다 (`decisions/0015`).
+| 항목 | 값 |
+|---|---|
+| `mode` | `normal`(관절 한계 + 작업대 + 바닥) / `free`(작업대 x, y만 끔) / `off`(관절 한계·작업 영역·바닥 끔). 한 주기 이동량, 과열·과부하·통신·과전류 감시는 모든 모드에서 켜짐 |
+| `joint_margin_deg` | 양수 = 한계를 안쪽으로, 음수 = `physical_limits_deg`까지만 넓힘 (그리퍼 제외) |
+| `box_mm` | 작업대 좌표 x, y와 작업대 면 위 턱 끝 높이 z의 허용 범위 |
+| 남은 일 | 속도 상한(`max_speed_pct`)을 안전 설정에 넣기 |
 
 ### 6.6 기능: `skills.py`
 | 함수 | 순서 |
 |---|---|
 | `home()` | 정해진 기본 자세로 MoveJ |
 | `park()` | 센서 시야 밖 대기 자세로 MoveJ. 스캔 전에 반드시 호출 |
-| `pick(obj: DetectedObject)` | 접근 위치(물체 위 80mm)로 MoveJ → 그리퍼 회전·열기(물체 폭 + 20mm) → 하강 MoveL → 닫기 → 상승 MoveL |
+| `pick(obj: DetectedObject)` | 접근 높이(`approach_height_mm` 40 + 집는 높이 15)로 MoveJ → 턱 축을 물체 각도 + 90°로 돌리고 벌림 → 하강 MoveL → 닫으며 손을 같이 보내 중심 유지 → 접촉에서 정지 → 수직 상승. 접촉이 없으면 `no_object` |
 | `place(zone: str)` | 배출 구역 위로 MoveJ → 하강 → 열기 → 상승 |
 | `run_sequence(name)` | `config/sequences/<name>.json`의 경유점을 MoveP로 재생 (시연용 동작, 춤) |
 
-- 그리퍼 회전각 = 물체 각도 + 90° (짧은 변을 잡는다). 물체 각도가 None이면 0°.
-- 물체 높이는 초음파로 알 수 없으므로, 집는 높이는 `robot.yaml`의 기본값(미정)을 쓴다.
+- 그리퍼가 고정 턱 1개 + 가동 턱 1개라 아래 보정을 한다 (`decisions/0009~0012`).
+  - 턱 축 = 물체 각도 + 90°. 180° 돌려도 같은 파지라 손목이 덜 도는 쪽을 고른다. 물체 각도가 None이면 0°.
+  - 벌림: 크기와 상관없이 최대 `grasp_max_open_mm`(70mm)로 벌려 틈의 중심을 물체에 맞춘다(`grasp_open_policy: max`, 약 60mm 폭까지).
+  - 닫을 때 틈이 d 줄면 손을 가동 턱 쪽으로 d/2 같이 보내 닫는 내내 중심을 유지한다.
+  - 턱이 앞뒤로 벌어질 때만 손을 벌림 각도의 절반만큼 기울여(최대 35°) 보기에 대칭인 V자로 닫는다.
+  - 접촉 판정: 실제 그리퍼 값이 명령보다 4값 넘게 앞서 멈춤(`contact_lag_units`). 조임 힘 30%(`gripper_squeeze_torque` 300).
+- 접근 높이를 80mm에서 40mm로 낮췄다. 수직 하강으로 닿는 최대 높이가 약 80mm이기 때문이다. 따라서 **집을 수 있는 물체 높이에 제약이 있다**(시험 물체 선정 때 확인).
+- 물체 높이는 초음파로 알 수 없으므로, 집는 높이는 `grasp_height_mm`(15, 미정)를 쓴다.
+- 알려진 문제: 그리퍼 앞 다리가 제대로 맞물리지 않아 실제 물체를 집지 못한다. 조원이 그리퍼를 재설계한다.
 
 ### 6.7 원격 조종: `teleop.py`
-- `jog(mode, velocity)`: `mode`는 `"joint"`(관절별 °/s) 또는 `"cartesian"`(x, y, z mm/s, yaw °/s). 입력 장치와 무관하게 이 명령 하나로 받는다.
-- 입력 어댑터: 키보드(지금), GUI 가상 조이스틱과 게임패드(나중). 모두 `jog`를 부른다.
+- `jog(mode, velocity)`: `mode`는 `"joint"`(관절별 °/s) 또는 `"cartesian"`(x, y, z mm/s, yaw °/s). 입력 장치와 무관하게 이 명령 하나로 받는다. 기본 속도 관절 30°/s, 직교 80mm/s.
+- 키보드 `keys`: Tab으로 관절 → 직교 조그(로봇/툴 기준) → 좌표 입력 세 모드. 좌표 입력은 `point_pose` → `preview_tool`로 먼저 검사해 닿지 않으면 움직이지 않고 이유를 알린다 (`decisions/0013`).
+- 입력 어댑터: 키보드(지금, Windows `GetAsyncKeyState`), GUI 가상 조이스틱과 게임패드(나중). 모두 `jog`를 부른다.
+- 느린 조그에서 체감 떨림이 남아 있다(서보 내부 설정·기구 하중 의심, `Minimum_Startup_Force` 시험이 남음).
 
 ### 6.8 동작 녹화·재생: `teach.py`
-- `record_start()`: 토크를 끄고, 사람이 손으로 팔을 움직이는 동안 관절값을 20Hz로 기록한다. 리더 암 없이 동작을 가르치는 방법이다.
-- `record_stop(name)`: 기록을 `config/sequences/<name>.json`으로 저장하고 토크를 켠다.
-- `replay(name, speed=1.0)`: 기록을 다듬어(이동평균) 재생한다. 시작 전 첫 자세로 MoveJ.
+토크를 켠 채 손으로 미는 추종 교시는 기어 마찰(1/345) 때문에 실패해 제거했다. 토크를 끈 방식 하나다 (`decisions/0016~0019`).
+- `record_start(hz, max_s)`: 홈 자세로 이동 → 팔을 잡았다는 확인 → 3초 카운트다운 → 토크를 끄고 관절값과 **실제 시각**을 기록(기본 20Hz, 최대 90초, `record_hz`·`record_max_s`).
+- `record_stop(name)`: `config/sequences/<name>.json`에 저장(길이, 점 수, 평균·최대 속도, 관절별 최대 속도 `meta` 포함)하고 토크를 켠다.
+- `record_info(name)`: 길이·속도와 구간 목록(멈춤 < 3°/s, 느림, 빠름 ≥ 40°/s, 최소 0.5초).
+- `replay(name, speed, until_limit, segment_speeds)`: 이동평균으로 다듬어 기록 시각대로 재생. 구간별 배율 0.1~5(최대 220°/s 초과 시 거부). 한계를 넘는 기록은 거부하고, `until_limit`이면 한계 직전까지 재생한다.
 - 주의: 토크를 끄면 팔이 중력으로 처지므로, 녹화 시작 전에 팔을 손으로 받친다.
 
 ### 6.9 서비스: `ArmService`
@@ -162,58 +189,56 @@ GUI·CLI가 부르는 메서드 목록이다. 이름과 입력·출력은 GUI �
 | `home` / `park` | | `MotionResult` |
 | `move_joints` | `JointState`, 속도 % | `MotionResult` |
 | `move_tool` | `ToolPose`, 속도 % | `MotionResult` |
+| `status` | | `ArmStatus` 1회 |
+| `point_pose` | x, y, 높이, yaw, 좌표계(`table`/`robot`/`tool`), TCP(`tip`/`ref`) | `ToolPose` |
+| `preview_tool` | `ToolPose` | 움직이지 않고 가능 여부, 이유, 풀린 관절값 |
 | `pick_and_place` | `DetectedObject`, 배출 구역 | `MotionResult` |
-| `jog` | 모드, 속도 벡터 | 없음 (데드맨 적용) |
-| `record_start` / `record_stop` / `replay` | 이름 | `MotionResult` |
+| `place` | 배출 구역 | `MotionResult` |
+| `set_gripper` | 값 0~100 또는 폭 mm | `MotionResult` |
+| `jog` | 모드, 속도 벡터 | 성공 여부 (데드맨 적용) |
+| `record_start` | 기록 주기 Hz, 최대 시간 s | 없음 |
+| `record_stop` / `record_info` | 이름 | 저장 결과 / 길이·속도·구간 |
+| `replay` | 이름, 속도, `until_limit`, `segment_speeds` | `MotionResult` |
 | `run_sequence` | 이름 | `MotionResult` |
-| `retarget` | `DetectedObject` | 없음 |
+| `retarget` | `JointState` | 없음 |
+| `get_safety` / `set_safety` | 모드, 관절 여유, XYZ 범위 | 현재 안전 설정 (JSON 변환 가능) |
 | `stop` / `estop` | | 없음 |
 | `set_speed` | 0~100 % | 없음 |
 
-## 7. 설정 파일 예시
-```yaml
-# config/robot.yaml
-port: COM5
-calibration_id: so101_follower_01
-urdf: assets/so101_new_calib.urdf
-control_hz: 50
-pid: {p: 16, i: 0, d: 32}
-speed_pct_default: 30
-joint_v_max_deg_s: 90
-tool_v_max_mm_s: 100
-approach_height_mm: 80
-grasp_height_mm: 15        # 미정: 시험 물체가 정해지면 확정
-gripper_margin_mm: 20
-poses:                     # 아래 값은 자리표시. T4에서 실제 자세를 측정해 바꾼다
-  home: [0, -100, 90, 70, 0, 50]
-  park: [90, -100, 90, 70, 0, 50]   # 센서 시야 밖
-```
-```yaml
-# config/workspace.yaml
-table_mm: {x: 600, y: 400}
-robot_base_in_table: {x_mm: 300, y_mm: 50, yaw_deg: 90}   # 배치 확정 후 수정
-drop_zones:
-  right: {x_mm: 500, y_mm: 150}
-safety_margin_mm: 10
-```
+GUI에서 점 찍기는 `point_pose` → `preview_tool` → `move_tool` 순서로 부른다.
+
+## 7. 설정 파일 (주요 값, 실제 값은 `config/*.yaml`이 기준)
+| 항목 | 값 | 근거 |
+|---|---|---|
+| 통신 | COM3, 1Mbps, 서보 ID 1~6 | `arm-hardware-setup.md` |
+| 제어 주기, PID | 50Hz, P16 I0 D32 | `decisions/0014` |
+| 서보 가속 한계 | 팔 10, 그리퍼 25 | `decisions/0014` |
+| 홈·파크 자세 | `[0, -90, 93, 0, 0, 3]` (파크는 센서 위치가 정해지면 바꿈) | 팔꿈치 한계 95 |
+| 영점 보정 | shoulder_pan −3.0° | 육안 정렬 |
+| 속도 | 기본 30%, 관절 최대 90°/s, 직교 최대 100mm/s, 조그 30°/s·80mm/s | |
+| 궤적 | `trajectory_profile: quintic` (선택 `ruckig`) | measurements.md |
+| 높이 | `table_z_mm` −25(육안 추정), `tip_floor_mm` 5, `approach_height_mm` 40, `grasp_height_mm` 15, `place_height_mm` 30 | 실측 필요 |
+| 집기 | `grasp_open_policy: max`, `grasp_max_open_mm` 70, `grasp_tilt_mode: symmetric`, `grasp_tilt_deg` 35, `contact_lag_units` 4, `gripper_squeeze_torque` 300 | `decisions/0010~0012` |
+| 교시 | `record_hz` 20, `record_max_s` 90, 구간 기준 3·40°/s, 최소 0.5초 | `decisions/0019` |
+| 작업대 (`workspace.yaml`) | 600×400mm(임시), 로봇 원점 (300, 50) 90°(긴 변 가운데, 임시), 배출 구역 right (500, 150), 도달 반경 90~250mm | 배치 미정 |
 
 ## 8. 출력과 기록
 - 실행할 때마다 `runs/YYYYMMDD-HHMMSS/`를 만든다.
 - `events.jsonl`: 명령, 결과(`MotionResult`), 오류를 한 줄씩 기록한다.
-- `status.csv`: `ArmStatus`를 10Hz로 기록한다 (시각, 관절 6개, 그리퍼 끝 x·y·z, 최고 온도, 최대 부하).
+- `status.csv`: `ArmStatus`를 10Hz로 기록한다 (시각, 관절 6개, 그리퍼 끝 x·y·z, 최고 온도, 최대 부하, 전압 `voltage_v`, 전류 `current_a`).
 - 이 기록이 F1(실행 로그)·F2(CSV 내보내기)의 원천이다.
 
 ## 9. CLI (GUI 전 개발·점검용)
-```
-python -m so101_studio status                 # 상태 1회 출력
-python -m so101_studio home | park
-python -m so101_studio movej <6개 관절값>
-python -m so101_studio goto <x> <y> <z> <yaw>  # 작업대 좌표 mm, 도
-python -m so101_studio pick <x> <y> <angle> <width> --place right
-python -m so101_studio jog                     # 키보드 원격 조종
-python -m so101_studio record <name> | replay <name> | seq <name>
-python -m so101_studio --sim ...               # SimDriver로 실행
-```
+실행은 레포 루트의 `so101.cmd [--sim] [--speed N] <명령>`이다(conda 활성화 불필요). 옵션 전체는 `CLAUDE.md` 개발 세션 규칙에 있다.
+
+| 구분 | 명령 |
+|---|---|
+| 이동 | `status`, `home`, `park`, `movej`, `goto`, `pick x y 각도 폭 [--place 구역]`, `place`, `gripper` |
+| 자동 작업 | `run --source manual [--step] [--dry-run]` |
+| 조종 | `keys` (관절 / 직교 조그 / 좌표 입력), 옛 `jog` |
+| 교시 | `record <이름>`, `info <이름>`, `replay <이름> [--seg-speed 1=0.5] [--until-limit]`, `seq <이름>` |
+| 진단 | `powertest`, `shaketest`, `servoinfo`, `linkwatch`, `--hz`, `--trace` |
+| 안전 | `--free`, `--unsafe`, `--safety-margin N`, `--box x0,x1,y0,y1,z0,z1` |
 
 ## 10. 하드웨어 초기 설정 (T0, 코드 작성 전 1회)
 LeRobot 공식 SO-101 절차를 따른다. 순서를 바꾸지 않는다.
@@ -227,28 +252,35 @@ LeRobot 공식 SO-101 절차를 따른다. 순서를 바꾸지 않는다.
 | T0-5 확인 | 토크를 끈 채 각 관절을 손으로 움직이며 읽기값의 방향과 범위가 맞는지 확인 | 6개 관절 모두 정상. 이상 있으면 T0-4 재실행 |
 | T0-6 첫 구동 | 속도 낮게, 관절 하나씩 ±10°만 움직여 본다. 사람이 전원 스위치 옆에서 대기 | 떨림·이상음·과열 없음 |
 
+결과(2026-11-01): ✅ 완료. 모터 ID는 이미 설정되어 있었고, 캘리브레이션은 네 번째 시도에서 성공했다(`measurements.md` T0, `arm-hardware-setup.md`).
+
 주의: 팔로워용 STS3215-C018은 12V 모터다. 다른 전압의 전원을 쓰지 않는다.
 
 ## 11. 구현 작업 순서 (로컬 세션)
-| # | 작업 | 완료 기준 | 관련 기능 |
-|---|---|---|---|
-| T1 | 환경 구성: conda, Python 3.12 이상, `lerobot[feetech,kinematics]` | `import placo` 성공 여부를 기록. 실패하면 대체안 결정 기록 작성 | — |
-| T2 | `ArmDriver`, `SimDriver`, CLI `status` | 관절값·온도·부하·전압 출력. 30초 정지 자세에서 떨림 관찰 기록 | A1, B7 |
-| T3 | `Kinematics` + FK 검증 | 자세 3개에서 FK 결과와 자로 잰 그리퍼 끝 위치 차이 기록 | — |
-| T4 | `trajectory.move_j`, `MotionController`, `stop`, `estop`, CLI `home`·`park`·`movej` | 각 관절 전체 범위를 저속 왕복, 끊김·떨림 없음. 정지 명령 0.3초 안에 멈춤 | B2, B3, B1 |
-| T5 | `safety.py` | 한계 밖 명령이 모두 거부되는 단위 테스트 통과 | B6, B8 |
-| T6 | `frames.py`, `move_l`, CLI `goto` | 작업대 위 9개 점(3×3)에 10회씩 이동, 평균 오차와 반복 편차(mm) 기록. 이 결과로 도달 범위와 작업대 배치를 확정 | B4 |
-| T7 | 그리퍼 폭 대응표, `pick`, `place`, CLI `pick` | 손으로 넣은 좌표로 0/45/90/135° 물체 각 5회, 성공률 기록 | B5 |
-| T8 | `teleop.jog` + 키보드 입력 | 관절·직교 조종 동작, 입력 끊기면 0.3초 안에 정지 | B9 |
-| T9 | `teach.py`, `run_sequence` | 손으로 가르친 동작을 재생, 시연용 동작 1개 저장 | B10, B11 |
-| T10 | `ArmService`, 실행 기록 | CLI가 모두 `ArmService`를 거치도록 정리, `runs/`에 기록 생성 | F1 |
-| T11 | `retarget` | 이동 중 목표를 바꾸면 멈추지 않고 새 목표로 이어서 이동 | B12 |
+결과 열은 2026-11-02 기준이다. ✅ 완료, △ 구현은 끝났고 실측이 남음.
+
+| # | 작업 | 완료 기준 | 관련 기능 | 결과 |
+|---|---|---|---|---|
+| T1 | 환경 구성: conda, Python 3.12 이상, `lerobot[feetech,kinematics]` | `import placo` 성공 여부를 기록. 실패하면 대체안 결정 기록 작성 | — | ✅ placo는 conda-forge 0.9.25로 해결 |
+| T2 | `ArmDriver`, `SimDriver`, CLI `status` | 관절값·온도·부하·전압 출력. 30초 정지 자세에서 떨림 관찰 기록 | A1, B7 | ✅ |
+| T3 | `Kinematics` + FK 검증 | 자세 3개에서 FK 결과와 자로 잰 그리퍼 끝 위치 차이 기록 | — | △ 방향 매핑 확인, 자 실측 없음 |
+| T4 | `trajectory.move_j`, `MotionController`, `stop`, `estop`, CLI `home`·`park`·`movej` | 각 관절 전체 범위를 저속 왕복, 끊김·떨림 없음. 정지 명령 0.3초 안에 멈춤 | B2, B3, B1 | ✅ 정지 0.24~0.28초 |
+| T5 | `safety.py` | 한계 밖 명령이 모두 거부되는 단위 테스트 통과 | B6, B8 | ✅ 안전 설정으로 확장(0015) |
+| T6 | `frames.py`, `move_l`, CLI `goto` | 작업대 위 9개 점(3×3)에 10회씩 이동, 평균 오차와 반복 편차(mm) 기록. 이 결과로 도달 범위와 작업대 배치를 확정 | B4 | △ 시뮬·엔코더 기준만, 줄자 실측 없음 |
+| T7 | 그리퍼 폭 대응표, `pick`, `place`, CLI `pick` | 손으로 넣은 좌표로 0/45/90/135° 물체 각 5회, 성공률 기록 | B5 | △ 물체 없이 동작만, 실물 성공률 없음 |
+| T8 | `teleop.jog` + 키보드 입력 | 관절·직교 조종 동작, 입력 끊기면 0.3초 안에 정지 | B9 | ✅ keys 3모드(0013) |
+| T9 | `teach.py`, `run_sequence` | 손으로 가르친 동작을 재생, 시연용 동작 1개 저장 | B10, B11 | ✅ 토크 끈 교시(0018·0019) |
+| T10 | `ArmService`, 실행 기록 | CLI가 모두 `ArmService`를 거치도록 정리, `runs/`에 기록 생성 | F1 | ✅ |
+| T11 | `retarget` | 이동 중 목표를 바꾸면 멈추지 않고 새 목표로 이어서 이동 | B12 | ✅ Ruckig |
 
 T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작업 공간 확정)를 한다. T8~T11은 센서를 기다리는 동안 할 수 있다. 팔 이외의 작업(C1, S1~S3)과 전체 순서는 `system-architecture.md` 11절에 있다.
 
 ## 12. 미정 사항
-- 팔 배치(모서리 / 긴 변 가운데): T6 실측 후 확정. 코드는 `workspace.yaml`만 바뀐다.
-- 수직 하강 전용 해석적 IK 추가 여부: T6 결과로 결정.
-- 집는 높이 기본값과 시험 물체: 팀 논의 8번.
+- 팔 배치(모서리 / 긴 변 가운데)와 작업대 크기: T6 줄자 실측 후 확정. 코드는 `workspace.yaml`만 바뀐다.
+- `table_z_mm` 실측(종이 한 장이 끼일 때까지 내려 재기). 높이 0 근처와 바닥 안전 검사의 정확도가 이 값에 달려 있다.
+- 해석적 IK 추가 여부: T6 실측 결과로 결정(시뮬레이션 왕복 오차는 1mm 이내).
+- 집는 높이, 시험 물체(높이 약 40mm 이하 제약 포함): 팀 논의 8번.
+- 그리퍼 재설계(조원)와 실물 집기 성공률(T7).
+- 전원 계통: 서보 6개 동시 토크 꺼짐 3회. 커넥터 점검과 어댑터 비교, 물리 비상 정지 스위치(12V 차단).
+- 안전 설정에 속도 상한 추가, 서보 시동 힘 시험.
 - GUI 기술: 기능명세서 확정 후 조사.
-- 물리 비상 정지 스위치(12V 전원 차단): 하드웨어 담당과 논의.

@@ -1,0 +1,63 @@
+port: COM3
+calibration_id: so101_follower_01
+urdf: assets/so101_new_calib.urdf
+control_hz: 50
+gripper_acceleration: 25  # 그리퍼 전용 가속 한계. 접촉 감지(contact_lag_units)를 25에서 맞췄고 팔 관절을 10으로 낮춘 뒤 다시 검증하기 전까지 유지
+pid: {p: 16, i: 0, d: 32}
+speed_pct_default: 30
+servo_acceleration: 10      # 서보 가속 한계 (기본 254). 120회 시험: 낮을수록 느린 동작의 떨림이 줄었고 10이 20·60°/s 모두 가장 좋았음 (measurements.md shaketest)
+joint_v_max_deg_s: 90
+a_max_deg_s2: 120
+trajectory_profile: quintic   # quintic(5차, 기본) | ruckig(속도·가속도·저크 한계 시간 최적, 같은 한계에서 약 20% 빠름, 떨림은 5차보다 15~25% 큼 — measurements.md)
+joint_jerk_max_deg_s3: 300
+tool_a_max_mm_s2: 120
+tool_jerk_max_mm_s3: 600
+tool_v_max_mm_s: 100
+approach_height_mm: 40         # 수직 하강 자세로 닿는 높이가 최대 약 80mm라 80mm 위 접근은 불가능 (measurements.md T6 사전 조사)
+table_z_mm: -25            # 작업대 면의 모델 z(mm) 추정. 사용자가 육안으로 턱 끝과 작업대 사이를 본 값(모델 z 2mm에서 손가락 한 마디, 4mm 내린 뒤에도 한 마디)으로 조금씩 내려 추정, 실측 전
+tip_floor_mm: 5            # 낮은 턱 끝이 작업대 면(table_z_mm)보다 이만큼은 위에 있어야 한다(명령 기준. 처짐 약 4mm가 더해져 실제 끝은 1mm 위까지 내려간다)
+grasp_height_mm: 15        # 낮은 턱 끝의 작업대 면 위 높이. 미정: 시험 물체가 정해지면 확정        # 미정: 시험 물체가 정해지면 확정
+gripper_margin_mm: 20
+grasp_bias_mm: 0           # 턱 중심 보정의 미세 조정(가동 턱 쪽이 +, mm). URDF 기하로 계산한 위치가 실제와 다르면 작은 물체로 시험해서 정한다
+grasp_open_policy: max     # max: 물체 크기와 상관없이 최대로 벌려 틈의 중심을 물체에 맞춘 뒤 닫으며 손을 같이 보냄 | fit: 폭+여유만 벌림
+grasp_tilt_mode: symmetric  # symmetric: 손을 벌림 각도의 절반만큼 기울여 두 턱이 수직에서 ±θ/2로 벌어지게(보기에 대칭인 V자, 닫으면 같이 선다) | equal_tips: 두 턱 끝 높이가 같아지는 각도(약 23°)
+grasp_tilt_deg: 35         # 손목 한계 때문에 이 각도까지만 기울인다(θ=80°이면 완전 대칭은 40°). 0이면 기울이지 않음
+grasp_tilt_tol_deg: 15     # 턱 축이 팔이 뻗은 방향(앞뒤)에서 이만큼 안쪽일 때만 기울인다(5축 팔은 옆으로 기울일 수 없다)
+grasp_max_open_mm: 70      # 최대로 벌릴 틈(mm). 70이면 기울기 24°(손목 한계 안)라 V자가 대칭으로 보인다. 100은 손목 한계 35°에서 잘려 한쪽으로 보임. 물체가 약 60mm까지면 충분
+contact_lag_units: 4       # 닫는 중 실제 그리퍼 값이 명령보다 이만큼 앞서 멈춰 있으면 물체에 닿은 것으로 본다
+gripper_squeeze_torque: 300  # 닫을 때 조임 힘 한계(0~1000). 얇은 물체가 미끄러져 빠지지 않게 낮춤
+place_height_mm: 30        # 놓을 때 그리퍼 끝 높이
+gripper_open: 60           # 놓을 때 여는 정도(0~100)
+gripper_width_mm:          # [그리퍼 값, 턱 끝 벌림 mm]. URDF 메쉬 기하(관절 -10°~100°)에 카드 시험 2점(54mm가 값 32.0과 27.7에서 접촉)을 맞춰 값 0~100을 -10°~111°에 선형 대응시킨 계산값. 큰/작은 폭은 실측 전
+  - [0, 2.7]
+  - [8.2, 16.8]
+  - [24.7, 45.5]
+  - [41.2, 72.2]
+  - [57.7, 93.5]
+  - [74.1, 106.9]
+  - [90.6, 110.8]
+  - [100, 111.0]
+joint_offsets_deg:         # 영점 보정(도). 읽은 값 = 모터 값 - offset. pan: 정면에서 오른쪽으로 약 1.5° 틀어져 있어 왼쪽으로 맞춤 (2026-11-01 사용자 육안, 1.5°, 그 뒤 0.5°씩 세 번 더)
+  shoulder_pan: -3.0
+joint_limits_deg:          # 캘리브레이션으로 잰 가동 범위(measurements.md)에서 안쪽으로 1~3° 줄인 값. T5에서 safety.py로 옮긴다
+  shoulder_pan: [-118, 118]
+  shoulder_lift: [-103, 103]
+  elbow_flex: [-96, 95]   # 접을 때 J2 모터에 닿는 것을 피하려고 위쪽 한계를 98에서 95로 줄였다(96이 닿기 직전, 서보가 명령보다 0.4° 더 감). 받침에 기댄 자세 약 97.4°는 시작점이라 검사하지 않는다
+  wrist_flex: [-101, 101]
+  wrist_roll: [-170, 170]
+  gripper: [1, 99]
+record_hz: 20            # 교시 기록 주기(Hz)
+record_max_s: 90         # 한 번에 기록하는 최대 시간(초)
+seg_pause_deg_s: 3       # 구간 나누기: 이 속도(°/s) 미만 = 멈춤
+seg_fast_deg_s: 40       # 이 속도 이상 = 빠름, 그 사이 = 느림
+seg_min_s: 0.5           # 이보다 짧은 구간은 이웃에 합침
+physical_limits_deg:       # 캘리브레이션 때 손으로 읽은 실제 가동 범위(measurements.md T0-5). joint_limits_deg를 넓혀도 이 범위 안에서만
+  shoulder_pan: [-119.5, 119.5]
+  shoulder_lift: [-104.3, 104.4]
+  elbow_flex: [-97.2, 97.1]
+  wrist_flex: [-101.8, 102.6]
+  wrist_roll: [-164.2, 169.7]
+  gripper: [0.8, 99.6]
+poses:                     # 자리표시. park는 센서 시야 밖 자세가 정해지면 바꾼다 (지금은 home과 같음)
+  home: [0, -90, 93, 0, 0, 3]
+  park: [0, -90, 93, 0, 0, 3]

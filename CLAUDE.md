@@ -10,6 +10,7 @@ SO-101(SO-ARM101) 로봇 암 프로젝트. 문서 색인은 `docs/README.md`에 
 ## 세션 구분
 - 원격 레포 세션 = 기획: 기획, 아키텍처, 레퍼런스 조사, 문서 작성. 프로젝트 코드는 쓰지 않는다.
 - 로컬 세션 = 개발: 코드 작성, 시리얼 포트·ESP32·서보 테스트, 펌웨어 업로드. 하드웨어 작업은 로컬에서만 할 수 있다.
+- 로컬은 두 세션으로 나눈다 (`decisions/0024`). GUI 세션은 `src/so101_studio/gui/`, `tests/gui/`만 고치고 `planning/gui-spec.md`를 따른다. 팔 세션은 그 밖의 코드를 고치고 `planning/arm-software-spec.md`를 따른다. 상대 영역이 필요하면 직접 고치지 않고 요청서(REQ)를 보낸다. 역할, worktree, 요청 양식은 `docs/guides/session-workflow.md`, 요청 기록은 `docs/planning/session-requests.md`.
 - 개발 세션은 `docs/planning/`의 확정 문서와 `docs/decisions/`를 근거로 작업한다.
 - 다른 계정에서 작업을 시작하면 `docs/guides/tooling-setup.md`의 설치 목록부터 맞춘다.
 
@@ -19,7 +20,17 @@ SO-101(SO-ARM101) 로봇 암 프로젝트. 문서 색인은 `docs/README.md`에 
 - 설계서와 다르게 구현해야 하면 멈추고 사용자에게 알린다. 설계서는 기획 세션에서 고친다.
 - 하드웨어 없이 `--sim`으로 먼저 테스트한다. 실제 팔은 속도 30% 이하로 처음 움직이고, 사람이 전원 스위치 옆에서 대기한다.
 - 측정값은 `docs/planning/measurements.md`에 기록한다.
-- 코드가 생기면 테스트·실행 명령을 이 절에 추가한다.
+- 환경: conda env `so101`(Python 3.12). 먼저 `conda activate so101`로 활성화한다. 활성화 없이 env의 python.exe를 바로 부르면 numpy 행렬곱에서 아무 메시지 없이 종료(exit 127)된다(MKL DLL 경로). Git Bash에서는 `export PATH="/c/Users/c/miniforge3/envs/so101/Library/bin:/c/Users/c/miniforge3/envs/so101:$PATH"`.
+- numpy는 conda 설치본(MKL, placo와 맞춤)이다. `pip install`로 numpy를 다시 설치하지 않는다.
+- 테스트: `python -m pytest -q` (레포 루트에서). 린트: `python -m ruff check src tests`.
+- 실행(어느 폴더에서든, conda 활성화 없이): `so101.cmd [--sim] [--speed N] <명령>` (레포 루트의 런처가 so101 conda 환경을 직접 지정한다. PowerShell에서 레포 폴더 안이면 `.\so101 ...`). 원래 형태는 `python -m so101_studio ...`. 모든 명령은 `service/arm_service.py`의 `ArmService`를 거치고 `runs/날짜-시각/`에 `events.jsonl`, `status.csv`(전압 포함)를 남긴다.
+  - 동작: `status|home|park|movej|goto|pick|place|gripper`, 자동 작업 `run --source manual [--step] [--dry-run]`(`config/manual_objects.yaml`의 물체를 가까운 순으로 집어 `workspace.yaml`의 배출 구역으로 옮긴다).
+  - `keys`: Tab으로 관절 / 직교 조그 / 좌표 입력 세 모드. 좌표: `x y 높이 [yaw]`, `d dx dy dz`, `frame table|robot|tool`, `tcp tip|ref`, `speed|jog|cart N`, 높이는 작업대 면 위 mm, 닿지 않으면 움직이지 않고 이유를 알림 (`decisions/0013`). 옵션 `--jog-speed`, `--cart-speed`, `--trace`(명령·실제 위치 기록과 관절별 떨림 요약). 키 상태를 창과 상관없이 읽으므로 실행 중 다른 창에 타이핑하지 않는다. 옛 `jog`(`--cartesian`)도 남아 있다.
+  - 교시: `record <이름>`(홈으로 이동 -> 팔을 잡고 Enter -> 3초 뒤 토크가 꺼지고 손으로 움직인 자세와 시각을 기록(설정 `record_hz` 20Hz, `record_max_s` 90초, `--record-hz`, `--record-max-s`로 이번만 변경), `config/sequences/`에 길이·속도 요약과 함께 저장, `decisions/0018·0019`), `info <이름>`(길이, 평균·최대 속도, 멈춤/느림/빠름 구간 목록), `replay <이름>`(`--until-limit`, `--seg-speed 1=0.5,3=2`로 구간별 속도)·`seq <이름>`은 재생.
+  - 진단: `powertest [반복]`(최대 200°/s로 크게 휘두르며 전압·전류·부하, 팔을 끝까지 폄), `shaketest [반복]`(가속 한계·속도별 이동마다 떨림 측정, m 키로 표시, `--speeds`와 가속 값 목록), `servoinfo`(서보 설정 레지스터 읽기), `linkwatch`(서보 1~6 응답이 끊기고 돌아오는 순간을 시각과 함께 표시, 접촉 불량 찾기). `--hz N`은 제어 주기를 이번만 바꿔 시험한다(50Hz가 가장 낫다).
+  - 안전 설정: `--free`(작업대 가장자리만 끔), `--unsafe`(관절 한계·작업 영역·바닥 모두 끔, 한 주기 이동량 한계와 과열·과부하 감시는 유지), `--safety-margin N`(관절 한계를 N°만큼 줄이거나 음수면 실제 가동 범위까지 넓힘), `--box x0,x1,y0,y1,z0,z1`(XYZ 허용 범위, 작업대 좌표 mm, z는 작업대 면 위 턱 끝 높이). `keys` 좌표 모드에서는 `safety ...`. GUI는 `ArmService.get_safety()/set_safety()` (`decisions/0015`). `replay`는 `--until-limit`.
+  - 팔은 클램프로 고정하고 전원 스위치 옆에서 지켜본다. 진단 명령은 팔을 크게 움직이므로 주변을 비운다.
+- 코드가 더 생기면 실행 명령을 이 절에 추가한다.
 
 ## 문서 규칙
 - 새 문서는 `docs/README.md`에 정해진 네 위치 중 하나에 만들고, 색인에 한 줄을 추가한다. 어느 위치에도 맞지 않는 문서는 만들지 않는다.

@@ -1,6 +1,6 @@
 # 시스템 설계서
 
-상태: 확정 · 갱신 2026-11-01
+상태: 확정 · 갱신 2026-11-02
 
 시스템 전체가 어떻게 맞물리는지 정한다. 모듈별 상세 설계는 이 문서의 경계를 따른다. 팔 모듈은 `arm-software-spec.md`, 인식(초음파·카메라)과 GUI는 해당 개발 단계에서 따로 쓴다.
 
@@ -138,7 +138,7 @@ src/so101_studio/
   task/          runner.py, policy.py (우선순위·도달 범위 판단)
   service/       studio.py, arm_service.py
   cli/           __main__.py
-  gui/           (기술 결정 후)
+  gui/           NiceGUI 앱 틀 + Viser 3D (gui-spec.md 7절, decisions/0023)
 firmware/esp32_scanner/   (3단계)
 config/          robot.yaml, workspace.yaml, manual_objects.yaml, sequences/, calibration/
 assets/          URDF, 메쉬
@@ -163,21 +163,35 @@ docs/
 | 0~2. 구동 점검, 동작 라이브러리, 작업 공간 | `core`, `arm`, `perception/manual`, `task`, `service`, `cli` |
 | 3. 초음파 인식 | `firmware/esp32_scanner`, `perception/ultrasonic` |
 | 4. 카메라 인식 | `perception/camera` |
-| 5. 비교 실험·GUI | `gui`, 실험 기능(F3, F4) |
+| GUI (2차 단계, 3단계와 병행) | `gui` (gui-spec.md, GUI 세션) |
+| 5. 비교 실험 | 실험 기능(F3, F4) |
 
 0~2단계가 끝나면 `ManualSource`로 "좌표 입력 → 자동으로 여러 물체 집어 옮기기"가 동작해야 한다. 센서가 붙으면 `ManualSource`를 `UltrasonicSource`로 바꾸기만 한다.
 
 ## 12. 0~2단계 작업 순서 (로컬 세션)
 팔 작업(T0~T11)의 상세와 완료 기준은 `arm-software-spec.md` 10~11절에 있다. 전체 순서는 아래와 같다.
 
-| 순서 | 작업 | 완료 기준 |
-|---|---|---|
-| 1 | T0 하드웨어 초기 설정, T1 환경 구성 | 캘리브레이션 파일 생성, placo 설치 결과 기록 |
-| 2 | C1 `core`: types, frames, config, events, logging | 좌표 변환·설정 읽기 단위 테스트 통과 |
-| 3 | T2~T7 팔 (장치 → 기구학 → MoveJ → 안전 → MoveL → 집기·놓기) | 각 작업의 완료 기준 |
-| 4 | S1 `perception/manual` | `manual_objects.yaml`의 물체 3개를 `ScanResult`로 반환 |
-| 5 | S2 `task` 상태 머신 + 우선순위 | `SimDriver` + `ManualSource`로 물체 3개 자동 사이클이 테스트에서 끝까지 돈다 |
-| 6 | S3 `service`(Studio) + CLI `run --source manual [--step]` | 실제 팔로 물체 3개를 자동으로 집어 옮긴다 |
-| 7 | T8~T11 원격 조종, 녹화·재생, 시연 동작, 추종 | 각 작업의 완료 기준 |
+결과 열은 2026-11-02 기준이다(`arm-dev-status.md`). ✅ 완료, △ 구현은 끝났고 실측이 남음.
+
+| 순서 | 작업 | 완료 기준 | 결과 |
+|---|---|---|---|
+| 1 | T0 하드웨어 초기 설정, T1 환경 구성 | 캘리브레이션 파일 생성, placo 설치 결과 기록 | ✅ |
+| 2 | C1 `core`: types, frames, config, events, logging | 좌표 변환·설정 읽기 단위 테스트 통과 | ✅ |
+| 3 | T2~T7 팔 (장치 → 기구학 → MoveJ → 안전 → MoveL → 집기·놓기) | 각 작업의 완료 기준 | △ T3·T6 줄자 실측, T7 실물 집기 남음 |
+| 4 | S1 `perception/manual` | `manual_objects.yaml`의 물체 3개를 `ScanResult`로 반환 | ✅ |
+| 5 | S2 `task` 상태 머신 + 우선순위 | `SimDriver` + `ManualSource`로 물체 3개 자동 사이클이 테스트에서 끝까지 돈다 | ✅ |
+| 6 | S3 `service`(Studio) + CLI `run --source manual [--step]` | 실제 팔로 물체 3개를 자동으로 집어 옮긴다 | △ 물체 없이(`--dry-run`) 실제 팔로 3자리 순회 성공, 실물은 그리퍼 재설계 후 |
+| 7 | T8~T11 원격 조종, 녹화·재생, 시연 동작, 추종 | 각 작업의 완료 기준 | ✅ |
+
+시뮬레이션 테스트 142개와 린트 통과(2026-11-01).
+
+### 0~2단계에서 남은 일
+| 구분 | 내용 |
+|---|---|
+| 실측 | `table_z_mm`, T6 위치 정확도(줄자), T7 실물 집기 성공률, 그리퍼 큰·작은 벌림 폭 |
+| 하드웨어 | 전원 계통 점검(서보 6개 동시 토크 꺼짐 3회), 물리 비상 정지 스위치, 그리퍼 재설계(조원) |
+| 재확인 | 새 설정(가속 10, 팔꿈치 95, 홈 93)으로 `pick`/`place`/`run --dry-run` 접촉 감지 |
+| 설계와 차이 | 7절 `studio.perception`(`select`, `calibrate`, `scan`)과 `studio.task.step()`은 아직 없다. CLI는 Enter로 다음 단계를 받는다. GUI 단계에서 추가한다 |
+| 작업 공간 | 배치와 작업대 크기 미정. 수직 하강 도달 반경 90~250mm(계산), 접근 높이 40mm |
 
 측정 결과는 `measurements.md`에 기록한다.
