@@ -5,7 +5,7 @@ requires-python = ">=3.12"
 dependencies = ["pyyaml", "ruckig"]
 
 [project.optional-dependencies]
-gui = ["viser", "nicegui"]
+gui = ["viser[urdf]", "nicegui"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
