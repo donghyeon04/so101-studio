@@ -189,6 +189,26 @@ class ArmService:
             return "ik_fail", None
         return self.safety.check_goal(q), q
 
+    def preview_path(self, pose: ToolPose, speed_pct: float | None = None, dt: float = 0.05) -> dict:
+        """움직이지 않고 move_tool(pose)이 따라갈 경로를 계산한다 (REQ-008). 3D 경로 선용.
+        {"ok", "reason"(안전 검사에 걸린 이유 또는 ik_fail 또는 None), "duration_s", "joints": [{"t", "q"(JointState)}], "tool": [{"t", "x_mm", "y_mm", "z_mm"}]}.
+        t는 전체 경로의 시작부터 초. tool은 작업대 좌표 mm(z는 move_tool과 같은 모델 z). 직선으로 못 가면 move_tool처럼 위에서 내려오는 두 구간이다."""
+        trajs = plan_goto(self.kin, self.cfg, self.driver.read_joints(), pose, speed_pct or self.speed)
+        if trajs is None:
+            return {"ok": False, "reason": "ik_fail", "duration_s": 0.0, "joints": [], "tool": []}
+        reason, joints, tool, t0 = None, [], [], 0.0
+        for tr in trajs:
+            reason = reason or self.safety.check_path(tr)
+            n = max(1, round(tr.duration_s / dt))
+            for i in range(n + 1):
+                t = tr.duration_s * i / n
+                q = tr.sample(t)
+                f = self.kin.fk(q)
+                joints.append({"t": t0 + t, "q": q})
+                tool.append({"t": t0 + t, "x_mm": f.x_mm, "y_mm": f.y_mm, "z_mm": f.z_mm})
+            t0 += tr.duration_s
+        return {"ok": reason is None, "reason": reason, "duration_s": t0, "joints": joints, "tool": tool}
+
     def pick_and_place(self, obj: DetectedObject, zone: str | None = None) -> MotionResult:
         self.driver.set_torque(True)
         r = self.skills.pick(obj)
