@@ -2,6 +2,8 @@
 장면 좌표는 작업대 좌표를 m로 옮긴 것이고, z = 0이 작업대 면이다."""
 
 import math
+import threading
+import time
 from pathlib import Path
 
 import numpy as np
@@ -26,6 +28,10 @@ DEFAULT_PICK_H_MM = 40.0  # 작업대를 클릭했을 때의 높이. 0이면 턱
 Z_UP = (0.0, 0.0, 1.0)
 ORBIT_DEG_PER_PX = 0.8  # 뷰큐브를 끌 때
 ORBIT_MAX_ELEVATION_DEG = 87.0  # 위쪽 축을 넘어가면 화면이 뒤집힌다
+VIEW_S_PER_180 = 0.75  # 시점 전환 시간은 회전 각도에 비례한다(Blender 방식). 180°에 AutoCAD 기본값 750ms
+VIEW_MIN_S = 0.25  # 작은 회전이 너무 빨리 끝나지 않게 한다
+VIEW_HZ = 60  # Viser가 메시지를 내보내는 주기와 같다
+VIEW_SETTLE_S = 1.0  # 전환이 끝난 뒤 브라우저가 늦게 돌려주는 값을 무시하는 최대 시간. 사람이 3D를 직접 돌리면 이 뒤로는 따라간다
 
 
 def table_hit(origin, direction) -> tuple[float, float] | None:
@@ -86,6 +92,41 @@ def orbit_offset(offset, up, dx_px: float, dy_px: float) -> np.ndarray:
     return distance * np.array((math.cos(elevation) * math.cos(azimuth), math.cos(elevation) * math.sin(azimuth), math.sin(elevation)))
 
 
+def view_ease(t: float) -> float:
+    """시점 전환의 속도 곡선. 천천히 시작해 천천히 멈춘다(Blender와 같은 식, 최고 속도는 평균의 1.5배). 느낌을 바꾸려면 이 식만 고친다."""
+    return 3 * t * t - 2 * t * t * t
+
+
+def camera_rotation(position, look_at, up) -> tf.SO3:
+    """카메라 자세. 회전 행렬의 열이 (오른쪽, 위, 뒤)다."""
+    back = np.asarray(position, float) - np.asarray(look_at, float)
+    back /= np.linalg.norm(back)
+    right = np.cross(np.asarray(up, float), back)
+    if np.linalg.norm(right) < 1e-6:  # 위쪽 축을 곧장 보는 중: 시선과 가장 덜 겹치는 축을 위쪽 대신 쓴다
+        right = np.cross(np.eye(3)[np.argmin(np.abs(back))], back)
+    right /= np.linalg.norm(right)
+    return tf.SO3.from_matrix(np.column_stack((right, np.cross(back, right), back)))
+
+
+def view_path(start, goal) -> tuple:
+    """(걸리는 초, 진행률 0~1을 (위치, 보는 점, 위쪽)으로 바꾸는 함수). start와 goal도 그 형식이다. 쿼터니언으로 최단 경로를 돌아 위·아래 시점을 지나도 뒤집히지 않는다."""
+    begin, turn = camera_rotation(*start), None
+    turn = (begin.inverse() @ camera_rotation(*goal)).log()
+    look0, look1 = np.asarray(start[1], float), np.asarray(goal[1], float)
+    dist0 = np.linalg.norm(np.asarray(start[0], float) - look0)
+    dist1 = np.linalg.norm(np.asarray(goal[0], float) - look1)
+
+    def at(t: float) -> tuple:
+        if t >= 1.0:
+            return goal
+        s = view_ease(t)
+        axes = (begin @ tf.SO3.exp(turn * s)).as_matrix()
+        look = look0 + (look1 - look0) * s
+        return look + axes[:, 2] * (dist0 + (dist1 - dist0) * s), look, axes[:, 1]
+
+    return max(VIEW_MIN_S, VIEW_S_PER_180 * float(np.linalg.norm(turn)) / math.pi), at
+
+
 class Scene3D:
     def __init__(self, cfg, ws, kin, port: int = DEFAULT_PORT):
         self.server = viser.ViserServer(host=HOST, port=port, label="SO-101 Studio", verbose=False)
@@ -140,6 +181,11 @@ class Scene3D:
         self._home = ((w / 2, -0.22, 0.34), (w / 2, h / 2 - 0.02, 0.06), Z_UP)
         self.camera = self._home  # (위치, 보는 점, 위쪽). 뷰큐브가 읽는다. 3D 칸이 여럿이면 마지막으로 움직인 칸의 값이다
         self._camera_ready: set[int] = set()
+        self._flight = 0  # 시점 전환 번호. 새 전환이나 끌기가 올리면 앞 전환이 멈춘다
+        self._flying = False
+        self._flight_thread: threading.Thread | None = None
+        self._sent: dict[int, tuple] = {}  # 3D 칸마다 마지막으로 보낸 시점
+        self._settling: dict[int, tuple] = {}  # 전환을 마치고 브라우저가 따라오길 기다리는 칸: (목표 위치, 기한)
         self.server.on_client_connect(self._watch_camera)
         self.server.on_client_disconnect(lambda client: self._camera_ready.discard(client.client_id))
 
@@ -246,9 +292,22 @@ class Scene3D:
     def _watch_camera(self, client) -> None:
         def moved(camera) -> None:
             self._camera_ready.add(client.client_id)  # 첫 소식 전에는 Viser가 카메라 값을 읽지 못하게 한다
-            self.camera = (camera.position, camera.look_at, camera.up_direction)
+            if not self._is_late_echo(client.client_id, camera.position):
+                self.camera = (camera.position, camera.look_at, camera.up_direction)
 
         client.camera.on_update(moved)
+
+    def _is_late_echo(self, client_id: int, position) -> bool:
+        """우리가 보낸 시점이 브라우저를 돌아 늦게 온 값인가. 그대로 쓰면 큐브가 지나온 길을 다시 돈다. 가려진 탭은 1초씩 늦기도 한다."""
+        if self._flying:
+            return True
+        settling = self._settling.get(client_id)
+        if settling is None:
+            return False
+        if np.linalg.norm(np.asarray(position) - settling[0]) < 1e-3 or time.monotonic() > settling[1]:
+            del self._settling[client_id]
+            return False
+        return True
 
     def _clients(self):
         """카메라 값을 받은 3D 칸들."""
@@ -259,26 +318,61 @@ class Scene3D:
             client.camera.up_direction = up
             client.camera.position = position
             client.camera.look_at = look_at
-        self.camera = (position, look_at, up)
+        self.camera = self._sent[client.client_id] = (position, look_at, up)
+
+    def _fly(self, goal_for) -> None:
+        """열려 있는 3D 칸마다 goal_for(카메라)의 시점으로 부드럽게 옮긴다. 블로킹하지 않는다."""
+        self._flight += 1
+        paths = []
+        for client in self._clients():
+            camera = client.camera
+            start = (camera.position, camera.look_at, camera.up_direction)
+            if self._flying or client.client_id in self._settling:  # 브라우저 값은 늦다. 이어서 돌 때 뒤로 튀지 않게 보낸 값에서 시작한다
+                start = self._sent.get(client.client_id, start)
+            paths.append((client, *view_path(start, goal_for(camera))))
+        if paths:
+            self._flying = True
+            self._flight_thread = threading.Thread(target=self._run_flight, args=(self._flight, paths), daemon=True)
+            self._flight_thread.start()
+
+    def _run_flight(self, flight: int, paths: list) -> None:
+        begin = time.monotonic()
+        try:
+            while flight == self._flight:
+                elapsed = time.monotonic() - begin
+                for client, duration, at in paths:
+                    self._aim(client, *at(min(elapsed / duration, 1.0)))
+                if elapsed >= max(duration for _, duration, _ in paths):
+                    self._settling = {c.client_id: (np.asarray(at(1.0)[0], float), time.monotonic() + VIEW_SETTLE_S) for c, _, at in paths}
+                    return
+                time.sleep(1 / VIEW_HZ)
+        finally:
+            if flight == self._flight:
+                self._flying = False
 
     def look_from(self, direction) -> None:
         """그 방향에서 보는 점을 본다(거리는 그대로). 열려 있는 3D 칸 모두에 적용된다."""
         unit = np.asarray(direction, float) / np.linalg.norm(direction)
-        for client in self._clients():
-            look_at = np.asarray(client.camera.look_at)
-            distance = np.linalg.norm(np.asarray(client.camera.position) - look_at)
-            self._aim(client, look_at + unit * distance, look_at, up_for(direction))
+
+        def goal(camera) -> tuple:
+            look_at = np.asarray(camera.look_at)
+            return look_at + unit * np.linalg.norm(np.asarray(camera.position) - look_at), look_at, up_for(direction)
+
+        self._fly(goal)
 
     def orbit(self, dx_px: float, dy_px: float) -> None:
-        """뷰큐브를 끈 만큼 보는 점 둘레로 돈다."""
+        """뷰큐브를 끈 만큼 보는 점 둘레로 돈다. 끌기는 손을 바로 따라가므로 진행 중인 전환을 멈춘다."""
+        self._flight += 1
+        self._flying = False
+        self._settling = {}
         for client in self._clients():
             look_at = np.asarray(client.camera.look_at)
             offset = orbit_offset(np.asarray(client.camera.position) - look_at, client.camera.up_direction, dx_px, dy_px)
             self._aim(client, look_at + offset, look_at, Z_UP)
 
     def home(self) -> None:
-        for client in self._clients():
-            self._aim(client, *self._home)
+        self._fly(lambda _camera: self._home)
 
     def close(self) -> None:
+        self._flight += 1
         self.server.stop()

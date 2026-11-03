@@ -19,6 +19,7 @@ FACES = {
 }
 AXES = (("X", (1, 0, 0), theme.DANGER), ("Y", (0, 1, 0), theme.OK), ("Z", (0, 0, 1), theme.ACCENT))
 AXIS_LEN = 1.45  # 큐브 한 변의 배수. 좌표축이 큐브 밖으로 나와 보이는 길이
+CUBE_SYNC_S = 1 / 30  # 시점 전환 때 큐브가 끊겨 보이지 않을 만큼. 값이 그대로면 아무것도 보내지 않는다
 DIRECTIONS = {d for d in product((-1, 0, 1), repeat=3) if any(d)}  # 면 6 + 모서리 12 + 꼭짓점 8
 
 VIEW_CUBE_JS = """
@@ -171,4 +172,4 @@ def view_cube(scene) -> None:
             triad.set_content(triad_svg(axes))
 
     sync()
-    ui.timer(0.05, sync)
+    ui.timer(CUBE_SYNC_S, sync)
