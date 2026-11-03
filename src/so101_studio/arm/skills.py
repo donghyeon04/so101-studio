@@ -2,6 +2,7 @@
 import math
 import time
 from dataclasses import astuple, replace
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -17,6 +18,20 @@ class Skills:
     def __init__(self, ctl, kin, cfg, ws, speed_pct: float | None = None):
         self.ctl, self.kin, self.cfg, self.ws = ctl, kin, cfg, ws
         self.speed = speed_pct if speed_pct is not None else cfg.speed_pct_default
+        self._grip_orig: int | None = None  # 조임 한계를 바꾸기 전 값(놓은 뒤 되돌린다)
+        ctl.grip_warn_pct, ctl.grip_load_s, ctl.grip_open = cfg.gripper_load_warn_pct, cfg.gripper_load_s, cfg.gripper_open  # 그리퍼 부하 감시 (결정 0033)
+
+    def _set_grip_torque(self, value: int) -> None:
+        if self._grip_orig is None:
+            self._grip_orig = self.ctl.driver.gripper_torque_limit()
+        self.ctl.driver.set_gripper_torque_limit(value)
+
+    def _restore_grip_torque(self) -> None:
+        """조임 한계를 원래 값으로 되돌리고 그리퍼 목표 고정을 푼다. 아무것도 안 바꿨으면 아무것도 쓰지 않는다."""
+        self.ctl.hold_gripper(None)
+        if self._grip_orig is not None:
+            orig, self._grip_orig = self._grip_orig, None
+            self.ctl.driver.set_gripper_torque_limit(orig)
 
     def _q(self) -> JointState:
         return self.ctl.driver.read_joints()
@@ -113,18 +128,18 @@ class Skills:
         self.ctl.wait_idle()
         return contact, r
 
-    def _closing_path(self, q_start: JointState, obj, yaw_t: float, tilt_ok: bool, v0: float, v_end: float, gap0: float, gap_end: float):
+    def _closing_path(self, q_start: JointState, obj, yaw_t: float, tilt_ok: bool, v0: float, v_end: float, gap0: float, gap_end: float, tip_z: float | None = None):
         """닫으면서 손의 자세와 위치를 매 단계 다시 계산한 한 개의 경로: 두 턱 끝의 중간점이 물체 중심에 계속 머물고,
         기울기는 닫히는 정도에 맞춰 풀린다(고정 턱은 +m 쪽으로, 가동 턱은 -m 쪽으로 같이 다가온다)."""
-        n = max(2, math.ceil((v0 - v_end) / 1.5))
+        n = max(2, math.ceil(abs(v0 - v_end) / 1.5))
         q, pts = q_start, [np.array(astuple(replace(q_start, gripper=v0)), float)]
         for i in range(1, n + 1):
             v = v0 + (v_end - v0) * i / n
-            q = self.kin.ik(self._hand_pose(obj.x_mm, obj.y_mm, yaw_t, v, tilt_ok, (self.cfg.table_z_mm + self.cfg.grasp_height_mm)), q, tol_mm=3.0)
+            q = self.kin.ik(self._hand_pose(obj.x_mm, obj.y_mm, yaw_t, v, tilt_ok, (self.cfg.table_z_mm + self.cfg.grasp_height_mm) if tip_z is None else tip_z), q, tol_mm=3.0)
             if q is None:
                 return None
             pts.append(np.array(astuple(replace(q, gripper=v)), float))
-        return LineTrajectory(np.array(pts), QuinticShape(max(1.0, (gap0 - gap_end) / 16.0)))  # 틈 16mm/s로 천천히
+        return LineTrajectory(np.array(pts), QuinticShape(max(1.0, abs(gap0 - gap_end) / 16.0)))  # 틈 16mm/s로 천천히
 
     def pick(self, obj: DetectedObject) -> MotionResult:
         """고정 턱 1개 + 가동 턱 1개. URDF 기하(결정 0009, 0010, 0011): 기준점(gripper_frame)은 고정 턱 안쪽 면 위에 있고 가동 턱은 +m 쪽이다.
@@ -132,7 +147,8 @@ class Skills:
         (2) 턱 축이 팔이 뻗은 방향이면 손을 기울여 V자를 대칭에 가깝게 만들고, 닫을수록 기울기를 푼다,
         (3) 닫을 때 중간점이 물체 중심에 머물도록 손을 같이 보낸다(F1 Hand '닫으며 중심 쪽으로 이동'),
         (4) 그리퍼가 명령보다 앞서 멈추면(접촉) 그 자리에서 정지한다. 물체 크기를 몰라도 된다."""
-        yaw = self._jaw_yaw((obj.angle_deg or 0.0) + 90.0)  # 턱 축이 물체 긴 변에 수직이 되도록 (spec 6.6: 물체 각도 + 90°)
+        yaw = self._jaw_yaw((obj.angle_deg or 0.0) + 90.0)
+        lo_g = self.cfg.joint_limits_deg["gripper"][0]  # 턱 축이 물체 긴 변에 수직이 되도록 (spec 6.6: 물체 각도 + 90°)
         m = (math.cos(math.radians(yaw)), math.sin(math.radians(yaw)))
         known = obj.width_mm > 0
         gap_min = min(mm for _, mm in self.cfg.gripper_width_mm)
@@ -161,19 +177,44 @@ class Skills:
         r = self._run([self._gripper(v0), down])  # 2. 열기 3. 하강
         if r.status != "ok":
             return r
-        self.ctl.driver.set_gripper_torque_limit(self.cfg.gripper_squeeze_torque)  # 조임 힘을 낮춰 얇은 물체가 미끄러져 빠지지 않게
+        self._set_grip_torque(self.cfg.gripper_squeeze_torque)  # 조임 힘을 낮춰 얇은 물체가 미끄러져 빠지지 않게(RAM Torque_Limit, 결정 0033)
         try:
             contact, r = self._close_until_contact(closing)  # 4. 닫으며 손을 같이 보낸다
-        finally:
-            self.ctl.driver.set_gripper_torque_limit(500)
+        except BaseException:
+            self._restore_grip_torque()
+            raise
         if r.status not in ("ok", "stopped"):
+            self._restore_grip_torque()
             return r
+        if contact:  # 접촉: 목표를 지금 위치에서 예압만큼만 더 닫힌 쪽으로 두고(계속 미는 것을 없앤다), 들고 가는 동안 조임 한계를 낮춘다. 되돌리는 것은 place가 끝난 뒤
+            self.ctl.hold_gripper(max(lo_g, self._q().gripper - self.cfg.grip_preload_units))
+            self._set_grip_torque(self.cfg.gripper_hold_torque)
+        else:
+            self._restore_grip_torque()
         here = self.kin.fk(self._q())
         up = self._line(self._q(), replace(here, z_mm=here.z_mm + self.cfg.approach_height_mm))  # 5. 자세는 그대로 수직으로 상승
         if up is None:
             return fail
         r = self._run([up])
-        return r if r.status != "ok" or contact else MotionResult("no_object", r.duration_s, r.final_tool)
+        if contact or r.status != "ok":
+            return r
+        self._run([self._gripper(self.cfg.gripper_open)])  # 접근 높이까지 올라온 뒤에 연다(바닥에서는 열지 않는다): 턱 사이에 끼인 것을 푼다
+        return MotionResult("no_object", r.duration_s, r.final_tool)
+
+    def _opening_path(self):
+        """놓을 때: 집을 때의 닫는 경로를 반대로(지금 값 -> gripper_open) 써서 두 턱 끝의 중간점이 제자리에 머물게 손을 같이 보낸다. 못 풀면 None."""
+        q = self._q()
+        v0, v1 = q.gripper, self.cfg.gripper_open
+        if abs(v1 - v0) < 1.0:
+            return None
+        p = self.kin.fk(q)
+        f, m = self.kin.jaw_tip_offsets(-90.0, p.yaw_deg, v0)
+        mid = (f[:2] + m[:2]) / 2
+        center = SimpleNamespace(x_mm=p.x_mm + float(mid[0]), y_mm=p.y_mm + float(mid[1]))
+        tip_z = p.z_mm + float(min(f[2], m[2]))
+        pts = sorted((mm, v) for v, mm in self.cfg.gripper_width_mm)
+        gap = lambda v: float(np.interp(v, [p_[1] for p_ in pts], [p_[0] for p_ in pts]))
+        return self._closing_path(q, center, p.yaw_deg, False, v0, v1, gap(v0), gap(v1), tip_z)
 
     def place(self, zone: str) -> MotionResult:
         z = self.ws.drop_zones[zone]
@@ -189,7 +230,11 @@ class Skills:
         r = self._run([self._joint_move(q_hover), down])
         if r.status != "ok":
             return r
-        r = self._run([self._gripper(self.cfg.gripper_open)])
-        if r.status != "ok":
-            return r
-        return self._run([down.reversed(self._q().gripper)])
+        try:
+            self.ctl.hold_gripper(None)  # 놓는다: 예압 고정을 풀고
+            r = self._run([self._opening_path() or self._gripper(self.cfg.gripper_open)])  # 열리는 동안 손을 같이 보내 물체 위치를 지킨다
+            if r.status != "ok":
+                return r
+            return self._run([down.reversed(self._q().gripper)])
+        finally:
+            self._restore_grip_torque()  # 예외가 나도 조임 한계를 원래 값으로

@@ -1,4 +1,5 @@
 import math
+import time
 from dataclasses import replace
 
 import numpy as np
@@ -179,3 +180,101 @@ def test_symmetric_tilt_is_half_the_jaw_opening_angle(kin):
     for v in (10.0, 20.0, 40.0):
         assert sk._tilt(v) == pytest.approx(min(CFG.grasp_tilt_deg, 0.607 * v), abs=0.2)  # θ = 1.214 v, 한쪽 턱이 ±θ/2
     assert sk._tilt(0.0) == 0.0 and sk._tilt(100.0) == CFG.grasp_tilt_deg  # 다 닫으면 서고, 많이 벌리면 손목 한계에서 멈춘다
+
+
+# ---- REQ-020 (결정 0033): 예압, RAM 조임 한계, no_object 때 열기, 그리퍼 부하 두 단계, 놓기 보정
+
+def test_contact_sets_goal_to_position_plus_preload_and_torque_limit_goes_300_200_then_original(kin):
+    d, ctl, sk = rig(kin, BLOCK)
+    d.torque_limit = 777  # 원래 값
+    r = sk.pick(obj())
+    assert r.status == "ok"
+    assert ctl.grip_hold == pytest.approx(d.read_joints().gripper - CFG.grip_preload_units, abs=0.3)  # 실제보다 예압만큼만 닫힌 쪽
+    assert ctl._last.gripper == pytest.approx(ctl.grip_hold, abs=0.3)  # 위로 올라간 뒤에도 목표가 예압 값
+    assert d.torque_limit_writes == [CFG.gripper_squeeze_torque, CFG.gripper_hold_torque]  # 들고 있는 동안은 200
+    assert sk.place("right").status == "ok"
+    ctl.close()
+    assert d.torque_limit_writes == [300, 200, 777] and d.torque_limit == 777  # place가 끝난 뒤 원래 값
+    assert ctl.grip_hold is None
+
+
+def test_torque_limit_is_ram_not_eeprom():
+    import inspect
+
+    from so101_studio.arm.driver import ArmDriver
+
+    src = inspect.getsource(ArmDriver.set_gripper_torque_limit)
+    assert '"Torque_Limit"' in src and 'write("Max_Torque_Limit"' not in src
+
+
+def test_torque_limit_is_restored_when_place_raises(kin):
+    d, ctl, sk = rig(kin, BLOCK)
+    d.torque_limit = 900
+    assert sk.pick(obj()).status == "ok"
+    sk._opening_path = lambda: (_ for _ in ()).throw(RuntimeError("boom"))
+    with pytest.raises(RuntimeError):
+        sk.place("right")
+    ctl.close()
+    assert d.torque_limit == 900 and ctl.grip_hold is None
+
+
+def test_no_object_opens_only_after_rising_to_the_approach_height(kin):
+    d, ctl, sk = rig(kin, None)
+    d.torque_limit = 900
+    r = sk.pick(obj())
+    ctl.close()
+    assert r.status == "no_object" and d.torque_limit == 900  # 접촉이 없으면 한계도 바로 되돌린다
+    tail = d.log[-1]
+    assert tail.gripper == pytest.approx(CFG.gripper_open, abs=1)  # 마지막에 열려 있다
+    gmin = min(q.gripper for q in d.log)
+    i_open = max(i for i, q in enumerate(d.log) if q.gripper <= gmin + 0.3) + 1  # 닫힌 채 마지막 틱 다음부터 열린다
+    z_at_open_start = kin.fk(d.log[i_open - 1]).z_mm
+    z_min = min(kin.fk(q).z_mm for q in d.log)
+    assert z_at_open_start > z_min + CFG.approach_height_mm * 0.8  # 바닥(가장 낮은 곳)이 아니라 올라온 높이에서 열기 시작
+
+
+def test_grip_load_two_stages_hold_then_open_and_fault(kin):
+    d, ctl, sk = rig(kin, BLOCK)
+    assert sk.pick(obj()).status == "ok"
+    events = []
+    ctl.on_event = lambda *a: events.append(a)
+    d.grip_load = 80.0  # 기준(60%) 위
+    t0 = time.perf_counter()
+    while ctl.state != "fault" and time.perf_counter() - t0 < 6:
+        time.sleep(0.05)
+    ctl.close()
+    codes = [e[2] for e in events]
+    assert "ARM-GRIP-OVERLOAD-WARN" in codes and "ARM-GRIP-OVERLOAD" in codes and codes.index("ARM-GRIP-OVERLOAD-WARN") < codes.index("ARM-GRIP-OVERLOAD")
+    assert ctl.fault == "grip_overload" and d.read_joints().gripper == pytest.approx(CFG.gripper_open, abs=1)  # 그리퍼를 열었다
+
+
+def test_grip_load_below_limit_does_nothing(kin):
+    d, ctl, sk = rig(kin, BLOCK)
+    assert sk.pick(obj()).status == "ok"
+    d.grip_load = 40.0
+    time.sleep(2.5)
+    ctl.close()
+    assert ctl.state != "fault"
+
+
+def test_place_moves_the_hand_so_the_jaw_midpoint_stays_while_opening(kin):
+    d, ctl, sk = rig(kin, BLOCK)
+    assert sk.pick(obj()).status == "ok"
+    d.log.clear()
+    assert sk.place("right").status == "ok"
+    ctl.close()
+    top = max(q.gripper for q in d.log)
+    start = next(i for i, q in enumerate(d.log) if q.gripper > min(x.gripper for x in d.log) + 3)
+
+    def mid(q):
+        p = kin.fk(q)
+        f, m = kin.jaw_tip_offsets(-90.0, p.yaw_deg, q.gripper)
+        c = (f[:2] + m[:2]) / 2
+        return np.array([p.x_mm + c[0], p.y_mm + c[1]])
+
+    opened = [q for q in d.log[start:] if q.gripper >= top - 0.5]
+    assert opened, "열린 구간이 있어야 한다"
+    m0 = mid(d.log[start - 1])
+    assert max(np.linalg.norm(mid(q) - m0) for q in d.log[start:start + len(opened)]) < 4.0  # 열리는 동안 중간점이 거의 제자리
+    a0, a1 = kin.fk(d.log[start - 1]), kin.fk(opened[-1])
+    assert np.hypot(a1.x_mm - a0.x_mm, a1.y_mm - a0.y_mm) > 1.0  # 손은 실제로 움직였다(보정이 있었다)
