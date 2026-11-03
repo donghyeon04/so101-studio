@@ -128,6 +128,7 @@ def test_main_binds_localhost_and_connects_the_real_arm_without_sim(monkeypatch)
     class FakeBackend:
         def __init__(self, speed=None, link=None, viser_port=None, arm_name=None, **real):
             self.speed, self.real, self.link = speed, real, link
+            self.run_dir = "runs/시험"
 
         def close(self):
             pass
@@ -136,8 +137,8 @@ def test_main_binds_localhost_and_connects_the_real_arm_without_sim(monkeypatch)
         def __init__(self, sim):
             self.sim = sim
 
-        def start(self):
-            pass
+        def start(self, run_dir=None):
+            self.run_dir = run_dir
 
         def stop(self):
             pass
@@ -154,6 +155,7 @@ def test_main_binds_localhost_and_connects_the_real_arm_without_sim(monkeypatch)
     assert [(k["host"], k["port"]) for _, k in calls] == [("127.0.0.1", 9000), ("127.0.0.1", gui_app.DEFAULT_PORT)]
     assert calls[0][0].speed == 20
     assert calls[0][0].real == {} and calls[0][0].link.sim is True
+    assert calls[0][0].link.run_dir == "runs/시험"  # 감시 기록을 실행 폴더에 남긴다
 
     # 실제 팔: 포트는 보드 시리얼로 고르고, 감시 프로세스는 기록만 하는 --sim이 아니어야 한다
     board = {"device": "COM7", "vid": 0x1A86, "pid": 0x55D3, "serial": "5B8E114816", "description": ""}
