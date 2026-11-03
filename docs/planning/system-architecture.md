@@ -156,10 +156,13 @@ docs/
 
 | 파일 | 내용 | 쓰는 곳 |
 |---|---|---|
-| `events.jsonl` | 명령, `MotionResult`, `TaskEvent`, 오류 | 디버깅, 실행 로그(F1) |
-| `status.csv` | `ArmStatus` 10Hz | 떨림·과열 분석 |
+| `events.jsonl` | 명령, `MotionResult`, `TaskEvent`, 연결·토크·레지스터 쓰기·fault·E-STOP·설정 변경, 예외 (공통 머리, `decisions/0030`) | 디버깅, 실행 로그(F1), 사고 분석 |
+| `status.jsonl` | 상태 10Hz: 관절별 명령·실제·토크·온도·부하·전류, state, fault, 서보 Status, 전압, time_lost_s | 떨림·과열·사고 분석 |
+| `watchdog.jsonl` | 감시 프로세스 heartbeat·작동 (GUI 실행 폴더) | E-STOP 분석 |
 | `scans/NNN.json` | `ScanResult` 원본 | 스캔 그래프(E2), 비교 실험 |
 | `summary.json` | 물체 수, 성공·실패, 단계별 소요 시간 | 결과표, CSV 내보내기(F2) |
+
+사고 묶음은 `runs/incidents/<시각>-<code>/`에 따로 남고 자동으로 지우지 않는다. 형식, 보관, 성능 기준은 `arm-software-spec.md` 8절.
 
 ## 11. 개발 단계와 모듈
 | 개발 단계 (`decisions/0005`) | 만드는 것 |
