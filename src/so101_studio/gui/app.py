@@ -4,6 +4,7 @@ import sys
 
 from nicegui import app, background_tasks, run, ui
 
+from ..core.config import ArmSelectionError
 from . import scene3d, sensors, theme
 from .backend import Backend
 from .pages import arm, logs, manual, params, runs, safety, table, teach, workspace
@@ -59,6 +60,10 @@ def make_root(backend: Backend):
                 resume[0].visible = False
                 ui.space()
                 actions = ui.row().classes("items-center gap-2")
+            if backend.move_lock():  # 연결할 때 정해지고 그 뒤로 바뀌지 않는다
+                with ui.row().classes("w-full items-center gap-1 no-wrap").mark("lock-banner"):
+                    ui.icon("lock", color="negative")
+                    ui.label(f"움직이는 버튼이 꺼져 있습니다: {backend.move_lock()}").classes("page-body")
             if path in BUILDERS:
                 BUILDERS[path](backend, client.id, actions)
                 return
@@ -163,9 +168,10 @@ def main(args) -> None:
     link.start()
     try:
         backend = Backend(
-            speed=getattr(args, "speed", None), link=link, viser_port=getattr(args, "viser_port", scene3d.DEFAULT_PORT)
+            speed=getattr(args, "speed", None), link=link, viser_port=getattr(args, "viser_port", scene3d.DEFAULT_PORT),
+            arm_name=getattr(args, "arm", None),
         )
-    except RuntimeError as e:
+    except (RuntimeError, ArmSelectionError) as e:
         link.stop()
         sys.exit(f"연결 실패: {e}")
     app.on_startup(lambda: background_tasks.create(link.run(), name="watchdog heartbeat"))

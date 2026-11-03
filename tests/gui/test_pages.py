@@ -126,7 +126,7 @@ def test_view_only_browser_can_still_estop(backend):
 
 def test_main_binds_localhost_and_needs_sim(monkeypatch):
     class FakeBackend:
-        def __init__(self, speed=None, link=None, viser_port=None):
+        def __init__(self, speed=None, link=None, viser_port=None, arm_name=None):
             self.speed = speed
 
         def close(self):

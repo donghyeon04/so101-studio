@@ -13,7 +13,8 @@ from nicegui.testing import user_simulation
 
 from so101_studio.core.types import ArmStatus, JointState, ToolPose
 from so101_studio.gui import app as gui_app
-from so101_studio.gui.pages.arm import servo_rows
+from so101_studio.gui import backend as backend_module
+from so101_studio.gui.pages.arm import doctor_summary, servo_rows
 from so101_studio.gui.pages.logs import matches
 from so101_studio.gui.pages.runs import line_options
 from so101_studio.gui.state import LogRecord
@@ -74,9 +75,74 @@ def test_arm_page_shows_table_and_power(backend):
         await user.should_see(marker="servo-table")
         assert await _until(lambda: "V" in _one(user, "power").text)
         assert await _until(lambda: len(_one(user, "servo-table").rows) == 6)
-        assert _one(user, "doctor-state").text == "준비 중"  # REQ-015 임시
 
     in_app(backend, "/arm", check)
+
+
+def test_doctor_card_shows_result_without_opening_ports(backend, monkeypatch):
+    calls = []
+
+    def fake(**kw):
+        calls.append(kw)
+        return {"ok": False, "ports": [], "arm": None, "esp32": None, "checks": [
+            {"name": "numpy", "state": "ok", "text": "numpy 2.2.6", "fix": ""},
+            {"name": "포트 목록", "state": "fail", "text": "포트 0개", "fix": "USB 케이블을 확인한다"},
+            {"name": "서보 응답", "state": "skip", "text": "탐침하지 않았다", "fix": ""},
+        ]}
+
+    monkeypatch.setattr(backend_module, "doctor", fake)
+
+    async def check(user):
+        assert await _until(lambda: _one(user, "doctor-state").text == "정상 1 · 실패 1 · 건너뜀 1")
+        await user.should_see("고치기: USB 케이블을 확인한다")
+        assert "so101_follower_01" in _one(user, "arm-file").text
+        await user.should_not_see(marker="new-arm-steps")
+
+    in_app(backend, "/arm", check)
+    assert calls and all(kw["probe"] is False for kw in calls)
+
+
+def test_arm_can_be_changed_for_the_next_start_when_there_are_several(backend, tmp_path, monkeypatch):
+    local = tmp_path / "local.yaml"
+    monkeypatch.setattr(backend, "local_path", str(local))
+    monkeypatch.setattr(backend, "arm_names", lambda: ["so101_follower_01", "other"])
+
+    async def check(user):
+        assert await _until(lambda: backend.owner is not None and _one(user, "arm-change").enabled)
+        user.find(marker="arm-change").click()
+        assert await _until(local.exists)
+        await user.should_see("다시 시작하면 적용됩니다")
+
+    in_app(backend, "/arm", check)
+    assert local.read_text(encoding="utf-8") == "arm: so101_follower_01\n"
+
+
+def test_doctor_summary_ignores_skipped_checks():
+    assert doctor_summary({"checks": [{"state": "ok"}, {"state": "skip"}]}) == ("ok", "정상 1 · 건너뜀 1")
+    assert doctor_summary({"checks": [{"state": "warn"}, {"state": "fail"}]})[0] == "fail"
+
+
+def test_doctor_failure_is_reported_as_a_check(backend, monkeypatch):
+    def broken(**_kw):
+        raise OSError("없음")
+
+    monkeypatch.setattr(backend_module, "doctor", broken)
+    report = backend.run_doctor()
+    assert report["ok"] is False and "없음" in report["checks"][0]["text"]
+
+
+def test_choose_arm_keeps_local_comments_and_refuses_unknown(backend, tmp_path, monkeypatch):
+    local = tmp_path / "local.yaml"
+    monkeypatch.setattr(backend, "local_path", str(local))
+    assert backend.choose_arm("no_such_arm") and not local.exists()
+    assert backend.choose_arm("so101_follower_01") is None
+    assert local.read_text(encoding="utf-8") == "arm: so101_follower_01\n"
+    local.write_text("# 주석\n# arm: 예시\nport: COM9\narm: other\n", encoding="utf-8")
+    assert backend.choose_arm("so101_follower_01") is None
+    assert local.read_text(encoding="utf-8") == "# 주석\n# arm: 예시\nport: COM9\narm: so101_follower_01\n"
+    local.write_text("port: COM9", encoding="utf-8")
+    assert backend.choose_arm("so101_follower_01") is None
+    assert local.read_text(encoding="utf-8") == "port: COM9\narm: so101_follower_01\n"
 
 
 def test_servoinfo_runs_and_linkwatch_is_off_in_sim(backend):

@@ -37,7 +37,7 @@ def chart_options(data: dict) -> dict:
 
 
 def build(backend, client_id: str, actions) -> None:
-    controls = Controls(backend, client_id)
+    controls = Controls(backend, client_id, moves=True)
     state: dict = {"data": None, "factors": {}}
 
     async def play() -> None:

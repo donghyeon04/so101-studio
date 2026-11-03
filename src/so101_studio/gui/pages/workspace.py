@@ -91,8 +91,8 @@ def build(backend, client_id: str, actions) -> None:
         running = backend.task_running()
         idle = bool(state.status and state.status.state == "idle")
         scan_button.enabled = controls.mine and not running
-        auto_button.enabled = controls.mine and idle and not running
-        step_button.enabled = controls.mine and (not running or backend.paused)
+        auto_button.enabled = controls.mine and idle and not running and not backend.move_lock()
+        step_button.enabled = controls.mine and (not running or backend.paused) and not backend.move_lock()
         pause_button.enabled = controls.mine and running
         pause_button.text = "계속" if backend.paused else "일시정지"
         active = progress_index(state.task_state, state.placed)
