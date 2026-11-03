@@ -96,6 +96,7 @@ def test_doctor_card_shows_result_without_opening_ports(backend, monkeypatch):
         assert await _until(lambda: _one(user, "doctor-state").text == "정상 1 · 실패 1 · 건너뜀 1")
         await user.should_see("고치기: USB 케이블을 확인한다")
         assert "so101_follower_01" in _one(user, "arm-file").text
+        assert "준비 중" in _one(user, "zero-check").text  # REQ-017 임시
         await user.should_not_see(marker="new-arm-steps")
 
     in_app(backend, "/arm", check)
