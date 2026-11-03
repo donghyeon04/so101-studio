@@ -8,6 +8,10 @@ from .engine import AutoCalibrationError
 MIN_VOLT = 11.0
 MAX_TEMP = 60.0
 PERIOD_S = 0.25
+# 한 번 읽은 값이 기준을 넘어도 바로 멈추지 않고 이만큼 더 읽어 모두 넘을 때만 멈춘다. 첫 실물 시험에서 실제로는 37°C인 서보를 잘못 읽은 68°C 한 번에
+# 시작하자마자 중단됐다(2026-11-03). 진짜 과열이면 몇십 ms 안에 다시 읽어도 그대로라 안전은 그대로다.
+CONFIRM_READS = 2
+CONFIRM_GAP_S = 0.05
 
 
 def read_vitals(bus) -> tuple[float, float]:
@@ -27,8 +31,10 @@ def vitals_problem(bus, min_volt: float = MIN_VOLT, max_temp: float = MAX_TEMP) 
 
 
 class GuardedBus:
-    def __init__(self, bus, min_volt: float = MIN_VOLT, max_temp: float = MAX_TEMP, period_s: float = PERIOD_S, clock=time.monotonic):
+    def __init__(self, bus, min_volt: float = MIN_VOLT, max_temp: float = MAX_TEMP, period_s: float = PERIOD_S, clock=time.monotonic,
+                 confirm_reads: int = CONFIRM_READS, confirm_gap_s: float = CONFIRM_GAP_S, sleep=time.sleep):
         self._bus, self.min_volt, self.max_temp, self.period_s, self._clock = bus, min_volt, max_temp, period_s, clock
+        self.confirm_reads, self.confirm_gap_s, self._sleep = confirm_reads, confirm_gap_s, sleep
         self._last = clock()
         self.tripped: str | None = None
 
@@ -45,6 +51,12 @@ class GuardedBus:
         if self.tripped or now - self._last < self.period_s:
             return
         self._last = now
-        if problem := vitals_problem(self._bus, self.min_volt, self.max_temp):
+        problem = vitals_problem(self._bus, self.min_volt, self.max_temp)
+        for _ in range(self.confirm_reads if problem else 0):
+            self._sleep(self.confirm_gap_s)
+            problem = vitals_problem(self._bus, self.min_volt, self.max_temp)  # 다시 읽어도 넘어야 진짜다
+            if not problem:
+                break
+        if problem:
             self.tripped = problem
             raise AutoCalibrationError(f"{problem} (자동 캘리브레이션 중단, 레지스터를 되돌린다)")

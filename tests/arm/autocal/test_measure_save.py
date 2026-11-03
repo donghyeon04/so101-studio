@@ -336,3 +336,40 @@ def test_doctor_shows_the_last_autocal_save(reference, tmp_path, monkeypatch):
     res = dr.doctor(probe=False, config_path=config)
     assert res["autocal"]["saved_at"] == "2026-11-04T09:30:00" and any(c["name"] == "자동 캘리브레이션" and c["state"] == "ok" for c in res["checks"])
     json.dumps(res)
+
+
+class FlakyBus:
+    """Present_Temperature를 정해진 순서로 돌려주는 버스(나머지는 SimArm). 한 번 잘못 읽는 경우를 흉내 낸다."""
+
+    def __init__(self, arm, temps):
+        self.arm, self.temps = arm, list(temps)
+
+    def __getattr__(self, name):
+        return getattr(self.arm, name)
+
+    def sync_read(self, register, motors=None, **kw):
+        if register == "Present_Temperature":
+            t = self.temps.pop(0) if len(self.temps) > 1 else self.temps[0]
+            return {n: t for n in self.arm.joints}
+        return self.arm.sync_read(register, motors, **kw)
+
+
+def test_one_bad_temperature_reading_does_not_stop_the_run():
+    arm = eeprom_arm()
+    guard = GuardedBus(FlakyBus(arm, [68, 37, 37]), period_s=0, clock=arm.clock, sleep=lambda _: None)  # 68°C가 한 번만 읽혔다(실제 37°C)
+    assert guard.sync_read("Present_Position") and guard.tripped is None
+
+
+def test_a_temperature_that_stays_high_on_the_rereads_stops_the_run():
+    arm = eeprom_arm()
+    guard = GuardedBus(FlakyBus(arm, [68]), period_s=0, clock=arm.clock, sleep=lambda _: None)
+    with pytest.raises(AutoCalibrationError, match="온도 68°C"):
+        guard.sync_read("Present_Position")
+    assert guard.tripped
+
+
+def test_a_reading_that_drops_on_the_second_read_but_returns_still_stops():
+    arm = eeprom_arm()
+    guard = GuardedBus(FlakyBus(arm, [68, 68, 68]), period_s=0, clock=arm.clock, sleep=lambda _: None)  # 세 번 모두 높다
+    with pytest.raises(AutoCalibrationError):
+        guard.sync_read("Present_Position")
