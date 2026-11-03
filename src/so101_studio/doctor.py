@@ -175,6 +175,12 @@ def doctor(cfg=None, probe: bool = True, port: str | None = None, progress=None,
     checks.append(_check("캘리브레이션 파일", "ok" if cal else "fail", f"{cfg_now.calibration_id}: {cal_path}" if cal else f"{cfg_now.calibration_id or '(id 없음)'} 파일을 못 찾았다",
                          "" if cal else "lerobot-calibrate --robot.type=so101_follower --robot.port=<포트> --robot.id=<id> (모터에 쓰고 움직이니 직접 실행한다)"))
 
+    autocal = None
+    rec = Path("runs") / f"autocal-save-{cfg_now.calibration_id}.json"  # so101 calibrate --save가 남긴 기록
+    if cfg_now.calibration_id and rec.is_file():
+        autocal = json.loads(rec.read_text(encoding="utf-8"))
+        checks.append(_check("자동 캘리브레이션", "ok", f"{autocal['saved_at']}에 저장({len(autocal['rows'])}개 관절), 이전 파일 {autocal['backup'] or '없음'}"))
+
     # 포트 역할과 탐침
     roles, arm_result, probed = [], None, {}
     candidates = [p for p in usb if p["device"] == port] if port else [p for p in usb if p.get("vid") != ports_mod.ESP32_VID]
@@ -243,7 +249,7 @@ def doctor(cfg=None, probe: bool = True, port: str | None = None, progress=None,
         arm_result = {"port": dev, "serial": dev_info.get("serial"),
                       "servos": [{k: v for k, v in s.items() if not k.startswith("_")} for s in sv],
                       "calibration_id": cfg_now.calibration_id, "calibration_found": bool(cal), "calibration_mismatch": mismatch}
-    return {"ok": not any(c["state"] == "fail" for c in checks), "checks": checks, "ports": roles, "arm": arm_result, "esp32": None}
+    return {"ok": not any(c["state"] == "fail" for c in checks), "checks": checks, "ports": roles, "arm": arm_result, "esp32": None, "autocal": autocal}
 
 
 def format_report(res: dict) -> str:
