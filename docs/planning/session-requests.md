@@ -24,3 +24,4 @@
 | REQ-014 | `MotionController.close()`가 진행 중인 동작의 `MotionHandle`을 끝냄(status stopped) | GUI → 팔 | 추가 | 반영됨 | #25 합쳐짐, GUI 확인 | 동작 중 앱 종료 때 wait()하던 스레드가 남아 프로세스가 안 꺼지던 문제. 같은 PR에서 린트(test_teleop_teach RUF059) 수정 |
 | REQ-015 | 다른 PC·다른 팔 브링업: 팔 파일·local.yaml 설정 세 겹, 포트 자동 찾기·find-port, so101 doctor, 캘리브레이션 불일치 잠금, environment.yml, 런처 (결정 0027) | 기획 → 팔 | 설정 파일 위치 변경 | 반영됨 | #32 합쳐짐, GUI #33 (실제 팔 잠금·doctor 탐침은 G10에서 확인) | GUI 장치 > 팔 점검 카드가 doctor 결과 dict를 쓴다 |
 | REQ-016 | SO-101 자동 캘리브레이션: LeRobot PR #4826 엔진을 가져와 `so101 calibrate --auto --measure-only`와 `--save` (결정 0028) | 기획 → 팔 | 새 명령 | 완료(코드, 실물 시험 AC4는 사용자와) | dev/arm-autocal | 실물 시험 전에는 `--save`를 쓰지 않는다 |
+| REQ-018 | 블랙박스 상태·이벤트 기록: `status.jsonl`(10Hz)·`events.jsonl`(공통 머리), 레지스터 쓰기·토크·fault·예외 기록, ARM-TORQUE-LOST, 사고 묶음과 `so101 incident`, 감시 `--run-dir`, 보관 정리 (결정 0030) | 기획 → 팔 | 기록 형식 변경(결정 0030 승인) | 완료(코드·시험·시뮬 성능 비교, 실제 팔 비교는 사용자와 나중에) | dev/arm-blackbox | G11이 기다림. 실제 팔 성능 비교와 토크 풀림 재현은 사용자와 함께 나중에 |
