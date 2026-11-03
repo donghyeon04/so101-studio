@@ -124,19 +124,23 @@ def test_view_only_browser_can_still_estop(backend):
     in_app(backend, check)
 
 
-def test_main_binds_localhost_and_needs_sim(monkeypatch):
+def test_main_binds_localhost_and_connects_the_real_arm_without_sim(monkeypatch):
     class FakeBackend:
-        def __init__(self, speed=None, link=None, viser_port=None, arm_name=None):
-            self.speed = speed
+        def __init__(self, speed=None, link=None, viser_port=None, arm_name=None, **real):
+            self.speed, self.real, self.link = speed, real, link
+            self.run_dir = "runs/시험"
 
         def close(self):
             pass
 
     class FakeLink:
         def __init__(self, sim):
-            pass
+            self.sim = sim
 
-        def start(self):
+        def start(self, run_dir=None):
+            self.run_dir = run_dir
+
+        def stop(self):
             pass
 
     calls = []
@@ -150,5 +154,18 @@ def test_main_binds_localhost_and_needs_sim(monkeypatch):
     gui_app.main(argparse.Namespace(sim=True))  # so101 gui에는 port가 없다
     assert [(k["host"], k["port"]) for _, k in calls] == [("127.0.0.1", 9000), ("127.0.0.1", gui_app.DEFAULT_PORT)]
     assert calls[0][0].speed == 20
-    with pytest.raises(SystemExit):
+    assert calls[0][0].real == {} and calls[0][0].link.sim is True
+    assert calls[0][0].link.run_dir == "runs/시험"  # 감시 기록을 실행 폴더에 남긴다
+
+    # 실제 팔: 포트는 보드 시리얼로 고르고, 감시 프로세스는 기록만 하는 --sim이 아니어야 한다
+    board = {"device": "COM7", "vid": 0x1A86, "pid": 0x55D3, "serial": "5B8E114816", "description": ""}
+    monkeypatch.setattr(gui_app, "list_serial_ports", lambda: [board])
+    monkeypatch.setattr(gui_app, "make_driver", lambda sim, cfg: ("driver", sim))
+    gui_app.main(argparse.Namespace(sim=False))
+    real = calls[-1][0]
+    assert real.real == {"real_driver": ("driver", False), "serials": ["5B8E114816"], "port": "COM7"}
+    assert real.link.sim is False
+
+    monkeypatch.setattr(gui_app, "list_serial_ports", lambda: [{**board, "serial": "OTHER"}])  # 다른 보드로 추측해 연결하지 않는다
+    with pytest.raises(SystemExit, match="안 보인다"):
         gui_app.main(argparse.Namespace(sim=False))

@@ -1,14 +1,17 @@
 """NiceGUI 앱: 공통 틀(위쪽 상태줄, 사이드바, 아래쪽 상태줄, E-STOP)과 페이지 등록."""
 
 import sys
+import time
 
 from nicegui import app, background_tasks, run, ui
 
-from ..core.config import ArmSelectionError
+from ..cli import make_driver
+from ..core.config import ArmSelectionError, load_robot_ex
+from ..core.ports import PortChoiceError, list_serial_ports, pick_port
 from . import scene3d, sensors, theme
 from .backend import Backend
 from .pages import arm, logs, manual, params, runs, safety, table, teach, workspace
-from .state import EMPTY, page_state
+from .state import EMPTY, component_states, page_state
 from .view_cube import VIEW_CUBE_JS
 from .watchdog_link import BROWSER_HB_JS, WatchdogLink
 
@@ -25,6 +28,7 @@ PAGES = (
     ("시스템", (("/runs", "실행 기록", "G8"), ("/logs", "로그", "G8"))),
 )
 BUILDERS = {"/": workspace.build, "/manual": manual.build, "/teach": teach.build, "/params": params.build, "/safety": safety.build, "/table": table.build, "/arm": arm.build, "/runs": runs.build, "/logs": logs.build, **sensors.pages()}  # 만든 페이지. 나머지는 자리만 있다
+COMPONENTS = ("버스", "서보")  # 감시 칸과 센서 칸은 따로 있다 (decisions/0030)
 TOP_STATS = ("센서", "실행 방식", "전압", "최고 온도", "속도", "조작권")  # 감시 칸은 아이콘이 있어 따로 그린다
 BOTTOM_STATS = ("손끝 좌표", "닿는지·오차", "안전 모드", "토크", "기록 폴더")
 
@@ -41,6 +45,7 @@ def make_root(backend: Backend):
         theme.apply()
         client = ui.context.client
         nav: dict[str, ui.button] = {}
+        components: dict[str, tuple] = {}
         stats: dict[str, ui.label] = {}
         badge: list[ui.badge] = []
         resume: list[ui.button] = []
@@ -79,6 +84,14 @@ def make_root(backend: Backend):
             if backend.pending and backend.owner == client.id and not pending_dialog.value:
                 pending_text.text = f"시뮬레이션에서 '{backend.pending[0]}'을 마쳤습니다. 실제 팔로 실행할까요?"
                 pending_dialog.open()
+            for name, (level, detail) in component_states(backend.state.status, time.time()).items():
+                icon_name, icon_color, text = theme.COMPONENT_STYLES[level]
+                icon, tooltip = components[name]
+                if stats[name].text != text:
+                    stats[name].text = text
+                    icon.name = icon_name
+                    icon.props(f"color={icon_color}")
+                tooltip.text = detail
             icon_name, icon_color = theme.WATCH_STYLES[stats["감시"].text]
             watch_icon.name = icon_name
             watch_icon.props(f"color={icon_color}")
@@ -128,6 +141,12 @@ def make_root(backend: Backend):
             with ui.row().classes("items-center gap-1 no-wrap"):
                 watch_icon = ui.icon("remove_circle_outline", size="20px").mark("watch-icon")
                 stats["감시"] = _stat("감시")
+            for name in COMPONENTS:
+                with ui.row().classes("items-center gap-1 no-wrap"):
+                    icon = ui.icon("sync_problem", size="20px", color="grey-8").mark(f"component-{name}-icon")
+                    stats[name] = _stat(name)
+                    stats[name].mark(f"component-{name}")
+                    components[name] = (icon, ui.tooltip(""))
             for label in TOP_STATS:
                 stats[label] = _stat(label)
             stats["조작권"].text = "보기 전용"
@@ -161,21 +180,29 @@ def make_root(backend: Backend):
     return root
 
 
+def real_arm_args(arm_name: str | None) -> dict:
+    """연결된 보드로 팔과 포트를 고른다(decisions/0027). 목록만 읽고 포트는 열지 않는다. Backend에 넘길 인자를 돌려준다."""
+    ports = list_serial_ports()
+    serials = [p["serial"] for p in ports]
+    cfg, info = load_robot_ex(arm=arm_name, serials=serials)
+    port, _ = pick_port(ports, cfg.board_serial, None, info["local"].get("port"), cfg.port)
+    return {"real_driver": make_driver(False, cfg), "serials": serials, "port": port}
+
+
 def main(args) -> None:
-    """`python -m so101_studio.gui`와 `so101 gui`(REQ-005)의 입구."""
-    if not getattr(args, "sim", False):
-        # shortcut: 실제 팔 연결이 아직 없다, G9·G10에서 backend가 연결하면 지운다
-        sys.exit("아직 시뮬레이션만 지원한다: --sim을 붙여 실행한다")
-    link = WatchdogLink(sim=True)
-    link.start()
+    """`python -m so101_studio.gui`와 `so101 gui`(REQ-005)의 입구. --sim이 없으면 실제 팔에 연결한다(토크는 그대로, 움직이지 않는다)."""
+    sim = getattr(args, "sim", False)
+    link = WatchdogLink(sim=sim)
     try:
+        arm_name = getattr(args, "arm", None)
         backend = Backend(
             speed=getattr(args, "speed", None), link=link, viser_port=getattr(args, "viser_port", scene3d.DEFAULT_PORT),
-            arm_name=getattr(args, "arm", None),
+            arm_name=arm_name, **({} if sim else real_arm_args(arm_name)),
         )
-    except (RuntimeError, ArmSelectionError) as e:
+    except (RuntimeError, ArmSelectionError, PortChoiceError) as e:
         link.stop()
         sys.exit(f"연결 실패: {e}")
+    link.start(backend.run_dir)  # 실행 폴더는 연결한 뒤에 생긴다
     app.on_startup(lambda: background_tasks.create(link.run(), name="watchdog heartbeat"))
     app.on_shutdown(backend.close)
     ui.run(

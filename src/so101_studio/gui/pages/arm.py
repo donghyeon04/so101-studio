@@ -93,6 +93,10 @@ def _doctor_card(backend, controls: Controls) -> None:
             details = ui.column().classes("w-full gap-1").mark("doctor-details")
         ui.separator()
         ui.label(f"팔 파일: {info['arm'] or '없음'} ({info['reason']})").classes("page-body").mark("arm-file")
+        # REQ-017 임시: doctor 필드가 오면 "0° 자세 확인 필요"와 확인 여부를 보여 준다 (decisions/0029)
+        with ui.row().classes("items-center gap-1 no-wrap"):
+            ui.icon("schedule", color="grey-8")
+            ui.label("0° 자세 확인: 준비 중").classes("page-body").mark("zero-check")
         if len(names) > 1:
             with ui.row().classes("items-center gap-2"):
                 picker = ui.select(names, value=info["arm"] or names[0], label="팔").classes("w-64").mark("arm-picker")

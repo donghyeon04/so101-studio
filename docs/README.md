@@ -58,3 +58,4 @@
 | `docs/decisions/0029-autocal-acceptance-repeatability.md` | 결정 | 확정 | 기존 값이 없거나 다른 팔은 측정 3회 반복(차이 1° 이하, 중앙값 저장, 기존 파일 있으면 yes 확인)으로 합격, 저장 뒤 0° 자세 확인 전에는 잠금 (0028 보완) |
 | `docs/decisions/0030-blackbox-logging.md` | 결정 | 확정 | 상태·이벤트 기록은 JSON Lines 블랙박스: 공통 머리, 토크·fault·레지스터 쓰기 기록, ARM-TORQUE-LOST, 기록 스레드, 10초 링 버퍼와 사고 묶음, 30일·2GB 보관, 성능 기준 |
 | `docs/decisions/0031-safety-xy-return-and-comm-loss-test.md` | 결정 | 확정 | 작업대 XY 검사에 밖→안 복귀 허용, 작업대는 실측으로(임의 확대 안 함), table_z·손끝은 접촉 측정, 포트 빠짐 4경우 안전 시험, 토크 풀림은 status 값으로 판단 (0015 보완) |
+| `docs/decisions/0032-mattpocock-skills.md` | 결정 | 확정 | mattpocock/skills는 11개만 `.claude/skills/`에 넣고 프로젝트 규칙에 맞게 고침(용어·결정 위치, 임시 디렉터리 산출물, 한국어), `/grill-me`는 여러 질문 라운드 |

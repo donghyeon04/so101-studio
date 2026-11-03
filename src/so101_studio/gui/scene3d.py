@@ -26,6 +26,10 @@ MESH_CELL_M = 0.002
 ALLOWED_TOP_MM = 300.0  # 높이 제한이 없을 때 허용 상자를 그리는 높이
 DEFAULT_PICK_H_MM = 40.0  # 작업대를 클릭했을 때의 높이. 0이면 턱 끝이 작업대에 닿는다
 Z_UP = (0.0, 0.0, 1.0)
+LAYERS = {
+    "arm": "실제 팔", "preview": "계산 자세", "table": "작업대", "zones": "배출 구역", "objects": "물체",
+    "axes": "좌표축", "marks": "목표·경로", "handle": "손잡이",
+}  # 3D에서 켜고 끄는 묶음
 ORBIT_DEG_PER_PX = 0.8  # 뷰큐브를 끌 때
 ORBIT_MAX_ELEVATION_DEG = 87.0  # 위쪽 축을 넘어가면 화면이 뒤집힌다
 VIEW_S_PER_180 = 0.75  # 시점 전환 시간은 회전 각도에 비례한다(Blender 방식). 180°에 AutoCAD 기본값 750ms
@@ -135,24 +139,27 @@ class Scene3D:
         )
         self.server.gui.main_panel.minimize()  # 조작은 NiceGUI 쪽에서 한다. 이 패널은 3D를 가리기만 한다
         self._kin, self._table_z = kin, cfg.table_z_mm
+        self.layers = dict.fromkeys(LAYERS, True)  # 브라우저가 여럿이어도 3D는 하나라 함께 바뀐다
+        self._preview_on = False
         scene = self.server.scene
         w, h = ws.table_mm["x"] / 1000, ws.table_mm["y"] / 1000
-        scene.add_box(
+        table = scene.add_box(
             "/table", color=theme.rgb(theme.CARD), dimensions=(w, h, TABLE_T_M), position=(w / 2, h / 2, -TABLE_T_M / 2)
         )
-        scene.add_grid(
+        grid = scene.add_grid(
             "/grid", width=w, height=h, cell_size=0.05, section_size=0.1, position=(w / 2, h / 2, 0.0005),
             cell_color=theme.rgb(theme.LINE), section_color=theme.rgb(theme.CONTROL_BORDER),
         )
+        zones = []
         for name, zone in ws.drop_zones.items():
-            scene.add_box(
+            zones.append(scene.add_box(
                 f"/zones/{name}", color=theme.rgb(theme.OK), dimensions=(0.08, 0.08, 0.001), opacity=0.35,
                 position=(zone["x_mm"] / 1000, zone["y_mm"] / 1000, 0.001),
-            )
+            ))
 
         base = ws.base
-        scene.add_frame("/axes/table", axes_length=0.06, axes_radius=0.002)
-        scene.add_frame(
+        axes_table = scene.add_frame("/axes/table", axes_length=0.06, axes_radius=0.002)
+        axes_robot = scene.add_frame(
             "/axes/robot", axes_length=0.06, axes_radius=0.002,
             position=(base.x_mm / 1000, base.y_mm / 1000, 0.001), wxyz=_yaw(base.yaw_deg),
         )
@@ -162,7 +169,7 @@ class Scene3D:
         ox, oy = robot_to_table(-PAN_AXIS_X_MM, 0.0, base)
         root = {"position": (ox / 1000, oy / 1000, -self._table_z / 1000), "wxyz": _yaw(base.yaw_deg)}
         urdf_path = Path(cfg.urdf)
-        scene.add_frame("/real", show_axes=False, **root)
+        real_root = scene.add_frame("/real", show_axes=False, **root)
         self._real = ViserUrdf(self.server, _load_urdf(urdf_path), root_node_name="/real")
         self._preview_root = scene.add_frame("/preview", show_axes=False, visible=False, **root)
         self._preview = ViserUrdf(
@@ -175,6 +182,12 @@ class Scene3D:
             "/handle", scale=0.09, disable_rotations=True, depth_test=False, visible=True
         )
         self._handle.on_update(self._on_drag)
+        self._objects_root = None
+        marks = scene.add_frame("/marks", show_axes=False)
+        self._layer_nodes = {
+            "arm": [real_root], "table": [table, grid], "zones": zones, "axes": [axes_table, axes_robot, self._tool],
+            "marks": [marks], "handle": [self._handle],
+        }
         scene.on_click()(self._on_click)
         cam = self.server.initial_camera
         cam.position, cam.look_at, cam.up = (w / 2, -0.22, 0.34), (w / 2, h / 2 - 0.02, 0.06), Z_UP
@@ -203,16 +216,29 @@ class Scene3D:
 
     def set_preview(self, joints) -> None:
         """계산 자세를 보여 준다. None이면 숨긴다."""
-        self._preview_root.visible = joints is not None
+        self._preview_on = joints is not None
+        self._preview_root.visible = self._preview_on and self.layers["preview"]
         if joints is not None:
             self._preview.update_cfg(urdf_cfg(joints, self._names))
+
+    def set_layer(self, name: str, visible: bool) -> None:
+        """묶음 하나를 켜거나 끈다. 자리만 바꾸므로 끈 동안의 자세·물체도 켜면 바로 맞게 보인다."""
+        self.layers[name] = visible
+        if name == "preview":
+            self._preview_root.visible = self._preview_on and visible
+        elif name == "objects":
+            if self._objects_root:
+                self._objects_root.visible = visible
+        else:
+            for node in self._layer_nodes[name]:
+                node.visible = visible
 
     def set_objects(self, objects, chosen: str | None = None) -> None:
         """물체 목록을 다시 그린다. objects는 DetectedObject들이고, chosen은 강조한다."""
         scene = self.server.scene
         with self.server.atomic():
             scene.remove_by_name("/objects")
-            scene.add_frame("/objects", show_axes=False)
+            self._objects_root = scene.add_frame("/objects", show_axes=False, visible=self.layers["objects"])
             for o in objects:
                 scene.add_box(
                     f"/objects/{o.id}", color=theme.rgb(theme.ACCENT if o.id == chosen else theme.MUTED),
@@ -239,30 +265,30 @@ class Scene3D:
         position = (x_mm / 1000, y_mm / 1000, h_mm / 1000)
         with self.server.atomic():
             scene.add_icosphere(
-                "/target", radius=0.008, position=position, color=theme.rgb(theme.ACCENT if ok else theme.DANGER)
+                "/marks/target", radius=0.008, position=position, color=theme.rgb(theme.ACCENT if ok else theme.DANGER)
             )
             self._handle.position = position
-            scene.remove_by_name("/path")
+            scene.remove_by_name("/marks/path")
             if tool_path:
                 points = np.array([(p["x_mm"], p["y_mm"], p["z_mm"] - self._table_z) for p in tool_path]) / 1000
                 dashes = np.stack([points[:-1:2], points[1::2][: len(points[:-1:2])]], axis=1)
                 if len(dashes):
                     scene.add_line_segments(
-                        "/path", dashes, theme.rgb(theme.PREVIEW), thickness=3.0, thickness_units="screen"
+                        "/marks/path", dashes, theme.rgb(theme.PREVIEW), thickness=3.0, thickness_units="screen"
                     )
 
     def show_trajectory(self, segments) -> None:
         """기록의 손끝 궤적을 구간 색으로 그린다. segments는 (라벨, [(x, y, z) 작업대 mm, z는 모델 z]) 목록이다."""
         scene = self.server.scene
         with self.server.atomic():
-            scene.remove_by_name("/trajectory")
-            scene.add_frame("/trajectory", show_axes=False)
+            scene.remove_by_name("/marks/trajectory")
+            scene.add_frame("/marks/trajectory", show_axes=False)
             for i, (label, points) in enumerate(segments):
                 if len(points) < 2:
                     continue
                 xyz = (np.array(points, float) - (0.0, 0.0, self._table_z)) / 1000
                 scene.add_line_segments(
-                    f"/trajectory/{i}", np.stack([xyz[:-1], xyz[1:]], axis=1), theme.rgb(theme.SEGMENT_LINE[label]),
+                    f"/marks/trajectory/{i}", np.stack([xyz[:-1], xyz[1:]], axis=1), theme.rgb(theme.SEGMENT_LINE[label]),
                     thickness=3.0, thickness_units="screen",
                 )
 
@@ -283,9 +309,9 @@ class Scene3D:
     def clear_target(self) -> None:
         scene = self.server.scene
         with self.server.atomic():
-            scene.remove_by_name("/target")
-            scene.remove_by_name("/path")
-            scene.remove_by_name("/trajectory")
+            scene.remove_by_name("/marks/target")
+            scene.remove_by_name("/marks/path")
+            scene.remove_by_name("/marks/trajectory")
             scene.remove_by_name("/allowed")
             self.set_preview(None)
 

@@ -2,6 +2,7 @@
 
 from nicegui import ui
 
+from ..scene3d import LAYERS
 from ..view_cube import view_cube
 
 
@@ -51,7 +52,15 @@ class Controls:
             element.enabled = allowed
 
 
+def _layer_menu(scene) -> None:
+    """3D에 보일 것을 고르는 메뉴. 3D 칸 왼쪽 위에 얹는다."""
+    with ui.button(icon="layers").props('round dense size=sm color=white text-color=dark aria-label="3D에 보일 것 고르기"').classes("scene-layers").mark("scene-layers"), ui.menu(), ui.column().classes("gap-0 p-2"):
+        for name, text in LAYERS.items():
+            ui.checkbox(text, value=scene.layers[name], on_change=lambda e, n=name: scene.set_layer(n, e.value)).mark(f"layer-{name}")
+
+
 def scene_frame(backend, classes: str = "scene3d") -> None:
     with ui.element("div").classes("scene-wrap"):
         ui.element("iframe").props(f'src={backend.scene.url} title="3D 보기"').classes(classes).mark("scene3d")
         view_cube(backend.scene)
+        _layer_menu(backend.scene)
