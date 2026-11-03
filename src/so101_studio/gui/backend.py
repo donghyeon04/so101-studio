@@ -15,6 +15,7 @@ from ..arm.kinematics import Kinematics
 from ..arm.sim_driver import SimDriver
 from ..core import logread
 from ..core.config import arm_files, load_robot_ex, load_workspace
+from ..core.ports import PortChoiceError, list_serial_ports, pick_port
 from ..core.types import DetectedObject, JointState, MotionResult, ToolPose
 from ..doctor import doctor
 from ..perception.manual import ManualSource
@@ -50,6 +51,8 @@ JOG_YAW_DEG_S = 60.0
 RUN_MODES = {"sim": "시뮬레이션만", "real": "실제만", "both": "동시", "sim_first": "시뮬레이션 먼저"}
 REASON_EXTRA = {"z_ceiling": "허용 상자보다 높습니다"}  # service.targets에 아직 없는 이유
 BUSY_TEXT = "팔이 아직 움직이고 있습니다"
+COMM_LOST_TEXT = "통신이 끊겼습니다. 케이블과 전원을 확인하고 [다시 연결]을 눌러 주세요"
+OUTSIDE_TEXT = "작업대 밖에서 출발했습니다. 안쪽으로만 움직일 수 있습니다"
 LOG_LEVELS = {"DEBUG": "INFO", "INFO": "INFO", "WARN": "WARNING", "ERROR": "ERROR", "FATAL": "ERROR"}
 MOTION_TEXT = {
     "ik_fail": reason_text("ik_fail"),
@@ -107,7 +110,6 @@ class Backend:
         self._started_ns = time.time_ns()
         self.run_focus: tuple | None = None  # 로그에서 고른 줄: (실행 이름, 시각). 실행 기록 페이지가 읽는다
         self._next_object = 0
-        self._path_kin: Kinematics | None = None
         self._listener = None
         self.owner: str | None = None  # 조작권을 가진 브라우저. NiceGUI 이벤트 루프에서만 바꾼다
         ws = load_workspace()
@@ -123,10 +125,12 @@ class Backend:
             ok, msg = arm.connect(port if arm is self.real else None)
             if not ok:
                 raise RuntimeError(msg)
+        # 궤적 계산용으로 따로 둔다(팔의 Kinematics는 다른 스레드도 쓴다). 만드는 동안 파이썬 전체가 1초 넘게 멈춰, 감시 프로세스가 켜진 뒤에 만들면 앱이 강제 종료된다
+        self._path_kin = Kinematics(cfg.urdf, self.arm.ws.base, cfg.joint_limits_deg)
         self.arm.status_stream(self.state.update)
         self.source = ManualSource()
-        self.studio = Studio(self.arm, self.source, dry_run=self.real is None)  # 시뮬레이션에는 잡히는 물체가 없어 접촉 없음도 성공으로 본다
-        self.studio.bus.subscribe("task", self._on_task)
+        self._make_studio()
+        self._reconnect_failed = False
         self.paused = False
         if viser_port is not None:
             self.scene = Scene3D(cfg, self.arm.ws, self.arm.kin, viser_port)
@@ -136,6 +140,11 @@ class Backend:
                 self.sim.status_stream(self._on_twin_status)
         if link:  # 감시 프로세스의 정지 명령을 받는다
             self._listener = StopListener(self.arm, link.stop_port).start()
+
+    def _make_studio(self) -> None:
+        """Studio는 컨트롤러를 붙들고 있어, 다시 연결하면 새로 만든다."""
+        self.studio = Studio(self.arm, self.source, dry_run=self.real is None)  # 시뮬레이션에는 잡히는 물체가 없어 접촉 없음도 성공으로 본다
+        self.studio.bus.subscribe("task", self._on_task)
 
     @property
     def run_dir(self) -> str | None:
@@ -154,12 +163,45 @@ class Backend:
         """감시 프로세스가 응답할 때만 실제 팔을 움직인다 (decisions/0026). 시뮬레이션은 상관없다."""
         return bool(self.link and self.link.alive)
 
-    def resume(self) -> None:
-        """비상 정지를 풀고 감시 프로세스에 다시 등록한다. 팔은 움직이지 않는다."""
+    def resume(self) -> str | None:
+        """비상 정지를 풀고 감시 프로세스에 다시 등록한다. 팔은 움직이지 않는다. 풀지 못하면 이유."""
         for arm in self._arms():
             arm.resume()
+        if self.comm_lost():  # 통신이 끊긴 채 풀면 움직이는 줄 알게 된다 (decisions/0031)
+            return COMM_LOST_TEXT
         if self.link:
             self.link.rearm()
+        return None
+
+    def comm_lost(self) -> bool:
+        return bool(self.real and (self._reconnect_failed or self.real.ctl.fault == "comm_lost"))
+
+    def reconnect(self) -> tuple[str | None, list[str] | None]:
+        """통신이 끊긴 뒤 다시 연결한다. 팔은 움직이지 않고 토크도 끄지 않는다. (실패 이유, 토크가 꺼진 서보). 스레드에서 부른다."""
+        if not self.comm_lost():  # 멀쩡한 연결을 끊으면 움직이던 동작이 끊긴다
+            return "통신이 끊긴 상태가 아닙니다", None
+        self.record_finish()
+        cfg = self.real.cfg
+        try:
+            port, _ = pick_port(list_serial_ports(), cfg.board_serial, None, self.arm_info["local"].get("port"), cfg.port)
+        except PortChoiceError as e:
+            return str(e), None
+        if self.link:  # shortcut: connect가 Kinematics를 새로 만들며 1.7초 멈춰 감시가 앱을 끈다. 그동안 E-STOP도 늦다, 재사용하게 되면 뺀다
+            self.link.pause()
+        try:
+            ok, msg = self.real.connect(port)
+            if not ok:
+                return msg, None
+            torque = self.real.driver.read_health()["torque"]
+        except Exception as e:  # noqa: BLE001  연결 직후 읽기가 실패하면 새 컨트롤러에 fault가 없어 끊김이 지워진 것처럼 보인다
+            self._reconnect_failed = True
+            return str(e), None
+        finally:
+            if self.link:
+                self.link.rearm()
+        self._reconnect_failed = False
+        self._make_studio()
+        return None, [name for name, on in torque.items() if not on]
 
     # ---- 실행 방식 (gui-spec 8절). 실제 장치용과 SimDriver용 ArmService를 고른다
     def set_run_mode(self, mode: str) -> str | None:
@@ -175,8 +217,10 @@ class Backend:
         return None
 
     def move_lock(self) -> str | None:
-        """실제 팔이 잠겼으면 이유 (decisions/0027). 새 팔이거나 캘리브레이션이 다를 때다."""
-        return self.real.locked_reason if self.real else None
+        """실제 팔을 움직일 수 없으면 이유: 새 팔이거나 캘리브레이션이 다를 때(decisions/0027), 통신이 끊겼을 때(0031)."""
+        if self.real is None:
+            return None
+        return self.real.locked_reason or (COMM_LOST_TEXT if self.comm_lost() else None)
 
     def _real_blocked(self) -> str | None:
         if self.real is None:
@@ -207,7 +251,18 @@ class Backend:
             return BUSY_TEXT
         except ValueError as e:  # 배율 때문에 속도 한계를 넘는 경우 등
             return str(e)
+        if result.status == "out_of_bounds" and Backend._starts_outside(arm):
+            return OUTSIDE_TEXT
         return None if result.status == "ok" else MOTION_TEXT.get(result.status, result.status)
+
+    @staticmethod
+    def _starts_outside(arm: ArmService) -> bool:
+        """지금 손끝이 작업대 XY 밖인가. 밖에서는 안쪽으로 돌아오는 움직임만 허용된다 (decisions/0031)."""
+        # shortcut: MotionResult에 이유가 없어 출발 위치로 짐작한다(밖에서 출발해 바닥에 걸려도 이 문장), 이유를 실어 주면 그것을 쓴다
+        if arm.safety.settings.mode != "normal":
+            return False
+        tool, box = arm.kin.fk(arm.status().joints), arm.safety.box()
+        return not (box["x"][0] <= tool.x_mm <= box["x"][1] and box["y"][0] <= tool.y_mm <= box["y"][1])
 
     def _dispatch(self, action, label: str) -> str | None:
         """action(ArmService) -> MotionResult를 실행 방식대로 부른다. 실패 이유 또는 None. 스레드에서 부른다."""
@@ -606,8 +661,6 @@ class Backend:
         q, t = self.arm.teach.load(name)
         stride = max(1, len(q) // SEQUENCE_POINTS)
         q, t = q[::stride], t[::stride] - t[0]
-        if self._path_kin is None:  # 팔의 Kinematics는 다른 스레드도 쓰므로 궤적 계산에는 따로 둔다
-            self._path_kin = Kinematics(self.arm.cfg.urdf, self.arm.ws.base, self.arm.cfg.joint_limits_deg)
         tips = [self._path_kin.fk(JointState(*row)) for row in q.tolist()]
         segments = [
             (s["label"], [(p.x_mm, p.y_mm, p.z_mm) for p, at in zip(tips, t, strict=True) if s["start_s"] <= at <= s["end_s"]])
@@ -649,7 +702,11 @@ class Backend:
         if not self.recording():
             return None
         name, self._record_name = self._record_name, None
-        self.real.record_stop(name)
+        try:
+            self.real.record_stop(name)
+        except Exception as e:  # noqa: BLE001  통신이 끊겼으면 저장·토크 켜기가 실패한다. 부르는 쪽의 비상 정지까지 막으면 안 된다
+            self.real.log_event("record_stop_failed", {"name": name, "error": repr(e)}, level="ERROR")
+            return None
         return name
 
     def record_truncated(self) -> float | None:
@@ -659,7 +716,7 @@ class Backend:
 
     def replay(self, name: str, speed: float, until_limit: bool = False, segment_speeds: dict[int, float] | None = None) -> str | None:
         reason = self._dispatch(lambda arm: arm.replay(name, speed, until_limit, segment_speeds), f"{name} 재생")
-        if reason == MOTION_TEXT["out_of_bounds"] and not until_limit:
+        if reason in (MOTION_TEXT["out_of_bounds"], OUTSIDE_TEXT) and not until_limit:
             return "기록에 허용 범위 밖 자세가 있어 재생하지 않았습니다(첫 자세까지는 이동합니다). 한계 앞까지만 재생을 켜 보세요"
         return reason
 

@@ -407,3 +407,22 @@ def test_top_bar_shows_component_states(backend):
         assert await _until(lambda: _one(user, "component-서보").text == "정상")
 
     in_app(backend, "/logs", check)
+
+
+def test_top_bar_and_banner_follow_comm_loss_without_reload(backend, monkeypatch):
+    lost = [False]
+    monkeypatch.setattr(backend, "comm_lost", lambda: lost[0])
+    monkeypatch.setattr(backend, "move_lock", lambda: "통신 끊김 시험" if lost[0] else None)
+
+    async def check(user):
+        assert await _until(lambda: _one(user, "component-버스").text == "정상")
+        await user.should_not_see(marker="lock-banner")
+        await user.should_not_see(marker="reconnect")
+        lost[0] = True
+        assert await _until(lambda: _one(user, "component-버스").text == "오류")
+        await user.should_see(marker="lock-banner")
+        await user.should_see("통신 끊김 시험")
+        await user.should_see(marker="reconnect")
+        await user.should_not_see(marker="resume")
+
+    in_app(backend, "/logs", check)

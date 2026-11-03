@@ -75,8 +75,10 @@ SERVO_WARN_C = 55.0  # doctor의 온도 주의와 같은 기준
 SERVO_WARN_LOAD_PCT = 70.0
 
 
-def component_states(status: ArmStatus | None, now: float) -> dict[str, tuple[str, str]]:
+def component_states(status: ArmStatus | None, now: float, comm_lost: bool = False) -> dict[str, tuple[str, str]]:
     """상태줄의 구성 요소 상태: {이름: (ok|warn|error|stale, 설명)}. 값이 끊겼으면 정상이라고 보이지 않는다."""
+    if comm_lost:  # 통신이 끊기면 상태도 오지 않아, 값이 오래됐다는 표시보다 오류를 먼저 보여 준다 (decisions/0031)
+        return {"버스": ("error", "통신 끊김: 다시 연결이 필요합니다"), "서보": ("stale", "통신이 끊겨 값을 읽지 못합니다")}
     if status is None or now - status.t > STALE_S:
         reason = "상태를 아직 받지 못했습니다" if status is None else f"{now - status.t:.1f}초째 상태가 오지 않습니다"
         return {"버스": ("stale", reason), "서보": ("stale", reason)}
