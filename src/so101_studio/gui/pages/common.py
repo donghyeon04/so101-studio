@@ -8,8 +8,8 @@ from ..view_cube import view_cube
 class Controls:
     """조작권이 있어야 켜지는 요소를 모으고, 눌렸을 때 서버에서 한 번 더 막는다."""
 
-    def __init__(self, backend, client_id: str, block_during_task: bool = True):
-        self.backend, self.client_id, self.block_during_task = backend, client_id, block_during_task
+    def __init__(self, backend, client_id: str, block_during_task: bool = True, moves: bool = False):
+        self.backend, self.client_id, self.block_during_task, self.moves = backend, client_id, block_during_task, moves
         self.elements: list = []
 
     def add(self, element):
@@ -23,12 +23,20 @@ class Controls:
     @property
     def allowed(self) -> bool:
         """작업 실행 중에는 팔을 직접 움직이는 조작을 막는다."""
-        return self.mine and not (self.block_during_task and self.backend.task_running())
+        return self.mine and not self.locked and not (self.block_during_task and self.backend.task_running())
+
+    @property
+    def locked(self) -> str | None:
+        """팔을 움직이는 페이지(moves)는 실제 팔이 잠기면 함께 꺼진다 (decisions/0027)."""
+        return self.backend.move_lock() if self.moves else None
 
     def guard(self, fn):
         async def call(*args):
             if not self.mine:
                 ui.notify("보기 전용입니다", type="warning")
+                return None
+            if self.locked:
+                ui.notify(self.locked, type="warning")
                 return None
             if not self.allowed:
                 ui.notify("작업 실행 중입니다", type="warning")

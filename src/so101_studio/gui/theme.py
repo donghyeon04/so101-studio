@@ -31,6 +31,13 @@ SERIES = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300")
 SEGMENT_COLORS = {"멈춤": LINE, "느림": "#9db7ee", "빠름": ACCENT}
 SEGMENT_INK = {"멈춤": TEXT, "느림": TEXT, "빠름": "#ffffff"}
 SEGMENT_LINE = {"멈춤": CONTROL_BORDER, "느림": "#5f8ae4", "빠름": ACCENT}  # 3D 궤적. 밝은 작업대 위에서 보이게 진하다
+# 점검 결과: (아이콘, 색, 글자). 색 + 아이콘 + 글자 (decisions/0025)
+DOCTOR_STYLES = {
+    "ok": ("check_circle", "positive", "정상"),
+    "warn": ("warning", "warning", "주의"),
+    "fail": ("error", "negative", "실패"),
+    "skip": ("remove_circle_outline", "grey-8", "건너뜀"),
+}
 REACH_STYLES = {True: ("check_circle", "positive"), False: ("block", "negative")}
 
 

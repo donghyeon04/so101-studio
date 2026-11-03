@@ -14,6 +14,7 @@ from so101_studio.arm.sim_driver import SimDriver
 from so101_studio.core.config import load_robot
 from so101_studio.gui import app as gui_app
 from so101_studio.gui.backend import RUN_MODES, Backend
+from so101_studio.gui.pages.common import Controls
 
 
 def _alive_link() -> SimpleNamespace:
@@ -203,6 +204,65 @@ def test_page_lists_modes_and_explains_missing_real_arm(backend):
                 await asyncio.sleep(0.05)
             assert toggle.value == "sim"
             assert backend.mode == "sim"
+
+    asyncio.run(go())
+
+
+LOCK = "캘리브레이션 불일치: 시험"
+
+
+def test_locked_real_arm_refuses_real_modes_and_big_moves_but_reads(twin, monkeypatch):
+    monkeypatch.setattr(twin.real.ctl, "locked_reason", LOCK)
+    assert twin.move_lock() == LOCK
+    assert twin.set_run_mode("real") == LOCK
+    assert twin.mode == "sim"
+    assert twin.run_diagnostic("powertest") == (None, LOCK)
+    assert twin.run_diagnostic("servoinfo")[1] is None  # 읽기는 된다
+    assert twin._run_on(twin.real, lambda _arm: SimpleNamespace(status="locked")).startswith("실제 팔이 잠겨")
+
+
+def test_locked_real_arm_turns_off_moving_buttons_with_reason(twin, monkeypatch):
+    monkeypatch.setattr(twin.real.ctl, "locked_reason", LOCK)
+
+    async def wait_off(user, marker):
+        for _ in range(100):
+            found = list(user.find(marker=marker).elements)
+            if found and not found[0].enabled:
+                return True
+            await asyncio.sleep(0.05)
+        return False
+
+    async def go():
+        async with user_simulation(gui_app.make_root(twin)) as user:
+            await user.open("/arm")
+            await user.should_see(marker="lock-banner")
+            await user.should_see(marker="new-arm-steps")
+            assert await wait_off(user, "diag-powertest")
+
+    asyncio.run(go())
+
+
+def test_only_moving_pages_are_locked(backend, monkeypatch):
+    backend.owner = "me"
+    moving, reading = Controls(backend, "me", moves=True), Controls(backend, "me")
+    assert moving.allowed and reading.allowed
+    monkeypatch.setattr(backend, "move_lock", lambda: LOCK)
+    assert not moving.allowed and moving.locked == LOCK
+    assert reading.allowed
+
+
+def test_locked_workspace_cannot_start_a_task(backend, monkeypatch):
+    monkeypatch.setattr(backend, "move_lock", lambda: LOCK)
+
+    async def go():
+        async with user_simulation(gui_app.make_root(backend)) as user:
+            await user.open("/")
+            await user.should_see(marker="lock-banner")
+            for _ in range(100):
+                if backend.owner and not next(iter(user.find(marker="task-auto").elements)).enabled:
+                    break
+                await asyncio.sleep(0.05)
+            assert not next(iter(user.find(marker="task-auto").elements)).enabled
 
     asyncio.run(go())
 
