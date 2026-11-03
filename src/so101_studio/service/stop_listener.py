@@ -32,6 +32,7 @@ class StopListener:
             except ValueError:
                 continue
             if isinstance(msg, dict) and msg.get("cmd") == "estop":
+                getattr(self.arm, "on_watchdog_stop", lambda r: None)(msg.get("reason"))  # 기록과 사고 묶음
                 self.arm.estop()  # 실패하면 응답하지 않아 감시 프로세스가 프로세스를 끝낸다
                 sock.sendto(json.dumps({"ack": "estop"}).encode(), addr)
 

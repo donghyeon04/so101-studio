@@ -7,6 +7,7 @@ from dataclasses import astuple, fields
 
 import numpy as np
 
+from ..core.blackbox import RingBuffer
 from ..core.types import JointState, MotionResult, ToolPose
 from .safety import HealthMonitor, Safety
 
@@ -46,6 +47,9 @@ class MotionController:
         self.fault: str | None = None
         self._job = None  # (traj, handle, t0, kind)
         self.locked_reason: str | None = None  # 이 이유가 있으면 움직이는 명령을 모두 거부한다(status "locked"). ArmService.connect가 정한다 (decisions/0027)
+        self.ring = RingBuffer()  # 50Hz 틱의 최근 10초(명령, 실제, 틱 간격, 버스 오류). 사고 묶음이 쓴다 (decisions/0030)
+        self.on_event = None  # on_event(kind, level, code, data): fault·E-STOP 같은 이벤트를 기록하는 쪽(ArmService)이 연결한다
+        self.actual_hint = None  # 가장 최근에 읽은 실제 관절값(10Hz 상태 루프가 채운다). 틱 안에서는 버스를 읽지 않는다
         self._tick_ref = None  # (handle, 직전 틱의 궤적 시간)
         self.time_lost_s = 0.0  # 틱 지연 때문에 늦춘 동작 시간의 누적(진단용: 크면 제어 주기가 밀리고 있다)
         self._lock = threading.Lock()
@@ -163,6 +167,7 @@ class MotionController:
             self._job, self.state = None, "stopped"
             self._last = self.driver.read_joints()
             self.driver.write_joints(self._last)
+        self._emit("estop", "WARN", "ARM-ESTOP", {})
 
     def resume(self) -> None:
         with self._lock:
@@ -170,10 +175,24 @@ class MotionController:
                 self.state, self.fault = "idle", None
                 self.health = HealthMonitor()
 
+    def _emit(self, kind: str, level: str, code: str, data: dict) -> None:
+        cb = self.on_event
+        if cb:
+            try:
+                cb(kind, level, code, data)
+            except Exception:  # noqa: BLE001, S110 기록이 실패해도 제어는 계속한다
+                pass
+
+    def tick_dt_max_1s(self) -> float:
+        """직전 1초 틱 간격의 최대값(초). 제어 주기가 밀리는지 본다."""
+        return self.ring.max_dt(1.0)
+
     def _loop(self) -> None:
-        nxt = time.perf_counter()
+        nxt = prev = time.perf_counter()
         while not self._quit.is_set():
             nxt += self.dt
+            now = time.perf_counter()
+            tick_dt, prev, err = now - prev, now, None
             with self._lock:
                 try:
                     self._check_health()
@@ -181,8 +200,10 @@ class MotionController:
                         self._tick()
                     elif self._jog is not None:
                         self._tick_jog()
-                except Exception:  # noqa: BLE001 통신 오류 등 어떤 실패든 0.5초 넘게 이어지면 fault
+                except Exception as e:  # noqa: BLE001 통신 오류 등 어떤 실패든 0.5초 넘게 이어지면 fault
+                    err = repr(e)[:120]
                     self._fault(self.health.comm_failed(time.perf_counter()))
+            self.ring.add(time.time_ns(), self._last, tick_dt, err, self.state, self.actual_hint)
             time.sleep(max(0.0, nxt - time.perf_counter()))
 
     def _fault(self, reason: str | None) -> None:
@@ -193,6 +214,7 @@ class MotionController:
         if job is not None:
             job[1]._finish(MotionResult("fault", time.perf_counter() - job[2], ToolPose(0, 0, 0, 0)))
         self.fault = reason
+        self._emit("fault", "ERROR", "ARM-FAULT", {"reason": reason, "job": job is not None})
         with contextlib.suppress(Exception):  # 통신이 끊긴 상태일 수 있다
             self.driver.write_joints(self._last)  # 현재 위치 유지 (토크는 끄지 않는다)
 
