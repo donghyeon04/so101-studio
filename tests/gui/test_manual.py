@@ -13,7 +13,7 @@ from nicegui.testing import user_simulation
 
 from so101_studio.gui import app as gui_app
 from so101_studio.gui.backend import JOG_JOINTS
-from so101_studio.gui.scene3d import VIEWS, table_hit
+from so101_studio.gui.scene3d import table_hit
 from so101_studio.service.targets import tip_vector
 
 REACHABLE = (300.0, 200.0, 40.0, 90.0)
@@ -144,12 +144,6 @@ def test_stopped_arm_explains_and_resume_recovers(backend):
     backend.resume()
     assert backend.arm.status().joints == q  # 해제는 팔을 움직이지 않는다
     assert backend.jog_step("joint", 0, 1) is None
-
-
-def test_views_cover_top_front_side(backend):
-    assert set(VIEWS) == {"위", "앞", "옆"}
-    for name in VIEWS:
-        backend.scene.set_view(name)  # 열린 3D 칸이 없어도 오류가 없어야 한다
 
 
 def test_page_blocks_unreachable_point_and_moves_to_reachable(backend):

@@ -23,12 +23,9 @@ PREVIEW_ALPHA = 0.4
 MESH_CELL_M = 0.002
 ALLOWED_TOP_MM = 300.0  # 높이 제한이 없을 때 허용 상자를 그리는 높이
 DEFAULT_PICK_H_MM = 40.0  # 작업대를 클릭했을 때의 높이. 0이면 턱 끝이 작업대에 닿는다
-# (카메라 위치, 보는 점, 위쪽). 작업대 600x400mm 기준
-VIEWS = {
-    "위": ((0.3, 0.2, 0.55), (0.3, 0.2, 0.0), (0.0, 1.0, 0.0)),
-    "앞": ((0.3, -0.45, 0.12), (0.3, 0.2, 0.1), (0.0, 0.0, 1.0)),
-    "옆": ((-0.4, 0.2, 0.12), (0.3, 0.2, 0.1), (0.0, 0.0, 1.0)),
-}
+Z_UP = (0.0, 0.0, 1.0)
+ORBIT_DEG_PER_PX = 0.8  # 뷰큐브를 끌 때
+ORBIT_MAX_ELEVATION_DEG = 87.0  # 위쪽 축을 넘어가면 화면이 뒤집힌다
 
 
 def table_hit(origin, direction) -> tuple[float, float] | None:
@@ -67,6 +64,26 @@ def _load_urdf(path: Path) -> yourdfpy.URDF:
 
 def _yaw(deg: float) -> np.ndarray:
     return tf.SO3.from_z_radians(math.radians(deg)).wxyz
+
+
+def up_for(direction) -> tuple[float, float, float]:
+    """그 방향에서 볼 때의 위쪽. 곧장 위나 아래에서 보면 z를 위쪽으로 쓸 수 없어, 앞면이 위 시점에서는 아래쪽, 아래 시점에서는 위쪽에 오게 한다."""
+    if direction[0] or direction[1]:
+        return Z_UP
+    return (0.0, 1.0, 0.0) if direction[2] > 0 else (0.0, -1.0, 0.0)
+
+
+def orbit_offset(offset, up, dx_px: float, dy_px: float) -> np.ndarray:
+    """끈 만큼 돌린 (카메라 - 보는 점). 오른쪽으로 끌면 큐브가 오른쪽으로 돌고(카메라는 왼쪽으로), 아래로 끌면 위에서 보게 된다. 돌린 뒤 위쪽은 z다."""
+    offset = np.asarray(offset, float)
+    distance = np.linalg.norm(offset)
+    level = offset[:2]
+    if np.linalg.norm(level) < 1e-3 * distance:  # 곧장 위나 아래: 수평 방향은 위쪽 벡터로 정해진다 (up_for와 짝)
+        level = -np.sign(offset[2]) * np.asarray(up, float)[:2]
+    azimuth = math.atan2(level[1], level[0]) - math.radians(dx_px * ORBIT_DEG_PER_PX)
+    limit = math.radians(ORBIT_MAX_ELEVATION_DEG)
+    elevation = float(np.clip(math.asin(np.clip(offset[2] / distance, -1, 1)) + math.radians(dy_px * ORBIT_DEG_PER_PX), -limit, limit))
+    return distance * np.array((math.cos(elevation) * math.cos(azimuth), math.cos(elevation) * math.sin(azimuth), math.sin(elevation)))
 
 
 class Scene3D:
@@ -119,7 +136,12 @@ class Scene3D:
         self._handle.on_update(self._on_drag)
         scene.on_click()(self._on_click)
         cam = self.server.initial_camera
-        cam.position, cam.look_at = (w / 2, -0.22, 0.34), (w / 2, h / 2 - 0.02, 0.06)
+        cam.position, cam.look_at, cam.up = (w / 2, -0.22, 0.34), (w / 2, h / 2 - 0.02, 0.06), Z_UP
+        self._home = ((w / 2, -0.22, 0.34), (w / 2, h / 2 - 0.02, 0.06), Z_UP)
+        self.camera = self._home  # (위치, 보는 점, 위쪽). 뷰큐브가 읽는다. 3D 칸이 여럿이면 마지막으로 움직인 칸의 값이다
+        self._camera_ready: set[int] = set()
+        self.server.on_client_connect(self._watch_camera)
+        self.server.on_client_disconnect(lambda client: self._camera_ready.discard(client.client_id))
 
     @property
     def url(self) -> str:
@@ -221,14 +243,42 @@ class Scene3D:
             scene.remove_by_name("/allowed")
             self.set_preview(None)
 
-    def set_view(self, name: str) -> None:
-        """시점을 위/앞/옆으로 옮긴다. 열려 있는 3D 칸 모두에 적용된다."""
-        position, look_at, up = VIEWS[name]
-        for client in self.server.get_clients().values():
-            with client.atomic():
-                client.camera.up_direction = up
-                client.camera.position = position
-                client.camera.look_at = look_at
+    def _watch_camera(self, client) -> None:
+        def moved(camera) -> None:
+            self._camera_ready.add(client.client_id)  # 첫 소식 전에는 Viser가 카메라 값을 읽지 못하게 한다
+            self.camera = (camera.position, camera.look_at, camera.up_direction)
+
+        client.camera.on_update(moved)
+
+    def _clients(self):
+        """카메라 값을 받은 3D 칸들."""
+        return [c for c in self.server.get_clients().values() if c.client_id in self._camera_ready]
+
+    def _aim(self, client, position, look_at, up) -> None:
+        with client.atomic():
+            client.camera.up_direction = up
+            client.camera.position = position
+            client.camera.look_at = look_at
+        self.camera = (position, look_at, up)
+
+    def look_from(self, direction) -> None:
+        """그 방향에서 보는 점을 본다(거리는 그대로). 열려 있는 3D 칸 모두에 적용된다."""
+        unit = np.asarray(direction, float) / np.linalg.norm(direction)
+        for client in self._clients():
+            look_at = np.asarray(client.camera.look_at)
+            distance = np.linalg.norm(np.asarray(client.camera.position) - look_at)
+            self._aim(client, look_at + unit * distance, look_at, up_for(direction))
+
+    def orbit(self, dx_px: float, dy_px: float) -> None:
+        """뷰큐브를 끈 만큼 보는 점 둘레로 돈다."""
+        for client in self._clients():
+            look_at = np.asarray(client.camera.look_at)
+            offset = orbit_offset(np.asarray(client.camera.position) - look_at, client.camera.up_direction, dx_px, dy_px)
+            self._aim(client, look_at + offset, look_at, Z_UP)
+
+    def home(self) -> None:
+        for client in self._clients():
+            self._aim(client, *self._home)
 
     def close(self) -> None:
         self.server.stop()

@@ -2,6 +2,8 @@
 
 from nicegui import ui
 
+from ..view_cube import view_cube
+
 
 class Controls:
     """조작권이 있어야 켜지는 요소를 모으고, 눌렸을 때 서버에서 한 번 더 막는다."""
@@ -41,5 +43,7 @@ class Controls:
             element.enabled = allowed
 
 
-def scene_frame(backend, classes: str = "scene3d") -> ui.element:
-    return ui.element("iframe").props(f'src={backend.scene.url} title="3D 보기"').classes(classes).mark("scene3d")
+def scene_frame(backend, classes: str = "scene3d") -> None:
+    with ui.element("div").classes("scene-wrap"):
+        ui.element("iframe").props(f'src={backend.scene.url} title="3D 보기"').classes(classes).mark("scene3d")
+        view_cube(backend.scene)

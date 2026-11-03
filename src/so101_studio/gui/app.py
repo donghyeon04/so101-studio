@@ -8,6 +8,7 @@ from . import scene3d, sensors, theme
 from .backend import Backend
 from .pages import arm, logs, manual, params, runs, safety, table, teach, workspace
 from .state import EMPTY, page_state
+from .view_cube import VIEW_CUBE_JS
 from .watchdog_link import BROWSER_HB_JS, WatchdogLink
 
 HOST = "127.0.0.1"  # NiceGUI 기본값 0.0.0.0은 같은 네트워크 어디서나 팔을 조작할 수 있게 한다 (decisions/0023)
@@ -44,6 +45,7 @@ def make_root(backend: Backend):
         resume: list[ui.button] = []
         beating: list[bool] = []  # 이 브라우저가 지금 감시 프로세스에 heartbeat를 보내는가
         ui.add_head_html(BROWSER_HB_JS)
+        ui.add_head_html(VIEW_CUBE_JS)
 
         def show(path: str, title: str, task: str) -> None:
             for btn in nav.values():
