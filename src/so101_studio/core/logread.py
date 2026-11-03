@@ -92,7 +92,7 @@ def list_incidents(root: str | Path = "runs") -> list[dict]:
     """사고 묶음 목록(최근 순): [{name, path, code, reason, t, level}]."""
     base = Path(root) / "incidents"
     out = []
-    for d in sorted((d for d in base.iterdir() if d.is_dir()), reverse=True) if base.is_dir() else []:
+    for d in sorted((d for d in base.iterdir() if d.is_dir() and (d / "meta.json").exists()), reverse=True) if base.is_dir() else []:
         try:
             meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):

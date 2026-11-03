@@ -175,8 +175,9 @@ class ArmService:
         nxt, n = time.perf_counter(), 0
         while not self._stop_status.is_set():
             nxt += 1.0 / STATUS_HZ
+            health_tick = n % (STATUS_HZ // HEALTH_HZ) == 0
             try:  # 통신 오류는 컨트롤러가 fault로 처리한다. 여기서는 조용히 버리지 않고 기록한 뒤 계속 돈다
-                if n % (STATUS_HZ // HEALTH_HZ) == 0:
+                if health_tick:
                     expect = getattr(self.driver, "expect_torque", None)  # 읽기 전에 정한다: 읽는 사이에 켠 토크를 풀림으로 오해하지 않게
                     self._health = self.driver.read_health()  # 온도·부하·토크·Status는 2Hz로만 읽는다
                     self._check_torque(expect)
@@ -184,7 +185,8 @@ class ArmService:
                 self._write_status(st)
                 for cb in list(self._callbacks):
                     cb(st)
-                self._status_ok()
+                if health_tick:  # 오류가 나는 읽기는 2Hz뿐이라, 그 읽기가 다시 성공해야 회복으로 본다
+                    self._status_ok()
             except Exception as e:  # noqa: BLE001
                 self._status_error(e)
             n += 1
