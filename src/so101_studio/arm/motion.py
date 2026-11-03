@@ -3,7 +3,7 @@ import contextlib
 import math
 import threading
 import time
-from dataclasses import astuple, fields
+from dataclasses import astuple, fields, replace
 
 import numpy as np
 
@@ -45,6 +45,11 @@ class MotionController:
         self._jog_t = 0.0  # 직전 조그 틱 시각
         self.jog_block = None  # 조그가 막힌 이유(풀리지 않음 'ik_fail' 또는 안전 검사 이유). 움직이면 None
         self.fault: str | None = None
+        self.grip_hold: float | None = None  # 들고 있는 동안 그리퍼 목표(실제보다 예압만큼 닫힌 값). 궤적이 무엇을 주든 매 틱 이 값으로 덮는다 (결정 0033)
+        self.grip_warn_pct: float | None = None  # 그리퍼 부하 감시(Skills가 설정에서 채운다). None이면 끔
+        self.grip_load_s, self.grip_open = 1.0, 60.0
+        self._grip_over_since: float | None = None
+        self._grip_warned_at: float | None = None
         self._job = None  # (traj, handle, t0, kind)
         self.locked_reason: str | None = None  # 이 이유가 있으면 움직이는 명령을 모두 거부한다(status "locked"). ArmService.connect가 정한다 (decisions/0027)
         self.ring = RingBuffer()  # 50Hz 틱의 최근 10초(명령, 실제, 틱 간격, 버스 오류). 사고 묶음이 쓴다 (decisions/0030)
@@ -244,9 +249,43 @@ class MotionController:
         if now < self._next_health or self.state == "fault":
             return
         self._next_health = now + HEALTH_PERIOD_S
-        self._fault(self.health.update_health(self.driver.read_health(), now))
+        h = self.driver.read_health()
+        self._fault(self.health.update_health(h, now))
+        self._check_grip(h, now)
         if self._job is None:  # 움직이는 중에는 쓰기 성공만 통신 정상으로 본다
             self.health.comm_ok(time.perf_counter())
+
+    def hold_gripper(self, value: float | None) -> None:
+        """그리퍼 목표를 value로 고정한다(None이면 풀어 궤적을 따른다). 지금 바로 한 번 쓴다."""
+        with self._lock:
+            self.grip_hold = value
+            if value is not None and self.state not in ("fault", "stopped"):
+                self._last = replace(self._last, gripper=value)
+                self.driver.write_joints(self._last)
+
+    def _check_grip(self, health: dict, now: float) -> None:
+        """그리퍼 부하 두 단계 (결정 0033): 기준을 gripper_load_s 넘게 넘으면 목표를 지금 위치로 맞춰 조임을 멈추고 WARN,
+        그래도 1초 더 이어지면 그리퍼를 열고 fault."""
+        if self.grip_warn_pct is None or self.state == "fault":
+            return
+        load = health.get("load_pct", {}).get("gripper", 0.0)
+        if load < self.grip_warn_pct:
+            self._grip_over_since = self._grip_warned_at = None
+            return
+        self._grip_over_since = now if self._grip_over_since is None else self._grip_over_since
+        if self._grip_warned_at is None:
+            if now - self._grip_over_since >= self.grip_load_s:
+                self._grip_warned_at = now
+                with contextlib.suppress(Exception):
+                    self.grip_hold = self.driver.read_joints().gripper  # 조임을 멈춘다: 목표 = 지금 위치
+                    self._last = replace(self._last, gripper=self.grip_hold)
+                    self.driver.write_joints(self._last)
+                self._emit("grip_overload_warn", "WARN", "ARM-GRIP-OVERLOAD-WARN", {"load_pct": load, "limit_pct": self.grip_warn_pct})
+        elif now - self._grip_warned_at >= 1.0:
+            self.grip_hold = None
+            self._last = replace(self._last, gripper=self.grip_open)  # fault가 이 값을 써서 연다
+            self._emit("grip_overload", "ERROR", "ARM-GRIP-OVERLOAD", {"load_pct": load, "limit_pct": self.grip_warn_pct})
+            self._fault("grip_overload")
 
     def _tick(self) -> None:
         traj, handle, t0, kind = self._job
@@ -262,6 +301,8 @@ class MotionController:
             t = prev + cap
         self._tick_ref = (handle, t)
         q = traj.sample(t)
+        if self.grip_hold is not None:
+            q = replace(q, gripper=self.grip_hold)
         if self.safety.check_step(self._last, q):
             self._fault("step")
             return

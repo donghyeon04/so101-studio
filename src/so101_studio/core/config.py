@@ -47,6 +47,10 @@ class RobotConfig:
     grasp_max_open_mm: float = 100
     contact_lag_units: float = 4.0
     gripper_squeeze_torque: int = 300
+    gripper_hold_torque: int = 200  # 들고 옮기는 동안의 조임 한계(RAM Torque_Limit). 그리퍼 Overload_Torque 25% 아래로 둔다 (결정 0033)
+    grip_preload_units: float = 2  # 접촉하면 그리퍼 목표를 지금 위치에서 이만큼 더 닫힌 쪽으로 둔다(명령이 실제보다 많이 닫혀 계속 미는 것을 없앤다)
+    gripper_load_warn_pct: float = 60  # 그리퍼 부하가 이 값을 gripper_load_s 넘게 넘으면 조임을 멈추고 WARN, 1초 더 이어지면 열고 fault. 실측 전 시작값
+    gripper_load_s: float = 1.0
     gripper_open: float = 60
     gripper_width_mm: list[list[float]] = field(default_factory=lambda: [[0, 0], [100, 90]])
     a_max_deg_s2: float = 120
