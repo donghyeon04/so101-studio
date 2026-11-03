@@ -221,3 +221,6 @@ __marimo__/
 
 # 실행 기록 (so101-studio)
 runs/
+
+# PC별 설정 (decisions/0027)
+config/local.yaml

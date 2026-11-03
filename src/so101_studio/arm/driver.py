@@ -27,16 +27,20 @@ class ArmDriver:
         self.gripper_acceleration = acceleration if gripper_acceleration is None else gripper_acceleration
         self.offsets = offsets or {}  # 관절별 영점 보정(도): 읽은 값 = 모터 값 - offset
         self._robot: SO101Follower | None = None
+        self.simulated = False
+        self.locked_reason: str | None = None  # 캘리브레이션이 서보와 다르면 연결은 하되 쓰기를 막는다(읽기만) (decisions/0027)
         self._lock = threading.RLock()  # 시리얼 포트는 한 번에 한 스레드만 쓴다 (동작 스레드와 상태 읽기가 겹칠 수 있다)
 
     def connect(self, port: str, calibration_id: str) -> None:
         robot = SO101Follower(SO101FollowerConfig(port=port, id=calibration_id))
         robot.bus.connect()
-        if not robot.is_calibrated:
-            robot.bus.disconnect(disable_torque=False)
-            raise RuntimeError(f"캘리브레이션 불일치: {calibration_id} (lerobot-calibrate 다시 실행)")
         self._robot = robot
         bus = robot.bus
+        self.locked_reason = None
+        if not robot.is_calibrated:  # 읽기만 허용: 서보에 아무것도 쓰지 않고, 움직이는 명령은 MotionController가 막는다
+            self.locked_reason = (f"캘리브레이션 불일치: {calibration_id}. 서보의 호밍 오프셋·범위가 캘리브레이션 파일과 다르거나 파일이 이 PC에 없다. "
+                                  "config/calibration/<id>.json을 ~/.cache/huggingface/lerobot/calibration/robots/so_follower/로 복사하거나 lerobot-calibrate를 다시 한다")
+            return
         was_on = any(bus.read("Torque_Enable", m) for m in bus.motors)  # 다시 연결해도 팔이 떨어지지 않게
         if not was_on:
             bus.disable_torque()
@@ -65,8 +69,13 @@ class ArmDriver:
         raw = self._bus.sync_read("Present_Position")
         return JointState(**{j: v - self.offsets.get(j, 0.0) for j, v in raw.items()})
 
+    def _require_unlocked(self) -> None:
+        if self.locked_reason:
+            raise RuntimeError(self.locked_reason)
+
     @_locked
     def write_joints(self, q: JointState) -> None:
+        self._require_unlocked()
         self._bus.sync_write("Goal_Position", {j: v + self.offsets.get(j, 0.0) for j, v in asdict(q).items()})
 
     @_locked
@@ -113,10 +122,13 @@ class ArmDriver:
 
     @_locked
     def set_gripper_torque_limit(self, value: int) -> None:
+        self._require_unlocked()
         self._bus.write("Max_Torque_Limit", "gripper", int(value))
 
     @_locked
     def set_torque(self, on: bool) -> None:
+        if on and self.locked_reason:
+            return  # 잠긴 동안은 토크를 켜지 않는다(켜는 순간 목표 위치를 쓰기 때문)
         if on:
             self._bus.sync_write("Goal_Position", self._bus.sync_read("Present_Position"))  # 켜는 순간 튀지 않게
             self._bus.enable_torque()

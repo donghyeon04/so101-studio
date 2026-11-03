@@ -96,6 +96,8 @@ class Teach:
         표본마다 실제 시각을 함께 기록해 손으로 움직인 속도가 재생에 그대로 반영된다. 기록 주기(hz)와 최대 시간(max_s)은 설정값을 이번만 바꿀 수 있다."""
         if self.recording:
             return
+        if self.ctl.locked_reason:
+            raise RuntimeError(self.ctl.locked_reason)  # 토크를 끄는 것도 서보에 쓰는 일이다
         self.ctl.stop()
         self.ctl.driver.set_torque(False)
         self.hz, self.max_s = int(hz or self.cfg.record_hz), float(max_s or self.cfg.record_max_s)
