@@ -1,6 +1,17 @@
 @echo off
-rem Runs so101_studio with the so101 conda env, from any folder (no conda activate needed).
-set "ENVDIR=%USERPROFILE%\miniforge3\envs\so101"
-set "PATH=%ENVDIR%\Library\bin;%ENVDIR%;%ENVDIR%\Scripts;%PATH%"
+rem Runs so101_studio in a conda env, from any folder (no conda activate needed).
+rem Env name: SO101_ENV (default so101). Or give the env folder directly with SO101_ENV_DIR.
+setlocal
+if not defined SO101_ENV set "SO101_ENV=so101"
+if not defined SO101_ENV_DIR (
+  for %%R in ("%USERPROFILE%\miniforge3" "%USERPROFILE%\miniconda3" "%USERPROFILE%\anaconda3" "%LOCALAPPDATA%\miniforge3" "%ProgramData%\miniforge3" "%ProgramData%\miniconda3") do (
+    if not defined SO101_ENV_DIR if exist "%%~R\envs\%SO101_ENV%\python.exe" set "SO101_ENV_DIR=%%~R\envs\%SO101_ENV%"
+  )
+)
+if not defined SO101_ENV_DIR (
+  echo conda env "%SO101_ENV%" not found. Create it: conda env create -f environment.yml  ^(or set SO101_ENV / SO101_ENV_DIR^)
+  exit /b 1
+)
+set "PATH=%SO101_ENV_DIR%\Library\bin;%SO101_ENV_DIR%;%SO101_ENV_DIR%\Scripts;%PATH%"
 cd /d "%~dp0"
-"%ENVDIR%\python.exe" -m so101_studio %*
+"%SO101_ENV_DIR%\python.exe" -m so101_studio %*

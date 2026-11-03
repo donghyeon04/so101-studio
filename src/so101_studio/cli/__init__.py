@@ -5,17 +5,21 @@ import sys
 import time
 from dataclasses import asdict, replace
 
-from ..arm.driver import ArmDriver
 from ..arm.sim_driver import SimDriver
-from ..core.config import load_robot, load_workspace
+from ..core import ports as ports_mod
+from ..core.config import ArmSelectionError, load_robot_ex, load_workspace
 from ..core.types import DetectedObject, JointState, ToolPose
 from ..service.arm_service import ArmService, plan_goto  # noqa: F401  plan_goto는 테스트가 이 경로로도 쓴다
 
-COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "jog", "keys", "powertest", "shaketest", "servoinfo", "linkwatch", "info", "record", "replay", "seq", "gui"]
+COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "jog", "keys", "powertest", "shaketest", "servoinfo", "linkwatch", "info", "record", "replay", "seq", "gui", "doctor", "find-port"]
 
 
 def make_driver(sim: bool, cfg):
-    return SimDriver(cfg.poses.get("home")) if sim else ArmDriver(cfg.pid, cfg.joint_offsets_deg, cfg.servo_acceleration, cfg.gripper_acceleration)
+    if sim:
+        return SimDriver(cfg.poses.get("home"))
+    from ..arm.driver import ArmDriver  # lerobot이 필요한 import는 실제 팔을 쓸 때만
+
+    return ArmDriver(cfg.pid, cfg.joint_offsets_deg, cfg.servo_acceleration, cfg.gripper_acceleration)
 
 
 def status_text(st) -> str:
@@ -92,10 +96,31 @@ def main(argv=None) -> None:
     ap.add_argument("--until-limit", action="store_true", help="replay: 한계나 바닥을 처음 넘는 자세 앞까지만 재생")
     ap.add_argument("--trace", action="store_true", help="keys: 명령·실제 관절 위치를 빠르게 기록하고 떨림 요약 (runs/.../trace.csv)")
     ap.add_argument("--speeds", help="shaketest: 시험할 속도들(°/s, 쉼표로). 기본 20,60,200")
+    ap.add_argument("--arm", help="팔 파일 이름(config/arms/<이름>.yaml). 기본: local.yaml -> 보드 시리얼 -> 하나뿐이면 그것")
+    ap.add_argument("--port", help="시리얼 포트. 기본: local.yaml -> 보드 시리얼로 자동 찾기 (so101 find-port)")
+    ap.add_argument("--json", action="store_true", help="doctor: JSON으로 출력")
+    ap.add_argument("--no-probe", action="store_true", help="doctor: 포트를 열지 않고 목록만 본다")
     ap.add_argument("command", choices=COMMANDS)
     ap.add_argument("values", nargs="*", help="movej: 관절 6개 / goto: x y z yaw / pick: x y 각도 폭(0이면 크기를 모름) / gripper: 값 / record·replay·seq: 이름")
     a = ap.parse_args(argv)
-    cfg = load_robot(a.config)
+    if a.command in ("doctor", "find-port"):
+        from ..bringup import run
+
+        sys.exit(run(a))
+    if a.command in ("keys", "jog") and sys.platform != "win32":
+        sys.exit("keys·jog는 Windows 전용이다(msvcrt). 다른 명령(status, movej, goto, run 등)은 쓸 수 있다")
+    port_list = [] if a.sim else ports_mod.list_serial_ports()  # 목록만 읽는다(포트를 열지 않는다)
+    try:
+        cfg, info = load_robot_ex(a.config, arm=a.arm, serials=[p["serial"] for p in port_list])
+    except ArmSelectionError as e:
+        sys.exit(str(e))
+    if not a.sim and a.command != "gui":  # gui는 팔을 직접 연결한다
+        try:
+            port, why = ports_mod.pick_port(port_list, cfg.board_serial, a.port, info["local"].get("port"), cfg.port)
+        except ports_mod.PortChoiceError as e:
+            sys.exit(f"{e}\n후보: " + (", ".join(f"{p['device']}({ports_mod.fmt_id(p)}, 시리얼 {p['serial']})" for p in e.candidates) or "없음"))
+        cfg = replace(cfg, port=port)
+        print(f"팔 {cfg.arm_name or '(팔 파일 없음)'} ({info['reason']}), 포트 {port} ({why})")
     cfg = replace(
         cfg,
         gripper_margin_mm=cfg.gripper_margin_mm if a.margin is None else a.margin,

@@ -2,7 +2,7 @@
 name = "so101-studio"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["pyyaml", "ruckig"]
+dependencies = ["pyyaml", "ruckig", "pyserial"]
 
 [project.optional-dependencies]
 gui = ["viser[urdf]", "nicegui"]

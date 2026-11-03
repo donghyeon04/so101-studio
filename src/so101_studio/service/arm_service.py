@@ -70,12 +70,29 @@ class ArmService:
         self.logger = RunLogger(self.log_root) if self.log_root else None
         self._health = self.driver.read_health()
         self._connected = True
+        self.ctl.locked_reason = self._lock_reason()  # 캘리브레이션 불일치나 팔 파일 없음이면 움직이는 명령을 막고 읽기만 허용한다 (decisions/0027)
+        if self.ctl.locked_reason:
+            self._log("locked", {"reason": self.ctl.locked_reason})
         self._torque_on = False  # jog가 토크를 켠 뒤 true. 교시로 토크를 끄면 다시 false (REQ-012)
         self._stop_status.clear()
         self._status_thread = threading.Thread(target=self._status_loop, daemon=True)
         self._status_thread.start()
         self._log("connect", {"port": port or self.cfg.port})
         return True, ""
+
+    def _lock_reason(self) -> str | None:
+        if getattr(self.driver, "simulated", False):
+            return None
+        if getattr(self.driver, "locked_reason", None):
+            return self.driver.locked_reason
+        if not self.cfg.arm_name:
+            return "팔 파일이 없다: config/arms/_template.yaml을 복사해 채우기 전에는 움직이지 않는다"
+        return None
+
+    @property
+    def locked_reason(self) -> str | None:
+        """None이 아니면 움직이는 명령이 막혀 있다(읽기만 가능). 이유 문장이다."""
+        return self.ctl.locked_reason if self.ctl else None
 
     def disconnect(self) -> None:
         self._stop_status.set()

@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import draccus
+import yaml
 
 from .frames import Pose2D
 
@@ -56,6 +57,17 @@ class RobotConfig:
     joint_offsets_deg: dict[str, float] = field(default_factory=dict)
     joint_limits_deg: dict[str, list[float]] = field(default_factory=dict)
     poses: dict[str, list[float]] = field(default_factory=dict)
+    arm_name: str = ""  # 고른 팔 파일 이름(config/arms/<이름>.yaml). 비어 있으면 팔 파일 없이 robot.yaml만 읽은 것 (decisions/0027)
+    board_serial: str = ""  # 이 팔의 USB 시리얼 보드 시리얼 번호
+    measured_on: str = ""  # 팔별 값을 잰 날짜
+
+
+class ArmSelectionError(Exception):
+    """팔을 하나로 고르지 못했다. candidates에 후보 팔 이름이 들어 있다."""
+
+    def __init__(self, message: str, candidates: list[str] | None = None):
+        super().__init__(message)
+        self.candidates = candidates or []
 
 
 @dataclass
@@ -71,8 +83,63 @@ class WorkspaceConfig:
         return Pose2D(**self.robot_base_in_table)
 
 
-def load_robot(path: str | Path = "config/robot.yaml") -> RobotConfig:
-    return _load(RobotConfig, path)
+def _read_yaml(path: Path) -> dict:
+    return (yaml.safe_load(path.read_text(encoding="utf-8")) or {}) if path.exists() else {}
+
+
+def arm_files(arms_dir: Path) -> dict[str, Path]:
+    """config/arms/*.yaml. 이름이 _로 시작하는 파일(_template)은 팔이 아니다."""
+    return {p.stem: p for p in sorted(arms_dir.glob("*.yaml")) if not p.stem.startswith("_")} if arms_dir.is_dir() else {}
+
+
+def resolve_arm(arms_dir: Path, local: dict, arm: str | None = None, serials=()) -> tuple[str | None, str]:
+    """팔 고르기 (decisions/0027): 인자 -> local.yaml의 arm -> 연결된 보드 시리얼 -> 팔 파일이 하나뿐이면 그것.
+    (이름, 고른 이유)를 돌려준다. 팔 파일이 없으면 (None, ...). 못 고르면 ArmSelectionError."""
+    files = arm_files(arms_dir)
+    for name, why in ((arm, "--arm 옵션"), (local.get("arm"), "local.yaml의 arm")):
+        if name:
+            if name not in files:
+                raise ArmSelectionError(f"팔 파일이 없다: {name} (있는 팔: {sorted(files) or '없음'})", sorted(files))
+            return name, why
+    if not files:
+        return None, "팔 파일 없음"
+    serials = {str(x) for x in serials if x}
+    if serials:
+        hit = [n for n, p in files.items() if str(_read_yaml(p).get("board_serial", "")) in serials]
+        if len(hit) == 1:
+            return hit[0], "연결된 보드 시리얼이 같은 팔 파일"
+        if len(hit) > 1:
+            raise ArmSelectionError(f"보드 시리얼이 같은 팔 파일이 여럿이다: {hit}. --arm으로 고른다", hit)
+    if len(files) == 1:
+        return next(iter(files)), "팔 파일이 하나뿐"
+    raise ArmSelectionError(f"팔을 고르지 못했다. --arm <이름>이나 config/local.yaml의 arm으로 고른다 (있는 팔: {sorted(files)})", sorted(files))
+
+
+def load_robot_ex(path: str | Path = "config/robot.yaml", arm: str | None = None, serials=(), arms_dir: str | Path | None = None,
+                  local_path: str | Path | None = None) -> tuple[RobotConfig, dict]:
+    """robot.yaml <- config/arms/<팔>.yaml <- config/local.yaml 순서로 겹쳐 읽는다(뒤가 앞을 덮고, 키 단위로 통째로 바꾼다).
+    arms 폴더와 local.yaml은 robot.yaml 옆에서 찾는다. 둘 다 없으면 robot.yaml만 읽는다(예전과 같다).
+    (설정, {"arm": 이름|None, "reason": 이유, "files": [읽은 파일]})."""
+    path = Path(path)
+    arms_dir = Path(arms_dir) if arms_dir else path.parent / "arms"
+    local_path = Path(local_path) if local_path else path.parent / "local.yaml"
+    local = _read_yaml(local_path)
+    name, reason = resolve_arm(arms_dir, local, arm, serials)
+    merged = _read_yaml(path)
+    files = [str(path)]
+    if name:
+        merged |= _read_yaml(arm_files(arms_dir)[name])
+        files.append(str(arm_files(arms_dir)[name]))
+        merged["arm_name"] = name
+    if local_path.exists():
+        files.append(str(local_path))
+    merged |= {k: v for k, v in local.items() if k != "arm"}
+    return draccus.decode(RobotConfig, merged), {"arm": name, "reason": reason, "files": files, "local": local}
+
+
+def load_robot(path: str | Path = "config/robot.yaml", arm: str | None = None, serials=(), arms_dir: str | Path | None = None,
+               local_path: str | Path | None = None) -> RobotConfig:
+    return load_robot_ex(path, arm, serials, arms_dir, local_path)[0]
 
 
 def load_workspace(path: str | Path = "config/workspace.yaml") -> WorkspaceConfig:

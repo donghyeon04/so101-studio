@@ -45,6 +45,7 @@ class MotionController:
         self.jog_block = None  # 조그가 막힌 이유(풀리지 않음 'ik_fail' 또는 안전 검사 이유). 움직이면 None
         self.fault: str | None = None
         self._job = None  # (traj, handle, t0, kind)
+        self.locked_reason: str | None = None  # 이 이유가 있으면 움직이는 명령을 모두 거부한다(status "locked"). ArmService.connect가 정한다 (decisions/0027)
         self._tick_ref = None  # (handle, 직전 틱의 궤적 시간)
         self.time_lost_s = 0.0  # 틱 지연 때문에 늦춘 동작 시간의 누적(진단용: 크면 제어 주기가 밀리고 있다)
         self._lock = threading.Lock()
@@ -67,7 +68,9 @@ class MotionController:
     def execute(self, traj) -> MotionHandle:
         handle, now = MotionHandle(), time.perf_counter()
         with self._lock:
-            if self.state == "stopped" or self.state == "fault":
+            if self.locked_reason:
+                handle._finish(MotionResult("locked", 0.0, ToolPose(0, 0, 0, 0)))
+            elif self.state == "stopped" or self.state == "fault":
                 handle._finish(MotionResult(self.state, 0.0, ToolPose(0, 0, 0, 0)))
             elif self._job is not None:
                 raise RuntimeError("이미 동작 중")
@@ -88,7 +91,7 @@ class MotionController:
         """원격 조종 한 걸음 (spec 6.7). mode: "joint"(관절 6개 deg/s) 또는 "cartesian"(작업대 x, y, z mm/s, yaw deg/s).
         입력이 DEADMAN_S 넘게 끊기면 멈춘다. 동작 중이거나 정지·fault 상태면 무시한다."""
         with self._lock:
-            if self.state in ("stopped", "fault") or self._job is not None:
+            if self.locked_reason or self.state in ("stopped", "fault") or self._job is not None:
                 return False
             if self._jog is None:
                 self._jog_v = np.zeros(6)
@@ -108,6 +111,9 @@ class MotionController:
 
         handle, now = MotionHandle(), time.perf_counter()
         with self._lock:
+            if self.locked_reason:
+                handle._finish(MotionResult("locked", 0.0, ToolPose(0, 0, 0, 0)))
+                return handle
             if self.state in ("stopped", "fault"):
                 handle._finish(MotionResult(self.state, 0.0, ToolPose(0, 0, 0, 0)))
                 return handle

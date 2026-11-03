@@ -1,0 +1,15 @@
+# conda env create -f environment.yml   (레포 루트에서)
+# numpy는 conda 설치본(MKL)이다. placo와 맞춘 것이라 pip로 numpy를 다시 설치하지 않는다 (CLAUDE.md).
+name: so101
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - numpy=2.2.6
+  - "libblas=*=*mkl"
+  - placo=0.9.25
+  - pyyaml
+  - pip
+  - pip:
+      - "lerobot[feetech]==0.6.1"
+      - -e .[gui]
