@@ -84,14 +84,21 @@ class Safety:
         f, mt = self.kin.jaw_tip_offsets(p.pitch_deg, p.yaw_deg, q.gripper)
         return p.z_mm + min(f[2], mt[2], 0.0) - self.table_z_mm
 
+    @staticmethod
+    def _outside(v: float, lim) -> float:
+        """범위 [lo, hi] 밖으로 벗어난 거리(안이면 0)."""
+        return max(lim[0] - v, v - lim[1], 0.0)
+
     def _workspace(self, q: JointState, ref: JointState | None = None) -> str | None:
         if self.ws is None or self.kin is None:
             return None
         p, box = self.kin.fk(q), self.box()
-        if self.check_xy and self.settings.mode == "normal" and not (
-            box["x"][0] <= p.x_mm <= box["x"][1] and box["y"][0] <= p.y_mm <= box["y"][1]
-        ):
-            return "workspace"
+        if self.check_xy and self.settings.mode == "normal":
+            pr = self.kin.fk(ref) if ref is not None else None
+            for ax, v, v0 in (("x", p.x_mm, pr and pr.x_mm), ("y", p.y_mm, pr and pr.y_mm)):
+                # 작업대 밖에서 출발했다면(0° 자세 등) 벗어난 거리가 출발점보다 늘지 않는 점만 허용해 돌아올 수 있게 한다 (decisions/0031)
+                if self._outside(v, box[ax]) > (self._outside(v0, box[ax]) if v0 is not None else 0.0) + 1e-6:
+                    return "workspace"
         floor = box["z"][0]
         if ref is not None:  # 바닥 한계 아래에서 출발했다면(정지가 바닥 바로 앞에서 걸린 경우 등) 더 낮아지지 않는 동작은 허용해 빠져나올 수 있게 한다
             floor = min(floor, self._tip_height(ref))
@@ -147,9 +154,13 @@ class HealthMonitor:
                 return f"overload:{m}"
         return None
 
-    def comm_ok(self) -> None:
+    def comm_ok(self, now: float | None = None) -> None:
         self._comm_down_since = None
+        self._last_ok = now
 
     def comm_failed(self, now: float) -> str | None:
-        self._comm_down_since = self._comm_down_since if self._comm_down_since is not None else now
+        """끊김 시간은 마지막으로 통신이 된 시각부터 잰다(처음 실패를 본 시각이 아니라): 읽기가 드문 정지 중에도 끊긴 뒤 0.5초쯤에 fault가 난다."""
+        if self._comm_down_since is None:
+            lo = getattr(self, "_last_ok", None)
+            self._comm_down_since = lo if lo is not None and 0 <= now - lo < self.comm_s * 2 else now
         return "comm_lost" if now - self._comm_down_since >= self.comm_s else None
