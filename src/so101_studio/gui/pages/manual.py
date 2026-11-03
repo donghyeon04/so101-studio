@@ -4,7 +4,6 @@ from nicegui import run, ui
 
 from .. import theme
 from ..backend import CART_AXES, JOG_JOINTS, JOINT_TEXT
-from ..scene3d import VIEWS
 from .common import Controls, scene_frame
 
 STEPS = {0: "누르기", 1: "1", 5: "5", 10: "10"}
@@ -54,11 +53,7 @@ def build(backend, client_id: str, actions) -> None:
     with ui.row().classes("w-full no-wrap items-start gap-4"):
         with ui.column().classes("flex-1 min-w-0 gap-2 scene-column"):
             scene_frame(backend)
-            with ui.row().classes("items-center gap-2"):
-                ui.label("시점").classes("stat-label")
-                for name in VIEWS:
-                    ui.button(name, on_click=lambda n=name: backend.scene.set_view(n)).props("outline no-caps").mark(f"view-{name}")
-                ui.label("작업대를 클릭하거나 손잡이를 끌어 점을 고릅니다").classes("page-body")
+            ui.label("작업대를 클릭하거나 손잡이를 끌어 점을 고릅니다").classes("page-body")
 
         with ui.column().classes("control-column gap-3"):
             with ui.card().classes("w-full gap-2"):

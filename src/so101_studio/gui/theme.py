@@ -16,6 +16,8 @@ SENSOR = "#0b7285"
 PREVIEW = "#6d4fc2"
 
 STATE_COLORS = {"대기": "grey-8", "실행 중": "primary", "정지": "negative", "오류": "negative"}
+CUBE_SIZE = 56  # 뷰큐브 한 변(px)
+CUBE_BOX = 150  # 돌려도 좌표축 글자까지 잘리지 않는 칸
 # 감시 상태: (아이콘, 색). 색 + 아이콘 + 글자 (decisions/0025)
 WATCH_STYLES = {
     "정상": ("check_circle", "positive"),
@@ -102,6 +104,17 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 .jog-button {{ min-width: {CONTROL_H}px; padding: 0 8px; }}
 .jog-unit {{ width: 24px; }}
 .scene3d {{ width: 100%; height: 62vh; min-height: 360px; border: 1px solid {LINE}; border-radius: {RADIUS}px; background: {CARD}; }}
+.scene-wrap {{ position: relative; width: 100%; }}
+.scene-wrap iframe {{ display: block; }}
+.viewcube {{ position: absolute; top: 40px; right: 8px; width: {CUBE_BOX}px; height: {CUBE_BOX}px; pointer-events: none; user-select: none; touch-action: none; }}
+.vc-cube {{ position: absolute; left: calc(50% - {CUBE_SIZE / 2}px); top: calc(50% - {CUBE_SIZE / 2}px); width: {CUBE_SIZE}px; height: {CUBE_SIZE}px; transform-style: preserve-3d; }}
+.vc-face {{ position: absolute; inset: 0; display: grid; grid-template: 22% 56% 22% / 22% 56% 22%; background: #e9ebef; border: 1px solid {CONTROL_BORDER}; backface-visibility: hidden; }}
+.vc-cell {{ pointer-events: auto; cursor: pointer; }}
+.vc-cell:focus-visible {{ outline-offset: -2px; }}
+.vc-cell.hot {{ background: {ACCENT}73; }}
+.vc-label {{ position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; color: {TEXT}; pointer-events: none; }}
+.vc-triad {{ position: absolute; inset: 0; pointer-events: none; }}
+.vc-home {{ position: absolute; left: 0; top: 0; pointer-events: auto; color: {MUTED}; }}
 .q-page-sticky {{ z-index: 5000; }}
 .estop {{ width: {ESTOP_D}px; height: {ESTOP_D}px; font-weight: 600; border: 3px solid {CARD}; outline: 2px solid {DANGER}; }}
 .nicegui-content {{ padding: {GAP}px; gap: {GAP}px; padding-bottom: {ESTOP_D + 2 * GAP}px; }}
