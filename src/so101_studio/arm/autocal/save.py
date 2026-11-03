@@ -79,10 +79,12 @@ def save_calibration(bus, report: dict, *, cache_path: Path, repo_path: Path, ru
     suggestion = physical_limits_suggestion(measured)
     record = {"kind": "autocal-save", "calibration_id": cal_id, "saved_at": now.isoformat(timespec="seconds"), "backup": str(backup) if backup else None,
               "cache_path": str(cache_path), "repo_path": str(repo_path), "measured_at": report["finished"], "rows": report["rows"],
+              "mode": report.get("mode", "single"), "runs": report.get("runs", []),
               "physical_limits_deg_suggestion": suggestion}
     runs_dir.mkdir(parents=True, exist_ok=True)
     text = json.dumps(record, indent=2, ensure_ascii=False)
     (runs_dir / f"autocal-save-{cal_id}.json").write_text(text, encoding="utf-8")  # so101 doctor가 읽는다
     out(f"저장했다: EEPROM, {cache_path}, {repo_path}")
+    out("캘리브레이션 파일이 바뀌었으므로 0° 자세를 다시 확인해야 움직인다: so101 calibrate --verify-zero")
     out("팔 파일 physical_limits_deg 제안(자동으로 바꾸지 않는다, 사람이 확인해 고친다):\n" + "\n".join(f"  {n}: {v}" for n, v in suggestion.items()))
     return record

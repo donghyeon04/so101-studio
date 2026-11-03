@@ -60,6 +60,7 @@ class RobotConfig:
     arm_name: str = ""  # 고른 팔 파일 이름(config/arms/<이름>.yaml). 비어 있으면 팔 파일 없이 robot.yaml만 읽은 것 (decisions/0027)
     board_serial: str = ""  # 이 팔의 USB 시리얼 보드 시리얼 번호
     measured_on: str = ""  # 팔별 값을 잰 날짜
+    calibration_checked: dict = field(default_factory=dict)  # so101 calibrate --verify-zero가 쓴 {date, sha256}. 캘리브레이션 파일과 맞지 않으면 움직이는 명령은 locked (decisions/0029)
 
 
 class ArmSelectionError(Exception):

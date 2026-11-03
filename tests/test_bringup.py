@@ -282,14 +282,15 @@ def test_doctor_cli_json_in_sim(capsys):
     with pytest.raises(SystemExit) as e:
         main(["--sim", "doctor", "--json"])
     res = json.loads(capsys.readouterr().out)
-    assert e.value.code == 0 and res["ok"] and set(res) == {"ok", "checks", "ports", "arm", "esp32", "autocal"}
+    assert e.value.code == 0 and res["ok"] and set(res) == {"ok", "checks", "ports", "arm", "esp32", "autocal", "zero_check"}
 
 
 # ---- 캘리브레이션 불일치·팔 파일 없음: 움직이는 명령 거부, 읽기는 허용
-def _locked_service(tmp_path, reason=None, arm_name="so101_follower_01"):
+def _locked_service(tmp_path, reason=None, arm_name="so101_follower_01", checked=True):
     import dataclasses
 
     from so101_studio.arm.sim_driver import SimDriver
+    from so101_studio.core.calibration import calibration_sha256, find_calibration
     from so101_studio.core.config import load_workspace
     from so101_studio.service.arm_service import ArmService
 
@@ -298,7 +299,9 @@ def _locked_service(tmp_path, reason=None, arm_name="so101_follower_01"):
     writes = []
     real = d.write_joints
     d.write_joints = lambda q: (writes.append(q), real(q))[1]
-    cfg = dataclasses.replace(load_robot("config/robot.yaml"), arm_name=arm_name)
+    base = load_robot("config/robot.yaml")
+    sha = calibration_sha256(find_calibration(base.calibration_id, Path("config"))[0])
+    cfg = dataclasses.replace(base, arm_name=arm_name, calibration_checked={"date": "2026-11-04", "sha256": sha} if checked else {})  # 0° 자세 확인 기록 (decisions/0029)
     svc = ArmService(d, cfg, load_workspace("config/workspace.yaml"), speed_pct=50, log_root=str(tmp_path))
     ok, msg = svc.connect()
     assert ok, msg

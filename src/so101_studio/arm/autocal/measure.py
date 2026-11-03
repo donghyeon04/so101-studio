@@ -121,9 +121,17 @@ def measure_only(bus, calibration_id: str, old_cal: dict | None, *, velocity: in
               "summary": calibrator.summary()}
     out(calibrator.summary())
     out(format_table(rows))
-    out(f"합격: 기존 캘리브레이션과 모든 관절이 ±{PASS_DEG:g}° 이내" if report["passed"] else f"합격 아님: 기존 값과 {PASS_DEG:g}° 넘게 다르거나 비교할 기존 파일이 없다")
+    out(f"1회 합격: 기존 캘리브레이션과 모든 관절이 ±{PASS_DEG:g}° 이내" if report["passed"] else f"1회 합격 아님: 기존 값과 {PASS_DEG:g}° 넘게 다르거나 비교할 기존 파일이 없다(3회 반복 합격으로 저장할 수 있다)")
     if run_dir:
+        from . import (
+            repeat,  # measure를 먼저 import하는 repeat와 서로 물리지 않게 여기서 가져온다
+        )
+
         run_dir.mkdir(parents=True, exist_ok=True)
         (run_dir / "measure.json").write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
         out(f"기록: {run_dir / 'measure.json'}")
+        status = repeat.repeat_status(run_dir.parent, calibration_id, report["finished"])  # 이 측정을 포함한다
+        report["repeat"] = {k: status[k] for k in ("count", "max_diff_deg", "passed")}
+        (run_dir / "measure.json").write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+        out(repeat.progress_line(status))
     return report

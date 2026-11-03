@@ -3,6 +3,7 @@ import contextlib
 import threading
 import time
 from dataclasses import asdict, replace
+from pathlib import Path
 
 import numpy as np
 
@@ -12,6 +13,7 @@ from ..arm.safety import MODES, Safety, SafetySettings
 from ..arm.skills import Skills
 from ..arm.teach import Teach
 from ..arm.trajectory import cfg_move_j, cfg_move_l
+from ..core.calibration import zero_check
 from ..core.config import RobotConfig, WorkspaceConfig, load_workspace
 from ..core.logging import RunLogger
 from ..core.types import ArmStatus, DetectedObject, JointState, MotionResult, ToolPose
@@ -46,6 +48,8 @@ class ArmService:
         self.speed = speed_pct if speed_pct is not None else cfg.speed_pct_default
         self.log_root = log_root
         self.preset_dir = "config/presets"
+        self.config_dir = Path("config")  # 캘리브레이션 사본·팔 파일을 찾는 곳
+        self._hard_lock = self._zero_lock = None
         self.logger: RunLogger | None = None
         self.kin = self.safety = self.ctl = self.skills = self.teach = None
         self._callbacks: list = []
@@ -70,7 +74,9 @@ class ArmService:
         self.logger = RunLogger(self.log_root) if self.log_root else None
         self._health = self.driver.read_health()
         self._connected = True
-        self.ctl.locked_reason = self._lock_reason()  # 캘리브레이션 불일치나 팔 파일 없음이면 움직이는 명령을 막고 읽기만 허용한다 (decisions/0027)
+        self._hard_lock = self._lock_reason()  # 캘리브레이션 불일치나 팔 파일 없음 (decisions/0027)
+        self._zero_lock = None if self._hard_lock else self._zero_lock_reason()  # 0° 자세 확인 전 (decisions/0029)
+        self.ctl.locked_reason = self._hard_lock or self._zero_lock  # 움직이는 명령을 막고 읽기만 허용한다
         if self.ctl.locked_reason:
             self._log("locked", {"reason": self.ctl.locked_reason})
         self._torque_on = False  # jog가 토크를 켠 뒤 true. 교시로 토크를 끄면 다시 false (REQ-012)
@@ -88,6 +94,20 @@ class ArmService:
         if not self.cfg.arm_name:
             return "팔 파일이 없다: config/arms/_template.yaml을 복사해 채우기 전에는 움직이지 않는다"
         return None
+
+    def _zero_lock_reason(self) -> str | None:
+        if getattr(self.driver, "simulated", False):
+            return None
+        z = zero_check(self.cfg, self.config_dir)
+        return None if z["state"] == "checked" else f"0° 자세 확인 필요: {z['reason']}. so101 calibrate --verify-zero로 확인하기 전에는 움직이지 않는다"
+
+    def unlock_for_verification(self) -> bool:
+        """so101 calibrate --verify-zero만 쓴다: 0° 자세 확인 때문에 걸린 잠금만 푼다. 캘리브레이션 불일치·팔 파일 없음은 풀지 않는다. 풀렸으면 True."""
+        self.ctl.locked_reason = self._hard_lock
+        return self._hard_lock is None
+
+    def relock_zero(self) -> None:
+        self.ctl.locked_reason = self._hard_lock or self._zero_lock
 
     @property
     def locked_reason(self) -> str | None:
