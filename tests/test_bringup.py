@@ -282,7 +282,7 @@ def test_doctor_cli_json_in_sim(capsys):
     with pytest.raises(SystemExit) as e:
         main(["--sim", "doctor", "--json"])
     res = json.loads(capsys.readouterr().out)
-    assert e.value.code == 0 and res["ok"] and set(res) == {"ok", "checks", "ports", "arm", "esp32"}
+    assert e.value.code == 0 and res["ok"] and set(res) == {"ok", "checks", "ports", "arm", "esp32", "autocal"}
 
 
 # ---- 캘리브레이션 불일치·팔 파일 없음: 움직이는 명령 거부, 읽기는 허용

@@ -11,7 +11,7 @@ from ..core.config import ArmSelectionError, load_robot_ex, load_workspace
 from ..core.types import DetectedObject, JointState, ToolPose
 from ..service.arm_service import ArmService, plan_goto  # noqa: F401  plan_goto는 테스트가 이 경로로도 쓴다
 
-COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "jog", "keys", "powertest", "shaketest", "servoinfo", "linkwatch", "info", "record", "replay", "seq", "gui", "doctor", "find-port"]
+COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "jog", "keys", "powertest", "shaketest", "servoinfo", "linkwatch", "info", "record", "replay", "seq", "gui", "doctor", "find-port", "calibrate"]
 
 
 def make_driver(sim: bool, cfg):
@@ -100,6 +100,12 @@ def main(argv=None) -> None:
     ap.add_argument("--port", help="시리얼 포트. 기본: local.yaml -> 보드 시리얼로 자동 찾기 (so101 find-port)")
     ap.add_argument("--json", action="store_true", help="doctor: JSON으로 출력")
     ap.add_argument("--no-probe", action="store_true", help="doctor: 포트를 열지 않고 목록만 본다")
+    ap.add_argument("--auto", action="store_true", help="calibrate: 자동 캘리브레이션(--measure-only와 함께)")
+    ap.add_argument("--measure-only", action="store_true", help="calibrate --auto: 서보 EEPROM에 쓰지 않고 측정만 해 기존 캘리브레이션과 비교")
+    ap.add_argument("--save", action="store_true", help="calibrate: 합격한 측정 결과를 EEPROM·LeRobot 캐시·config/calibration에 저장")
+    ap.add_argument("--from", dest="from_file", help="calibrate --save: 저장할 측정 결과 파일(기본: 가장 최근 runs/*/measure.json)")
+    ap.add_argument("--velocity", type=int, default=200, help="calibrate --auto: 끝단 찾기 속도(steps/s, 기본 200)")
+    ap.add_argument("--torque-limit", type=int, help="calibrate --auto: 토크 한계(0~1000, 기본 500=50%%)")
     ap.add_argument("command", choices=COMMANDS)
     ap.add_argument("values", nargs="*", help="movej: 관절 6개 / goto: x y z yaw / pick: x y 각도 폭(0이면 크기를 모름) / gripper: 값 / record·replay·seq: 이름")
     a = ap.parse_args(argv)
@@ -129,6 +135,12 @@ def main(argv=None) -> None:
         grasp_bias_mm=cfg.grasp_bias_mm if a.bias is None else a.bias,
         control_hz=cfg.control_hz if a.hz is None else a.hz,
     )
+    if a.command == "calibrate":  # ArmService를 거치지 않는다: connect는 PID·가속을 서보에 쓴다 (REQ-016)
+        from pathlib import Path
+
+        from ..arm.autocal.cli import run_calibrate
+
+        sys.exit(run_calibrate(a, cfg, config_dir=Path(a.config).parent))
     if a.command == "gui":  # 팔은 GUI가 연결한다. 여기서는 연결하지 않는다 (REQ-005)
         try:
             gui = importlib.import_module("so101_studio.gui")
