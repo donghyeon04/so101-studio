@@ -83,9 +83,8 @@ class Backend:
     local_path = "config/local.yaml"
 
     def __init__(self, speed: float | None = None, log_root: str | None = "runs", link: WatchdogLink | None = None,
-                 viser_port: int | None = None, real_driver=None, arm_name: str | None = None):
-        # shortcut: 보드 시리얼 없이 고른다(팔 파일이 여럿이면 --arm이나 local.yaml), G10에서 실제 포트의 시리얼을 넘긴다
-        cfg, self.arm_info = load_robot_ex(arm=arm_name)
+                 viser_port: int | None = None, real_driver=None, arm_name: str | None = None, serials=(), port: str | None = None):
+        cfg, self.arm_info = load_robot_ex(arm=arm_name, serials=serials)
         self._arm_option = arm_name
         self.state = State()
         self.link = link
@@ -108,8 +107,9 @@ class Backend:
         self.mode = "sim"
         self.pending: tuple | None = None  # 시뮬레이션 먼저: 실제 팔로 실행할지 묻는 동작 (이름, action)
         self._planning = False
+        self._record_name: str | None = None
         for arm in self._arms():
-            ok, msg = arm.connect()
+            ok, msg = arm.connect(port if arm is self.real else None)
             if not ok:
                 raise RuntimeError(msg)
         self.arm.status_stream(self.state.update)
@@ -596,6 +596,46 @@ class Backend:
             self.scene.show_trajectory(segments)
         return {"info": info, "t": t.round(3).tolist(), "q": q.round(2).tolist()}
 
+    # ---- 새 기록 (실제 팔에서만). 순서는 CLI record와 같다: 홈 -> 팔 잡기 -> 카운트다운 -> 토크 끄고 기록
+    def recording(self) -> bool:
+        return bool(self.real and self.real.teach.recording)
+
+    def record_name_problem(self, name: str) -> str | None:
+        """파일 이름이 되므로 경로 문자를 막고, 다른 기록을 덮어쓰지 않는다."""
+        if not re.fullmatch(r"[\w-]{1,40}", name or ""):
+            return "기록 이름은 글자, 숫자, -, _ 로 40자까지 쓸 수 있습니다"
+        if name in self.sequences():
+            return f"같은 이름의 기록이 있습니다: {name}"
+        return None
+
+    def record_prepare(self) -> str | None:
+        """홈으로 옮긴다. 토크를 끄면 팔이 처지므로 받침 근처에서 시작한다. 실패 이유 또는 None. 스레드에서 부른다."""
+        return self._real_blocked() or self._run_on(self.real, lambda arm: arm.home())
+
+    def record_begin(self, name: str) -> str | None:
+        """토크를 끄고 기록을 시작한다. 사람이 팔을 잡고 있어야 한다. 실패 이유 또는 None."""
+        reason = self._real_blocked() or self.record_name_problem(name)
+        if reason:
+            return reason
+        if self.task_running():
+            return "작업 실행 중입니다"
+        self.real.record_start()
+        self._record_name = name
+        return None
+
+    def record_finish(self) -> str | None:
+        """기록을 저장하고 토크를 켜서 지금 자세를 잡는다. 저장한 이름 또는 None."""
+        if not self.recording():
+            return None
+        name, self._record_name = self._record_name, None
+        self.real.record_stop(name)
+        return name
+
+    def record_truncated(self) -> float | None:
+        """최대 시간에 걸려 앞부분만 남았으면 그 시간(초)."""
+        teach = self.real.teach
+        return teach.max_s if teach.truncated else None
+
     def replay(self, name: str, speed: float, until_limit: bool = False, segment_speeds: dict[int, float] | None = None) -> str | None:
         reason = self._dispatch(lambda arm: arm.replay(name, speed, until_limit, segment_speeds), f"{name} 재생")
         if reason == MOTION_TEXT["out_of_bounds"] and not until_limit:
@@ -614,9 +654,11 @@ class Backend:
         """조작하던 브라우저의 연결이 끊기면 팔을 세운다(토크는 유지)."""
         if self.owner == client:
             self.owner = None
+            self.record_finish()  # 토크가 꺼진 채 조작하던 화면이 사라지면 지금 자세를 잡는다
             self.stop_task()
 
     def estop(self) -> None:
+        self.record_finish()  # 기록 중에는 토크가 꺼져 있어 정지 명령만으로는 팔이 서지 않는다
         self.paused = False
         self.studio.stop()
         self.pending = None
@@ -627,6 +669,7 @@ class Backend:
         logging.getLogger().removeHandler(self.logbook)
         if self._listener:
             self._listener.close()
+        self.record_finish()
         self.stop_task()  # 제어 루프를 먼저 끄면 동작을 기다리던 스레드가 풀리지 않아 프로세스가 안 꺼진다
         for arm in self._arms():
             arm.ctl.wait_idle()

@@ -1,5 +1,7 @@
 """교시 페이지 (gui-spec 3절): 기록 목록, 구간 막대와 구간별 배속, 전체 배속, 재생, 손끝 궤적, 관절-시간 그래프."""
 
+import asyncio
+
 from nicegui import run, ui
 
 from .. import theme
@@ -8,6 +10,7 @@ from .common import Controls, scene_frame
 
 SEGMENT_FACTORS = {0.5: "0.5", 1.0: "1", 2.0: "2"}
 RECORD_STEPS = ("홈으로 이동", "팔 잡기", "카운트다운", "기록")
+COUNTDOWN_S = 3
 
 
 def expected_seconds(segments: list[dict], factors: dict[int, float], speed: float) -> float:
@@ -38,7 +41,7 @@ def chart_options(data: dict) -> dict:
 
 def build(backend, client_id: str, actions) -> None:
     controls = Controls(backend, client_id, moves=True)
-    state: dict = {"data": None, "factors": {}}
+    state: dict = {"data": None, "factors": {}, "counting": False}
 
     async def play() -> None:
         data = state["data"]
@@ -103,6 +106,65 @@ def build(backend, client_id: str, actions) -> None:
         segment_panel.refresh()
         chart_panel.refresh()
 
+    async def record_start_pressed() -> None:
+        problem = backend.record_name_problem(record_name.value)
+        if problem:
+            ui.notify(problem, type="warning")
+            return
+        home_dialog.open()
+
+    async def record_go_home() -> None:
+        home_dialog.close()
+        record_note.text = "홈으로 이동 중"
+        reason = await run.io_bound(backend.record_prepare)
+        if reason:
+            record_note.text = ""
+            ui.notify(reason, type="negative")
+            return
+        record_note.text = ""
+        hold_dialog.open()
+
+    async def record_count_down() -> None:
+        hold_dialog.close()
+        state["counting"] = True
+        for left in range(COUNTDOWN_S, 0, -1):
+            record_note.text = f"{left}초 뒤 토크가 꺼집니다. 팔을 잡고 계세요"
+            await asyncio.sleep(1)
+            if not state["counting"]:
+                record_note.text = "기록을 취소했습니다"
+                return
+        state["counting"] = False
+        reason = backend.record_begin(record_name.value)
+        record_note.text = "토크가 꺼졌습니다. 손으로 천천히 움직이세요" if not reason else ""
+        if reason:
+            ui.notify(reason, type="negative")
+
+    async def record_end() -> None:
+        name = await run.io_bound(backend.record_finish)
+        if name is None:
+            return
+        cut = backend.record_truncated()
+        record_note.text = f"최대 {cut:.0f}초라 앞부분만 저장했습니다" if cut else ""
+        ui.notify(f"저장했습니다: {name}", type="positive")
+        record_name.value = ""
+        select.set_options(backend.sequences(), value=name)
+
+    def record_cancel() -> None:
+        state["counting"] = False
+
+    def confirm_dialog(title: str, text: str, go, go_mark: str, cancel_mark: str) -> ui.dialog:
+        with ui.dialog() as dialog, ui.card().classes("gap-3"):
+            ui.label(title).classes("card-title")
+            ui.label(text).classes("page-body")
+            with ui.row().classes("w-full justify-end gap-2"):
+                ui.button("취소", on_click=dialog.close).props("outline no-caps").mark(cancel_mark)
+                ui.button("시작", color="negative", on_click=controls.guard(go)).props("no-caps").mark(go_mark)
+        dialog.props("persistent")
+        return dialog
+
+    home_dialog = confirm_dialog("새 기록", "팔이 홈 자세로 움직입니다. 주변을 비우고 전원 스위치 옆에서 지켜보세요.", record_go_home, "record-home-go", "record-home-cancel")
+    hold_dialog = confirm_dialog("팔을 손으로 잡으세요", f"시작을 누르면 {COUNTDOWN_S}초 뒤 토크가 꺼져 팔이 처집니다. 팔을 단단히 잡은 뒤에 누르세요.", record_count_down, "record-hold-go", "record-hold-cancel")
+
     with ui.row().classes("w-full no-wrap items-start gap-4"):
         with ui.column().classes("flex-1 min-w-0 gap-3"):
             scene_frame(backend, "scene3d scene3d-short")
@@ -127,11 +189,26 @@ def build(backend, client_id: str, actions) -> None:
             with ui.card().classes("w-full gap-2"):
                 ui.label("새 기록").classes("card-title")
                 ui.label(" → ".join(RECORD_STEPS)).classes("page-body")
-                # shortcut: 토크를 끄고 손으로 움직이는 흐름이라 시뮬레이션에서는 시험할 수 없다, G10에서 실제 팔로 붙인다
-                ui.button("실제 팔에서만 기록할 수 있습니다").props("outline no-caps").classes("w-full").mark("record").disable()
+                record_name = controls.add(ui.input("기록 이름").props("outlined dense").classes("w-full").mark("record-name"))
+                record_note = ui.label("").classes("page-body").mark("record-note")
+                record_button = ui.button(
+                    "새 기록 시작" if backend.real else "실제 팔에서만 기록할 수 있습니다", on_click=controls.guard(record_start_pressed)
+                ).props("outline no-caps").classes("w-full").mark("record")
+                # 기록을 끝내는 것은 토크를 다시 켜는 일이라 조작권 검사로 막지 않는다
+                record_stop_button = ui.button("기록 끝내고 저장", color="negative", on_click=record_end).props("no-caps").classes("w-full").mark("record-stop")
+                record_cancel_button = ui.button("취소", on_click=record_cancel).props("outline no-caps").classes("w-full").mark("record-cancel")
+                record_stop_button.visible = record_cancel_button.visible = False
+                record_button.enabled = False  # tick이 판단한다. 그 전에 눌리지 않게 꺼 둔다
 
     def tick() -> None:
         controls.refresh()
+        recording = backend.recording()
+        idle = bool(backend.state.status and backend.state.status.state == "idle")
+        busy = recording or state["counting"]
+        record_button.enabled = bool(backend.real and controls.allowed and idle and not busy)
+        record_button.visible = not busy
+        record_stop_button.visible = recording
+        record_cancel_button.visible = state["counting"]
         play_button.enabled = bool(controls.allowed and state["data"] and backend.state.status and backend.state.status.state == "idle")
 
     ui.timer(0.2, tick)

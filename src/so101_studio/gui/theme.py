@@ -115,6 +115,7 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 .vc-label {{ position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; color: {TEXT}; pointer-events: none; }}
 .vc-triad {{ position: absolute; inset: 0; pointer-events: none; }}
 .vc-home {{ position: absolute; left: 0; top: 0; pointer-events: auto; color: {MUTED}; }}
+.scene-layers {{ position: absolute; top: 8px; left: 8px; }}
 .q-page-sticky {{ z-index: 5000; }}
 .estop {{ width: {ESTOP_D}px; height: {ESTOP_D}px; font-weight: 600; border: 3px solid {CARD}; outline: 2px solid {DANGER}; }}
 .nicegui-content {{ padding: {GAP}px; gap: {GAP}px; padding-bottom: {ESTOP_D + 2 * GAP}px; }}
