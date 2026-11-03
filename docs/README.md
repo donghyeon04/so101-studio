@@ -55,3 +55,4 @@
 | `docs/decisions/0026-estop-watchdog-process.md` | 결정 | 확정 | GUI E-STOP은 별도 감시 프로세스: 브라우저·서버 heartbeat가 1초 끊기면 정지 명령 → 0.3초 무응답이면 팔 프로세스 종료, 단축키 E-STOP, 감시 없으면 실제 팔 명령 막음 |
 | `docs/decisions/0027-arm-profiles-and-local-config.md` | 결정 | 확정 | 설정 세 겹(robot.yaml ← 보드 시리얼로 고르는 arms/<팔>.yaml ← git 제외 local.yaml), 포트 자동 찾기, 캘리브레이션 불일치면 읽기만, 읽기 전용 so101 doctor, environment.yml과 Windows·Linux 런처 |
 | `docs/decisions/0028-auto-calibration.md` | 결정 | 확정 | 자동 캘리브레이션은 LeRobot PR #4826 엔진을 가져와 측정만 모드부터(EEPROM 불변, 기존 값과 비교), 실물 합격 뒤 --save(.bak 보관), 이 팔 범위로 계획 수정 |
+| `docs/decisions/0029-autocal-acceptance-repeatability.md` | 결정 | 확정 | 기존 값이 없거나 다른 팔은 측정 3회 반복(차이 1° 이하, 중앙값 저장, 기존 파일 있으면 yes 확인)으로 합격, 저장 뒤 0° 자세 확인 전에는 잠금 (0028 보완) |
