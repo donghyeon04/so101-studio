@@ -127,3 +127,45 @@ def test_simplify_keeps_shape_with_far_fewer_faces():
     assert small.extents == pytest.approx(mesh.extents, abs=0.005)
     assert tuple(small.visual.main_color) == (255, 210, 0, 255)  # URDF 재질 색을 잃지 않는다
     assert len(simplify(mesh, 1e-6).faces) == len(mesh.faces)  # 격자가 아주 작으면 그대로다
+
+
+def test_layers_hide_and_show_their_nodes(backend3d):
+    scene = backend3d.scene
+    try:
+        for name, nodes in scene._layer_nodes.items():
+            scene.set_layer(name, False)
+            assert all(node.visible is False for node in nodes), name
+            scene.set_layer(name, True)
+            assert all(node.visible is True for node in nodes), name
+    finally:
+        for name in scene.layers:
+            scene.set_layer(name, True)
+
+
+def test_preview_layer_stays_off_when_a_plan_arrives_and_returns_when_turned_on(backend3d):
+    scene = backend3d.scene
+    joints = backend3d.arm.status().joints
+    try:
+        scene.set_layer("preview", False)
+        scene.set_preview(joints)
+        assert scene._preview_root.visible is False
+        scene.set_layer("preview", True)
+        assert scene._preview_root.visible is True
+        scene.set_preview(None)
+        scene.set_layer("preview", True)
+        assert scene._preview_root.visible is False  # 계산 자세가 없으면 켜도 보이지 않는다
+    finally:
+        scene.set_layer("preview", True)
+        scene.set_preview(None)
+
+
+def test_objects_layer_survives_redrawing_the_objects(backend3d):
+    scene = backend3d.scene
+    try:
+        scene.set_layer("objects", False)
+        scene.set_objects([])
+        assert scene._objects_root.visible is False
+        scene.set_layer("objects", True)
+        assert scene._objects_root.visible is True
+    finally:
+        scene.set_layer("objects", True)

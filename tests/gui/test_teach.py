@@ -39,9 +39,9 @@ def test_sequence_data_is_limited_and_draws_trajectory(backend):
     assert len(data["t"]) == len(data["q"])
     assert data["info"]["segments"]
     handles = backend.scene.server.scene._handle_from_node_name
-    assert [n for n in handles if n.startswith("/trajectory/")]
+    assert [n for n in handles if n.startswith("/marks/trajectory/")]
     backend.scene.clear_target()
-    assert not [n for n in handles if n.startswith("/trajectory/")]
+    assert not [n for n in handles if n.startswith("/marks/trajectory/")]
 
 
 def test_expected_seconds_applies_factors():
