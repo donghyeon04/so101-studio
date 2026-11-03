@@ -53,6 +53,7 @@ class LogRecord:
     t: float
     level: str  # "INFO" | "WARNING" | "ERROR"
     text: str
+    source: str = "앱"  # 앱 | 감시. 합친 시간축에서 어디서 온 줄인지 보여 준다
 
 
 class LogBook(logging.Handler):
@@ -65,6 +66,25 @@ class LogBook(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         level = "ERROR" if record.levelno >= logging.ERROR else "WARNING"
         self.records.append(LogRecord(record.created, level, f"{record.name}: {record.getMessage()}"))
+
+
+STALE_S = 1.0  # 상태가 10Hz로 오므로 이만큼 끊기면 값을 믿지 않는다
+SERVO_WARN_C = 55.0  # doctor의 온도 주의와 같은 기준
+SERVO_WARN_LOAD_PCT = 70.0
+
+
+def component_states(status: ArmStatus | None, now: float) -> dict[str, tuple[str, str]]:
+    """상태줄의 구성 요소 상태: {이름: (ok|warn|error|stale, 설명)}. 값이 끊겼으면 정상이라고 보이지 않는다."""
+    if status is None or now - status.t > STALE_S:
+        reason = "상태를 아직 받지 못했습니다" if status is None else f"{now - status.t:.1f}초째 상태가 오지 않습니다"
+        return {"버스": ("stale", reason), "서보": ("stale", reason)}
+    fault = status.fault or ""
+    bus = ("error", f"통신 오류: {fault}") if fault.startswith("comm") else ("ok", "상태 수신 중")
+    if fault and not fault.startswith("comm"):
+        return {"버스": bus, "서보": ("error", f"오류: {fault}")}
+    warned = [f"{name} {status.temperature_c[name]:.0f}°C" for name in status.temperature_c if status.temperature_c[name] >= SERVO_WARN_C]
+    warned += [f"{name} 부하 {load:.0f}%" for name, load in status.load_pct.items() if load >= SERVO_WARN_LOAD_PCT]
+    return {"버스": bus, "서보": ("warn", ", ".join(warned)) if warned else ("ok", f"서보 {len(status.temperature_c)}개 정상")}
 
 
 def page_state(status: ArmStatus | None) -> str:

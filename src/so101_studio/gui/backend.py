@@ -95,6 +95,8 @@ class Backend:
         logging.getLogger().addHandler(self.logbook)
         self._event_log: deque = deque(maxlen=2000)
         self._log_offset = 0
+        self._watch_path: Path | None = None
+        self._watch_offset = 0
         self._next_object = 0
         self._path_kin: Kinematics | None = None
         self._listener = None
@@ -573,7 +575,27 @@ class Backend:
                         row = json.loads(line)
                         level = "ERROR" if row["kind"] == "fault" else "WARNING" if row["kind"] in ("estop", "safety") else "INFO"
                         self._event_log.append(LogRecord(row["t"], level, f"{row['kind']}: {json.dumps(row['data'], ensure_ascii=False)[:300]}"))
+        self._read_watchdog_log()
         return sorted([*self._event_log, *self.logbook.records], key=lambda r: r.t)
+
+    def _read_watchdog_log(self) -> None:
+        """감시 프로세스 기록을 합친다. shortcut: 옛 형식(runs/watchdog-*.jsonl)을 직접 읽는다, REQ-018의 logread.merge_timeline이 오면 바꾼다"""
+        files = sorted(Path(self.runs_root).glob("watchdog-*.jsonl"))
+        if not files:
+            return
+        if files[-1] != self._watch_path:
+            self._watch_path, self._watch_offset = files[-1], 0
+        with self._watch_path.open(encoding="utf-8") as f:
+            f.seek(self._watch_offset)
+            while line := f.readline():
+                if not line.endswith("\n"):
+                    break
+                self._watch_offset = f.tell()
+                with contextlib.suppress(ValueError, KeyError):
+                    row = json.loads(line)
+                    level = "ERROR" if row["event"] == "trip" else "INFO"
+                    detail = {k: v for k, v in row.items() if k not in ("t", "event")}
+                    self._event_log.append(LogRecord(row["t"], level, f"{row['event']}: {json.dumps(detail, ensure_ascii=False)}", "감시"))
 
     # ---- 교시
     def sequences(self) -> list[str]:

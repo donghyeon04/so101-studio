@@ -17,7 +17,7 @@ from so101_studio.gui import backend as backend_module
 from so101_studio.gui.pages.arm import doctor_summary, servo_rows
 from so101_studio.gui.pages.logs import matches
 from so101_studio.gui.pages.runs import line_options
-from so101_studio.gui.state import LogRecord
+from so101_studio.gui.state import LogRecord, component_states
 
 
 async def _until(check, timeout=5.0) -> bool:
@@ -280,5 +280,48 @@ def test_logs_page_filters_live(backend):
         await user.should_see("찾을 말 abc")
         _one(user, "log-level").value = "ERROR"
         await user.should_not_see("찾을 말 abc")
+
+    in_app(backend, "/logs", check)
+
+
+def test_log_filter_by_source():
+    assert matches(LogRecord(0.0, "ERROR", "trip", "감시"), "INFO", "", "감시")
+    assert not matches(LogRecord(0.0, "ERROR", "trip", "감시"), "INFO", "", "앱")
+    assert matches(LogRecord(0.0, "ERROR", "connect"), "INFO", "", "앱")
+
+
+def test_logs_merge_the_watchdog_file_by_time_and_read_only_new_lines(backend, tmp_path, monkeypatch):
+    monkeypatch.setattr(backend, "runs_root", str(tmp_path))
+    monkeypatch.setattr(backend, "_watch_path", None)
+    path = tmp_path / "watchdog-20260101-000000.jsonl"
+    path.write_text(json.dumps({"t": 1000.0, "event": "trip", "reason": "단축키 F9"}, ensure_ascii=False) + "\n" + '{"잘린 줄', encoding="utf-8")
+    first = [r for r in backend.logs() if r.source == "감시"]
+    assert [(r.level, r.t) for r in first] == [("ERROR", 1000.0)] and "단축키 F9" in first[0].text
+    assert len([r for r in backend.logs() if r.source == "감시"]) == 1  # 다시 읽어도 겹치지 않는다
+
+
+def _status(t, fault=None, temp=30.0, load=5.0):
+    return SimpleNamespace(t=t, fault=fault, temperature_c={"elbow_flex": temp}, load_pct={"elbow_flex": load})
+
+
+def test_component_states_never_show_ok_for_old_or_missing_values():
+    assert component_states(None, 10.0)["버스"][0] == "stale"
+    assert component_states(_status(1.0), 10.0)["서보"][0] == "stale"
+    assert {k: v[0] for k, v in component_states(_status(10.0), 10.1).items()} == {"버스": "ok", "서보": "ok"}
+
+
+@pytest.mark.parametrize(("kw", "bus", "servo"), [
+    ({"temp": 55.0}, "ok", "warn"), ({"load": 70.0}, "ok", "warn"),
+    ({"fault": "overheat:elbow_flex"}, "ok", "error"), ({"fault": "comm_lost"}, "error", "ok"),
+])
+def test_component_states_levels(kw, bus, servo):
+    states = component_states(_status(10.0, **kw), 10.0)
+    assert (states["버스"][0], states["서보"][0]) == (bus, servo)
+
+
+def test_top_bar_shows_component_states(backend):
+    async def check(user):
+        assert await _until(lambda: _one(user, "component-버스").text == "정상")
+        assert await _until(lambda: _one(user, "component-서보").text == "정상")
 
     in_app(backend, "/logs", check)
