@@ -59,3 +59,4 @@
 | `docs/decisions/0030-blackbox-logging.md` | 결정 | 확정 | 상태·이벤트 기록은 JSON Lines 블랙박스: 공통 머리, 토크·fault·레지스터 쓰기 기록, ARM-TORQUE-LOST, 기록 스레드, 10초 링 버퍼와 사고 묶음, 30일·2GB 보관, 성능 기준 |
 | `docs/decisions/0031-safety-xy-return-and-comm-loss-test.md` | 결정 | 확정 | 작업대 XY 검사에 밖→안 복귀 허용, 작업대는 실측으로(임의 확대 안 함), table_z·손끝은 접촉 측정, 포트 빠짐 4경우 안전 시험, 토크 풀림은 status 값으로 판단 (0015 보완) |
 | `docs/decisions/0032-mattpocock-skills.md` | 결정 | 확정 | mattpocock/skills는 11개만 `.claude/skills/`에 넣고 프로젝트 규칙에 맞게 고침(용어·결정 위치, 임시 디렉터리 산출물, 한국어), `/grill-me`는 여러 질문 라운드 |
+| `docs/decisions/0033-gripper-hold-preload-and-place-compensation.md` | 결정 | 확정 | 그리퍼 접촉 뒤 예압으로 잡기, 조임 한계는 RAM Torque_Limit(닫기 300·들기 200·놓은 뒤 복원), no_object면 올라와서 열기, 그리퍼 부하 2단계 감시, 놓기 중심 보정 (0010~0012 보완) |
