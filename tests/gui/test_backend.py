@@ -90,3 +90,19 @@ def test_disconnect_during_motion_stops_it_but_keeps_torque(backend):
     moving.join(timeout=5)
     assert results and results[0].status == "stopped"
     assert backend.arm.driver.torque_enabled()
+
+
+def test_close_during_motion_releases_the_waiting_thread():
+    from so101_studio.gui.backend import Backend
+
+    backend = Backend(log_root=None)
+    q = backend.arm.status().joints
+    goal = replace(q, shoulder_pan=q.shoulder_pan + (40 if q.shoulder_pan < 0 else -40))
+    results = []
+    moving = threading.Thread(target=lambda: results.append(backend.arm.move_joints(goal, 30)), daemon=True)
+    moving.start()
+    assert _wait_for(lambda: backend.arm.ctl.state == "moving")
+    backend.close()
+    moving.join(timeout=5)
+    assert not moving.is_alive()  # 남아 있으면 앱을 꺼도 프로세스가 끝나지 않는다
+    assert results and results[0].status == "stopped"

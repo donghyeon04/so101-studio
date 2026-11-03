@@ -5,14 +5,13 @@
 GUI 세션의 인수인계 문서다. 기준 문서는 `planning/gui-spec.md`, 절차는 `guides/session-workflow.md`이다.
 
 ## 다음 할 일
-- G9까지 끝났다. 남은 것은 사용자 결정이다.
-- PR 합치기: GUI는 #16(G4) -> #18(G5) -> #20(G6) -> #21(G7) -> #22(G8) -> G9 순서다. 쌓아 올린 브랜치라 앞 PR을 합치면 뒤 PR에 충돌 표시가 뜰 수 있다. 내용 충돌이 아니고, `main`을 그 브랜치에 합쳐 올리면 풀린다.
-- 팔 쪽 #17(REQ-012), #19(REQ-013)가 합쳐지면 `# REQ-012 임시`, `# REQ-013 임시`를 지우고 팔 세션에 알린다.
+- G9까지 `main`에 합쳐졌다(#16, #18, #20, #21, #22, #23). REQ-012·013 임시 우회도 지웠다.
 - G10(실제 팔)은 사용자와 함께 한다: `main()`의 `--sim` 거부를 풀고 실제 드라이버 연결, `Studio(dry_run=False)`, 새 기록 흐름, linkwatch, COM3 사용 알림.
+- G10 확인 사항: 제어 주기가 한 번 밀리면 다음 틱 이동량이 커져 `step` fault로 작업이 끝난다(안전 동작). 속도 100% 시뮬레이션 테스트에서 약 30회 중 2회 나왔고, 왜 밀렸는지는 찾지 못했다(CPU 부하를 걸어도 재현되지 않음). 이때 `test_two_objects_are_moved_in_turn_and_events_follow`가 실패할 수 있다.
 - 사람이 봐 줄 것: 3D 손잡이 끌기, 앱 창을 보이게 둔 상태의 3D 로딩 시간과 지연, 프로젝터 대비.
 
 ## 환경
-- 폴더 `C:/Users/c/Desktop/so101-studio-gui`. PR은 `main` 대상이고 G 단위로 끊는다. G0~G1은 `dev/gui-shell`(PR #7), G2는 그 위의 `dev/gui-state`(PR #11), G2b `dev/gui-watchdog`(PR #12), G3 `dev/gui-3d`(PR #14)까지 합쳐졌다. G4는 `dev/gui-manual`이다.
+- 폴더 `C:/Users/c/Desktop/so101-studio-gui`. PR은 `main` 대상이고 G 단위로 끊는다. G0~G1은 `dev/gui-shell`(PR #7), G2는 그 위의 `dev/gui-state`(PR #11), G2b `dev/gui-watchdog`(PR #12), G3 `dev/gui-3d`(PR #14), G4~G9까지 합쳐졌다. G10은 `main`에서 새 브랜치를 딴다.
 - 출발점은 2fc1293(기획 브랜치)이고, 이 커밋은 PR #3(e5f3a48)으로 `main`에 들어갔다. 다시 만들거나 rebase하지 않는다.
 - 설치: viser[urdf] 1.1.1, nicegui 3.18.0. numpy는 2.2.6 conda 설치본 그대로다.
 - 실행: `$env:PYTHONPATH="C:/Users/c/Desktop/so101-studio-gui/src"` 후 `python -m so101_studio.gui --sim [--port 8080]`. 아직 `--sim`만 된다. 주소는 `127.0.0.1`로 고정했다(NiceGUI 기본값은 `0.0.0.0`).
@@ -67,8 +66,9 @@ GUI 세션의 인수인계 문서다. 기준 문서는 `planning/gui-spec.md`, �
 - 시뮬레이션에는 잡히는 물체가 없어 `Studio(dry_run=True)`로 만든다. 접촉 없음을 성공으로 본다. 실제 팔을 붙일 때(G9·G10) 꺼야 한다.
 - 작업 실행 중에는 직접 조작과 교시 재생을 막는다. 물체 추가는 실행 중에도 되고 다음 스캔부터 반영된다.
 - 조작하던 브라우저의 연결이 끊기면 작업도 멈춘다.
-- 임시 우회 `# REQ-013 임시` 세 곳: 일시정지(`task._step_mode`), `start` 전 `_step.clear()`, 정지 전 `_step_mode` 끄기. 단계별 모드에서 `Studio.stop()`이 스레드를 끝내지 못하는 버그를 팔 세션에 알렸다.
-- 작업 스레드는 컨트롤러가 "이미 동작 중"을 내면 이벤트 없이 끝난다. `start_task`가 팔이 idle일 때만 시작해 피한다.
+- `Backend.close`는 팔을 먼저 세운다. 동작 중에 제어 루프만 끄면 기다리던 스레드가 풀리지 않아 앱을 꺼도 프로세스가 끝나지 않았다.
+- 일시정지는 REQ-013의 `Studio.pause/resume`을 쓴다. 단계별 모드 정지와 작업 스레드 예외(FAULT)도 팔 쪽에서 고쳐졌다.
+- `start_task`는 팔이 idle일 때만 시작한다. 시작하자마자 FAULT로 끝나는 대신 이유를 바로 보여 주기 위해서다.
 - 물체 3개의 기본 좌표(`manual_objects.yaml`)는 서로 겹쳐 보인다. 실제 물체 자리를 재면 고칠 값이라 그대로 뒀다.
 
 ## G5에서 정해 둔 것
@@ -82,7 +82,7 @@ GUI 세션의 인수인계 문서다. 기준 문서는 `planning/gui-spec.md`, �
 - 조그 속도는 속도 슬라이더를 따른다(관절 최대 90°/s, 직교 100mm/s의 비율, 컨트롤러 상한 40°/s·60mm/s). 입력이 0.3초 끊기면 컨트롤러가 멈춘다.
 - 키보드로는 간격 이동(1/5/10)만 된다. "누르기"는 마우스·터치 전용이다.
 - 3D의 점 고르기는 조작권과 상관없이 된다(Viser 쪽 사용자를 NiceGUI 브라우저와 연결할 방법이 없다). 이동은 조작권이 있어야 한다.
-- REQ-012(`ArmService.jog`의 토크 켜기)를 보냈다. 오기 전에는 `backend.jog`가 `arm.driver.set_torque(True)`를 직접 부른다(`# REQ-012 임시`).
+- 조그의 토크 켜기는 REQ-012로 `ArmService.jog`가 맡는다. 밖에서 토크가 꺼진 경우(전원 끊김 등)는 알 수 없으니 G10에서 확인한다.
 - 좁은 창(폭 약 800px 이하)은 다듬지 않았다. Viser가 패널을 다시 펼치고 상태줄이 두 줄이 된다. 프로젝터 해상도 기준으로 맞췄다.
 
 ## G3에서 정해 둔 것
@@ -109,8 +109,8 @@ GUI 세션의 인수인계 문서다. 기준 문서는 `planning/gui-spec.md`, �
 
 ## 보낸 요청
 - REQ-009 `ArmService.resume()`: E-STOP 해제. G4에서 필요하고, 오기 전에는 `backend.py`에서 `arm.ctl.resume()`으로 임시 우회한다.
-- REQ-012 `ArmService.jog`가 토크를 켜게: 위 G4 항목 참고. PR #17 합류 대기.
-- REQ-013 `Studio.pause/resume`, `start`의 신호 지우기, 단계별 모드 정지 버그: 위 G6 항목 참고.
+- REQ-012 `ArmService.jog`가 토크를 켜게: PR #17로 합쳐졌고 임시 우회를 지웠다.
+- REQ-013 `Studio.pause/resume`, `start`의 신호 지우기, 단계별 모드 정지 버그: PR #19로 합쳐졌고 임시 우회를 지웠다.
 - REQ-001~008은 기획이 미리 등록한 것을 팔 세션이 처리했다.
 
 ## 팔 세션 REQ 상태

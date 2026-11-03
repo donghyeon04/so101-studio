@@ -296,10 +296,6 @@ class Backend:
             velocity[index] = sign * (JOG_YAW_DEG_S if CART_AXES[index] == "yaw" else JOG_TOOL_MM_S) * speed
         moved = False
         for arm in self._targets():
-            # REQ-012 임시: ArmService.jog가 토크를 켜지 않는다. 10Hz로 불리므로 주 팔은 버스 대신 상태 값을 본다
-            status = self.state.status if arm is self.arm else None
-            if not (status.torque_enabled if status else arm.driver.torque_enabled()):
-                arm.driver.set_torque(True)
             moved = arm.jog(mode, velocity) or moved
         return moved
 
@@ -353,10 +349,9 @@ class Backend:
             return "자동 작업은 실행 방식이 '실제만'일 때 씁니다"
         if self.real and self._real_blocked():
             return self._real_blocked()
-        if self.arm.ctl.state != "idle":  # 작업 스레드에서 동작 충돌이 나면 조용히 끝난다
+        if self.arm.ctl.state != "idle":  # 그대로 시작하면 동작 충돌로 곧 FAULT로 끝난다
             return MOTION_TEXT["stopped"] if self.arm.ctl.state in ("stopped", "fault") else BUSY_TEXT
         self.state.placed, self.paused = 0, step_mode
-        self.studio._step.clear()  # REQ-013 임시: 앞선 stop()이 남긴 신호로 첫 단계를 건너뛴다
         self.studio.start(step_mode=step_mode)
         return None
 
@@ -372,13 +367,13 @@ class Backend:
         if not self.task_running():
             return
         self.paused = not self.paused
-        self.studio.task._step_mode = self.paused  # REQ-013 임시: Studio에 일시정지가 없다
-        if not self.paused:
-            self.studio.step()
+        if self.paused:
+            self.studio.pause()
+        else:
+            self.studio.resume()
 
     def stop_task(self) -> None:
         self.paused = False
-        self.studio.task._step_mode = False  # REQ-013 임시: 단계별 모드에서 stop()은 다음 단계에서 다시 기다린다
         self.studio.stop()
         self.stop_all()
 
@@ -589,7 +584,6 @@ class Backend:
 
     def estop(self) -> None:
         self.paused = False
-        self.studio.task._step_mode = False  # REQ-013 임시
         self.studio.stop()
         self.pending = None
         for arm in self._arms():
@@ -599,7 +593,9 @@ class Backend:
         logging.getLogger().removeHandler(self.logbook)
         if self._listener:
             self._listener.close()
+        self.stop_task()  # 제어 루프를 먼저 끄면 동작을 기다리던 스레드가 풀리지 않아 프로세스가 안 꺼진다
         for arm in self._arms():
+            arm.ctl.wait_idle()
             arm.disconnect()
         if self.scene:
             self.scene.close()
