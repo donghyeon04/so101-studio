@@ -6,7 +6,7 @@ from nicegui import run, ui
 
 from .. import theme
 
-BAND_COLORS = {"켜짐": theme.OK, "꺼짐": theme.MUTED, "대기": theme.MUTED, "실행 중": theme.ACCENT, "정지": theme.WARN, "오류": theme.DANGER}
+BAND_COLORS = {"켜짐": theme.OK, "꺼짐": theme.MUTED, "대기": theme.CONTROL_BORDER, "실행 중": theme.ACCENT, "정지": theme.WARN, "오류": theme.DANGER}
 
 
 def band_options(bands: dict, duration: float, mark: float | None = None) -> dict:
@@ -24,7 +24,7 @@ def band_options(bands: dict, duration: float, mark: float | None = None) -> dic
     return {
         "animation": False, "tooltip": {"trigger": "item", "formatter": "{a}"}, "legend": {"top": 0, "textStyle": {"color": theme.TEXT}},
         "grid": {"left": 48, "right": 16, "top": 30, "bottom": 24},
-        "xAxis": {"type": "value", "min": 0, "max": max(duration, 1.0), "axisLabel": {"color": theme.MUTED}, "splitLine": {"show": False}},
+        "xAxis": {"type": "value", "min": 0, "max": max(round(duration, 1), 1.0), "axisLabel": {"color": theme.MUTED}, "splitLine": {"show": False}},
         "yAxis": {"type": "category", "data": names, "axisLabel": {"color": theme.TEXT}},
         "series": out,
     }
