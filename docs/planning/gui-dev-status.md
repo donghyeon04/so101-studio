@@ -1,17 +1,18 @@
 # GUI 개발 현황
 
-상태: 초안 · 2026-11-02
+상태: 초안 · 2026-11-03
 
 GUI 세션의 인수인계 문서다. 기준 문서는 `planning/gui-spec.md`, 절차는 `guides/session-workflow.md`이다.
 
 ## 다음 할 일
-- G9까지 `main`에 합쳐졌다(#16, #18, #20, #21, #22, #23). REQ-012·013 임시 우회도 지웠다.
-- G10(실제 팔)은 사용자와 함께 한다: `main()`의 `--sim` 거부를 풀고 실제 드라이버 연결, `Studio(dry_run=False)`, 새 기록 흐름, linkwatch, COM3 사용 알림.
-- G10 확인 사항: 제어 주기가 한 번 밀리면 다음 틱 이동량이 커져 `step` fault로 작업이 끝난다(안전 동작). 속도 100% 시뮬레이션 테스트에서 약 30회 중 2회 나왔고, 왜 밀렸는지는 찾지 못했다(CPU 부하를 걸어도 재현되지 않음). 이때 `test_two_objects_are_moved_in_turn_and_events_follow`가 실패할 수 있다.
+- G9까지 `main`에 합쳐졌다(#16, #18, #20, #21, #22, #23). REQ-012·013 임시 우회를 지운 #24도 합쳐졌다.
+- G10(실제 팔)은 사용자가 지시한 뒤 함께 한다. 그 전에는 실제 팔과 COM3을 쓰지 않는다. 할 일: `main()`의 `--sim` 거부를 풀고 실제 드라이버 연결, `Studio(dry_run=False)`, 새 기록 흐름, linkwatch, COM3 사용 알림.
+- G10 첫 확인: `MotionController.time_lost_s`와 FAULT 여부(사용자 결정 A+D의 D). 제어 주기가 밀리면 다음 틱 이동량이 커져 `step` fault로 작업이 끝나던 문제를 #27이 고쳤다(한 틱에 궤적 시간을 2틱까지만 진행, 5° 한도는 그대로). 수정 전 `test_two_objects_are_moved_in_turn_and_events_follow`에서 약 30회 중 2회 나왔고, 수정 후 `bfc140c`에서 이 테스트만 20회 돌려 0회였다. 횟수가 적어 사라졌다고 단정할 수는 없고, 왜 밀렸는지도 찾지 못했다. 다시 나면 `time_lost_s` 값과 함께 팔 세션에 알린다.
 - 사람이 봐 줄 것: 3D 손잡이 끌기, 앱 창을 보이게 둔 상태의 3D 로딩 시간과 지연, 프로젝터 대비.
 
 ## 환경
 - 폴더 `C:/Users/c/Desktop/so101-studio-gui`. PR은 `main` 대상이고 G 단위로 끊는다. G0~G1은 `dev/gui-shell`(PR #7), G2는 그 위의 `dev/gui-state`(PR #11), G2b `dev/gui-watchdog`(PR #12), G3 `dev/gui-3d`(PR #14), G4~G9까지 합쳐졌다. G10은 `main`에서 새 브랜치를 딴다.
+- 전체 테스트는 약 9분 걸린다(`bfc140c`에서 348 passed, 555초). 시간 제한을 그보다 짧게 두면 멈춘 것처럼 끊긴다.
 - 출발점은 2fc1293(기획 브랜치)이고, 이 커밋은 PR #3(e5f3a48)으로 `main`에 들어갔다. 다시 만들거나 rebase하지 않는다.
 - 설치: viser[urdf] 1.1.1, nicegui 3.18.0. numpy는 2.2.6 conda 설치본 그대로다.
 - 실행: `$env:PYTHONPATH="C:/Users/c/Desktop/so101-studio-gui/src"` 후 `python -m so101_studio.gui --sim [--port 8080]`. 아직 `--sim`만 된다. 주소는 `127.0.0.1`로 고정했다(NiceGUI 기본값은 `0.0.0.0`).
@@ -111,6 +112,7 @@ GUI 세션의 인수인계 문서다. 기준 문서는 `planning/gui-spec.md`, �
 - REQ-009 `ArmService.resume()`: E-STOP 해제. G4에서 필요하고, 오기 전에는 `backend.py`에서 `arm.ctl.resume()`으로 임시 우회한다.
 - REQ-012 `ArmService.jog`가 토크를 켜게: PR #17로 합쳐졌고 임시 우회를 지웠다.
 - REQ-013 `Studio.pause/resume`, `start`의 신호 지우기, 단계별 모드 정지 버그: PR #19로 합쳐졌고 임시 우회를 지웠다.
+- REQ-014 `MotionController.close`가 진행 중인 동작을 끝내게: PR #25로 합쳐졌다. `Backend.close`의 `stop_task`는 끊기 전에 팔을 세우는 순서라 그대로 둔다.
 - REQ-001~008은 기획이 미리 등록한 것을 팔 세션이 처리했다.
 
 ## 팔 세션 REQ 상태
