@@ -146,3 +146,26 @@ def test_close_during_a_move_releases_the_waiting_handle():
     r = h.wait(1)
     assert r is not None and r.status == "stopped"
 
+
+def test_a_late_tick_slows_the_move_instead_of_faulting_on_step(monkeypatch):
+    import types
+
+    from so101_studio.arm import motion
+
+    d = SimDriver()
+    c = MotionController(d, safety=Safety(LIMITS))
+    c._quit.set()
+    c._thread.join(2)  # 제어 스레드를 끄고 틱을 직접 부른다
+    now = [1000.0]
+    monkeypatch.setattr(motion, "time", types.SimpleNamespace(perf_counter=lambda: now[0], sleep=time.sleep))
+    h = c.execute(move_j(A, JointState(60, 0, 0, 0, 0, 0), 200, 1000))
+    now[0] += c.dt
+    c._tick()
+    before = d.read_joints().shoulder_pan
+    now[0] += 0.5  # 틱이 0.5초 늦었다: 예전에는 위치가 한 번에 수십 도 건너뛰어 'step' fault
+    with c._lock:
+        c._tick()
+    after = d.read_joints().shoulder_pan
+    assert c.state == "moving" and c.fault is None and h.result is None
+    assert 0 < after - before <= c.safety.max_step_deg and c.time_lost_s > 0.4
+

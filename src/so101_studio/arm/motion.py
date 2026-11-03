@@ -13,6 +13,7 @@ from .safety import HealthMonitor, Safety
 JOINTS = [f.name for f in fields(JointState)]
 HEALTH_PERIOD_S = 0.5  # 온도·부하는 2Hz로만 읽는다 (spec 6.1)
 DEADMAN_S = 0.3
+MAX_TICK_ADVANCE = 2.0  # 한 틱에 궤적 시간이 최대 이만큼(틱 주기의 배수) 진행. 틱이 크게 늦어도 위치가 한 번에 건너뛰어 'step' fault가 나지 않고, 늦은 시간만큼 동작이 늦어진다
 JOG_ACCEL_JOINT = 400.0  # °/s². 조그 속도를 이 가속도로 올리고 내려 시작·정지 충격(속도 계단)을 없앤다
 JOG_ACCEL_TOOL = 600.0  # mm/s², 회전은 같은 값을 °/s²로  # 원격 조종 입력이 이만큼 끊기면 정지 (spec 6.5)
 
@@ -44,6 +45,8 @@ class MotionController:
         self.jog_block = None  # 조그가 막힌 이유(풀리지 않음 'ik_fail' 또는 안전 검사 이유). 움직이면 None
         self.fault: str | None = None
         self._job = None  # (traj, handle, t0, kind)
+        self._tick_ref = None  # (handle, 직전 틱의 궤적 시간)
+        self.time_lost_s = 0.0  # 틱 지연 때문에 늦춘 동작 시간의 누적(진단용: 크면 제어 주기가 밀리고 있다)
         self._lock = threading.Lock()
         self._quit = threading.Event()
         self._last = driver.read_joints()  # 마지막으로 명령한 위치
@@ -199,6 +202,16 @@ class MotionController:
     def _tick(self) -> None:
         traj, handle, t0, kind = self._job
         t = time.perf_counter() - t0
+        ref = self._tick_ref
+        prev = ref[1] if ref is not None and ref[0] is handle else 0.0
+        cap = MAX_TICK_ADVANCE * self.dt
+        if t - prev > cap:  # 틱이 늦었다: 궤적 시간을 cap만큼만 진행하고 나머지는 동작을 늦춘다
+            lost = t - prev - cap
+            t0 += lost
+            self.time_lost_s += lost
+            self._job = (traj, handle, t0, kind)
+            t = prev + cap
+        self._tick_ref = (handle, t)
         q = traj.sample(t)
         if self.safety.check_step(self._last, q):
             self._fault("step")
