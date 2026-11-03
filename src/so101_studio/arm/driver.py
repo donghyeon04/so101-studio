@@ -155,8 +155,13 @@ class ArmDriver:
 
     @_locked
     def set_gripper_torque_limit(self, value: int) -> None:
+        """그리퍼 조임 힘 한계를 RAM Torque_Limit(48번)에 쓴다. EEPROM(Max_Torque_Limit)에는 쓰지 않는다: 전원을 다시 켜면 원래 값으로 돌아온다 (결정 0033)."""
         self._require_unlocked()
-        self._bus.write("Max_Torque_Limit", "gripper", int(value))
+        self._bus.write("Torque_Limit", "gripper", int(value), normalize=False)
+
+    @_locked
+    def gripper_torque_limit(self) -> int:
+        return int(self._bus.read("Torque_Limit", "gripper", normalize=False))
 
     @_locked
     def set_torque(self, on: bool) -> None:
