@@ -77,7 +77,7 @@ class ArmService:
         self._stop_status.clear()
         self._status_thread = threading.Thread(target=self._status_loop, daemon=True)
         self._status_thread.start()
-        self._log("connect", {"port": port or self.cfg.port})
+        self._log("connect", {"port": port or self.cfg.port, **getattr(self.driver, "connect_info", {})})
         return True, ""
 
     def _lock_reason(self) -> str | None:
