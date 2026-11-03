@@ -261,3 +261,8 @@ class MotionController:
     def close(self) -> None:
         self._quit.set()
         self._thread.join(timeout=1.0)
+        with self._lock:  # 진행 중인 동작을 끝내 wait() 중인 스레드가 영원히 남지 않게 한다 (REQ-014)
+            if self._job is not None:
+                _, handle, t0, _ = self._job
+                self._job = None
+                handle._finish(MotionResult("stopped", time.perf_counter() - t0, ToolPose(0, 0, 0, 0)))

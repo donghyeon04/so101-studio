@@ -324,7 +324,7 @@ def test_retime_changes_only_the_chosen_segment():
 def test_replay_validates_segment_speeds_and_info_works_on_files_without_meta(tmp_path):
     import json
 
-    d, ctl = rig()
+    _d, ctl = rig()
     teach = Teach(ctl, CFG, tmp_path)
     q, t = _slow_pause_fast()
     (tmp_path / "mix.json").write_text(json.dumps({"hz": 20, "t": t.tolist(), "joints": q.tolist()}), encoding="utf-8")

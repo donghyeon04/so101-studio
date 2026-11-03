@@ -21,3 +21,4 @@
 | REQ-011 | E-STOP 감시 프로세스 `python -m so101_studio.watchdog`와 정지 수신 스레드 `StopListener` (결정 0026, 0026 본문의 REQ-009는 이 번호) | 기획 → 팔 | 추가 | 반영됨 | #13 합쳐짐 | gui-spec 8절 감시 프로세스. G2b |
 | REQ-012 | `ArmService.jog`가 토크가 꺼져 있으면 먼저 켬(이미 켠 뒤에는 버스를 읽지 않음) | GUI → 팔 | 추가 | 완료 | dev/arm-req-jog-torque | 직접 조작 페이지 조그. 10Hz 호출 |
 | REQ-013 | `Studio.pause()`/`resume()`와 `start`에서 step 신호 지우기 | GUI → 팔 | 추가 | 완료 | dev/arm-req-pause | 작업 공간 일시정지·한 단계 버튼. 기존 `stop()`이 남긴 신호로 첫 단계가 지나가던 문제 |
+| REQ-014 | `MotionController.close()`가 진행 중인 동작의 `MotionHandle`을 끝냄(status stopped) | GUI → 팔 | 추가 | 완료 | dev/arm-req-close | 동작 중 앱 종료 때 wait()하던 스레드가 남아 프로세스가 안 꺼지던 문제. 같은 PR에서 린트(test_teleop_teach RUF059) 수정 |
