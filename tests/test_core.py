@@ -70,4 +70,5 @@ def test_run_logger_writes_jsonl(tmp_path):
     log.close()
     line = json.loads((log.dir / "events.jsonl").read_text(encoding="utf-8"))
     assert line["kind"] == "cmd" and line["data"]["x_mm"] == 1
+    assert {"t", "proc", "pid", "seq", "level", "code", "kind", "data"} <= set(line) and line["t"] > 1e18 and line["proc"] == "cli"
     assert (log.dir / "scans").is_dir()

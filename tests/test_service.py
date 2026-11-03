@@ -1,4 +1,3 @@
-import csv
 import time
 
 import pytest
@@ -6,6 +5,7 @@ import pytest
 from so101_studio.arm.sim_driver import SimDriver
 from so101_studio.cli import main
 from so101_studio.core.config import load_robot, load_workspace
+from so101_studio.core.logread import read_events, read_status
 from so101_studio.core.types import DetectedObject, JointState, ToolPose
 from so101_studio.service.arm_service import ArmService
 
@@ -37,14 +37,17 @@ def test_status_has_tool_pose_and_health(svc):
     assert st.tool.z_mm > 50 and set(st.temperature_c) == set(vars(st.joints))
 
 
-def test_status_stream_runs_at_about_10hz_and_writes_status_csv(svc):
+def test_status_stream_runs_at_about_10hz_and_writes_status_jsonl(svc):
     got = []
     svc.status_stream(got.append)
     time.sleep(1.1)
     assert 8 <= len(got) <= 14
-    svc.logger._status.flush()
-    rows = list(csv.reader((svc.logger.dir / "status.csv").open(encoding="utf-8")))
-    assert rows[0][0] == "t" and len(rows) >= 9 and len(rows[1]) == 14 and rows[0][-1] == "current_a"
+    svc.logger.flush()
+    rows = read_status(svc.logger.dir)
+    assert len(rows) >= 9 and rows[0]["proc"] == "cli" and rows[0]["code"] == "STATUS"
+    d = rows[-1]["data"]
+    assert {"joints", "cmd", "tool", "torque", "status_bits", "voltage_v", "time_lost_s", "tick_dt_max_ms", "current_ma_by_joint"} <= set(d)
+    assert [r["seq"] for r in rows] == sorted(r["seq"] for r in rows)
 
 
 def test_commands_go_through_the_service_and_are_logged(svc):
@@ -52,8 +55,8 @@ def test_commands_go_through_the_service_and_are_logged(svc):
     r2 = svc.move_tool(ToolPose(300, 200, 40, 90))
     r3 = svc.set_gripper(54, as_width=True)
     assert (r1.status, r2.status, r3.status) == ("ok", "ok", "ok")
-    svc.logger._events.flush()
-    kinds = [__import__("json").loads(line)["kind"] for line in (svc.logger.dir / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+    svc.logger.flush()
+    kinds = [r["kind"] for r in read_events(svc.logger.dir)]
     assert kinds[:4] == ["connect", "movej", "goto", "gripper"]
 
 

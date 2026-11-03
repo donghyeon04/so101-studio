@@ -1,8 +1,9 @@
 """ArmService: GUI·CLI가 팔을 부르는 유일한 입구 (arm-software-spec.md 6.9). 이름과 입출력은 GUI 기술이 정해져도 바뀌지 않는다."""
-import contextlib
 import threading
 import time
+import traceback
 from dataclasses import asdict, replace
+from pathlib import Path
 
 import numpy as np
 
@@ -12,7 +13,9 @@ from ..arm.safety import MODES, Safety, SafetySettings
 from ..arm.skills import Skills
 from ..arm.teach import Teach
 from ..arm.trajectory import cfg_move_j, cfg_move_l
+from ..core.blackbox import install_excepthooks
 from ..core.config import RobotConfig, WorkspaceConfig, load_workspace
+from ..core.incident import Incident, create_incident
 from ..core.logging import RunLogger
 from ..core.types import ArmStatus, DetectedObject, JointState, MotionResult, ToolPose
 from . import diagnostics as _diag
@@ -21,6 +24,9 @@ from .targets import point_to_pose, tip_vector
 
 STATUS_HZ = 10
 HEALTH_HZ = 2
+INCIDENT_COOLDOWN_S = 10.0  # 같은 이유의 사고 묶음은 이 시간 안에 다시 만들지 않는다(연달아 나는 fault·E-STOP이 묶음을 쏟아내지 않게)
+# 이벤트 종류별 기본 수준과 코드(기록 형식은 decisions/0030). 나머지는 INFO, 코드는 종류 이름 대문자
+EVENT_LEVEL = {"estop": ("WARN", "ARM-ESTOP"), "locked": ("WARN", "ARM-LOCKED"), "connect_failed": ("ERROR", "ARM-CONNECT-FAILED")}
 
 
 def plan_goto(kin, cfg, q0: JointState, goal: ToolPose, speed_pct: float):
@@ -40,12 +46,22 @@ def plan_goto(kin, cfg, q0: JointState, goal: ToolPose, speed_pct: float):
 
 class ArmService:
     def __init__(self, driver, cfg: RobotConfig, ws: WorkspaceConfig | None = None, speed_pct: float | None = None,
-                 log_root: str | None = "runs"):
+                 log_root: str | None = "runs", proc: str | None = None):
         self.driver, self.cfg = driver, cfg
         self.ws = ws or load_workspace()
         self.speed = speed_pct if speed_pct is not None else cfg.speed_pct_default
         self.log_root = log_root
         self.preset_dir = "config/presets"
+        self.proc = proc  # 기록 머리의 proc(cli | gui). 없으면 환경변수 SO101_PROC, 기본 cli
+        self.config_dir = Path("config")  # 사고 묶음에 설정 사본을 담는 곳
+        self.incident_after_s = 60.0  # 사고 묶음에서 뒤 60초를 모으는 시간(시험은 0)
+        self.install_hooks = not getattr(driver, "simulated", False)  # 처리 안 된 예외 감시. 시뮬레이션은 쓰지 않는다
+        self.incidents: list[Incident] = []
+        self._incident_last: dict[str, float] = {}
+        self._incident_thread: threading.Thread | None = None
+        self._status_errors: dict[tuple, int] = {}
+        self._torque_lost = False
+        self._restore_hooks = None
         self.logger: RunLogger | None = None
         self.kin = self.safety = self.ctl = self.skills = self.teach = None
         self._callbacks: list = []
@@ -57,9 +73,15 @@ class ArmService:
     # ---- 연결
     def connect(self, port: str | None = None) -> tuple[bool, str]:
         """연결하고 컨트롤러·기능을 만든다. 실패하면 (False, 오류 메시지)."""
+        self.logger = RunLogger(self.log_root, proc=self.proc) if self.log_root else None  # 연결 때 쓰는 레지스터도 기록하려고 먼저 연다
+        self.driver.event_sink = self._driver_event
         try:
             self.driver.connect(port or self.cfg.port, self.cfg.calibration_id)
         except Exception as e:  # noqa: BLE001 포트 없음, 응답 없는 모터 등 원인을 메시지로 돌려준다
+            self._log("connect_failed", {"port": port or self.cfg.port, "error": repr(e)})
+            if self.logger:
+                self.logger.close()
+                self.logger = None
             return False, str(e)
         self.kin = Kinematics(self.cfg.urdf, self.ws.base, self.cfg.joint_limits_deg)
         self.safety = Safety(self.cfg.joint_limits_deg, self.ws, self.kin, z_floor_mm=self.cfg.tip_floor_mm,
@@ -67,17 +89,21 @@ class ArmService:
         self.ctl = MotionController(self.driver, self.kin, self.safety, self.cfg.control_hz)
         self.skills = Skills(self.ctl, self.kin, self.cfg, self.ws, self.speed)
         self.teach = Teach(self.ctl, self.cfg)
-        self.logger = RunLogger(self.log_root) if self.log_root else None
+        self.ctl.on_event = self._ctl_event
         self._health = self.driver.read_health()
         self._connected = True
+        self._torque_lost = False
+        if self.install_hooks:
+            self._restore_hooks = install_excepthooks(self._unhandled)
         self.ctl.locked_reason = self._lock_reason()  # 캘리브레이션 불일치나 팔 파일 없음이면 움직이는 명령을 막고 읽기만 허용한다 (decisions/0027)
         if self.ctl.locked_reason:
             self._log("locked", {"reason": self.ctl.locked_reason})
         self._torque_on = False  # jog가 토크를 켠 뒤 true. 교시로 토크를 끄면 다시 false (REQ-012)
         self._stop_status.clear()
+        self._log("connect", {"port": port or self.cfg.port, **getattr(self.driver, "connect_info", {})})
+        self._write_status(self.status())  # 연결하자마자 첫 줄: 연결 뒤 상태가 비지 않게
         self._status_thread = threading.Thread(target=self._status_loop, daemon=True)
         self._status_thread.start()
-        self._log("connect", {"port": port or self.cfg.port, **getattr(self.driver, "connect_info", {})})
         return True, ""
 
     def _lock_reason(self) -> str | None:
@@ -98,10 +124,19 @@ class ArmService:
         self._stop_status.set()
         if self._status_thread:
             self._status_thread.join(timeout=1.0)
+        if self._connected:
+            self._log("disconnect", {})
         if self.ctl:
             self.ctl.close()
         if self.driver:
             self.driver.disconnect()
+        if self._incident_thread:
+            self._incident_thread.join(timeout=3.0)
+        for inc in self.incidents:  # 뒤 60초를 기다리지 않고 지금까지의 기록으로 마무리한다
+            inc.finalize(2.0)
+        if self._restore_hooks:
+            self._restore_hooks()
+            self._restore_hooks = None
         if self.logger:
             self.logger.close()
             self.logger = None
@@ -121,24 +156,123 @@ class ArmService:
         """ArmStatus를 10Hz로 받는다."""
         self._callbacks.append(callback)
 
+    def _status_data(self, st) -> dict:
+        """status.jsonl 한 줄의 data (decisions/0030). 온도·부하·전류·토크·Status는 2Hz로 읽은 값을 이어 쓴다."""
+        h, ctl = self._health, self.ctl
+        torque = {m: bool(v) for m, v in h.get("torque", {}).items()}
+        return {"joints": asdict(st.joints), "cmd": asdict(ctl._last), "tool": {"x_mm": st.tool.x_mm, "y_mm": st.tool.y_mm, "z_mm": st.tool.z_mm},
+                "torque": torque, "torque_enabled": st.torque_enabled, "temperature_c": st.temperature_c, "load_pct": st.load_pct, "current_ma": st.current_ma,
+                "current_ma_by_joint": h.get("current_ma_by_joint", {}), "voltage_v": st.voltage_v, "status_bits": h.get("status_bits", {}),
+                "state": st.state, "fault": st.fault, "locked": ctl.locked_reason, "time_lost_s": round(ctl.time_lost_s, 4),
+                "tick_dt_max_ms": round(ctl.tick_dt_max_1s() * 1000, 2)}
+
+    def _write_status(self, st) -> None:
+        self.ctl.actual_hint = st.joints  # 링 버퍼가 쓰는 가장 최근 실제 값
+        if self.logger:
+            self.logger.status(self._status_data(st))
+
     def _status_loop(self) -> None:
         nxt, n = time.perf_counter(), 0
         while not self._stop_status.is_set():
             nxt += 1.0 / STATUS_HZ
-            with contextlib.suppress(Exception):  # 통신 오류는 컨트롤러가 fault로 처리한다
-                if n % (STATUS_HZ // HEALTH_HZ) == 0:
-                    self._health = self.driver.read_health()  # 온도·부하는 2Hz로만 읽는다
+            health_tick = n % (STATUS_HZ // HEALTH_HZ) == 0
+            try:  # 통신 오류는 컨트롤러가 fault로 처리한다. 여기서는 조용히 버리지 않고 기록한 뒤 계속 돈다
+                if health_tick:
+                    expect = getattr(self.driver, "expect_torque", None)  # 읽기 전에 정한다: 읽는 사이에 켠 토크를 풀림으로 오해하지 않게
+                    self._health = self.driver.read_health()  # 온도·부하·토크·Status는 2Hz로만 읽는다
+                    self._check_torque(expect)
                 st = self.status()
-                if self.logger:
-                    self.logger.status(st)
+                self._write_status(st)
                 for cb in list(self._callbacks):
                     cb(st)
+                if health_tick:  # 오류가 나는 읽기는 2Hz뿐이라, 그 읽기가 다시 성공해야 회복으로 본다
+                    self._status_ok()
+            except Exception as e:  # noqa: BLE001
+                self._status_error(e)
             n += 1
             time.sleep(max(0.0, nxt - time.perf_counter()))
 
-    def _log(self, kind: str, data) -> None:
+    def _status_error(self, e: Exception) -> None:
+        """첫 발생은 전체 traceback, 반복은 횟수(10, 100, 1000번째)로 남긴다."""
+        key = (type(e).__name__, str(e)[:80])
+        n = self._status_errors[key] = self._status_errors.get(key, 0) + 1
+        if n == 1:
+            self._log("status_loop_error", {"error": repr(e), "traceback": traceback.format_exc()}, "ERROR", "ARM-STATUS-LOOP-ERROR")
+        elif n in (10, 100, 1000, 10000):
+            self._log("status_loop_error", {"error": repr(e), "count": n}, "WARN", "ARM-STATUS-LOOP-ERROR")
+
+    def _status_ok(self) -> None:
+        if self._status_errors:
+            self._log("status_loop_recovered", {"errors": {f"{k[0]}: {k[1]}": v for k, v in self._status_errors.items()}}, "INFO", "ARM-STATUS-LOOP-RECOVERED")
+            self._status_errors = {}
+
+    def _check_torque(self, expect) -> None:
+        """2Hz로 읽은 Torque_Enable이 컨트롤러가 기대하는 값(켜져 있어야 함)과 다르면 ARM-TORQUE-LOST."""
+        torque = self._health.get("torque")
+        lost = bool(expect) and bool(torque) and any(not v for v in torque.values())
+        if lost and not self._torque_lost:
+            self._log("torque_lost", {"expected": True, "read": torque, "status_bits": self._health.get("status_bits"), "state": self.ctl.state, "fault": self.ctl.fault,
+                                      "load_pct": self._health.get("load_pct")}, "ERROR", "ARM-TORQUE-LOST")
+            self._trigger_incident("ARM-TORQUE-LOST", "켜져 있어야 할 토크가 꺼져 읽혔다")
+        self._torque_lost = lost
+
+    def _event(self, kind: str, level: str, code: str, data) -> None:
         if self.logger:
-            self.logger.event(kind, data)
+            self.logger.event(kind, data, level, code)
+
+    def _driver_event(self, kind: str, level: str, code: str, data) -> None:
+        self._event(kind, level, code, data)
+
+    def _ctl_event(self, kind: str, level: str, code: str, data) -> None:
+        self._event(kind, level, code, data)
+        if kind == "fault":
+            self._trigger_incident("ARM-FAULT", f"fault: {data.get('reason')}")
+        elif kind == "estop":
+            self._trigger_incident("ARM-ESTOP", "E-STOP")
+
+    def on_watchdog_stop(self, reason: str | None = None) -> None:
+        """감시 프로세스가 보낸 정지(StopListener가 부른다): 기록하고 사고 묶음을 만든다."""
+        self._log("watchdog_trip", {"reason": reason}, "ERROR", "WATCHDOG-TRIP")
+        self._trigger_incident("WATCHDOG-TRIP", reason or "감시 프로세스 정지")
+
+    def _unhandled(self, exc_type, exc, tb, where: str) -> None:
+        self._log("unhandled_exception", {"where": where, "error": repr(exc), "traceback": "".join(traceback.format_exception(exc_type, exc, tb))}, "ERROR", "ARM-UNHANDLED-EXCEPTION")
+        self._trigger_incident("ARM-UNHANDLED-EXCEPTION", f"{exc_type.__name__}: {exc}")
+
+    def log_event(self, kind: str, data=None, level: str = "INFO", code: str | None = None) -> None:
+        """GUI가 조작권·실행 방식·안전 설정 변경 같은 이벤트를 기록하는 공개 API (decisions/0030)."""
+        self._log(kind, data, level, code)
+
+    def _trigger_incident(self, code: str, reason: str) -> None:
+        """사고 묶음을 짧은 스레드에서 만든다(제어·상태 루프가 파일과 git에 막히지 않게). 같은 이유는 INCIDENT_COOLDOWN_S 안에 다시 만들지 않는다."""
+        now = time.monotonic()
+        if not self.log_root or now - self._incident_last.get(code, -1e9) < INCIDENT_COOLDOWN_S:
+            return
+        self._incident_last[code] = now
+        ring = self.ctl.ring.dump() if self.ctl else []
+
+        def run() -> None:
+            try:
+                self.incidents.append(create_incident(code, self.log_root, reason=reason, ring=ring, proc=self.logger.proc if self.logger else "cli",
+                                                      config_dir=self.config_dir, cfg=self.cfg, after_s=self.incident_after_s))
+            except Exception as e:  # noqa: BLE001 사고 묶음을 못 만들어도 동작은 계속하고, 못 만든 사실을 남긴다
+                self._log("incident_failed", {"code": code, "error": repr(e)}, "ERROR", "ARM-INCIDENT-FAILED")
+
+        self._incident_thread = threading.Thread(target=run, name="Incident", daemon=True)
+        self._incident_thread.start()
+
+    def create_incident(self, reason: str = "수동", last_s: float = 60.0, code: str = "MANUAL") -> str | None:
+        """손으로 사고 묶음을 만든다(GUI 버튼). 만든 폴더 경로. 링 버퍼는 살아 있는 이 서비스의 것을 쓴다."""
+        if not self.log_root:
+            return None
+        inc = create_incident(code, self.log_root, reason=reason, ring=self.ctl.ring.dump() if self.ctl else [], proc=self.logger.proc if self.logger else "cli",
+                              config_dir=self.config_dir, cfg=self.cfg, window_s=last_s, after_s=0)
+        return str(inc.path)
+
+    def _log(self, kind: str, data, level: str | None = None, code: str | None = None) -> None:
+        if self.logger:
+            lv, cd = EVENT_LEVEL.get(kind, ("INFO", kind.upper()))
+            self.logger.event(kind, data, level or lv, code or cd)
 
     def _done(self, kind: str, r: MotionResult, **info) -> MotionResult:
         self._log(kind, {**info, "status": r.status, "duration_s": r.duration_s})
@@ -313,8 +447,7 @@ class ArmService:
         self.ctl.stop()
 
     def estop(self) -> None:
-        self.ctl.estop()
-        self._log("estop", {})
+        self.ctl.estop()  # 이벤트(ARM-ESTOP)와 사고 묶음은 컨트롤러가 알린다
 
     def resume(self) -> None:
         """stop·estop(상태 stopped)이나 fault 뒤에 다시 움직일 수 있게 idle로 되돌린다. 팔은 움직이지 않는다 (REQ-009)."""
