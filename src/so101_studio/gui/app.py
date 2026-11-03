@@ -4,7 +4,9 @@ import sys
 
 from nicegui import app, background_tasks, run, ui
 
-from ..core.config import ArmSelectionError
+from ..cli import make_driver
+from ..core.config import ArmSelectionError, load_robot_ex
+from ..core.ports import PortChoiceError, list_serial_ports, pick_port
 from . import scene3d, sensors, theme
 from .backend import Backend
 from .pages import arm, logs, manual, params, runs, safety, table, teach, workspace
@@ -161,19 +163,27 @@ def make_root(backend: Backend):
     return root
 
 
+def real_arm_args(arm_name: str | None) -> dict:
+    """연결된 보드로 팔과 포트를 고른다(decisions/0027). 목록만 읽고 포트는 열지 않는다. Backend에 넘길 인자를 돌려준다."""
+    ports = list_serial_ports()
+    serials = [p["serial"] for p in ports]
+    cfg, info = load_robot_ex(arm=arm_name, serials=serials)
+    port, _ = pick_port(ports, cfg.board_serial, None, info["local"].get("port"), cfg.port)
+    return {"real_driver": make_driver(False, cfg), "serials": serials, "port": port}
+
+
 def main(args) -> None:
-    """`python -m so101_studio.gui`와 `so101 gui`(REQ-005)의 입구."""
-    if not getattr(args, "sim", False):
-        # shortcut: 실제 팔 연결이 아직 없다, G9·G10에서 backend가 연결하면 지운다
-        sys.exit("아직 시뮬레이션만 지원한다: --sim을 붙여 실행한다")
-    link = WatchdogLink(sim=True)
+    """`python -m so101_studio.gui`와 `so101 gui`(REQ-005)의 입구. --sim이 없으면 실제 팔에 연결한다(토크는 그대로, 움직이지 않는다)."""
+    sim = getattr(args, "sim", False)
+    link = WatchdogLink(sim=sim)
     link.start()
     try:
+        arm_name = getattr(args, "arm", None)
         backend = Backend(
             speed=getattr(args, "speed", None), link=link, viser_port=getattr(args, "viser_port", scene3d.DEFAULT_PORT),
-            arm_name=getattr(args, "arm", None),
+            arm_name=arm_name, **({} if sim else real_arm_args(arm_name)),
         )
-    except (RuntimeError, ArmSelectionError) as e:
+    except (RuntimeError, ArmSelectionError, PortChoiceError) as e:
         link.stop()
         sys.exit(f"연결 실패: {e}")
     app.on_startup(lambda: background_tasks.create(link.run(), name="watchdog heartbeat"))

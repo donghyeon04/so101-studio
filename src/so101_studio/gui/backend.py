@@ -83,9 +83,8 @@ class Backend:
     local_path = "config/local.yaml"
 
     def __init__(self, speed: float | None = None, log_root: str | None = "runs", link: WatchdogLink | None = None,
-                 viser_port: int | None = None, real_driver=None, arm_name: str | None = None):
-        # shortcut: 보드 시리얼 없이 고른다(팔 파일이 여럿이면 --arm이나 local.yaml), G10에서 실제 포트의 시리얼을 넘긴다
-        cfg, self.arm_info = load_robot_ex(arm=arm_name)
+                 viser_port: int | None = None, real_driver=None, arm_name: str | None = None, serials=(), port: str | None = None):
+        cfg, self.arm_info = load_robot_ex(arm=arm_name, serials=serials)
         self._arm_option = arm_name
         self.state = State()
         self.link = link
@@ -109,7 +108,7 @@ class Backend:
         self.pending: tuple | None = None  # 시뮬레이션 먼저: 실제 팔로 실행할지 묻는 동작 (이름, action)
         self._planning = False
         for arm in self._arms():
-            ok, msg = arm.connect()
+            ok, msg = arm.connect(port if arm is self.real else None)
             if not ok:
                 raise RuntimeError(msg)
         self.arm.status_stream(self.state.update)
