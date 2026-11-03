@@ -26,6 +26,10 @@ class Skills:
             self._grip_orig = self.ctl.driver.gripper_torque_limit()
         self.ctl.driver.set_gripper_torque_limit(value)
 
+    def release_grip_hold(self) -> None:
+        """그리퍼를 여는 명령 앞에서: 예압 고정을 풀고 조임 한계를 원래 값으로 되돌린다. 정지·E-STOP은 이것을 부르지 않는다(결정 0033)."""
+        self._restore_grip_torque()
+
     def _restore_grip_torque(self) -> None:
         """조임 한계를 원래 값으로 되돌리고 그리퍼 목표 고정을 푼다. 아무것도 안 바꿨으면 아무것도 쓰지 않는다."""
         self.ctl.hold_gripper(None)
@@ -231,7 +235,7 @@ class Skills:
         if r.status != "ok":
             return r
         try:
-            self.ctl.hold_gripper(None)  # 놓는다: 예압 고정을 풀고
+            self._restore_grip_torque()  # 놓는다: 예압 고정을 풀고 조임 한계를 원래 값으로(이후 닫는 일이 없다)
             r = self._run([self._opening_path() or self._gripper(self.cfg.gripper_open)])  # 열리는 동안 손을 같이 보내 물체 위치를 지킨다
             if r.status != "ok":
                 return r

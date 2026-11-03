@@ -427,6 +427,8 @@ class ArmService:
         v = float(np.interp(value, [p[0] for p in pts], [p[1] for p in pts])) if as_width else value
         lo, hi = self.cfg.joint_limits_deg["gripper"]
         q = self.driver.read_joints()
+        if min(max(v, lo), hi) > q.gripper + 0.5:  # 지금보다 여는 명령: 예압 고정을 풀고 조임 한계를 원래 값으로
+            self.skills.release_grip_hold()
         self.driver.set_torque(True)
         return self._done("gripper", self._run([cfg_move_j(self.cfg, q, replace(q, gripper=min(max(v, lo), hi)), self.speed)]), value=v)
 
