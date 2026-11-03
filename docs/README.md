@@ -54,3 +54,4 @@
 | `docs/decisions/0025-gui-screen-check-and-design-refs.md` | 결정 | 확정 | GUI 화면 확인은 앱 내장 브라우저(예비 Playwright CLI), 기준 문서는 NiceGUI llms.md, 상태 표시는 Carbon 규칙, DESIGN.md 없음 (0022 대체) |
 | `docs/decisions/0026-estop-watchdog-process.md` | 결정 | 확정 | GUI E-STOP은 별도 감시 프로세스: 브라우저·서버 heartbeat가 1초 끊기면 정지 명령 → 0.3초 무응답이면 팔 프로세스 종료, 단축키 E-STOP, 감시 없으면 실제 팔 명령 막음 |
 | `docs/decisions/0027-arm-profiles-and-local-config.md` | 결정 | 확정 | 설정 세 겹(robot.yaml ← 보드 시리얼로 고르는 arms/<팔>.yaml ← git 제외 local.yaml), 포트 자동 찾기, 캘리브레이션 불일치면 읽기만, 읽기 전용 so101 doctor, environment.yml과 Windows·Linux 런처 |
+| `docs/decisions/0028-auto-calibration.md` | 결정 | 확정 | 자동 캘리브레이션은 LeRobot PR #4826 엔진을 가져와 측정만 모드부터(EEPROM 불변, 기존 값과 비교), 실물 합격 뒤 --save(.bak 보관), 이 팔 범위로 계획 수정 |
