@@ -22,4 +22,4 @@
 | REQ-012 | `ArmService.jog`가 토크가 꺼져 있으면 먼저 켬(이미 켠 뒤에는 버스를 읽지 않음) | GUI → 팔 | 추가 | 반영됨 | #17 합쳐짐, GUI #24 | 직접 조작 페이지 조그. 10Hz 호출 |
 | REQ-013 | `Studio.pause()`/`resume()`와 `start`에서 step 신호 지우기 | GUI → 팔 | 추가 | 반영됨 | #19 합쳐짐, GUI #24 | 작업 공간 일시정지·한 단계 버튼. 기존 `stop()`이 남긴 신호로 첫 단계가 지나가던 문제 |
 | REQ-014 | `MotionController.close()`가 진행 중인 동작의 `MotionHandle`을 끝냄(status stopped) | GUI → 팔 | 추가 | 반영됨 | #25 합쳐짐, GUI 확인 | 동작 중 앱 종료 때 wait()하던 스레드가 남아 프로세스가 안 꺼지던 문제. 같은 PR에서 린트(test_teleop_teach RUF059) 수정 |
-| REQ-015 | 다른 PC·다른 팔 브링업: 팔 파일·local.yaml 설정 세 겹, 포트 자동 찾기·find-port, so101 doctor, 캘리브레이션 불일치 잠금, environment.yml, 런처 (결정 0027) | 기획 → 팔 | 설정 파일 위치 변경 | 완료 | dev/arm-bringup | GUI 장치 > 팔 점검 카드가 doctor 결과 dict를 쓴다 |
+| REQ-015 | 다른 PC·다른 팔 브링업: 팔 파일·local.yaml 설정 세 겹, 포트 자동 찾기·find-port, so101 doctor, 캘리브레이션 불일치 잠금, environment.yml, 런처 (결정 0027) | 기획 → 팔 | 설정 파일 위치 변경 | 반영됨 | #32 합쳐짐, GUI #33 (실제 팔 잠금·doctor 탐침은 G10에서 확인) | GUI 장치 > 팔 점검 카드가 doctor 결과 dict를 쓴다 |
