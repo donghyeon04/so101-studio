@@ -77,7 +77,10 @@ class ArmDriver:
         self.connect_info = {"torque_on_at_connect": was_on, "writes": [list(w) for w in writes]}  # 이벤트 기록에 남긴다: 팔이 떨어지면 원인을 찾는 단서
     def disconnect(self) -> None:
         if self._robot:
-            self._robot.bus.disconnect(disable_torque=False)  # 팔이 떨어지지 않게 토크는 그대로 둔다
+            try:
+                self._robot.bus.disconnect(disable_torque=False)  # 팔이 떨어지지 않게 토크는 그대로 둔다
+            except Exception:  # noqa: BLE001, S110 포트가 이미 사라졌어도(USB 빠짐) 다시 연결할 수 있게 끝까지 정리한다
+                pass
             self._robot = None
 
     @property

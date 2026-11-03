@@ -169,11 +169,24 @@ class MotionController:
             self.driver.write_joints(self._last)
         self._emit("estop", "WARN", "ARM-ESTOP", {})
 
-    def resume(self) -> None:
+    def resume(self) -> bool:
+        """stop·estop·fault 뒤 idle로 되돌린다. 통신 끊김 fault는 다시 연결해야 풀리므로 False (decisions/0031)."""
         with self._lock:
+            if self.state == "fault" and self.fault == "comm_lost":
+                return False
             if self.state in ("stopped", "fault"):
                 self.state, self.fault = "idle", None
                 self.health = HealthMonitor()
+            return True
+
+    def note_comm(self, ok: bool) -> None:
+        """제어 틱 밖(10Hz 상태 루프)에서 본 통신 성공·실패를 건강 감시에 알린다. 정지 중에도 끊김을 빨리 본다."""
+        with self._lock:
+            if ok:
+                if self._job is None:  # 움직이는 중에는 쓰기 성공만 통신 정상으로 본다
+                    self.health.comm_ok(time.perf_counter())
+            elif self.state != "fault":
+                self._fault(self.health.comm_failed(time.perf_counter()))
 
     def _emit(self, kind: str, level: str, code: str, data: dict) -> None:
         cb = self.on_event
@@ -214,18 +227,26 @@ class MotionController:
         if job is not None:
             job[1]._finish(MotionResult("fault", time.perf_counter() - job[2], ToolPose(0, 0, 0, 0)))
         self.fault = reason
+        self._jog = None  # 조그 중이던 입력이 fault 뒤에도 명령을 보내지 않게
         self._emit("fault", "ERROR", "ARM-FAULT", {"reason": reason, "job": job is not None})
-        with contextlib.suppress(Exception):  # 통신이 끊긴 상태일 수 있다
+        if reason == "comm_lost":  # 통신이 끊겼다: 다시 연결하기 전까지 아무 명령도 보내지 않는다 (decisions/0031)
+            self._emit("comm_lost", "ERROR", "ARM-COMM-LOST", {"job": job is not None})
+            return
+        with contextlib.suppress(Exception):
             self.driver.write_joints(self._last)  # 현재 위치 유지 (토크는 끄지 않는다)
 
     def _check_health(self) -> None:
         now = time.perf_counter()
+        if self.state == "fault":
+            return
+        if self.health._comm_down_since is not None:  # 상태 루프가 끊김을 알렸다: 0.5초가 차는 틱에서 바로 fault
+            self._fault(self.health.comm_failed(now))
         if now < self._next_health or self.state == "fault":
             return
         self._next_health = now + HEALTH_PERIOD_S
         self._fault(self.health.update_health(self.driver.read_health(), now))
         if self._job is None:  # 움직이는 중에는 쓰기 성공만 통신 정상으로 본다
-            self.health.comm_ok()
+            self.health.comm_ok(time.perf_counter())
 
     def _tick(self) -> None:
         traj, handle, t0, kind = self._job
@@ -246,7 +267,7 @@ class MotionController:
             return
         self._last = q  # 쓰기 실패도 시도한 위치로 센다(통신 끊김이 'step' fault로 오인되지 않게)
         self.driver.write_joints(q)
-        self.health.comm_ok()
+        self.health.comm_ok(time.perf_counter())
         if t >= traj.duration_s:
             self._job = None
             if self.state == "moving":
@@ -297,7 +318,7 @@ class MotionController:
         self.jog_block = None
         self._last = q
         self.driver.write_joints(q)
-        self.health.comm_ok()
+        self.health.comm_ok(time.perf_counter())
 
     def close(self) -> None:
         self._quit.set()

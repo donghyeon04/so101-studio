@@ -10,6 +10,7 @@ import pytest
 from so101_studio import bringup
 from so101_studio.arm.logged_bus import LoggedBus
 from so101_studio.arm.sim_driver import SimDriver
+from so101_studio.arm.trajectory import move_j
 from so101_studio.core.blackbox import RingBuffer, install_excepthooks
 from so101_studio.core.config import load_robot, load_workspace
 from so101_studio.core.incident import create_incident
@@ -23,6 +24,7 @@ from so101_studio.core.logread import (
     read_status,
 )
 from so101_studio.core.retention import prune_runs
+from so101_studio.core.types import JointState
 from so101_studio.service.arm_service import ArmService
 
 CFG = load_robot("config/robot.yaml")
@@ -301,3 +303,79 @@ def test_incident_command_creates_bundle(tmp_path, monkeypatch, capsys):
     assert e.value.code == 0 and "사고 묶음" in capsys.readouterr().out
     inc = list_incidents(tmp_path / "runs")
     assert len(inc) == 1 and any(r["kind"] == "hello" for r in read_incident(inc[0]["path"])["timeline"])
+
+
+class FlakyPort(SimDriver):
+    """USB가 빠진 상황: down이 True면 읽기·쓰기가 모두 예외. 쓰기 호출은 모두 기록한다."""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.down = False
+        self.writes = []
+
+    def read_joints(self):
+        if self.down:
+            raise ConnectionError("no status packet")
+        return super().read_joints()
+
+    def read_health(self):
+        if self.down:
+            raise ConnectionError("no status packet")
+        return super().read_health()
+
+    def write_joints(self, q):
+        self.writes.append((time.perf_counter(), q))
+        if self.down:
+            raise ConnectionError("no status packet")
+        return super().write_joints(q)
+
+    def set_torque(self, on):
+        self.writes.append(("torque", on))
+        return super().set_torque(on)
+
+
+def test_port_pulled_makes_comm_lost_fault_within_0_6s_then_refuses_until_reconnect(tmp_path):
+    d = FlakyPort(CFG.poses["home"])
+    s = ArmService(d, CFG, WS, speed_pct=100, log_root=str(tmp_path))
+    s.incident_after_s = 0
+    assert s.connect()[0]
+    try:
+        time.sleep(0.3)  # 정지 중(홈): 쓰기가 없어도 상태 루프의 읽기로 끊김을 본다
+        t0 = time.perf_counter()
+        d.down = True
+        assert wait_for(lambda: s.ctl.state == "fault", 1.0)
+        assert time.perf_counter() - t0 < 0.6 and s.ctl.fault == "comm_lost"
+        n = len(d.writes)
+        assert s.move_joints(JointState(10, -90, 93, 0, 0, 3)).status == "fault" and s.resume() is False and s.ctl.state == "fault"  # 다시 연결 전에는 거부
+        assert s.ctl.jog("joint", [10, 0, 0, 0, 0, 0]) is False
+        time.sleep(0.2)
+        assert len(d.writes) == n  # fault 뒤 아무 명령도 보내지 않는다
+        s.logger.flush()
+        assert any(e["code"] == "ARM-COMM-LOST" and e["level"] == "ERROR" for e in read_events(s.logger.dir))
+        assert wait_for(lambda: any(i["code"] == "ARM-COMM-LOST" for i in list_incidents(tmp_path)))
+        d.down = False  # 다시 꽂아도 사용자가 연결하기 전에는 움직이지 않는다
+        time.sleep(0.2)
+        assert len(d.writes) == n and s.ctl.state == "fault"
+        ok, msg = s.connect()  # 다시 연결
+        assert ok, msg
+        assert s.ctl.state == "idle" and s.ctl._last == d.read_joints()  # 명령값이 실제값에 맞춰짐
+        assert not [w for w in d.writes if w[0] == "torque" and w[1] is False]  # 토크를 끄는 쓰기가 없다
+        assert s.move_joints(JointState(10, -90, 93, 0, 0, 3)).status == "ok"
+    finally:
+        s.disconnect()
+
+
+def test_port_pulled_during_a_move_faults_within_0_6s(tmp_path):
+    d = FlakyPort(CFG.poses["home"])
+    s = ArmService(d, CFG, WS, speed_pct=30, log_root=str(tmp_path))
+    s.incident_after_s = 0
+    assert s.connect()[0]
+    try:
+        h = s.ctl.execute(move_j(d.read_joints(), JointState(40, -90, 93, 0, 0, 3), 20, 100))
+        time.sleep(0.4)
+        t0 = time.perf_counter()
+        d.down = True
+        assert wait_for(lambda: s.ctl.state == "fault", 1.0) and time.perf_counter() - t0 < 0.6
+        assert h.wait(1).status == "fault"
+    finally:
+        s.disconnect()

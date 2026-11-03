@@ -159,3 +159,10 @@ GitHub `donghyeon04/so101-studio`. `main`은 기획 문서 1차 병합(#1)까지
 - **사고 묶음** `runs/incidents/<시각>-<코드>/`: ring.jsonl(50Hz 틱 10초), timeline.jsonl(앞뒤 60초), 설정 사본과 sha256, doctor.json, meta.json(git 커밋·패키지 버전). fault/E-STOP/감시 작동/TORQUE-LOST/예외마다 자동(같은 코드는 10초 안에 한 번). 자동으로 지우지 않는다. `so101 incident [--last N]`은 이미 쓰인 기록으로만 만든다(다른 프로세스의 링 버퍼는 못 읽음).
 - **보관**: 시작할 때 30일·2GB를 넘으면 오래된 실행부터 지움(incidents 제외), status.jsonl은 50MB마다 `status.001.jsonl`로 나눔. 상태 줄은 큐가 차면 버리고 다음 줄의 `data.dropped`에 수를 남긴다.
 - **zip**: 사고 묶음은 폴더 하나라 GUI가 `shutil.make_archive`로 묶는다(API 없음).
+
+## 16. 안전 보완 (REQ-019, 결정 0031)
+- **작업대 XY 복귀**: `Safety._workspace(q, ref)`가 출발점(ref)이 작업대 x·y 밖이면 축마다 "벗어난 거리가 출발점보다 늘지 않는" 점만 허용한다(ref가 안이면 예전과 같다). 0° 자세처럼 밖에서 `home`으로 돌아올 수 있다. 작업대 크기·팔 받침 위치는 T6 실측 전까지 `workspace.yaml`을 바꾸지 않고, 0° 자세 시험은 안전 모드 free로 한다.
+- **통신 끊김**: 끊김 시간은 마지막으로 통신이 된 시각부터 0.5초로 잰다(`HealthMonitor.comm_ok(now)`). 정지 중에는 10Hz 상태 루프의 읽기 결과를 `MotionController.note_comm(ok)`로 알려 끊김을 보고, 컨트롤러 틱이 0.5초가 차는 즉시 `fault("comm_lost")`를 낸다(USB를 뽑은 뒤 약 0.5초). 이때 `ARM-FAULT` 대신 `ARM-COMM-LOST`(ERROR) 이벤트와 같은 이름의 사고 묶음을 남긴다.
+- **fault 뒤**: 조그 입력을 비우고, 마지막 위치 유지 쓰기도 하지 않는다(통신 끊김일 때). `ArmService.home/park/move_joints/move_tool/pick_and_place/place/set_gripper`는 버스를 읽거나 쓰지 않고 `MotionResult("fault")`를 돌려준다. `resume()`은 통신 끊김 fault에서는 `False`(이전에는 None)를 돌려주고 풀지 않는다. 다시 꽂아도 `connect()`를 해야 풀린다.
+- **다시 연결**: `ArmService.connect()`가 이미 연결된 상태면 먼저 정리한다. `driver.disconnect()`는 토크를 끄지 않고, 포트가 이미 사라져 예외가 나도 정리를 끝낸다. 새 컨트롤러는 현재 위치를 명령값으로 삼는다.
+- **실물 측정**(table_z_mm 접촉 4곳, 인쇄 격자 3점, 포트 빠짐 4경우, 토크 풀림 재현)은 사용자와 COM3으로 한다. 아직 안 했다.

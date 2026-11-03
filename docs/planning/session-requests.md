@@ -25,3 +25,4 @@
 | REQ-015 | 다른 PC·다른 팔 브링업: 팔 파일·local.yaml 설정 세 겹, 포트 자동 찾기·find-port, so101 doctor, 캘리브레이션 불일치 잠금, environment.yml, 런처 (결정 0027) | 기획 → 팔 | 설정 파일 위치 변경 | 반영됨 | #32 합쳐짐, GUI #33 (실제 팔 잠금·doctor 탐침은 G10에서 확인) | GUI 장치 > 팔 점검 카드가 doctor 결과 dict를 쓴다 |
 | REQ-016 | SO-101 자동 캘리브레이션: LeRobot PR #4826 엔진을 가져와 `so101 calibrate --auto --measure-only`와 `--save` (결정 0028) | 기획 → 팔 | 새 명령 | 완료(코드, 실물 시험 AC4는 사용자와) | dev/arm-autocal | 실물 시험 전에는 `--save`를 쓰지 않는다 |
 | REQ-018 | 블랙박스 상태·이벤트 기록: `status.jsonl`(10Hz)·`events.jsonl`(공통 머리), 레지스터 쓰기·토크·fault·예외 기록, ARM-TORQUE-LOST, 사고 묶음과 `so101 incident`, 감시 `--run-dir`, 보관 정리 (결정 0030) | 기획 → 팔 | 기록 형식 변경(결정 0030 승인) | 완료(코드·시험·시뮬 성능 비교, 실제 팔 비교는 사용자와 나중에) | #45 합쳐짐 | G11이 기다림. 실제 팔 성능 비교와 토크 풀림 재현은 사용자와 함께 나중에 |
+| REQ-019 | 안전 보완: 작업대 XY 복귀 허용, 통신 끊김 뒤 다시 연결 규칙, 실물 측정 (결정 0031) | 기획 → 팔 | 기존 동작 변경(XY 검사 예외, 결정 0031 승인) | 진행(코드·시험 완료 PR 전, 3번 실물 측정은 사용자와 COM3으로 대기) | dev/arm-safety-comm | 1·2번 코드, 4번은 workspace.yaml 그대로 |

@@ -72,7 +72,10 @@ class ArmService:
 
     # ---- 연결
     def connect(self, port: str | None = None) -> tuple[bool, str]:
-        """연결하고 컨트롤러·기능을 만든다. 실패하면 (False, 오류 메시지)."""
+        """연결하고 컨트롤러·기능을 만든다. 실패하면 (False, 오류 메시지). 이미 연결돼 있으면(통신 끊김 fault 뒤 다시 연결 등) 먼저 정리한다.
+        다시 연결해도 토크는 끄지 않고, 새 컨트롤러가 현재 위치를 명령값으로 삼는다 (decisions/0031)."""
+        if self._connected:
+            self.disconnect()
         self.logger = RunLogger(self.log_root, proc=self.proc) if self.log_root else None  # 연결 때 쓰는 레지스터도 기록하려고 먼저 연다
         self.driver.event_sink = self._driver_event
         try:
@@ -182,12 +185,14 @@ class ArmService:
                     self._health = self.driver.read_health()  # 온도·부하·토크·Status는 2Hz로만 읽는다
                     self._check_torque(expect)
                 st = self.status()
+                self.ctl.note_comm(True)
                 self._write_status(st)
                 for cb in list(self._callbacks):
                     cb(st)
                 if health_tick:  # 오류가 나는 읽기는 2Hz뿐이라, 그 읽기가 다시 성공해야 회복으로 본다
                     self._status_ok()
             except Exception as e:  # noqa: BLE001
+                self.ctl.note_comm(False)  # 정지 중에는 50Hz 쓰기가 없어 이 읽기가 끊김을 가장 먼저 본다
                 self._status_error(e)
             n += 1
             time.sleep(max(0.0, nxt - time.perf_counter()))
@@ -225,8 +230,10 @@ class ArmService:
 
     def _ctl_event(self, kind: str, level: str, code: str, data) -> None:
         self._event(kind, level, code, data)
-        if kind == "fault":
+        if kind == "fault" and data.get("reason") != "comm_lost":  # 통신 끊김은 아래 ARM-COMM-LOST 묶음 하나로
             self._trigger_incident("ARM-FAULT", f"fault: {data.get('reason')}")
+        elif kind == "comm_lost":
+            self._trigger_incident("ARM-COMM-LOST", "통신 끊김(0.5초 이상 응답 없음)")
         elif kind == "estop":
             self._trigger_incident("ARM-ESTOP", "E-STOP")
 
@@ -279,6 +286,12 @@ class ArmService:
         return r
 
     # ---- 동작
+    def _comm_gate(self) -> MotionResult | None:
+        """통신 끊김 fault에서는 버스를 읽거나 쓰는 일도 하지 않고 fault를 돌려준다(다시 연결하기 전까지 아무 명령도 안 보낸다, decisions/0031)."""
+        if self.ctl.state == "fault" and self.ctl.fault == "comm_lost":
+            return MotionResult("fault", 0.0, ToolPose(0, 0, 0, 0))
+        return None
+
     def set_speed(self, pct: float) -> None:
         self.speed = pct
         self.skills.speed = pct
@@ -287,17 +300,21 @@ class ArmService:
         return self.skills._run(trajs)
 
     def home(self) -> MotionResult:
-        return self._done("home", self.skills.home())
+        return self._comm_gate() or self._done("home", self.skills.home())
 
     def park(self) -> MotionResult:
-        return self._done("park", self.skills.park())
+        return self._comm_gate() or self._done("park", self.skills.park())
 
     def move_joints(self, goal: JointState, speed_pct: float | None = None) -> MotionResult:
+        if (gate := self._comm_gate()) is not None:
+            return gate
         trajs = [cfg_move_j(self.cfg, self.driver.read_joints(), goal, speed_pct or self.speed)]
         self.driver.set_torque(True)
         return self._done("movej", self._run(trajs), goal=asdict(goal))
 
     def move_tool(self, pose: ToolPose, speed_pct: float | None = None) -> MotionResult:
+        if (gate := self._comm_gate()) is not None:
+            return gate
         trajs = plan_goto(self.kin, self.cfg, self.driver.read_joints(), pose, speed_pct or self.speed)
         if trajs is None:
             return self._done("goto", MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0)), goal=asdict(pose))
@@ -386,6 +403,8 @@ class ArmService:
         return {"ok": reason is None, "reason": reason, "duration_s": t0, "joints": joints, "tool": tool}
 
     def pick_and_place(self, obj: DetectedObject, zone: str | None = None) -> MotionResult:
+        if (gate := self._comm_gate()) is not None:
+            return gate
         self.driver.set_torque(True)
         r = self.skills.pick(obj)
         self._log("pick", {"object": asdict(obj), "status": r.status})
@@ -395,11 +414,15 @@ class ArmService:
         return r
 
     def place(self, zone: str) -> MotionResult:
+        if (gate := self._comm_gate()) is not None:
+            return gate
         self.driver.set_torque(True)
         return self._done("place", self.skills.place(zone), zone=zone)
 
     def set_gripper(self, value: float, as_width: bool = False) -> MotionResult:
         """그리퍼만 움직인다. as_width면 벌림 폭(mm)으로 해석한다(예: 카드 폭 54mm)."""
+        if (gate := self._comm_gate()) is not None:
+            return gate
         pts = sorted((mm, v) for v, mm in self.cfg.gripper_width_mm)
         v = float(np.interp(value, [p[0] for p in pts], [p[1] for p in pts])) if as_width else value
         lo, hi = self.cfg.joint_limits_deg["gripper"]
@@ -449,7 +472,8 @@ class ArmService:
     def estop(self) -> None:
         self.ctl.estop()  # 이벤트(ARM-ESTOP)와 사고 묶음은 컨트롤러가 알린다
 
-    def resume(self) -> None:
-        """stop·estop(상태 stopped)이나 fault 뒤에 다시 움직일 수 있게 idle로 되돌린다. 팔은 움직이지 않는다 (REQ-009)."""
-        self.ctl.resume()
-        self._log("resume", {})
+    def resume(self) -> bool:
+        """stop·estop(상태 stopped)이나 fault 뒤에 다시 움직일 수 있게 idle로 되돌린다. 팔은 움직이지 않는다 (REQ-009). 통신 끊김 fault는 풀리지 않고 False(다시 연결해야 한다, decisions/0031)."""
+        ok = self.ctl.resume()
+        self._log("resume" if ok else "resume_refused", {} if ok else {"reason": "comm_lost: 다시 연결해야 한다"}, None if ok else "WARN", None if ok else "ARM-RESUME-REFUSED")
+        return ok
