@@ -12,11 +12,12 @@ from pathlib import Path
 
 from ..arm.kinematics import Kinematics
 from ..arm.sim_driver import SimDriver
-from ..core.config import load_robot, load_workspace
+from ..core.config import arm_files, load_robot_ex, load_workspace
 from ..core.types import DetectedObject, JointState, MotionResult, ToolPose
+from ..doctor import doctor
 from ..perception.manual import ManualSource
 from ..service.arm_service import ArmService
-from ..service.diagnostics import BIG_MOVES  # noqa: F401  페이지가 쓴다
+from ..service.diagnostics import BIG_MOVES
 from ..service.stop_listener import StopListener
 from ..service.studio import Studio
 from ..service.targets import reason_text, tip_vector
@@ -46,6 +47,7 @@ MOTION_TEXT = {
     "preempted": "다른 명령으로 바뀌었습니다",
     "fault": "오류로 멈췄습니다",
     "timeout": "시간 안에 끝나지 않았습니다",
+    "locked": "실제 팔이 잠겨 있어 움직이지 않았습니다. 장치 > 팔에서 이유를 확인해 주세요",
 }
 
 
@@ -77,10 +79,14 @@ class Plan:
 
 class Backend:
     workspace_path = "config/workspace.yaml"
+    arms_path = "config/arms"
+    local_path = "config/local.yaml"
 
     def __init__(self, speed: float | None = None, log_root: str | None = "runs", link: WatchdogLink | None = None,
-                 viser_port: int | None = None, real_driver=None):
-        cfg = load_robot()
+                 viser_port: int | None = None, real_driver=None, arm_name: str | None = None):
+        # shortcut: 보드 시리얼 없이 고른다(팔 파일이 여럿이면 --arm이나 local.yaml), G10에서 실제 포트의 시리얼을 넘긴다
+        cfg, self.arm_info = load_robot_ex(arm=arm_name)
+        self._arm_option = arm_name
         self.state = State()
         self.link = link
         self.scene: Scene3D | None = None
@@ -151,9 +157,15 @@ class Backend:
         self.mode, self.pending = mode, None
         return None
 
+    def move_lock(self) -> str | None:
+        """실제 팔이 잠겼으면 이유 (decisions/0027). 새 팔이거나 캘리브레이션이 다를 때다."""
+        return self.real.locked_reason if self.real else None
+
     def _real_blocked(self) -> str | None:
         if self.real is None:
             return "실제 팔이 연결되어 있지 않습니다. 시뮬레이션만 쓸 수 있습니다"
+        if self.move_lock():
+            return self.move_lock()
         if not self.real_allowed():
             return "감시 프로세스가 응답하지 않아 실제 팔을 움직일 수 없습니다"
         return None
@@ -477,13 +489,35 @@ class Backend:
         return None
 
     # ---- 장치·시스템
+    def run_doctor(self) -> dict:
+        """읽기 전용 점검. 블로킹이므로 스레드에서 부른다."""
+        # shortcut: 포트를 열지 않는 점검만 한다(COM3은 알린 뒤에만 연다, decisions/0024), G10에서 실제 팔 연결 전 탐침을 붙인다
+        try:
+            return doctor(probe=False, arm=self._arm_option)
+        except Exception as e:  # noqa: BLE001  점검이 실패해도 페이지는 살아 있어야 한다
+            return {"ok": False, "checks": [{"name": "점검", "state": "fail", "text": f"점검하지 못했습니다: {e}", "fix": ""}], "ports": [], "arm": None, "esp32": None}
+
+    def arm_names(self) -> list[str]:
+        return list(arm_files(Path(self.arms_path)))
+
+    def choose_arm(self, name: str) -> str | None:
+        """다음 실행부터 쓸 팔을 local.yaml에 적는다. 실패 이유 또는 None. 설정은 시작할 때 읽어 지금 팔은 그대로다."""
+        if name not in self.arm_names():
+            return f"팔 파일이 없습니다: {name}"
+        path = Path(self.local_path)
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
+        line = f"arm: {name}"
+        text, count = re.subn(r"^arm:.*$", line, text, flags=re.MULTILINE)  # 주석을 지키려고 그 줄만 바꾼다
+        path.write_text(text if count else f"{text.rstrip()}\n{line}\n".lstrip(), encoding="utf-8")
+        return None
+
     def diagnostic_available(self, name: str) -> bool:
         return name != "linkwatch"  # shortcut: 포트를 직접 열어 시뮬레이션에서는 못 쓴다, G10에서 실제 팔 연결을 끊고 부르게 한다
 
     def run_diagnostic(self, name: str, progress=None, stop=None) -> tuple[dict | None, str | None]:
         """(결과, 실패 이유). 블로킹이므로 스레드에서 부른다."""
         kw = {"repeats": 1} if name == "powertest" else {}
-        if self.real and self._real_blocked():
+        if self.real and (name in BIG_MOVES or not self.move_lock()) and self._real_blocked():  # 잠겨도 읽기는 된다
             return None, self._real_blocked()
         try:
             return self.arm.run_diagnostic(name, progress, stop, **kw), None

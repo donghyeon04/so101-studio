@@ -12,7 +12,7 @@ DEFAULT_TARGET = {"x": 300.0, "y": 200.0, "h": 40.0, "yaw": 90.0}
 
 
 def build(backend, client_id: str, actions) -> None:
-    gate = Controls(backend, client_id)
+    gate = Controls(backend, client_id, moves=True)
     control, guarded, owner = gate.add, gate.guard, lambda: gate.mine
     held: list = []  # 지금 누르고 있는 조그 (mode, index, sign)
     plan_state = {"dirty": True, "busy": False, "plan": None, "seq": backend.scene.picked[0]}
