@@ -49,6 +49,8 @@ def make_root(backend: Backend):
         stats: dict[str, ui.label] = {}
         badge: list[ui.badge] = []
         resume: list[ui.button] = []
+        reconnect: list[ui.button] = []
+        lock_row: list = []
         beating: list[bool] = []  # 이 브라우저가 지금 감시 프로세스에 heartbeat를 보내는가
         ui.add_head_html(BROWSER_HB_JS)
         ui.add_head_html(VIEW_CUBE_JS)
@@ -65,12 +67,15 @@ def make_root(backend: Backend):
                 badge[:] = [ui.badge(text, color=theme.STATE_COLORS[text]).classes("page-state").mark("page-state")]
                 resume[:] = [ui.button("정지 해제", on_click=resume_arm).props("outline no-caps").mark("resume")]
                 resume[0].visible = False
+                reconnect[:] = [ui.button("다시 연결", color="negative", on_click=reconnect_arm).props("no-caps").mark("reconnect")]
+                reconnect[0].visible = False
                 ui.space()
                 actions = ui.row().classes("items-center gap-2")
-            if backend.move_lock():  # 연결할 때 정해지고 그 뒤로 바뀌지 않는다
-                with ui.row().classes("w-full items-center gap-1 no-wrap").mark("lock-banner"):
-                    ui.icon("lock", color="negative")
-                    ui.label(f"움직이는 버튼이 꺼져 있습니다: {backend.move_lock()}").classes("page-body")
+            with ui.row().classes("w-full items-center gap-1 no-wrap").mark("lock-banner") as row:
+                ui.icon("lock", color="negative")
+                label = ui.label(f"움직이는 버튼이 꺼져 있습니다: {backend.move_lock()}").classes("page-body")
+            row.visible = bool(backend.move_lock())
+            lock_row[:] = [row, label]
             if path in BUILDERS:
                 BUILDERS[path](backend, client.id, actions)
                 return
@@ -84,7 +89,8 @@ def make_root(backend: Backend):
             if backend.pending and backend.owner == client.id and not pending_dialog.value:
                 pending_text.text = f"시뮬레이션에서 '{backend.pending[0]}'을 마쳤습니다. 실제 팔로 실행할까요?"
                 pending_dialog.open()
-            for name, (level, detail) in component_states(backend.state.status, time.time()).items():
+            comm_lost = backend.comm_lost()
+            for name, (level, detail) in component_states(backend.state.status, time.time(), comm_lost).items():
                 icon_name, icon_color, text = theme.COMPONENT_STYLES[level]
                 icon, tooltip = components[name]
                 if stats[name].text != text:
@@ -100,16 +106,35 @@ def make_root(backend: Backend):
             if beating != [mine]:
                 beating[:] = [mine]
                 ui.run_javascript(f"so101Hb({str(mine).lower()})")
-            text = page_state(backend.state.status)
+            text = "오류" if comm_lost else page_state(backend.state.status)
+            if lock_row and not lock_row[0].is_deleted:
+                lock = backend.move_lock()
+                lock_row[0].visible = bool(lock)
+                lock_row[1].text = f"움직이는 버튼이 꺼져 있습니다: {lock}"
             if badge and not badge[0].is_deleted and badge[0].text != text:
                 badge[0].text = text
                 badge[0].props(f"color={theme.STATE_COLORS[text]}")
             if resume and not resume[0].is_deleted:
-                resume[0].visible = mine and text in ("정지", "오류")
+                resume[0].visible = mine and text in ("정지", "오류") and not comm_lost
+            if reconnect and not reconnect[0].is_deleted:
+                reconnect[0].visible = mine and comm_lost
 
         async def resume_arm() -> None:
             if backend.owner == client.id:
-                await run.io_bound(backend.resume)
+                reason = await run.io_bound(backend.resume)
+                if reason:
+                    ui.notify(reason, type="negative")
+
+        async def reconnect_arm() -> None:
+            if backend.owner != client.id:
+                return
+            reason, torque_off = await run.io_bound(backend.reconnect)
+            if reason:
+                ui.notify(reason, type="negative")
+            elif torque_off:
+                ui.notify(f"다시 연결했습니다. 토크가 꺼진 서보: {', '.join(torque_off)}. 팔을 받쳐 주세요", type="warning")
+            else:
+                ui.notify("다시 연결했습니다. 모든 서보의 토크가 켜져 있습니다", type="positive")
 
         async def run_pending() -> None:
             pending_dialog.close()
