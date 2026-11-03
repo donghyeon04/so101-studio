@@ -215,3 +215,8 @@ def test_record_flow_on_the_page(real_like):
             assert backend.sim.driver.torque_enabled()
 
     asyncio.run(go())
+
+
+def test_path_kinematics_is_built_before_the_watchdog_starts(backend):
+    # 처음 만들 때 파이썬이 1.7초 멈춘다. 기록을 고를 때 만들면 감시 프로세스가 실제 팔 앱을 강제 종료한다
+    assert backend._path_kin is not None

@@ -107,7 +107,6 @@ class Backend:
         self._started_ns = time.time_ns()
         self.run_focus: tuple | None = None  # 로그에서 고른 줄: (실행 이름, 시각). 실행 기록 페이지가 읽는다
         self._next_object = 0
-        self._path_kin: Kinematics | None = None
         self._listener = None
         self.owner: str | None = None  # 조작권을 가진 브라우저. NiceGUI 이벤트 루프에서만 바꾼다
         ws = load_workspace()
@@ -123,6 +122,8 @@ class Backend:
             ok, msg = arm.connect(port if arm is self.real else None)
             if not ok:
                 raise RuntimeError(msg)
+        # 궤적 계산용으로 따로 둔다(팔의 Kinematics는 다른 스레드도 쓴다). 만드는 동안 파이썬 전체가 1초 넘게 멈춰, 감시 프로세스가 켜진 뒤에 만들면 앱이 강제 종료된다
+        self._path_kin = Kinematics(cfg.urdf, self.arm.ws.base, cfg.joint_limits_deg)
         self.arm.status_stream(self.state.update)
         self.source = ManualSource()
         self.studio = Studio(self.arm, self.source, dry_run=self.real is None)  # 시뮬레이션에는 잡히는 물체가 없어 접촉 없음도 성공으로 본다
@@ -606,8 +607,6 @@ class Backend:
         q, t = self.arm.teach.load(name)
         stride = max(1, len(q) // SEQUENCE_POINTS)
         q, t = q[::stride], t[::stride] - t[0]
-        if self._path_kin is None:  # 팔의 Kinematics는 다른 스레드도 쓰므로 궤적 계산에는 따로 둔다
-            self._path_kin = Kinematics(self.arm.cfg.urdf, self.arm.ws.base, self.arm.cfg.joint_limits_deg)
         tips = [self._path_kin.fk(JointState(*row)) for row in q.tolist()]
         segments = [
             (s["label"], [(p.x_mm, p.y_mm, p.z_mm) for p, at in zip(tips, t, strict=True) if s["start_s"] <= at <= s["end_s"]])
