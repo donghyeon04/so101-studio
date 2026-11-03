@@ -14,6 +14,8 @@ class SimDriver:
         self.acceleration = 10
         self.simulated = True
         self.locked_reason: str | None = None
+        self.event_sink = None  # ArmDriver와 같은 자리(시뮬레이션은 레지스터가 없어 쓰지 않는다)
+        self.expect_torque: bool | None = None
 
     def connect(self, port: str = "sim", calibration_id: str = "sim") -> None:
         self.connected = True
@@ -36,6 +38,9 @@ class SimDriver:
             "load_pct": {m: 0.0 for m in JOINTS},
             "voltage_v": 12.0,
             "current_ma": 0.0,
+            "current_ma_by_joint": {m: 0.0 for m in JOINTS},
+            "torque": {m: int(self._torque) for m in JOINTS},
+            "status_bits": {m: 0 for m in JOINTS},
         }
 
     def read_power(self) -> tuple[float, dict, dict]:
@@ -52,6 +57,7 @@ class SimDriver:
 
     def set_torque(self, on: bool) -> None:
         self._torque = on
+        self.expect_torque = on
 
     def set_gripper_torque_limit(self, value: int) -> None:
         pass
