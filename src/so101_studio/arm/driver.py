@@ -1,6 +1,7 @@
 """장치 계층. 모터 통신은 LeRobot SO101Follower의 버스만 거친다 (arm-software-spec.md 6.1)."""
 import functools
 import threading
+import time
 from dataclasses import asdict, fields
 
 from lerobot.robots.so_follower import SO101Follower, SO101FollowerConfig
@@ -28,6 +29,7 @@ class ArmDriver:
         self.offsets = offsets or {}  # 관절별 영점 보정(도): 읽은 값 = 모터 값 - offset
         self._robot: SO101Follower | None = None
         self.simulated = False
+        self.connect_info: dict = {}
         self.locked_reason: str | None = None  # 캘리브레이션이 서보와 다르면 연결은 하되 쓰기를 막는다(읽기만) (decisions/0027)
         self._lock = threading.RLock()  # 시리얼 포트는 한 번에 한 스레드만 쓴다 (동작 스레드와 상태 읽기가 겹칠 수 있다)
 
@@ -41,18 +43,32 @@ class ArmDriver:
             self.locked_reason = (f"캘리브레이션 불일치: {calibration_id}. 서보의 호밍 오프셋·범위가 캘리브레이션 파일과 다르거나 파일이 이 PC에 없다. "
                                   "config/calibration/<id>.json을 ~/.cache/huggingface/lerobot/calibration/robots/so_follower/로 복사하거나 lerobot-calibrate를 다시 한다")
             return
-        was_on = any(bus.read("Torque_Enable", m) for m in bus.motors)  # 다시 연결해도 팔이 떨어지지 않게
+        # 연결은 토크를 끄는 쓰기를 하지 않는다: 토크가 켜진 채(특히 팔이 뻗은 자세) 다시 연결해도 팔이 떨어지지 않게 한다.
+        # 토크가 꺼져 있는지는 두 번 읽어 모두 꺼져 있을 때만 믿는다(한 번 잘못 읽은 0으로 꺼진 것으로 보지 않는다).
+        was_on = any(bus.read("Torque_Enable", m, num_retry=3) for m in bus.motors)
         if not was_on:
-            bus.disable_torque()
+            time.sleep(0.05)
+            was_on = any(bus.read("Torque_Enable", m, num_retry=3) for m in bus.motors)
+        writes: list[tuple[str, str, int]] = []
+
+        def put(m: str, register: str, value: int) -> None:  # 이미 같은 값이면 쓰지 않는다(부하를 받는 서보의 설정을 괜히 건드리지 않는다)
+            if bus.read(register, m, normalize=False, num_retry=3) != value:
+                bus.write(register, m, value, normalize=False, num_retry=3)
+                writes.append((m, register, value))
+
+        if not was_on:  # 토크가 이미 꺼져 있다: EEPROM에 쓰려면 Lock만 풀면 된다(disable_torque는 부르지 않는다)
+            for m in bus.motors:
+                bus.write("Lock", m, 0, normalize=False, num_retry=3)
         for m in bus.motors:
-            bus.write("P_Coefficient", m, self.pid["p"])
-            bus.write("I_Coefficient", m, self.pid["i"])
-            bus.write("D_Coefficient", m, self.pid["d"])
-            bus.write("Acceleration", m, self.gripper_acceleration if m == "gripper" else self.acceleration)
+            put(m, "P_Coefficient", self.pid["p"])
+            put(m, "I_Coefficient", self.pid["i"])
+            put(m, "D_Coefficient", self.pid["d"])
+            put(m, "Acceleration", self.gripper_acceleration if m == "gripper" else self.acceleration)
         if not was_on:  # EEPROM 항목은 토크가 꺼져 있을 때만 쓴다. 그리퍼 과열 방지 (LeRobot SO101 기본값)
-            bus.write("Max_Torque_Limit", "gripper", 500)
-            bus.write("Protection_Current", "gripper", 250)
-            bus.write("Overload_Torque", "gripper", 25)
+            put("gripper", "Max_Torque_Limit", 500)
+            put("gripper", "Protection_Current", 250)
+            put("gripper", "Overload_Torque", 25)
+        self.connect_info = {"torque_on_at_connect": was_on, "writes": [list(w) for w in writes]}  # 이벤트 기록에 남긴다: 팔이 떨어지면 원인을 찾는 단서
     def disconnect(self) -> None:
         if self._robot:
             self._robot.bus.disconnect(disable_torque=False)  # 팔이 떨어지지 않게 토크는 그대로 둔다
