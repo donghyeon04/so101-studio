@@ -76,6 +76,14 @@ def build(backend, client_id: str, actions) -> None:
     with actions:
         ui.button("진단 중단", color="negative", on_click=stop_flag.set).props("outline no-caps").mark("diag-stop")
 
+    # REQ-015 임시: doctor가 오면 정상/주의/실패, 고른 팔 파일과 이유, 팔 바꾸기로 채운다
+    with ui.card().classes("w-full gap-1").mark("doctor-card"):
+        ui.label("설치·연결 점검").classes("card-title")
+        with ui.row().classes("items-center gap-1 no-wrap"):
+            ui.icon("schedule", color="grey-8")
+            ui.label("준비 중").classes("page-body").mark("doctor-state")
+        ui.label("점검 기능이 들어오면 환경, 포트, 팔 파일, 캘리브레이션, 서보 응답 결과를 여기에 보여 줍니다").classes("page-body")
+
     with ui.row().classes("w-full no-wrap items-start gap-4"):
         with ui.column().classes("flex-1 min-w-0 gap-3"):
             table = ui.table(rows=servo_rows(backend.state.status), columns=COLUMNS, row_key="joint").props("flat bordered dense hide-bottom").classes("w-full").mark("servo-table")

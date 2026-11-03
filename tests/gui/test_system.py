@@ -74,6 +74,7 @@ def test_arm_page_shows_table_and_power(backend):
         await user.should_see(marker="servo-table")
         assert await _until(lambda: "V" in _one(user, "power").text)
         assert await _until(lambda: len(_one(user, "servo-table").rows) == 6)
+        assert _one(user, "doctor-state").text == "준비 중"  # REQ-015 임시
 
     in_app(backend, "/arm", check)
 
