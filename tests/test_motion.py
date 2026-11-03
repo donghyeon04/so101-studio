@@ -135,3 +135,14 @@ def test_controller_runs_a_ruckig_trajectory_in_sim():
     c.close()
     assert r.status == "ok"
     assert np.allclose(np.array(list(vars(d.read_joints()).values())), [10, 0, 0, 0, 0, 20], atol=1e-6)
+
+
+def test_close_during_a_move_releases_the_waiting_handle():
+    d = SimDriver()
+    c = MotionController(d, safety=Safety(LIMITS))
+    h = c.execute(move_j(A, JointState(60, 0, 0, 0, 0, 0), 10, 100))  # 오래 걸리는 동작
+    time.sleep(0.1)
+    c.close()
+    r = h.wait(1)
+    assert r is not None and r.status == "stopped"
+
