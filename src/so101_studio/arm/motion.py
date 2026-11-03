@@ -171,6 +171,8 @@ class MotionController:
                 self._job[1]._finish(self._result("stopped", self._job[2]))
             self._job, self.state = None, "stopped"
             self._last = self.driver.read_joints()
+            if self.grip_hold is not None:  # 예압 고정과 조임 한계는 유지한다(정지가 물체를 놓치게 하지 않는다)
+                self._last = replace(self._last, gripper=self.grip_hold)
             self.driver.write_joints(self._last)
         self._emit("estop", "WARN", "ARM-ESTOP", {})
 

@@ -278,3 +278,31 @@ def test_place_moves_the_hand_so_the_jaw_midpoint_stays_while_opening(kin):
     assert max(np.linalg.norm(mid(q) - m0) for q in d.log[start:start + len(opened)]) < 4.0  # 열리는 동안 중간점이 거의 제자리
     a0, a1 = kin.fk(d.log[start - 1]), kin.fk(opened[-1])
     assert np.hypot(a1.x_mm - a0.x_mm, a1.y_mm - a0.y_mm) > 1.0  # 손은 실제로 움직였다(보정이 있었다)
+
+
+def test_opening_command_after_pick_releases_hold_and_restores_limit_but_estop_keeps_them(kin):
+    from so101_studio.service.arm_service import ArmService
+
+    d, ctl, sk = rig(kin, BLOCK)
+    d.torque_limit = 800
+    assert sk.pick(obj()).status == "ok"
+    hold = ctl.grip_hold
+    ctl.estop()  # 정지: 고정과 200을 유지한다
+    assert ctl.grip_hold == hold and d.torque_limit == CFG.gripper_hold_torque and ctl._last.gripper == pytest.approx(hold, abs=0.01)  # E-STOP이 쓴 목표도 예압 값
+    ctl.resume()
+    svc = ArmService(d, CFG, WS, speed_pct=100, log_root=None)
+    svc.ctl, svc.skills, svc.kin, svc.safety = ctl, sk, kin, ctl.safety
+    svc._connected = True
+    r = svc.set_gripper(60)  # 지금보다 여는 값
+    ctl.close()
+    assert r.status == "ok" and d.read_joints().gripper == pytest.approx(60, abs=0.6)  # 실제로 열렸다
+    assert d.torque_limit == 800 and ctl.grip_hold is None  # 원래 값으로
+
+
+def test_place_restores_limit_before_opening(kin):
+    d, ctl, sk = rig(kin, BLOCK)
+    d.torque_limit = 800
+    assert sk.pick(obj()).status == "ok"
+    assert sk.place("right").status == "ok"
+    ctl.close()
+    assert d.torque_limit_writes[-1] == 800 and d.torque_limit_writes.count(800) == 1

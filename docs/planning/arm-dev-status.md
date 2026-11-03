@@ -169,7 +169,7 @@ GitHub `donghyeon04/so101-studio`. `main`은 기획 문서 1차 병합(#1)까지
 
 ## 17. 그리퍼 예압·조임 한계·부하 감시·놓기 보정 (REQ-020, 결정 0033)
 - **조임 한계는 RAM**: `ArmDriver.set_gripper_torque_limit(v)`가 RAM `Torque_Limit`(48번)에 쓴다(EEPROM `Max_Torque_Limit`에는 쓰지 않는다). `gripper_torque_limit()`으로 읽는다. 닫는 동안 `gripper_squeeze_torque`(300), 들고 옮기는 동안 `gripper_hold_torque`(200), `place`가 끝나면(예외가 나도) 바꾸기 전 값으로 되돌린다. 접촉이 없었거나 닫기가 실패하면 바로 되돌린다. place를 부르지 않으면 200과 예압 고정이 남는다(다음 pick·place가 이어받는다).
-- **예압**: 접촉하면 `ctl.hold_gripper(실제 - grip_preload_units)`로 그리퍼 목표를 고정하고, 이후 궤적이 무엇을 주든 매 틱 이 값으로 덮는다(위로 올라가고 옮기는 동안 명령이 실제보다 많이 닫히지 않는다). 부호는 "닫는 쪽 = 값이 작아지는 쪽"으로 해석했다(결정 문서의 "+ 예압"이 열리는 쪽이면 물체가 떨어진다). 기획 확인 필요.
+- **예압**: 접촉하면 `ctl.hold_gripper(실제 - grip_preload_units)`로 그리퍼 목표를 고정하고, 이후 궤적이 무엇을 주든 매 틱 이 값으로 덮는다(위로 올라가고 옮기는 동안 명령이 실제보다 많이 닫히지 않는다). 부호는 닫는 쪽(값이 작아지는 쪽)이다(기획 확인됨, arm-software-spec.md 6.6절). 그리퍼를 여는 명령(`set_gripper`로 지금보다 연 값, place의 열기)은 예압 고정을 풀고 조임 한계를 원래 값으로 되돌린다. `stop`·`estop`은 고정과 200을 유지한다(E-STOP이 쓰는 목표도 예압 값).
 - **no_object**: 접근 높이까지 올라온 뒤 `gripper_open`으로 연다(바닥에서는 열지 않는다). 결과는 `no_object`.
 - **그리퍼 부하 두 단계**: `MotionController._check_grip`(2Hz 건강 읽기에서). `gripper_load_warn_pct`(60%)를 `gripper_load_s`(1초) 넘게 넘으면 목표를 지금 위치로 맞추고 `ARM-GRIP-OVERLOAD-WARN`(WARN), 1초 더 이어지면 그리퍼를 열고 `fault("grip_overload")`와 `ARM-GRIP-OVERLOAD`(ERROR). 기준은 실측으로 정한다(정상 집기 5회 최대값 x 1.3).
 - **놓기 보정**: `Skills._opening_path()`가 `_closing_path`를 반대로(지금 값 -> `gripper_open`) 써서 열리는 동안 두 턱 끝의 중간점이 제자리에 머물게 손을 같이 보낸다. IK가 안 풀리면 예전처럼 제자리에서 연다.
