@@ -53,7 +53,9 @@ class LogRecord:
     t: float
     level: str  # "INFO" | "WARNING" | "ERROR"
     text: str
-    source: str = "앱"  # 앱 | 감시. 합친 시간축에서 어디서 온 줄인지 보여 준다
+    source: str = "gui"  # 기록 머리의 proc: gui | cli | watchdog
+    code: str | None = None
+    run: str | None = None  # 이 줄이 있는 실행 폴더. 실행 기록 페이지로 이동할 때 쓴다
 
 
 class LogBook(logging.Handler):
@@ -85,6 +87,26 @@ def component_states(status: ArmStatus | None, now: float) -> dict[str, tuple[st
     warned = [f"{name} {status.temperature_c[name]:.0f}°C" for name in status.temperature_c if status.temperature_c[name] >= SERVO_WARN_C]
     warned += [f"{name} 부하 {load:.0f}%" for name, load in status.load_pct.items() if load >= SERVO_WARN_LOAD_PCT]
     return {"버스": bus, "서보": ("warn", ", ".join(warned)) if warned else ("ok", f"서보 {len(status.temperature_c)}개 정상")}
+
+
+def run_bands(states: list[tuple[float, dict]], t0: float) -> dict[str, list[tuple[str, float, float]]]:
+    """토크·상태·오류 띠: {띠 이름: [(글자, 시작 초, 끝 초)]}. 값이 바뀌는 곳에서만 나누므로 줄 수와 상관없이 짧다. 옛 형식에는 칸이 없어 빈 목록이다."""
+    fields = {
+        "토크": lambda d: None if "torque_enabled" not in d else "켜짐" if d["torque_enabled"] else "꺼짐",
+        "상태": lambda d: PAGE_STATE.get(d["state"], d["state"]) if d.get("state") else None,
+        "오류": lambda d: d.get("fault"),
+    }
+    bands: dict[str, list] = {name: [] for name in fields}
+    for t, data in states:
+        for name, read in fields.items():
+            label, spans = read(data), bands[name]
+            if spans and spans[-1][0] == label:
+                spans[-1][2] = t - t0
+            elif label is not None:
+                if spans:
+                    spans[-1][2] = t - t0
+                spans.append([label, t - t0, t - t0])
+    return {name: [(label, round(a, 2), round(b, 2)) for label, a, b in spans] for name, spans in bands.items()}
 
 
 def page_state(status: ArmStatus | None) -> str:

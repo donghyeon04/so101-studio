@@ -7,11 +7,13 @@ from nicegui import ui
 LEVELS = {"INFO": "모두", "WARNING": "경고 이상", "ERROR": "오류만"}
 SHOWN = 200
 ORDER = {"INFO": 0, "WARNING": 1, "ERROR": 2}
-SOURCES = {"모두": "모두", "앱": "앱", "감시": "감시"}
+SOURCES = {"모두": "모두", "gui": "GUI", "cli": "CLI", "watchdog": "감시"}
+SOURCE_TEXT = {"gui": "GUI ", "cli": "CLI ", "watchdog": "감시"}
 
 
 def matches(record, level: str, text: str, source: str = "모두") -> bool:
-    return ORDER[record.level] >= ORDER[level] and text.lower() in record.text.lower() and source in ("모두", record.source)
+    target = f"{record.code or ''} {record.text}".lower()  # 코드(ARM-FAULT 등)와 종류도 검색으로 거른다
+    return ORDER[record.level] >= ORDER[level] and text.lower() in target and source in ("모두", record.source)
 
 
 def build(backend, client_id: str, actions) -> None:
@@ -29,6 +31,10 @@ def build(backend, client_id: str, actions) -> None:
 
     previous: list = [None]
 
+    def open_run(run: str, t: float) -> None:
+        backend.run_focus = (run, t)
+        ui.navigate.to("/runs")
+
     def tick(force: bool = False) -> None:
         if not (live.value or force):
             return
@@ -42,7 +48,10 @@ def build(backend, client_id: str, actions) -> None:
         with lines:
             for r in records[-SHOWN:][::-1]:
                 classes = "log-line" + (" log-error" if r.level == "ERROR" else " log-warning" if r.level == "WARNING" else "")
-                ui.label(f"{datetime.fromtimestamp(r.t):%H:%M:%S}  {r.source:<2}  {r.level:<7}  {r.text}").classes(classes)
+                line = f"{datetime.fromtimestamp(r.t):%H:%M:%S}  {SOURCE_TEXT.get(r.source, r.source)}  {r.level:<7}  {r.code or '-'}  {r.text}"
+                label = ui.label(line).classes(classes + (" log-link" if r.run else ""))
+                if r.run:  # 그 시각의 상태 그래프로 간다
+                    label.on("click", lambda run=r.run, t=r.t: open_run(run, t))
 
     level.on_value_change(lambda: tick(True))
     source.on_value_change(lambda: tick(True))

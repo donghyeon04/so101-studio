@@ -38,7 +38,7 @@ class WatchdogLink:
         self._armed = False
         self._proc: subprocess.Popen | None = None
 
-    def start(self) -> None:
+    def start(self, run_dir: str | None = None) -> None:
         """감시 프로세스를 띄운다. 이미 떠 있으면 그것을 쓴다. Windows에서는 같은 포트에 두 번 열려 요청이 아무 쪽으로나 간다."""
         try:
             httpx.get(f"http://127.0.0.1:{self.port}/status", timeout=TIMEOUT_S).raise_for_status()
@@ -46,6 +46,8 @@ class WatchdogLink:
         except httpx.HTTPError:
             pass
         cmd = [sys.executable, "-m", "so101_studio.watchdog", "--port", str(self.port)] + (["--sim"] if self.sim else [])
+        if run_dir:  # 기록을 실행 폴더에 남겨 한 시간축으로 합친다 (decisions/0030)
+            cmd += ["--run-dir", run_dir]
         self._proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL)
 
     def stop(self) -> None:

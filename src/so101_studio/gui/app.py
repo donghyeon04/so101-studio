@@ -193,7 +193,6 @@ def main(args) -> None:
     """`python -m so101_studio.gui`와 `so101 gui`(REQ-005)의 입구. --sim이 없으면 실제 팔에 연결한다(토크는 그대로, 움직이지 않는다)."""
     sim = getattr(args, "sim", False)
     link = WatchdogLink(sim=sim)
-    link.start()
     try:
         arm_name = getattr(args, "arm", None)
         backend = Backend(
@@ -203,6 +202,7 @@ def main(args) -> None:
     except (RuntimeError, ArmSelectionError, PortChoiceError) as e:
         link.stop()
         sys.exit(f"연결 실패: {e}")
+    link.start(backend.run_dir)  # 실행 폴더는 연결한 뒤에 생긴다
     app.on_startup(lambda: background_tasks.create(link.run(), name="watchdog heartbeat"))
     app.on_shutdown(backend.close)
     ui.run(

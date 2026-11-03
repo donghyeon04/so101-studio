@@ -4,6 +4,9 @@ import asyncio
 import json
 import logging
 import time
+import zipfile
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -17,7 +20,7 @@ from so101_studio.gui import backend as backend_module
 from so101_studio.gui.pages.arm import doctor_summary, servo_rows
 from so101_studio.gui.pages.logs import matches
 from so101_studio.gui.pages.runs import line_options
-from so101_studio.gui.state import LogRecord, component_states
+from so101_studio.gui.state import LogRecord, component_states, run_bands
 
 
 async def _until(check, timeout=5.0) -> bool:
@@ -284,20 +287,98 @@ def test_logs_page_filters_live(backend):
     in_app(backend, "/logs", check)
 
 
-def test_log_filter_by_source():
-    assert matches(LogRecord(0.0, "ERROR", "trip", "감시"), "INFO", "", "감시")
-    assert not matches(LogRecord(0.0, "ERROR", "trip", "감시"), "INFO", "", "앱")
-    assert matches(LogRecord(0.0, "ERROR", "connect"), "INFO", "", "앱")
+def test_log_filter_by_source_and_code():
+    record = LogRecord(0.0, "ERROR", "trip: {}", "watchdog", "WATCHDOG-TRIP")
+    assert matches(record, "INFO", "", "watchdog") and matches(record, "INFO", "watchdog-trip")
+    assert not matches(record, "INFO", "", "gui")
+    assert matches(LogRecord(0.0, "ERROR", "connect"), "INFO", "", "gui")
 
 
-def test_logs_merge_the_watchdog_file_by_time_and_read_only_new_lines(backend, tmp_path, monkeypatch):
+def _line(t_s, kind, proc, level="INFO", code=None):
+    return json.dumps({"t": int(t_s * 1e9), "proc": proc, "pid": 1, "seq": 1, "level": level, "code": code, "kind": kind, "data": {}})
+
+
+def test_logs_merge_processes_on_one_time_line(tmp_path):
+    from so101_studio.gui.backend import Backend
+
+    backend = Backend(log_root=str(tmp_path))
+    try:
+        now = time.time()
+        other = tmp_path / "cli-run"
+        other.mkdir()
+        (other / "events.jsonl").write_text(_line(now - 0.1, "goto", "cli") + "\n", encoding="utf-8")
+        (other / "watchdog.jsonl").write_text(_line(now - 0.2, "trip", "watchdog", "ERROR", "WATCHDOG-TRIP") + "\n{잘린 줄", encoding="utf-8")
+        records = [r for r in backend.logs() if r.run == "cli-run"]
+        assert [(r.source, r.level, r.code) for r in records] == [("watchdog", "ERROR", "WATCHDOG-TRIP"), ("cli", "INFO", None)]
+        assert any(r.source == "gui" and r.text.startswith("connect") for r in backend.logs())
+    finally:
+        backend.close()
+
+
+def test_run_bands_split_only_where_values_change():
+    states = [(10.0 + i, {"torque_enabled": i < 2, "state": "idle" if i < 3 else "fault", "fault": "overheat" if i >= 3 else None}) for i in range(5)]
+    bands = run_bands(states, 10.0)
+    assert bands["토크"] == [("켜짐", 0.0, 2.0), ("꺼짐", 2.0, 4.0)]
+    assert bands["상태"] == [("대기", 0.0, 3.0), ("오류", 3.0, 4.0)]
+    assert bands["오류"] == [("overheat", 3.0, 4.0)]
+    assert run_bands([(1.0, {"voltage_v": 12.0})], 1.0) == {"토크": [], "상태": [], "오류": []}  # 옛 형식
+
+
+def test_load_run_reads_new_format_with_bands(backend, tmp_path, monkeypatch):
     monkeypatch.setattr(backend, "runs_root", str(tmp_path))
-    monkeypatch.setattr(backend, "_watch_path", None)
-    path = tmp_path / "watchdog-20260101-000000.jsonl"
-    path.write_text(json.dumps({"t": 1000.0, "event": "trip", "reason": "단축키 F9"}, ensure_ascii=False) + "\n" + '{"잘린 줄', encoding="utf-8")
-    first = [r for r in backend.logs() if r.source == "감시"]
-    assert [(r.level, r.t) for r in first] == [("ERROR", 1000.0)] and "단축키 F9" in first[0].text
-    assert len([r for r in backend.logs() if r.source == "감시"]) == 1  # 다시 읽어도 겹치지 않는다
+    run = tmp_path / "20260102-100000"
+    run.mkdir()
+    (run / "events.jsonl").write_text(_line(1000.5, "fault", "gui", "ERROR", "ARM-FAULT") + "\n", encoding="utf-8")
+    rows = [{"t": int((1000 + i) * 1e9), "proc": "gui", "pid": 1, "seq": i, "level": "INFO", "code": None, "kind": "status",
+             "data": {"voltage_v": 12.0, "temperature_c": {"a": 30.0 + i}, "torque_enabled": i == 0, "state": "idle", "fault": None}} for i in range(3)]
+    (run / "status.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    data = backend.load_run(run.name)
+    assert data["events"][0]["code"] == "ARM-FAULT" and data["events"][0]["t"] == pytest.approx(1000.5)
+    assert data["temperature"][-1][1] == 32.0
+    assert data["bands"]["토크"] == [("켜짐", 0.0, 1.0), ("꺼짐", 1.0, 2.0)]
+
+
+def test_old_format_run_has_no_bands_but_still_opens(backend, runs_dir):
+    data = backend.load_run("20260101-100000")
+    assert data["rows"] == 5 and data["voltage"] and not any(data["bands"].values())
+
+
+def test_incident_zip_refuses_other_paths_and_packs_the_folder(backend, tmp_path, monkeypatch):
+    monkeypatch.setattr(backend, "runs_root", str(tmp_path))
+    folder = tmp_path / "incidents" / "20260101-MANUAL"
+    folder.mkdir(parents=True)
+    (folder / "meta.json").write_text(json.dumps({"code": "MANUAL", "reason": "시험"}), encoding="utf-8")
+    assert [i["name"] for i in backend.incidents()] == ["20260101-MANUAL"]
+    with pytest.raises(ValueError):
+        backend.incident_zip("../../secret")
+    names = zipfile.ZipFile(backend.incident_zip("20260101-MANUAL")).namelist()
+    assert "meta.json" in names
+
+
+def test_make_incident_on_a_recording_run(tmp_path):
+    from so101_studio.gui.backend import Backend
+
+    backend = Backend(log_root=str(tmp_path))
+    try:
+        path = backend.make_incident()
+        assert path and Path(path).is_dir()
+        assert backend.incidents()[0]["name"] == Path(path).name
+    finally:
+        backend.close()
+
+
+def test_run_page_opens_at_the_focused_event_and_lists_incidents(backend, runs_dir):
+    backend.run_focus = ("20260101-100000", 1001.0)
+
+    async def check(user):
+        await user.should_see(marker="run-voltage", retries=60)
+        await user.should_see(marker="run-no-bands")
+        await user.should_see(marker="incident-empty")
+        chart = _one(user, "run-voltage")
+        assert chart.options["series"][0]["markLine"]["data"] == [{"xAxis": 1.0}]
+
+    in_app(backend, "/runs", check)
+    assert backend.run_focus is None
 
 
 def _status(t, fault=None, temp=30.0, load=5.0):
