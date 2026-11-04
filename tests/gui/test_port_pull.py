@@ -126,8 +126,10 @@ def test_port_pull_is_seen_in_time_and_nothing_moves_until_reconnect(backend, be
     assert backend.comm_lost()
 
     pose = SimDriver.read_joints(driver)
+    old_run = backend.link.run_dir = "옛 폴더"
     reason, torque_off = backend.reconnect()
     assert reason is None and torque_off == []
+    assert backend.link.run_dir == backend.run_dir != old_run  # 감시 기록도 새 실행 폴더로 옮긴다
     assert not backend.comm_lost() and backend.move_lock() is None
     time.sleep(0.2)
     assert driver.read_joints() == pose  # 다시 연결만으로는 다른 자세로 가지 않는다

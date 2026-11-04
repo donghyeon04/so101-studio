@@ -212,6 +212,8 @@ class Backend:
             if not ok:
                 self._reconnect_failed = True
                 return msg, None
+            if self.link:
+                self.link.run_dir = self.run_dir
             torque = self.real.driver.read_health()["torque"]
         except Exception as e:  # noqa: BLE001  연결 직후 읽기가 실패하면 새 컨트롤러에 fault가 없어 끊김이 지워진 것처럼 보인다
             self._reconnect_failed = True

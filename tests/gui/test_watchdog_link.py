@@ -2,9 +2,11 @@
 
 import asyncio
 import json
+import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import httpx
 import pytest
 
 pytest.importorskip("nicegui")
@@ -60,6 +62,31 @@ def test_server_heartbeat_and_status(fake_watchdog):
     assert fake_watchdog.calls.count("/hb?src=server") >= 3
     assert "/status" in fake_watchdog.calls
     assert link.alive and link.text() == "정상"
+
+
+def test_registration_carries_the_current_run_folder(fake_watchdog):
+    link = _link(fake_watchdog)
+    link.want_armed = True
+    _run_for(link, 0.1)
+    assert "run_dir" not in fake_watchdog.calls[1][1]
+    link.run_dir = "runs/새 실행"
+    link.rearm()
+    _run_for(link, 0.1)
+    bodies = [c[1] for c in fake_watchdog.calls if isinstance(c, tuple)]
+    assert bodies[-1]["run_dir"] == os.path.abspath("runs/새 실행")
+
+
+def test_refused_run_folder_turns_the_watchdog_off(fake_watchdog, monkeypatch):
+    link = _link(fake_watchdog)
+    link.want_armed, link.run_dir = True, "runs/밖"
+    link.status = {"alive": True}
+
+    async def refuse(self, *_a, **_kw):
+        return httpx.Response(400, request=httpx.Request("POST", "http://test"))
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", refuse)
+    _run_for(link, 0.1)
+    assert not link.alive and link.text() == "꺼짐"
 
 
 def test_tripped_status_shows_as_activated(fake_watchdog):

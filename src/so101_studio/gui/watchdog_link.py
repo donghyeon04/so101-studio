@@ -35,11 +35,13 @@ class WatchdogLink:
         self.sim, self.port, self.stop_port = sim, port, stop_port
         self.status: dict | None = None
         self.want_armed = False  # 조작할 브라우저가 생겨야 켠다. 그 전에는 브라우저 heartbeat가 없어 끊김으로 보인다
+        self.run_dir: str | None = None  # 감시 기록을 남길 실행 폴더. 다시 연결하면 폴더가 새로 생긴다
         self._armed = False
         self._proc: subprocess.Popen | None = None
 
     def start(self, run_dir: str | None = None) -> None:
-        """감시 프로세스를 띄운다. 이미 떠 있으면 그것을 쓴다. Windows에서는 같은 포트에 두 번 열려 요청이 아무 쪽으로나 간다."""
+        """감시 프로세스를 띄운다. 이미 떠 있어도 기록은 등록할 때 이번 실행 폴더로 옮긴다. 이미 떠 있으면 그것을 쓴다. Windows에서는 같은 포트에 두 번 열려 요청이 아무 쪽으로나 간다."""
+        self.run_dir = run_dir
         try:
             httpx.get(f"http://127.0.0.1:{self.port}/status", timeout=TIMEOUT_S).raise_for_status()
             return
@@ -79,6 +81,8 @@ class WatchdogLink:
                     await client.get(f"{base}/hb", params={"src": "server"})
                     if self.want_armed and not self._armed:
                         body = {"armed": True, "pid": os.getpid(), "stop_port": self.stop_port}
+                        if self.run_dir:  # 받아 주지 않으면(400) 감시 꺼짐으로 보고 실제 팔을 막는다
+                            body["run_dir"] = os.path.abspath(self.run_dir)
                         (await client.post(f"{base}/arm", json=body)).raise_for_status()
                         self._armed = True
                     if n % STATUS_EVERY == 0:
