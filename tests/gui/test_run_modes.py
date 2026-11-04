@@ -221,7 +221,7 @@ def test_locked_real_arm_refuses_real_modes_and_big_moves_but_reads(twin, monkey
     assert twin.mode == "sim"
     assert twin.run_diagnostic("powertest") == (None, LOCK)
     assert twin.run_diagnostic("servoinfo")[1] is None  # 읽기는 된다
-    assert twin._run_on(twin.real, lambda _arm: SimpleNamespace(status="locked")).startswith("실제 팔이 잠겨")
+    assert twin._run_on(twin.real, lambda _arm: SimpleNamespace(status="locked", reason=None)).startswith("실제 팔이 잠겨")
 
 
 def test_locked_real_arm_turns_off_moving_buttons_with_reason(twin, monkeypatch):
