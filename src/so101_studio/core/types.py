@@ -41,6 +41,7 @@ class MotionResult:
     duration_s: float
     final_tool: ToolPose
     position_error_mm: float | None = None
+    reason: str | None = None  # out_of_bounds일 때 안전 검사가 막은 이유(workspace, z_floor, joint_limit:<관절> 등). 다른 상태는 None
 
 
 @dataclass

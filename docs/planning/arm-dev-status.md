@@ -175,3 +175,9 @@ GitHub `donghyeon04/so101-studio`. `main`은 기획 문서 1차 병합(#1)까지
 - **놓기 보정**: `Skills._opening_path()`가 `_closing_path`를 반대로(지금 값 -> `gripper_open`) 써서 열리는 동안 두 턱 끝의 중간점이 제자리에 머물게 손을 같이 보낸다. IK가 안 풀리면 예전처럼 제자리에서 연다.
 - **설정**(robot.yaml): `grip_preload_units` 2, `gripper_hold_torque` 200, `gripper_load_warn_pct` 60, `gripper_load_s` 1.0.
 - 실물 확인(집기 5회: 그리퍼 부하 최대값·과부하 오류 유무, 놓기 5회: 물체 밀림)은 사용자와 COM3으로 따로 한다. 아직 안 했다.
+
+## 18. 오프라인 준비 (REQ-021, GUI 세션 요청)
+- **끊긴 뒤 E-STOP**: `MotionController.estop()`이 버스를 못 읽어도 예외 없이 끝나고 `ARM-ESTOP`(data.comm_error)을 남긴다(`StopListener`도 정상 응답한다). 통신 끊김 fault(`comm_lost`)면 `estop`·`stop` 뒤에도 state는 fault로 남고 `resume()`은 False다. 끊긴 직후 아직 fault 전에 E-STOP을 하면 stopped가 되지만, 상태 루프가 끊김을 보고 곧 fault로 바꾼다. 다시 연결해야만 풀린다(결정 0031 보완 구현).
+- **`ArmService.connect`**: `self.kin`이 있으면 다시 만들지 않는다(URDF 로딩 1.7초 멈춤 제거). 연결된 채 `connect`를 부르면 먼저 정리한다. 연결한 포트는 `svc.port`.
+- **`MotionResult.reason`**: out_of_bounds일 때 안전 검사 이유(`workspace`, `z_floor`, `joint_limit:<관절>` 등). 다른 상태는 None.
+- **`run_diagnostic(svc, "linkwatch", port=...)`**: 포트를 주지 않으면 마지막으로 연결한 포트(`svc.port`)를 쓰고, 없으면 `cfg.port`.
