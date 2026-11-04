@@ -34,7 +34,7 @@ def make_server(wd, port: int = 8090) -> ThreadingHTTPServer:
                     return self._reply(200, wd.status())
                 if u.path == "/arm" and self.command == "POST":
                     b = self._json()
-                    wd.arm(b.get("armed") is True, b.get("pid"), b.get("stop_port"))
+                    wd.arm(b.get("armed") is True, b.get("pid"), b.get("stop_port"), b.get("run_dir"))
                     return self._reply(200, {"ok": True})
                 if u.path == "/estop" and self.command == "POST":
                     return self._reply(200, {"ok": True, "tripped": wd.trip("수동 E-STOP 요청")})

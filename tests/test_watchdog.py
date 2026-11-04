@@ -214,3 +214,42 @@ def test_second_watchdog_cannot_bind_the_same_port():
             make_server(Watchdog(sim=True), srv.server_address[1])
     finally:
         srv.server_close()
+
+
+# ---- 감시 기록 폴더 갱신 (POST /arm의 run_dir)
+
+def test_runlog_switches_folders_only_under_the_same_root(tmp_path):
+    import json
+
+    from so101_studio.watchdog.runlog import RunLog
+
+    a, b = tmp_path / "20260101-000000", tmp_path / "20260101-000100"
+    a.mkdir()
+    rl = RunLog(a / "watchdog.jsonl")
+    rl.write("one")
+    assert rl.switch(str(b)) == (b / "watchdog.jsonl").resolve()
+    rl.write("two")
+    assert rl.switch(str(b)) == (b / "watchdog.jsonl").resolve()  # 같은 폴더면 그대로
+    for bad in (str(tmp_path.parent), str(tmp_path / "x" / "y"), "", None, 5):
+        with pytest.raises(ValueError):
+            rl.switch(bad)
+    rl.write("three")
+    rl.close()
+    kinds = lambda p: [json.loads(x)["kind"] for x in (p / "watchdog.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert kinds(a) == ["one"] and kinds(b) == ["two", "three"]
+
+
+def test_arm_with_run_dir_moves_the_log_and_a_rejected_dir_does_not_arm(tmp_path):
+    from so101_studio.watchdog.runlog import RunLog
+
+    a = tmp_path / "r1"
+    a.mkdir()
+    rl = RunLog(a / "watchdog.jsonl")
+    wd = Watchdog(sim=True, log=lambda rec: rl.write(rec.get("event", "log"), rec))
+    wd.on_run_dir = rl.switch
+    wd.arm(True, 1234, 8091, run_dir=str(tmp_path / "r2"))
+    assert wd.armed and (tmp_path / "r2" / "watchdog.jsonl").exists()
+    with pytest.raises(ValueError):
+        wd.arm(False, run_dir=str(tmp_path.parent))
+    assert wd.armed  # 거절되면 등록 상태도 그대로
+    rl.close()

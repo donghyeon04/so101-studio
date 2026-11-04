@@ -24,6 +24,8 @@ from .targets import point_to_pose, tip_vector
 
 STATUS_HZ = 10
 HEALTH_HZ = 2
+LOAD_PROBE_PCT = 50.0  # 어느 관절이든 부하가 이 값 이상이거나 상태 루프가 오류를 내면 그 순간 토크·상태 비트·부하를 바로 한 번 더 읽어 남긴다 (결정 0030 보강)
+PROBE_COOLDOWN_S = 1.0
 INCIDENT_COOLDOWN_S = 10.0  # 같은 이유의 사고 묶음은 이 시간 안에 다시 만들지 않는다(연달아 나는 fault·E-STOP이 묶음을 쏟아내지 않게)
 # 이벤트 종류별 기본 수준과 코드(기록 형식은 decisions/0030). 나머지는 INFO, 코드는 종류 이름 대문자
 EVENT_LEVEL = {"estop": ("WARN", "ARM-ESTOP"), "locked": ("WARN", "ARM-LOCKED"), "connect_failed": ("ERROR", "ARM-CONNECT-FAILED")}
@@ -61,6 +63,7 @@ class ArmService:
         self._incident_thread: threading.Thread | None = None
         self._status_errors: dict[tuple, int] = {}
         self._torque_lost = False
+        self._probe_t = -1e9
         self._restore_hooks = None
         self.logger: RunLogger | None = None
         self.kin = self.safety = self.ctl = self.skills = self.teach = None
@@ -187,6 +190,8 @@ class ArmService:
                     expect = getattr(self.driver, "expect_torque", None)  # 읽기 전에 정한다: 읽는 사이에 켠 토크를 풀림으로 오해하지 않게
                     self._health = self.driver.read_health()  # 온도·부하·토크·Status는 2Hz로만 읽는다
                     self._check_torque(expect)
+                    if max(self._health.get("load_pct", {}).values(), default=0.0) >= LOAD_PROBE_PCT:
+                        self._probe("high_load")
                 st = self.status()
                 self.ctl.note_comm(True)
                 self._write_status(st)
@@ -197,8 +202,24 @@ class ArmService:
             except Exception as e:  # noqa: BLE001
                 self.ctl.note_comm(False)  # 정지 중에는 50Hz 쓰기가 없어 이 읽기가 끊김을 가장 먼저 본다
                 self._status_error(e)
+                self._probe("status_loop_error")
             n += 1
             time.sleep(max(0.0, nxt - time.perf_counter()))
+
+    def _probe(self, why: str) -> None:
+        """과부하·읽기 오류 순간에 2Hz 주기를 기다리지 않고 토크·상태 비트·부하를 바로 한 번 더 읽어 ARM-LOAD-PROBE로 남긴다.
+        (서보 보호로 출력이 끊겨도 Torque_Enable 값만으로는 안 보일 수 있어, 그 순간의 Status 비트가 필요하다.) PROBE_COOLDOWN_S에 한 번."""
+        now = time.monotonic()
+        if now - self._probe_t < PROBE_COOLDOWN_S:
+            return
+        self._probe_t = now
+        try:
+            h = self.driver.read_health()
+        except Exception as e:  # noqa: BLE001 읽지 못하는 것도 정보다
+            self._log("load_probe", {"why": why, "error": repr(e)[:120]}, "WARN", "ARM-LOAD-PROBE")
+            return
+        self._log("load_probe", {"why": why, "torque": h.get("torque"), "status_bits": h.get("status_bits"), "load_pct": h.get("load_pct"),
+                                 "current_ma_by_joint": h.get("current_ma_by_joint"), "state": self.ctl.state if self.ctl else None}, "WARN", "ARM-LOAD-PROBE")
 
     def _status_error(self, e: Exception) -> None:
         """첫 발생은 전체 traceback, 반복은 횟수(10, 100, 1000번째)로 남긴다."""
