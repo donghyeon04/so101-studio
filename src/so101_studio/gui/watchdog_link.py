@@ -1,7 +1,6 @@
 """감시 프로세스 연결 (decisions/0026): 함께 띄우기, 서버 heartbeat, 등록, 상태 읽기."""
 
 import asyncio
-import contextlib
 import os
 import subprocess
 import sys
@@ -69,11 +68,6 @@ class WatchdogLink:
     def rearm(self) -> None:
         """정지 해제 뒤 부른다. 감시 프로세스의 작동 상태는 다시 등록해야 풀린다."""
         self._armed = False
-
-    def pause(self) -> None:
-        """감시 등록을 푼다. rearm을 부르면 다시 등록한다. 스레드에서 부른다. 감시가 응답하지 않으면 풀 것도 없다."""
-        with contextlib.suppress(httpx.HTTPError):
-            httpx.post(f"http://127.0.0.1:{self.port}/arm", json={"armed": False}, timeout=TIMEOUT_S).raise_for_status()
 
     async def run(self) -> None:
         """이벤트 루프에서 돈다. 루프가 멈추면 heartbeat도 멈추고, 그것을 감시 프로세스가 본다."""

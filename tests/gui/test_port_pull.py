@@ -59,7 +59,7 @@ for _name in BUS_CALLS:
 
 
 def _link():
-    return SimpleNamespace(pause=lambda: None, alive=True, text=lambda: "정상", stop=lambda: None, rearm=lambda: None, want_armed=False)
+    return SimpleNamespace(alive=True, text=lambda: "정상", stop=lambda: None, rearm=lambda: None, want_armed=False)
 
 
 @pytest.fixture
@@ -210,11 +210,12 @@ def test_linkwatch_disconnects_keeps_moves_locked_and_reconnects(backend, monkey
     from so101_studio.service import diagnostics
 
     monkeypatch.setattr(diagnostics, "SimDriver", type("NotThisDriver", (), {}))  # 진단은 가짜 포트를 시뮬레이션으로 보지 않게 한다
-    monkeypatch.setattr(backend, "_pick_port", lambda: backend.real.cfg.port)
+    monkeypatch.setattr(backend, "_pick_port", lambda: "COM7")
     seen = {}
 
     def fake_run(port, out, stop, **_kw):
         seen.update(port=port, lock=backend.move_lock(), home=backend.home(), connected=backend.real._connected)
+        backend.estop()  # 연결을 끊은 동안 눌러도 앱이 죽지 않는다
         out("끊김 없음")
         return {"drops": 0}
 
@@ -223,7 +224,7 @@ def test_linkwatch_disconnects_keeps_moves_locked_and_reconnects(backend, monkey
     old_ctl = backend.real.ctl
     result, reason = backend.run_diagnostic("linkwatch", lines.append)
     assert reason is None and result["name"] == "linkwatch"
-    assert seen == {"port": backend.real.cfg.port, "lock": LINKWATCH_TEXT, "home": LINKWATCH_TEXT, "connected": False}
+    assert seen == {"port": "COM7", "lock": LINKWATCH_TEXT, "home": LINKWATCH_TEXT, "connected": False}
     assert lines == ["끊김 없음"]
     assert backend.real._connected and backend.real.ctl is not old_ctl and backend.studio.ctl is backend.real.ctl
     assert backend.move_lock() is None and backend.home() is None
@@ -252,13 +253,6 @@ def test_linkwatch_failure_still_reconnects_and_a_lost_reconnect_offers_the_butt
     result, reason = backend.run_diagnostic("linkwatch")
     assert result["name"] == "linkwatch" and reason
     assert backend.comm_lost() and backend.move_lock() == COMM_LOST_TEXT
-
-
-def test_linkwatch_refuses_a_port_it_cannot_watch(backend, monkeypatch):
-    monkeypatch.setattr(backend, "_pick_port", lambda: "COM99")
-    result, reason = backend.run_diagnostic("linkwatch")
-    assert result is None and "COM99" in reason
-    assert backend.real._connected
 
 
 def test_linkwatch_refuses_while_moving(backend, monkeypatch):

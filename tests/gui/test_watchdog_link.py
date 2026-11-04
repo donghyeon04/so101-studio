@@ -62,23 +62,6 @@ def test_server_heartbeat_and_status(fake_watchdog):
     assert link.alive and link.text() == "정상"
 
 
-def test_pause_disarms_and_rearm_registers_again(fake_watchdog):
-    link = _link(fake_watchdog)
-    link.want_armed = True
-    _run_for(link, 0.1)
-    link.pause()
-    assert fake_watchdog.calls[-1] == ("/arm", {"armed": False})
-    _run_for(link, 0.1)
-    assert sum(c[0] == "/arm" and c[1]["armed"] for c in fake_watchdog.calls if isinstance(c, tuple)) == 1  # rearm 전에는 다시 등록하지 않는다
-    link.rearm()
-    _run_for(link, 0.1)
-    assert sum(c[0] == "/arm" and c[1]["armed"] for c in fake_watchdog.calls if isinstance(c, tuple)) == 2
-
-
-def test_pause_ignores_a_silent_watchdog():
-    WatchdogLink(port=1).pause()
-
-
 def test_tripped_status_shows_as_activated(fake_watchdog):
     fake_watchdog.status = {"alive": True, "tripped": True}
     link = _link(fake_watchdog)
