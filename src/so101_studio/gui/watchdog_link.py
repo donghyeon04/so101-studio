@@ -1,7 +1,6 @@
 """감시 프로세스 연결 (decisions/0026): 함께 띄우기, 서버 heartbeat, 등록, 상태 읽기."""
 
 import asyncio
-import contextlib
 import os
 import subprocess
 import sys
@@ -36,11 +35,13 @@ class WatchdogLink:
         self.sim, self.port, self.stop_port = sim, port, stop_port
         self.status: dict | None = None
         self.want_armed = False  # 조작할 브라우저가 생겨야 켠다. 그 전에는 브라우저 heartbeat가 없어 끊김으로 보인다
+        self.run_dir: str | None = None  # 감시 기록을 남길 실행 폴더. 다시 연결하면 폴더가 새로 생긴다
         self._armed = False
         self._proc: subprocess.Popen | None = None
 
     def start(self, run_dir: str | None = None) -> None:
-        """감시 프로세스를 띄운다. 이미 떠 있으면 그것을 쓴다. Windows에서는 같은 포트에 두 번 열려 요청이 아무 쪽으로나 간다."""
+        """감시 프로세스를 띄운다. 이미 떠 있어도 기록은 등록할 때 이번 실행 폴더로 옮긴다. 이미 떠 있으면 그것을 쓴다. Windows에서는 같은 포트에 두 번 열려 요청이 아무 쪽으로나 간다."""
+        self.run_dir = run_dir
         try:
             httpx.get(f"http://127.0.0.1:{self.port}/status", timeout=TIMEOUT_S).raise_for_status()
             return
@@ -70,11 +71,6 @@ class WatchdogLink:
         """정지 해제 뒤 부른다. 감시 프로세스의 작동 상태는 다시 등록해야 풀린다."""
         self._armed = False
 
-    def pause(self) -> None:
-        """감시 등록을 푼다. rearm을 부르면 다시 등록한다. 스레드에서 부른다. 감시가 응답하지 않으면 풀 것도 없다."""
-        with contextlib.suppress(httpx.HTTPError):
-            httpx.post(f"http://127.0.0.1:{self.port}/arm", json={"armed": False}, timeout=TIMEOUT_S).raise_for_status()
-
     async def run(self) -> None:
         """이벤트 루프에서 돈다. 루프가 멈추면 heartbeat도 멈추고, 그것을 감시 프로세스가 본다."""
         base = f"http://127.0.0.1:{self.port}"
@@ -85,6 +81,8 @@ class WatchdogLink:
                     await client.get(f"{base}/hb", params={"src": "server"})
                     if self.want_armed and not self._armed:
                         body = {"armed": True, "pid": os.getpid(), "stop_port": self.stop_port}
+                        if self.run_dir:  # 받아 주지 않으면(400) 감시 꺼짐으로 보고 실제 팔을 막는다
+                            body["run_dir"] = os.path.abspath(self.run_dir)
                         (await client.post(f"{base}/arm", json=body)).raise_for_status()
                         self._armed = True
                     if n % STATUS_EVERY == 0:

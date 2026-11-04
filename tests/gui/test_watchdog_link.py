@@ -2,9 +2,11 @@
 
 import asyncio
 import json
+import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import httpx
 import pytest
 
 pytest.importorskip("nicegui")
@@ -62,21 +64,29 @@ def test_server_heartbeat_and_status(fake_watchdog):
     assert link.alive and link.text() == "정상"
 
 
-def test_pause_disarms_and_rearm_registers_again(fake_watchdog):
+def test_registration_carries_the_current_run_folder(fake_watchdog):
     link = _link(fake_watchdog)
     link.want_armed = True
     _run_for(link, 0.1)
-    link.pause()
-    assert fake_watchdog.calls[-1] == ("/arm", {"armed": False})
-    _run_for(link, 0.1)
-    assert sum(c[0] == "/arm" and c[1]["armed"] for c in fake_watchdog.calls if isinstance(c, tuple)) == 1  # rearm 전에는 다시 등록하지 않는다
+    assert "run_dir" not in fake_watchdog.calls[1][1]
+    link.run_dir = "runs/새 실행"
     link.rearm()
     _run_for(link, 0.1)
-    assert sum(c[0] == "/arm" and c[1]["armed"] for c in fake_watchdog.calls if isinstance(c, tuple)) == 2
+    bodies = [c[1] for c in fake_watchdog.calls if isinstance(c, tuple)]
+    assert bodies[-1]["run_dir"] == os.path.abspath("runs/새 실행")
 
 
-def test_pause_ignores_a_silent_watchdog():
-    WatchdogLink(port=1).pause()
+def test_refused_run_folder_turns_the_watchdog_off(fake_watchdog, monkeypatch):
+    link = _link(fake_watchdog)
+    link.want_armed, link.run_dir = True, "runs/밖"
+    link.status = {"alive": True}
+
+    async def refuse(self, *_a, **_kw):
+        return httpx.Response(400, request=httpx.Request("POST", "http://test"))
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", refuse)
+    _run_for(link, 0.1)
+    assert not link.alive and link.text() == "꺼짐"
 
 
 def test_tripped_status_shows_as_activated(fake_watchdog):

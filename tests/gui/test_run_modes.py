@@ -20,7 +20,7 @@ from so101_studio.gui.state import component_states
 
 
 def _alive_link() -> SimpleNamespace:
-    return SimpleNamespace(pause=lambda: None, alive=True, text=lambda: "정상", stop=lambda: None, rearm=lambda: None, want_armed=False, stop_port=0)
+    return SimpleNamespace(alive=True, text=lambda: "정상", stop=lambda: None, rearm=lambda: None, want_armed=False, stop_port=0)
 
 
 @pytest.fixture(scope="module")
@@ -221,7 +221,7 @@ def test_locked_real_arm_refuses_real_modes_and_big_moves_but_reads(twin, monkey
     assert twin.mode == "sim"
     assert twin.run_diagnostic("powertest") == (None, LOCK)
     assert twin.run_diagnostic("servoinfo")[1] is None  # 읽기는 된다
-    assert twin._run_on(twin.real, lambda _arm: SimpleNamespace(status="locked")).startswith("실제 팔이 잠겨")
+    assert twin._run_on(twin.real, lambda _arm: SimpleNamespace(status="locked", reason=None)).startswith("실제 팔이 잠겨")
 
 
 def test_locked_real_arm_turns_off_moving_buttons_with_reason(twin, monkeypatch):
@@ -307,18 +307,16 @@ def test_reconnect_clears_the_loss_and_gives_a_working_task_runner(tmp_path, mon
         backend.close()
 
 
-def test_watchdog_is_paused_only_while_connecting(twin, monkeypatch):
-    """connect가 1.7초 멈추면 감시가 앱을 끈다. 끊겼을 때 멈춰도 다시 등록은 꼭 한다."""
+def test_watchdog_is_registered_again_even_when_connect_fails(twin, monkeypatch):
     _lose_comm(twin, monkeypatch)
     monkeypatch.setattr(twin, "_reconnect_failed", False)
     board = {"device": "COM7", "vid": 0x1A86, "pid": 0x55D3, "serial": twin.real.cfg.board_serial, "description": ""}
     monkeypatch.setattr(backend_module, "list_serial_ports", lambda: [board])
     order = []
-    monkeypatch.setattr(twin.link, "pause", lambda: order.append("pause"))
     monkeypatch.setattr(twin.link, "rearm", lambda: order.append("rearm"))
     monkeypatch.setattr(twin.real, "connect", lambda _port: (order.append("connect"), (False, "포트 없음"))[1])
     assert twin.reconnect() == ("포트 없음", None)
-    assert order == ["pause", "connect", "rearm"]
+    assert order == ["connect", "rearm"]
 
 
 def test_reconnect_refuses_a_different_board(twin, monkeypatch):
@@ -350,12 +348,12 @@ def test_failed_read_after_reconnect_still_offers_reconnect(twin, monkeypatch):
 
 
 def test_out_of_bounds_explains_when_starting_outside_the_table(twin, monkeypatch):
-    result = SimpleNamespace(status="out_of_bounds")
+    result = SimpleNamespace(status="out_of_bounds", reason="workspace")
     assert twin._run_on(twin.real, lambda _arm: result) == backend_module.MOTION_TEXT["out_of_bounds"]
     monkeypatch.setattr(twin.real.safety, "box", lambda: {"x": [0, 1], "y": [0, 1], "z": [0, None]})
     assert twin._run_on(twin.real, lambda _arm: result) == OUTSIDE_TEXT
-    monkeypatch.setattr(twin.real.safety.settings, "mode", "free")  # 자유 모드에서는 작업대 때문에 막힌 것이 아니다
-    assert twin._run_on(twin.real, lambda _arm: result) == backend_module.MOTION_TEXT["out_of_bounds"]
+    floor = SimpleNamespace(status="out_of_bounds", reason="z_floor")  # 밖에서 출발해도 바닥에 걸린 것은 이 문장이 아니다
+    assert twin._run_on(twin.real, lambda _arm: floor) == backend_module.MOTION_TEXT["out_of_bounds"]
 
 
 def test_estop_still_stops_when_saving_a_recording_fails(twin, tmp_path, monkeypatch):

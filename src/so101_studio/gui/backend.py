@@ -180,8 +180,7 @@ class Backend:
     def resume(self) -> str | None:
         """비상 정지를 풀고 감시 프로세스에 다시 등록한다. 팔은 움직이지 않는다. 풀지 못하면 이유."""
         for arm in self._arms():
-            if not (arm is self.real and self.comm_lost()):  # E-STOP 뒤에는 컨트롤러가 끊김까지 지운다. 다시 연결 전에는 풀지 않는다 (decisions/0031)
-                arm.resume()
+            arm.resume()  # 통신이 끊긴 팔은 컨트롤러가 거부한다 (decisions/0031)
         if self.comm_lost():
             return COMM_LOST_TEXT
         if self.link:
@@ -208,13 +207,13 @@ class Backend:
         except PortChoiceError as e:
             self._reconnect_failed = True
             return str(e), None
-        if self.link:  # shortcut: connect가 Kinematics를 새로 만들며 1.7초 멈춰 감시가 앱을 끈다. 그동안 E-STOP도 늦다, 재사용하게 되면 뺀다
-            self.link.pause()
         try:
             ok, msg = self.real.connect(port)
             if not ok:
                 self._reconnect_failed = True
                 return msg, None
+            if self.link:
+                self.link.run_dir = self.run_dir
             torque = self.real.driver.read_health()["torque"]
         except Exception as e:  # noqa: BLE001  연결 직후 읽기가 실패하면 새 컨트롤러에 fault가 없어 끊김이 지워진 것처럼 보인다
             self._reconnect_failed = True
@@ -280,16 +279,13 @@ class Backend:
             return BUSY_TEXT
         except ValueError as e:  # 배율 때문에 속도 한계를 넘는 경우 등
             return str(e)
-        if result.status == "out_of_bounds" and Backend._starts_outside(arm):
+        if result.reason == "workspace" and Backend._starts_outside(arm):
             return OUTSIDE_TEXT
         return None if result.status == "ok" else MOTION_TEXT.get(result.status, result.status)
 
     @staticmethod
     def _starts_outside(arm: ArmService) -> bool:
         """지금 손끝이 작업대 XY 밖인가. 밖에서는 안쪽으로 돌아오는 움직임만 허용된다 (decisions/0031)."""
-        # shortcut: MotionResult에 이유가 없어 출발 위치로 짐작한다(밖에서 출발해 바닥에 걸려도 이 문장), 이유를 실어 주면 그것을 쓴다
-        if arm.safety.settings.mode != "normal":
-            return False
         tool, box = arm.kin.fk(arm.status().joints), arm.safety.box()
         return not (box["x"][0] <= tool.x_mm <= box["x"][1] and box["y"][0] <= tool.y_mm <= box["y"][1])
 
@@ -621,14 +617,12 @@ class Backend:
             port = self._pick_port()
         except PortChoiceError as e:
             return None, str(e)
-        if port != self.real.cfg.port:  # shortcut: linkwatch는 설정의 port만 연다, 연결한 포트를 받게 되면 뺀다
-            return None, f"linkwatch는 {self.real.cfg.port}만 볼 수 있는데 이 팔은 {port}에 있습니다. config의 port를 맞춰 주세요"
         result, reason = None, None
         self._linkwatching = True
         try:
             self.real.disconnect()
             try:
-                result = self.real.run_diagnostic("linkwatch", progress, lambda: self._closing or bool(stop and stop()))
+                result = self.real.run_diagnostic("linkwatch", progress, lambda: self._closing or bool(stop and stop()), port=port)
             except Exception as e:  # noqa: BLE001  포트를 못 열어도 팔은 다시 연결해야 한다
                 reason = f"linkwatch를 실행하지 못했습니다: {e}"
         finally:
@@ -803,10 +797,7 @@ class Backend:
         self.studio.stop()
         self.pending = None
         for arm in self._arms():
-            try:
-                arm.estop()  # Studio.estop은 실행 기록에 남기지 않는다
-            except Exception as e:  # noqa: BLE001  통신이 끊기면 위치를 읽지 못해 예외가 난다. 다른 팔까지 못 서면 안 된다
-                arm.log_event("estop_bus_failed", {"error": repr(e)}, level="ERROR")
+            arm.estop()  # Studio.estop은 실행 기록에 남기지 않는다
 
     def close(self) -> None:
         self._closing = True
