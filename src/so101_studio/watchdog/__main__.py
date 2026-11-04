@@ -7,9 +7,9 @@ from datetime import datetime
 from pathlib import Path
 
 from ..core.config import load_robot
-from ..core.logging import JsonlFile
 from .core import Watchdog
 from .hotkey import start_hotkey
+from .runlog import RunLog
 from .server import make_server
 
 
@@ -23,7 +23,7 @@ def main(argv=None) -> None:
     a = ap.parse_args(argv)
     hotkey = a.hotkey or load_robot(a.config).watchdog_hotkey
     path = Path(a.run_dir) / "watchdog.jsonl" if a.run_dir else Path("runs") / f"watchdog-{datetime.now():%Y%m%d-%H%M%S}.jsonl"
-    jl = JsonlFile(path, "watchdog")
+    jl = RunLog(path, root=Path(a.run_dir).parent if a.run_dir else Path("runs"))  # POST /arm의 run_dir로 쓰는 폴더를 바꿀 수 있다
 
     def log(rec: dict) -> None:
         kind = rec.get("event", "log")
@@ -33,6 +33,7 @@ def main(argv=None) -> None:
         print(json.dumps({"t": time.time(), **rec}, ensure_ascii=False), flush=True)
 
     wd = Watchdog(sim=a.sim, log=log)
+    wd.on_run_dir = jl.switch
     stop = threading.Event()
     srv = make_server(wd, a.port)
     threading.Thread(target=srv.serve_forever, daemon=True).start()

@@ -1,4 +1,5 @@
 """블랙박스 기록 (decisions/0030): 공통 머리, 큐 가득 참, 분할·보관, 링 버퍼, 사고 묶음, 토크 풀림, 예외, 감시 기록, incident 명령."""
+import itertools
 import json
 import os
 import threading
@@ -465,3 +466,22 @@ def test_teach_recording_ends_cleanly_when_the_port_is_pulled(tmp_path):
         threading.excepthook = old
         ctl.close()
     assert errs == []
+
+
+def test_load_probe_reads_status_immediately_on_high_load_and_on_loop_error(tmp_path):
+    s = make_svc(tmp_path)
+    try:
+        s.driver.grip_load = 80.0  # 부하가 높다
+        assert wait_for(lambda: (s.logger.flush(), any(e["code"] == "ARM-LOAD-PROBE" and e["data"]["why"] == "high_load" for e in read_events(s.logger.dir)))[1], 3)
+        e = next(e for e in read_events(s.logger.dir) if e["code"] == "ARM-LOAD-PROBE")
+        assert e["level"] == "WARN" and "torque" in e["data"] and "status_bits" in e["data"] and e["data"]["load_pct"]["gripper"] == 80.0
+        s.driver.grip_load = 0.0
+        time.sleep(1.2)  # 쿨다운
+        real = s.driver.read_joints
+        s.driver.read_joints = lambda: (_ for _ in ()).throw(ConnectionError("Overload error"))  # 상태 루프의 읽기 오류
+        assert wait_for(lambda: (s.logger.flush(), any(e["data"].get("why") == "status_loop_error" for e in read_events(s.logger.dir) if e["code"] == "ARM-LOAD-PROBE"))[1], 3)
+        s.driver.read_joints = real
+        probes = [e for e in read_events(s.logger.dir) if e["code"] == "ARM-LOAD-PROBE"]
+        assert all(b["t"] - a["t"] >= 0.9e9 for a, b in itertools.pairwise(probes))  # 1초에 한 번
+    finally:
+        s.disconnect()
