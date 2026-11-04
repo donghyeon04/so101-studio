@@ -1,5 +1,6 @@
 """NiceGUI 앱: 공통 틀(위쪽 상태줄, 사이드바, 아래쪽 상태줄, E-STOP)과 페이지 등록."""
 
+import logging
 import sys
 import time
 
@@ -8,6 +9,7 @@ from nicegui import app, background_tasks, run, ui
 from ..cli import make_driver
 from ..core.config import ArmSelectionError, load_robot_ex
 from ..core.ports import PortChoiceError, list_serial_ports, pick_port
+from ..doctor import doctor
 from . import scene3d, sensors, theme
 from .backend import Backend
 from .pages import arm, logs, manual, params, runs, safety, table, teach, workspace
@@ -211,7 +213,16 @@ def real_arm_args(arm_name: str | None) -> dict:
     serials = [p["serial"] for p in ports]
     cfg, info = load_robot_ex(arm=arm_name, serials=serials)
     port, _ = pick_port(ports, cfg.board_serial, None, info["local"].get("port"), cfg.port)
-    return {"real_driver": make_driver(False, cfg), "serials": serials, "port": port}
+    return {"real_driver": make_driver(False, cfg), "serials": serials, "port": port, "first_report": _first_report(arm_name, port)}
+
+
+def _first_report(arm_name: str | None, port: str) -> dict | None:
+    """연결 전에만 포트를 열 수 있어 시작할 때 한 번 읽는다. PING/READ만 보낸다(decisions/0027). 실패해도 앱은 뜬다."""
+    try:
+        return doctor(probe=True, port=port, arm=arm_name)
+    except Exception:
+        logging.getLogger(__name__).exception("연결 전 점검 실패")
+        return None
 
 
 def main(args) -> None:
