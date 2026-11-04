@@ -442,3 +442,26 @@ def test_linkwatch_uses_the_connected_port_unless_told_otherwise(monkeypatch):
     run_diagnostic(svc, "linkwatch", port="COM9")
     run_diagnostic(SimpleNamespace(driver=object(), _connected=False, cfg=CFG, port=None), "linkwatch")
     assert seen == ["COM7", "COM9", CFG.port]
+
+
+def test_teach_recording_ends_cleanly_when_the_port_is_pulled(tmp_path):
+    from so101_studio.arm.motion import MotionController
+    from so101_studio.arm.teach import Teach
+
+    d = FlakyPort(CFG.poses["home"])
+    ctl = MotionController(d, None, None, CFG.control_hz)
+    tc = Teach(ctl, CFG)
+    errs = []
+    old = threading.excepthook
+    threading.excepthook = lambda a: errs.append(a.exc_value)
+    try:
+        tc.record_start()
+        time.sleep(0.3)
+        d.down = True
+        time.sleep(0.3)
+        assert tc._thread is not None and not tc._thread.is_alive()
+        assert tc.read_error and "no status packet" in tc.read_error and len(tc._rows) > 2
+    finally:
+        threading.excepthook = old
+        ctl.close()
+    assert errs == []
