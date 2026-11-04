@@ -53,6 +53,7 @@ REASON_EXTRA = {"z_ceiling": "허용 상자보다 높습니다"}  # service.targ
 BUSY_TEXT = "팔이 아직 움직이고 있습니다"
 COMM_LOST_TEXT = "통신이 끊겼습니다. 케이블과 전원을 확인하고 [다시 연결]을 눌러 주세요"
 OUTSIDE_TEXT = "작업대 밖에서 출발했습니다. 안쪽으로만 움직일 수 있습니다"
+LINKWATCH_TEXT = "linkwatch를 실행 중입니다. 끝나면 팔을 다시 연결합니다"
 LOG_LEVELS = {"DEBUG": "INFO", "INFO": "INFO", "WARN": "WARNING", "ERROR": "ERROR", "FATAL": "ERROR"}
 MOTION_TEXT = {
     "ik_fail": reason_text("ik_fail"),
@@ -91,15 +92,28 @@ class Plan:
     text: str
 
 
+def with_first_report(report: dict, first: dict | None) -> dict:
+    """포트를 열지 않아 건너뛴 항목을 연결 전에 읽은 값으로 채운다."""
+    started = {c["name"]: c for c in (first or {}).get("checks", []) if c["state"] != "skip"}
+    checks = [
+        {**started[c["name"]], "text": f"{started[c['name']]['text']} (앱을 시작할 때 읽은 값)"} if c["state"] == "skip" and c["name"] in started else c
+        for c in report["checks"]
+    ]
+    return {**report, "checks": checks, "ok": not any(c["state"] == "fail" for c in checks)}
+
+
 class Backend:
     workspace_path = "config/workspace.yaml"
     arms_path = "config/arms"
     local_path = "config/local.yaml"
 
     def __init__(self, speed: float | None = None, log_root: str | None = "runs", link: WatchdogLink | None = None,
-                 viser_port: int | None = None, real_driver=None, arm_name: str | None = None, serials=(), port: str | None = None):
+                 viser_port: int | None = None, real_driver=None, arm_name: str | None = None, serials=(), port: str | None = None, first_report: dict | None = None):
         cfg, self.arm_info = load_robot_ex(arm=arm_name, serials=serials)
         self._arm_option = arm_name
+        self._first_report = first_report  # 팔을 연결하기 전에 포트를 열어 읽은 점검 결과
+        self._linkwatching = False
+        self._closing = False
         self.state = State()
         self.link = link
         self.scene: Scene3D | None = None
@@ -166,8 +180,9 @@ class Backend:
     def resume(self) -> str | None:
         """비상 정지를 풀고 감시 프로세스에 다시 등록한다. 팔은 움직이지 않는다. 풀지 못하면 이유."""
         for arm in self._arms():
-            arm.resume()
-        if self.comm_lost():  # 통신이 끊긴 채 풀면 움직이는 줄 알게 된다 (decisions/0031)
+            if not (arm is self.real and self.comm_lost()):  # E-STOP 뒤에는 컨트롤러가 끊김까지 지운다. 다시 연결 전에는 풀지 않는다 (decisions/0031)
+                arm.resume()
+        if self.comm_lost():
             return COMM_LOST_TEXT
         if self.link:
             self.link.rearm()
@@ -181,16 +196,24 @@ class Backend:
         if not self.comm_lost():  # 멀쩡한 연결을 끊으면 움직이던 동작이 끊긴다
             return "통신이 끊긴 상태가 아닙니다", None
         self.record_finish()
+        return self._connect_real()
+
+    def _pick_port(self) -> str:
         cfg = self.real.cfg
+        return pick_port(list_serial_ports(), cfg.board_serial, None, self.arm_info["local"].get("port"), cfg.port)[0]
+
+    def _connect_real(self) -> tuple[str | None, list[str] | None]:
         try:
-            port, _ = pick_port(list_serial_ports(), cfg.board_serial, None, self.arm_info["local"].get("port"), cfg.port)
+            port = self._pick_port()
         except PortChoiceError as e:
+            self._reconnect_failed = True
             return str(e), None
         if self.link:  # shortcut: connect가 Kinematics를 새로 만들며 1.7초 멈춰 감시가 앱을 끈다. 그동안 E-STOP도 늦다, 재사용하게 되면 뺀다
             self.link.pause()
         try:
             ok, msg = self.real.connect(port)
             if not ok:
+                self._reconnect_failed = True
                 return msg, None
             torque = self.real.driver.read_health()["torque"]
         except Exception as e:  # noqa: BLE001  연결 직후 읽기가 실패하면 새 컨트롤러에 fault가 없어 끊김이 지워진 것처럼 보인다
@@ -220,7 +243,13 @@ class Backend:
         """실제 팔을 움직일 수 없으면 이유: 새 팔이거나 캘리브레이션이 다를 때(decisions/0027), 통신이 끊겼을 때(0031)."""
         if self.real is None:
             return None
+        if self._linkwatching:
+            return LINKWATCH_TEXT
         return self.real.locked_reason or (COMM_LOST_TEXT if self.comm_lost() else None)
+
+    def setup_lock(self) -> str | None:
+        """팔 준비가 덜 되어 잠겼으면 이유. 통신 끊김처럼 다시 연결로 풀리는 잠금은 뺀다."""
+        return self.real.locked_reason if self.real else None
 
     def _real_blocked(self) -> str | None:
         if self.real is None:
@@ -563,9 +592,8 @@ class Backend:
     # ---- 장치·시스템
     def run_doctor(self) -> dict:
         """읽기 전용 점검. 블로킹이므로 스레드에서 부른다."""
-        # shortcut: 포트를 열지 않는 점검만 한다(COM3은 알린 뒤에만 연다, decisions/0024), G10에서 실제 팔 연결 전 탐침을 붙인다
-        try:
-            return doctor(probe=False, arm=self._arm_option)
+        try:  # 연결 중에는 포트를 열 수 없다. 서보 응답·전압은 연결 전에 읽은 값으로 채운다
+            return with_first_report(doctor(probe=False, arm=self._arm_option), self._first_report)
         except Exception as e:  # noqa: BLE001  점검이 실패해도 페이지는 살아 있어야 한다
             return {"ok": False, "checks": [{"name": "점검", "state": "fail", "text": f"점검하지 못했습니다: {e}", "fix": ""}], "ports": [], "arm": None, "esp32": None}
 
@@ -583,11 +611,44 @@ class Backend:
         path.write_text(text if count else f"{text.rstrip()}\n{line}\n".lstrip(), encoding="utf-8")
         return None
 
+    def _run_linkwatch(self, progress=None, stop=None) -> tuple[dict | None, str | None]:
+        """linkwatch는 포트를 직접 연다. 팔 연결을 끊고(토크는 그대로) 돌린 뒤 다시 연결한다. 그동안 움직이는 버튼은 잠긴다."""
+        if self.real is None:
+            return None, "linkwatch는 실제 팔의 포트가 필요합니다 (시뮬레이션에서는 쓸 수 없습니다)"
+        if self.real.ctl.state != "idle" or self.recording() or self.task_running():
+            return None, BUSY_TEXT
+        try:
+            port = self._pick_port()
+        except PortChoiceError as e:
+            return None, str(e)
+        if port != self.real.cfg.port:  # shortcut: linkwatch는 설정의 port만 연다, 연결한 포트를 받게 되면 뺀다
+            return None, f"linkwatch는 {self.real.cfg.port}만 볼 수 있는데 이 팔은 {port}에 있습니다. config의 port를 맞춰 주세요"
+        result, reason = None, None
+        self._linkwatching = True
+        try:
+            self.real.disconnect()
+            try:
+                result = self.real.run_diagnostic("linkwatch", progress, lambda: self._closing or bool(stop and stop()))
+            except Exception as e:  # noqa: BLE001  포트를 못 열어도 팔은 다시 연결해야 한다
+                reason = f"linkwatch를 실행하지 못했습니다: {e}"
+        finally:
+            if not self._closing:
+                problem, torque_off = self._connect_real()
+                reason = reason or problem
+                if torque_off:
+                    reason = f"토크가 꺼진 서보: {', '.join(torque_off)}. 팔을 받쳐 주세요"
+            self._linkwatching = False
+        return result, reason
+
     def diagnostic_available(self, name: str) -> bool:
-        return name != "linkwatch"  # shortcut: 포트를 직접 열어 시뮬레이션에서는 못 쓴다, G10에서 실제 팔 연결을 끊고 부르게 한다
+        return name != "linkwatch" or self.real is not None  # 포트를 직접 열어 시뮬레이션에서는 못 쓴다
 
     def run_diagnostic(self, name: str, progress=None, stop=None) -> tuple[dict | None, str | None]:
         """(결과, 실패 이유). 블로킹이므로 스레드에서 부른다."""
+        if self.comm_lost():
+            return None, COMM_LOST_TEXT
+        if name == "linkwatch":
+            return self._run_linkwatch(progress, stop)
         kw = {"repeats": 1} if name == "powertest" else {}
         if self.real and (name in BIG_MOVES or not self.move_lock()) and self._real_blocked():  # 잠겨도 읽기는 된다
             return None, self._real_blocked()
@@ -742,9 +803,13 @@ class Backend:
         self.studio.stop()
         self.pending = None
         for arm in self._arms():
-            arm.estop()  # Studio.estop은 실행 기록에 남기지 않는다
+            try:
+                arm.estop()  # Studio.estop은 실행 기록에 남기지 않는다
+            except Exception as e:  # noqa: BLE001  통신이 끊기면 위치를 읽지 못해 예외가 난다. 다른 팔까지 못 서면 안 된다
+                arm.log_event("estop_bus_failed", {"error": repr(e)}, level="ERROR")
 
     def close(self) -> None:
+        self._closing = True
         logging.getLogger().removeHandler(self.logbook)
         if self._listener:
             self._listener.close()

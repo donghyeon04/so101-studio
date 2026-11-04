@@ -161,10 +161,21 @@ def test_main_binds_localhost_and_connects_the_real_arm_without_sim(monkeypatch)
     board = {"device": "COM7", "vid": 0x1A86, "pid": 0x55D3, "serial": "5B8E114816", "description": ""}
     monkeypatch.setattr(gui_app, "list_serial_ports", lambda: [board])
     monkeypatch.setattr(gui_app, "make_driver", lambda sim, cfg: ("driver", sim))
+    monkeypatch.setattr(gui_app, "doctor", lambda **kw: {"probed": kw})  # 시험이 실제 포트를 열면 안 된다
     gui_app.main(argparse.Namespace(sim=False))
     real = calls[-1][0]
-    assert real.real == {"real_driver": ("driver", False), "serials": ["5B8E114816"], "port": "COM7"}
+    assert real.real == {
+        "real_driver": ("driver", False), "serials": ["5B8E114816"], "port": "COM7",
+        "first_report": {"probed": {"probe": True, "port": "COM7", "arm": None}},
+    }
     assert real.link.sim is False
+
+    def broken(**_kw):
+        raise OSError("port busy")
+
+    monkeypatch.setattr(gui_app, "doctor", broken)  # 점검이 실패해도 앱은 뜬다
+    gui_app.main(argparse.Namespace(sim=False))
+    assert calls[-1][0].real["first_report"] is None
 
     monkeypatch.setattr(gui_app, "list_serial_ports", lambda: [{**board, "serial": "OTHER"}])  # 다른 보드로 추측해 연결하지 않는다
     with pytest.raises(SystemExit, match="안 보인다"):
