@@ -379,3 +379,66 @@ def test_port_pulled_during_a_move_faults_within_0_6s(tmp_path):
         assert h.wait(1).status == "fault"
     finally:
         s.disconnect()
+
+
+# ---- GUI 세션 요청(오프라인 준비): 끊긴 뒤 E-STOP, Kinematics 재사용, out_of_bounds 이유, linkwatch 포트
+
+def test_estop_on_a_pulled_port_does_not_raise_and_comm_lost_survives_stop_estop_and_resume(tmp_path):
+    d = FlakyPort(CFG.poses["home"])
+    s = ArmService(d, CFG, WS, speed_pct=100, log_root=str(tmp_path))
+    s.incident_after_s = 0
+    assert s.connect()[0]
+    try:
+        d.down = True
+        s.estop()  # 끊긴 직후(아직 fault 전): 예외 없이 끝나고 ARM-ESTOP을 남긴다
+        s.logger.flush()
+        ev = [e for e in read_events(s.logger.dir) if e["code"] == "ARM-ESTOP"]
+        assert len(ev) == 1 and ev[0]["data"].get("comm_error")
+        assert wait_for(lambda: s.ctl.state == "fault" and s.ctl.fault == "comm_lost", 1.5)  # 끊김은 그대로 fault가 된다
+        s.estop()  # fault 뒤 E-STOP과 stop도 끊김을 지우지 않는다
+        s.stop()
+        assert s.ctl.state == "fault" and s.ctl.fault == "comm_lost"
+        assert s.resume() is False and s.ctl.state == "fault"
+        d.down = False
+        assert s.resume() is False  # 다시 꽂아도 다시 연결해야만 풀린다
+        ok, msg = s.connect()
+        assert ok, msg
+        assert s.ctl.state == "idle" and s.ctl.fault is None
+    finally:
+        s.disconnect()
+
+
+def test_second_connect_reuses_kinematics_and_does_not_stall(tmp_path):
+    d = SimDriver(CFG.poses["home"])
+    s = ArmService(d, CFG, WS, speed_pct=100, log_root=str(tmp_path))
+    assert s.connect()[0]
+    kin = s.kin
+    t0 = time.perf_counter()
+    assert s.connect()[0]  # 연결된 채 다시: 정리하고 다시 연결
+    assert s.kin is kin and time.perf_counter() - t0 < 1.0
+    s.disconnect()
+
+
+def test_out_of_bounds_result_carries_the_reason(tmp_path):
+    s = make_svc(tmp_path)
+    try:
+        r = s.move_joints(JointState(0, 0, 0, 0, 0, 3))  # 0° 자세: 작업대 앞쪽 경계 밖
+        assert r.status == "out_of_bounds" and r.reason == "workspace"
+        ok = s.move_joints(JointState(10, -90, 93, 0, 0, 3))
+        assert ok.status == "ok" and ok.reason is None
+    finally:
+        s.disconnect()
+
+
+def test_linkwatch_uses_the_connected_port_unless_told_otherwise(monkeypatch):
+    from types import SimpleNamespace
+
+    from so101_studio.service.diagnostics import run_diagnostic
+
+    seen = []
+    monkeypatch.setattr("so101_studio.cli.linkwatch.run_linkwatch", lambda port, **kw: seen.append(port) or {"ok": True})
+    svc = SimpleNamespace(driver=object(), _connected=False, cfg=CFG, port="COM7")
+    run_diagnostic(svc, "linkwatch")
+    run_diagnostic(svc, "linkwatch", port="COM9")
+    run_diagnostic(SimpleNamespace(driver=object(), _connected=False, cfg=CFG, port=None), "linkwatch")
+    assert seen == ["COM7", "COM9", CFG.port]

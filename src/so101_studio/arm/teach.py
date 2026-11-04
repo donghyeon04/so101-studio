@@ -183,7 +183,7 @@ class Teach:
                     q, t, self.last_cut = q[:i], t[:i], (i, total, why)
                     break
             if len(q) < 10:
-                return MotionResult("out_of_bounds", 0.0, ToolPose(0, 0, 0, 0))
+                return MotionResult("out_of_bounds", 0.0, ToolPose(0, 0, 0, 0), reason=self.last_cut[2] if self.last_cut else None)
         r = self.ctl.execute(cfg_move_j(self.cfg, self.ctl.driver.read_joints(), first, 20)).wait()
         if r.status != "ok":
             return r

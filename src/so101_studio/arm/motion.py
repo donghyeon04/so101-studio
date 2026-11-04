@@ -83,8 +83,8 @@ class MotionController:
                 handle._finish(MotionResult(self.state, 0.0, ToolPose(0, 0, 0, 0)))
             elif self._job is not None:
                 raise RuntimeError("이미 동작 중")
-            elif self.safety.check_path(traj):
-                handle._finish(self._result("out_of_bounds", now))
+            elif (why := self.safety.check_path(traj)):
+                handle._finish(replace(self._result("out_of_bounds", now), reason=why))
             else:
                 self._jog = None
                 self._last = traj.sample(0)  # 새 궤적은 실제 위치에서 시작한다. 서보가 뒤처져 있어도 'step' fault로 오인하지 않게 기준을 옮긴다
@@ -131,8 +131,8 @@ class MotionController:
                 old = self._job
                 v0 = np.array(old[0].velocity(now - old[2]), float)
             new = RuckigTrajectory(np.array(astuple(self._last), float), np.array(astuple(goal), float), v_max, a_max, j_max, v0)
-            if self.safety.check_path(new):
-                handle._finish(self._result("out_of_bounds", now))
+            if (why := self.safety.check_path(new)):
+                handle._finish(replace(self._result("out_of_bounds", now), reason=why))
                 return handle
             if old is not None:
                 old[1]._finish(self._result("preempted", old[2]))
@@ -166,15 +166,26 @@ class MotionController:
 
     def estop(self) -> None:
         """즉시 현재 위치 고정. 토크는 끄지 않는다(끄면 팔이 떨어짐)."""
+        err = None
         with self._lock:
             if self._job is not None:
-                self._job[1]._finish(self._result("stopped", self._job[2]))
-            self._job, self.state = None, "stopped"
-            self._last = self.driver.read_joints()
-            if self.grip_hold is not None:  # 예압 고정과 조임 한계는 유지한다(정지가 물체를 놓치게 하지 않는다)
-                self._last = replace(self._last, gripper=self.grip_hold)
-            self.driver.write_joints(self._last)
-        self._emit("estop", "WARN", "ARM-ESTOP", {})
+                try:
+                    res = self._result("stopped", self._job[2])
+                except Exception:  # noqa: BLE001 버스를 못 읽어도(포트 빠짐) 동작은 끝낸다
+                    res = MotionResult("stopped", time.perf_counter() - self._job[2], ToolPose(0, 0, 0, 0))
+                self._job[1]._finish(res)
+            self._job = None
+            if not (self.state == "fault" and self.fault == "comm_lost"):  # 통신 끊김 fault는 stopped로 덮지 않는다: 다시 연결해야만 풀린다 (결정 0031)
+                self.state = "stopped"
+            try:
+                last = self.driver.read_joints()
+                if self.grip_hold is not None:  # 예압 고정과 조임 한계는 유지한다(정지가 물체를 놓치게 하지 않는다)
+                    last = replace(last, gripper=self.grip_hold)
+                self.driver.write_joints(last)
+                self._last = last
+            except Exception as e:  # noqa: BLE001 통신이 끊긴 상태: 예외를 밖으로 내지 않고 기록만 한다. 끊김은 상태 루프와 틱이 fault로 본다
+                err = repr(e)[:120]
+        self._emit("estop", "WARN", "ARM-ESTOP", {"comm_error": err} if err else {})
 
     def resume(self) -> bool:
         """stop·estop·fault 뒤 idle로 되돌린다. 통신 끊김 fault는 다시 연결해야 풀리므로 False (decisions/0031)."""

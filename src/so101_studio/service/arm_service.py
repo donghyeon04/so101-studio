@@ -64,6 +64,7 @@ class ArmService:
         self._restore_hooks = None
         self.logger: RunLogger | None = None
         self.kin = self.safety = self.ctl = self.skills = self.teach = None
+        self.port: str | None = None  # 마지막으로 연결한 포트
         self._callbacks: list = []
         self._status_thread: threading.Thread | None = None
         self._stop_status = threading.Event()
@@ -76,6 +77,7 @@ class ArmService:
         다시 연결해도 토크는 끄지 않고, 새 컨트롤러가 현재 위치를 명령값으로 삼는다 (decisions/0031)."""
         if self._connected:
             self.disconnect()
+        self.port = port or self.cfg.port  # 연결한 포트(진단 linkwatch가 같은 포트를 쓴다)
         self.logger = RunLogger(self.log_root, proc=self.proc) if self.log_root else None  # 연결 때 쓰는 레지스터도 기록하려고 먼저 연다
         self.driver.event_sink = self._driver_event
         try:
@@ -86,7 +88,8 @@ class ArmService:
                 self.logger.close()
                 self.logger = None
             return False, str(e)
-        self.kin = Kinematics(self.cfg.urdf, self.ws.base, self.cfg.joint_limits_deg)
+        if self.kin is None:  # 다시 연결할 때 URDF를 또 읽으면 파이썬이 1.7초 멈춘다(감시 한계 1초): 한 번 만든 것을 쓴다
+            self.kin = Kinematics(self.cfg.urdf, self.ws.base, self.cfg.joint_limits_deg)
         self.safety = Safety(self.cfg.joint_limits_deg, self.ws, self.kin, z_floor_mm=self.cfg.tip_floor_mm,
                              table_z_mm=self.cfg.table_z_mm, physical_limits=self.cfg.physical_limits_deg)
         self.ctl = MotionController(self.driver, self.kin, self.safety, self.cfg.control_hz)
