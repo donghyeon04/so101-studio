@@ -14,6 +14,7 @@ SOURCES = ("browser", "server")
 class Watchdog:
     def __init__(self, sim: bool = False, clock=time.monotonic, log=lambda rec: None, hb_timeout=HB_TIMEOUT_S, ack_timeout=ACK_TIMEOUT_S):
         self.sim, self.clock, self.log = sim, clock, log
+        self.on_run_dir = None  # on_run_dir(경로): 등록 때 받은 새 실행 폴더로 기록 위치를 바꾼다. 허용하지 않으면 ValueError (watchdog/runlog.py)
         self.hb_timeout, self.ack_timeout = hb_timeout, ack_timeout
         self.armed, self.pid, self.stop_port = False, None, None
         self.tripped, self.reason = False, None
@@ -28,10 +29,14 @@ class Watchdog:
         with self._lock:
             self._last[src] = self.clock()
 
-    def arm(self, armed: bool, pid: int | None = None, stop_port: int | None = None) -> None:
-        """감시 대상을 등록·해제한다. 등록하면 heartbeat 시계를 지금으로 맞추고, 이전의 작동 상태를 푼다."""
+    def arm(self, armed: bool, pid: int | None = None, stop_port: int | None = None, run_dir: str | None = None) -> None:
+        """감시 대상을 등록·해제한다. 등록하면 heartbeat 시계를 지금으로 맞추고, 이전의 작동 상태를 푼다.
+        run_dir를 함께 주면 기록을 그 실행 폴더로 옮긴다(팔을 다시 연결할 때마다 실행 폴더가 새로 생긴다)."""
         if armed and not (isinstance(pid, int) and pid > 0 and isinstance(stop_port, int) and 0 < stop_port < 65536):
             raise ValueError("armed=true에는 pid와 stop_port가 필요하다")
+        if run_dir is not None and self.on_run_dir:
+            self.on_run_dir(run_dir)  # 검증이 먼저: 거절되면 등록도 하지 않는다
+            self.log({"event": "run_dir", "run_dir": run_dir})
         with self._lock:
             self.armed, self.pid, self.stop_port = armed, (pid if armed else None), (stop_port if armed else None)
             self.tripped, self.reason, self._noted, self._busy = False, None, False, False

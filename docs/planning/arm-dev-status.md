@@ -181,3 +181,7 @@ GitHub `donghyeon04/so101-studio`. `main`은 기획 문서 1차 병합(#1)까지
 - **`ArmService.connect`**: `self.kin`이 있으면 다시 만들지 않는다(URDF 로딩 1.7초 멈춤 제거). 연결된 채 `connect`를 부르면 먼저 정리한다. 연결한 포트는 `svc.port`.
 - **`MotionResult.reason`**: out_of_bounds일 때 안전 검사 이유(`workspace`, `z_floor`, `joint_limit:<관절>` 등). 다른 상태는 None.
 - **`run_diagnostic(svc, "linkwatch", port=...)`**: 포트를 주지 않으면 마지막으로 연결한 포트(`svc.port`)를 쓰고, 없으면 `cfg.port`.
+
+## 19. 과부하 추가 읽기와 감시 기록 폴더 갱신 (REQ-022)
+- **`ARM-LOAD-PROBE`**: 상태 루프가 어느 관절의 부하가 50% 이상을 읽거나(`why: high_load`) 읽기 오류를 낼 때(`why: status_loop_error`), 2Hz 주기를 기다리지 않고 그 순간 `read_health()`를 한 번 더 읽어 `torque`, `status_bits`, `load_pct`, `current_ma_by_joint`를 WARN 이벤트로 남긴다(1초에 한 번). 읽기 자체가 실패하면 그 오류를 남긴다. 서보 보호로 출력이 끊겨도 `Torque_Enable` 값만으로는 안 보일 수 있어, 그 순간의 Status 비트를 잡으려는 것이다. 제어 틱 안에는 읽기를 넣지 않는다.
+- **감시 기록 폴더**: `POST /arm` 본문에 `run_dir`(문자열)를 함께 주면 감시 프로세스가 `watchdog.jsonl`을 그 실행 폴더로 옮긴다(`WATCHDOG-RUN_DIR` 이벤트). 처음 `--run-dir`(없으면 `runs/`)와 같은 부모 바로 아래 폴더만 받고, 아니면 400이며 등록도 하지 않는다(브라우저가 부를 수 있는 입구로 임의 경로에 파일을 만들지 못하게). GUI의 `WatchdogLink`는 팔을 연결할 때마다 `svc.logger.dir`을 `run_dir`로 실어 등록한다.
