@@ -37,6 +37,7 @@ def twin(shared_twin):
     backend = shared_twin
     backend.link = _alive_link()
     backend.owner, backend.pending, backend.mode = None, None, "sim"
+    backend._reconnect_failed = False  # 다시 연결 실패 시험이 다음 시험으로 새지 않게
     backend.resume()
     backend.set_speed(100)
     for arm in backend._arms():

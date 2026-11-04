@@ -86,7 +86,7 @@ def build(backend, client_id: str, actions) -> None:
             with ui.card().classes("w-full gap-2"):
                 ui.label("그리퍼").classes("card-title")
                 grip = control(
-                    ui.slider(min=0, max=100, step=1, value=round(backend.arm.status().joints.gripper))
+                    ui.slider(min=0, max=100, step=1, value=round(status.joints.gripper) if (status := backend.state.status) else 0)
                     .props("label-always").classes("mt-6").mark("grip-value")
                 )
                 grip.on("change", guarded(lambda: act(backend.gripper, float(grip.value))))

@@ -17,6 +17,8 @@ from nicegui.testing import user_simulation
 from so101_studio.core.types import ArmStatus, JointState, ToolPose
 from so101_studio.gui import app as gui_app
 from so101_studio.gui import backend as backend_module
+from so101_studio.gui.backend import with_first_report
+from so101_studio.gui.pages import params as params_page
 from so101_studio.gui.pages.arm import doctor_summary, servo_rows
 from so101_studio.gui.pages.logs import matches
 from so101_studio.gui.pages.runs import line_options
@@ -426,3 +428,71 @@ def test_top_bar_and_banner_follow_comm_loss_without_reload(backend, monkeypatch
         await user.should_not_see(marker="resume")
 
     in_app(backend, "/logs", check)
+
+
+def _doctor_with(backend, monkeypatch, **fields):
+    report = {"ok": True, "checks": [{"name": "포트", "state": "ok", "text": "COM3", "fix": ""}], "ports": [], **fields}
+    monkeypatch.setattr(backend, "run_doctor", lambda: report)
+
+
+@pytest.mark.parametrize(("zero", "text"), [
+    ({"state": "checked", "reason": "", "date": "2026-11-04", "sha256": "ab"}, "확인됨 (2026-11-04)"),
+    ({"state": "needed", "reason": "확인 기록이 없다", "date": None, "sha256": None}, "필요 (확인 기록이 없다)"),
+])
+def test_zero_check_card_reads_the_doctor_field(backend, monkeypatch, zero, text):
+    _doctor_with(backend, monkeypatch, zero_check=zero)
+
+    async def check(user):
+        assert await _until(lambda: text in _one(user, "zero-check").text)
+
+    in_app(backend, "/arm", check)
+
+
+def test_zero_check_lock_points_to_verify_zero_not_new_arm_steps(backend, monkeypatch):
+    _doctor_with(backend, monkeypatch)
+    monkeypatch.setattr(backend, "setup_lock", lambda: "0° 자세 확인 필요: 기록 없음")
+
+    async def check(user):
+        await user.should_see(marker="zero-check-step")
+        await user.should_not_see(marker="new-arm-steps")
+
+    in_app(backend, "/arm", check)
+
+
+def test_comm_loss_does_not_show_new_arm_steps(backend, monkeypatch):
+    _doctor_with(backend, monkeypatch)
+    monkeypatch.setattr(backend, "move_lock", lambda: "통신 끊김 시험")
+
+    async def check(user):
+        await user.should_not_see(marker="new-arm-steps")
+
+    in_app(backend, "/arm", check)
+
+
+def test_first_report_fills_only_skipped_checks():
+    first = {"checks": [
+        {"name": "서보 응답", "state": "ok", "text": "6/6", "fix": ""},
+        {"name": "온도", "state": "skip", "text": "못 읽음", "fix": ""},
+        {"name": "포트", "state": "fail", "text": "옛 값", "fix": ""},
+    ]}
+    now = {"ok": True, "checks": [
+        {"name": "서보 응답", "state": "skip", "text": "탐침하지 않았다", "fix": ""},
+        {"name": "온도", "state": "skip", "text": "탐침하지 않았다", "fix": ""},
+        {"name": "포트", "state": "ok", "text": "COM3", "fix": ""},
+    ]}
+    checks = {c["name"]: c for c in with_first_report(now, first)["checks"]}
+    assert checks["서보 응답"]["state"] == "ok" and "앱을 시작할 때" in checks["서보 응답"]["text"]
+    assert checks["온도"]["state"] == "skip" and checks["포트"]["text"] == "COM3"
+    assert with_first_report(now, None)["checks"] == now["checks"]
+    bad = {"checks": [{"name": "서보 응답", "state": "fail", "text": "응답 없음", "fix": ""}]}
+    assert with_first_report(now, bad)["ok"] is False
+
+
+def test_grip_overload_reason_is_readable():
+    assert "그리퍼 과부하" in component_states(_status(10.0, fault="grip_overload"), 10.0)["서보"][1]
+
+
+def test_gripper_settings_have_their_own_labels(backend):
+    listed = {key for _, group in params_page.CARDS for key in group}
+    assert {"grip_preload_units", "gripper_hold_torque", "gripper_load_warn_pct", "gripper_load_s"} <= listed
+    assert {"grip_preload_units", "gripper_hold_torque", "gripper_load_warn_pct", "gripper_load_s"} <= set(backend.arm.get_params())
