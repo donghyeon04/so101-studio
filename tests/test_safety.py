@@ -226,3 +226,15 @@ def test_health_monitor_trips_on_sustained_overcurrent_but_not_a_single_spike():
     assert h.update_health({**base, "current_ma": 1000}, 0.5) is None
     assert h.update_health({**base, "current_ma": 4500}, 1.0) is None
     assert h.update_health({**base, "current_ma": 4600}, 1.5) == "overcurrent"  # 연속이면 fault
+
+
+def test_xy_check_lets_the_tip_return_from_outside_the_table_but_not_go_further_out(kin):
+    s = Safety({}, WS, kin)
+    out = JointState(0, 0, 0, 0, 0, 0)  # 0° 자세: 손끝이 작업대 앞쪽 경계(y=390) 밖
+    assert s.check_goal(out) == "workspace"
+    assert s.check_goal(HOME, out) is None  # 밖에서 안쪽(home)으로는 허용
+    assert s.check_goal(out, out) is None  # 같은 자리에 머무는 것은 허용
+    mid = next(JointState(0, -d, -d, 0, 0, 0) for d in range(1, 30) if 395 < kin.fk(JointState(0, -d, -d, 0, 0, 0)).y_mm < 402)  # 밖이지만 0°보다 덜 바깥
+    assert s.check_goal(mid, out) is None  # 밖에서 덜 바깥으로는 허용
+    assert s.check_goal(out, mid) == "workspace"  # 밖에서 더 바깥은 거부
+    assert s.check_goal(out, HOME) == "workspace"  # 안에서 밖은 거부(ref가 안이면 지금과 같다)

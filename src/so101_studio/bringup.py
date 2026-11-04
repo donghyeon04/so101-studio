@@ -1,4 +1,4 @@
-"""so101 doctor / find-port (decisions/0027). lerobot 없이 돈다: 이 모듈은 doctor.py, core.ports, core.config만 쓴다."""
+"""so101 doctor / find-port (decisions/0027) / incident (decisions/0030). lerobot 없이 돈다: 이 모듈은 doctor.py, core.ports, core.config만 쓴다."""
 import argparse
 import json
 import sys
@@ -26,7 +26,26 @@ def find_port(input_fn=input, out=print, lister=None) -> list[dict]:
     return gone
 
 
+def run_incident(a) -> int:
+    """지금까지의 기록(모든 프로세스)으로 사고 묶음을 만든다. 살아 있는 링 버퍼는 다른 프로세스 안에 있어 포함되지 않는다(GUI의 create_incident는 포함)."""
+    from pathlib import Path
+
+    from .core.config import load_robot_ex
+    from .core.incident import create_incident
+
+    cfg = None
+    try:
+        cfg, _ = load_robot_ex(a.config, arm=a.arm)
+    except Exception:  # noqa: BLE001, S110 설정이 깨졌어도 기록은 모은다(그 사실이 doctor.json에 남는다)
+        pass
+    inc = create_incident("MANUAL", "runs", reason="so101 incident", proc="cli", config_dir=Path(a.config).parent, cfg=cfg, window_s=float(a.last), after_s=0)
+    print(f"사고 묶음: {inc.path}")
+    return 0
+
+
 def run(a) -> int:
+    if a.command == "incident":
+        return run_incident(a)
     if a.command == "find-port":
         find_port()
         return 0
@@ -44,7 +63,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--port", help="이 포트만 점검한다")
     ap.add_argument("--json", action="store_true", help="doctor: 결과를 JSON으로 출력")
     ap.add_argument("--no-probe", action="store_true", help="doctor: 포트를 열지 않고 목록만 본다")
-    ap.add_argument("command", choices=["doctor", "find-port"])
+    ap.add_argument("--last", type=float, default=60.0, help="incident: 지금부터 거슬러 올라갈 초 (기본 60)")
+    ap.add_argument("command", choices=["doctor", "find-port", "incident"])
     return ap
 
 

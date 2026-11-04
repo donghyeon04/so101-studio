@@ -56,3 +56,7 @@
 | `docs/decisions/0027-arm-profiles-and-local-config.md` | 결정 | 확정 | 설정 세 겹(robot.yaml ← 보드 시리얼로 고르는 arms/<팔>.yaml ← git 제외 local.yaml), 포트 자동 찾기, 캘리브레이션 불일치면 읽기만, 읽기 전용 so101 doctor, environment.yml과 Windows·Linux 런처 |
 | `docs/decisions/0028-auto-calibration.md` | 결정 | 확정 | 자동 캘리브레이션은 LeRobot PR #4826 엔진을 가져와 측정만 모드부터(EEPROM 불변, 기존 값과 비교), 실물 합격 뒤 --save(.bak 보관), 이 팔 범위로 계획 수정 |
 | `docs/decisions/0029-autocal-acceptance-repeatability.md` | 결정 | 확정 | 기존 값이 없거나 다른 팔은 측정 3회 반복(차이 1° 이하, 중앙값 저장, 기존 파일 있으면 yes 확인)으로 합격, 저장 뒤 0° 자세 확인 전에는 잠금 (0028 보완) |
+| `docs/decisions/0030-blackbox-logging.md` | 결정 | 확정 | 상태·이벤트 기록은 JSON Lines 블랙박스: 공통 머리, 토크·fault·레지스터 쓰기 기록, ARM-TORQUE-LOST, 기록 스레드, 10초 링 버퍼와 사고 묶음, 30일·2GB 보관, 성능 기준 |
+| `docs/decisions/0031-safety-xy-return-and-comm-loss-test.md` | 결정 | 확정 | 작업대 XY 검사에 밖→안 복귀 허용, 작업대는 실측으로(임의 확대 안 함), table_z·손끝은 접촉 측정, 포트 빠짐 4경우 안전 시험, 토크 풀림은 status 값으로 판단 (0015 보완) |
+| `docs/decisions/0032-mattpocock-skills.md` | 결정 | 확정 | mattpocock/skills는 11개만 `.claude/skills/`에 넣고 프로젝트 규칙에 맞게 고침(용어·결정 위치, 임시 디렉터리 산출물, 한국어), `/grill-me`는 여러 질문 라운드 |
+| `docs/decisions/0033-gripper-hold-preload-and-place-compensation.md` | 결정 | 확정 | 그리퍼 접촉 뒤 예압으로 잡기, 조임 한계는 RAM Torque_Limit(닫기 300·들기 200·놓은 뒤 복원), no_object면 올라와서 열기, 그리퍼 부하 2단계 감시, 놓기 중심 보정 (0010~0012 보완) |

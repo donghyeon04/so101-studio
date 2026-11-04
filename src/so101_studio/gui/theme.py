@@ -31,6 +31,13 @@ SERIES = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300")
 SEGMENT_COLORS = {"멈춤": LINE, "느림": "#9db7ee", "빠름": ACCENT}
 SEGMENT_INK = {"멈춤": TEXT, "느림": TEXT, "빠름": "#ffffff"}
 SEGMENT_LINE = {"멈춤": CONTROL_BORDER, "느림": "#5f8ae4", "빠름": ACCENT}  # 3D 궤적. 밝은 작업대 위에서 보이게 진하다
+# 구성 요소 상태: (아이콘, 색, 글자). 색 + 아이콘 + 글자 (decisions/0025, 0030)
+COMPONENT_STYLES = {
+    "ok": ("check_circle", "positive", "정상"),
+    "warn": ("warning", "warning", "주의"),
+    "error": ("error", "negative", "오류"),
+    "stale": ("sync_problem", "grey-8", "끊김"),
+}
 # 점검 결과: (아이콘, 색, 글자). 색 + 아이콘 + 글자 (decisions/0025)
 DOCTOR_STYLES = {
     "ok": ("check_circle", "positive", "정상"),
@@ -78,6 +85,9 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 .diag-output {{ min-height: 120px; }}
 .run-list {{ width: 280px; flex: none; }}
 .run-chart {{ height: 24vh; min-height: 180px; }}
+.run-bands {{ height: 150px; }}
+.log-link {{ cursor: pointer; }}
+.log-link:hover {{ text-decoration: underline; }}
 .run-events {{ height: 30vh; }}
 .log-area {{ height: 66vh; background: {CARD}; border: 1px solid {LINE}; border-radius: {RADIUS}px; }}
 .log-line {{ font-family: 'IBM Plex Mono', 'IBM Plex Sans KR', Consolas, monospace; font-size: 14px; line-height: 22px; white-space: pre-wrap; }}
@@ -115,6 +125,7 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 .vc-label {{ position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; color: {TEXT}; pointer-events: none; }}
 .vc-triad {{ position: absolute; inset: 0; pointer-events: none; }}
 .vc-home {{ position: absolute; left: 0; top: 0; pointer-events: auto; color: {MUTED}; }}
+.scene-layers {{ position: absolute; top: 8px; left: 8px; }}
 .q-page-sticky {{ z-index: 5000; }}
 .estop {{ width: {ESTOP_D}px; height: {ESTOP_D}px; font-weight: 600; border: 3px solid {CARD}; outline: 2px solid {DANGER}; }}
 .nicegui-content {{ padding: {GAP}px; gap: {GAP}px; padding-bottom: {ESTOP_D + 2 * GAP}px; }}

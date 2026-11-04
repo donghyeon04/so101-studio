@@ -5,6 +5,7 @@ SO-101(SO-ARM101) 로봇 암 프로젝트. 문서 색인은 `docs/README.md`에 
 ## 작업 원칙
 - 기능 구현, 문제 해결, 기술·도구 선택은 처음부터 설계하지 않고 오픈소스·레퍼런스를 가져와 고친다. 결정하기 전에 `researching-references` skill로 조사하고, 사용자 승인을 받은 뒤 진행한다.
 - 판단 요청("어떻게 할까", "고민이야")에는 바로 답하지 않고 질문을 한 번에 하나씩 던진다(소크라테스 모드). "정리해줘"나 "결론 내줘"라고 하면 그때 정리한다.
+- 사용자가 `/grill-me`를 부르면 여러 질문을 추천 답과 함께 라운드로 묻는다. 레포의 `.claude/skills/`에 mattpocock/skills 11개가 이 프로젝트에 맞게 고쳐져 있다 (`decisions/0032`).
 - 실행 요청("만들어줘", "작성해줘")은 바로 실행한다.
 
 ## 세션 구분
@@ -32,6 +33,7 @@ SO-101(SO-ARM101) 로봇 암 프로젝트. 문서 색인은 `docs/README.md`에 
   - `python -m so101_studio.watchdog [--port 8090] [--hotkey F9] [--sim]`: GUI의 E-STOP 감시 프로세스(`decisions/0026`). heartbeat가 1초 넘게 끊기거나 단축키(기본 F9)가 눌리면 팔 프로세스의 `StopListener`에 정지를 보내고, 0.3초 안에 응답이 없으면 그 프로세스를 끝낸다. `--sim`이면 기록만(`runs/watchdog-*.jsonl`).
   - `keys`: Tab으로 관절 / 직교 조그 / 좌표 입력 세 모드. 좌표: `x y 높이 [yaw]`, `d dx dy dz`, `frame table|robot|tool`, `tcp tip|ref`, `speed|jog|cart N`, 높이는 작업대 면 위 mm, 닿지 않으면 움직이지 않고 이유를 알림 (`decisions/0013`). 옵션 `--jog-speed`, `--cart-speed`, `--trace`(명령·실제 위치 기록과 관절별 떨림 요약). 키 상태를 창과 상관없이 읽으므로 실행 중 다른 창에 타이핑하지 않는다. 옛 `jog`(`--cartesian`)도 남아 있다.
   - 교시: `record <이름>`(홈으로 이동 -> 팔을 잡고 Enter -> 3초 뒤 토크가 꺼지고 손으로 움직인 자세와 시각을 기록(설정 `record_hz` 20Hz, `record_max_s` 90초, `--record-hz`, `--record-max-s`로 이번만 변경), `config/sequences/`에 길이·속도 요약과 함께 저장, `decisions/0018·0019`), `info <이름>`(길이, 평균·최대 속도, 멈춤/느림/빠름 구간 목록), `replay <이름>`(`--until-limit`, `--seg-speed 1=0.5,3=2`로 구간별 속도)·`seq <이름>`은 재생.
+  - 기록·사고: `so101 incident [--last N]`(지금까지의 기록으로 `runs/incidents/<시각>-MANUAL/` 묶음 생성). 기록은 JSON Lines(`events.jsonl`, `status.jsonl`, 공통 머리 t(ns)·proc·pid·seq·level·code·kind·data, 읽기 함수는 `core/logread.py`), `decisions/0030`.
   - 진단: `powertest [반복]`(최대 200°/s로 크게 휘두르며 전압·전류·부하, 팔을 끝까지 폄), `shaketest [반복]`(가속 한계·속도별 이동마다 떨림 측정, m 키로 표시, `--speeds`와 가속 값 목록), `servoinfo`(서보 설정 레지스터 읽기), `linkwatch`(서보 1~6 응답이 끊기고 돌아오는 순간을 시각과 함께 표시, 접촉 불량 찾기). `--hz N`은 제어 주기를 이번만 바꿔 시험한다(50Hz가 가장 낫다).
   - 안전 설정: `--free`(작업대 가장자리만 끔), `--unsafe`(관절 한계·작업 영역·바닥 모두 끔, 한 주기 이동량 한계와 과열·과부하 감시는 유지), `--safety-margin N`(관절 한계를 N°만큼 줄이거나 음수면 실제 가동 범위까지 넓힘), `--box x0,x1,y0,y1,z0,z1`(XYZ 허용 범위, 작업대 좌표 mm, z는 작업대 면 위 턱 끝 높이). `keys` 좌표 모드에서는 `safety ...`. GUI는 `ArmService.get_safety()/set_safety()` (`decisions/0015`). `replay`는 `--until-limit`.
   - 팔은 클램프로 고정하고 전원 스위치 옆에서 지켜본다. 진단 명령은 팔을 크게 움직이므로 주변을 비운다.

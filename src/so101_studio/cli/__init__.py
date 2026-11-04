@@ -12,7 +12,7 @@ from ..core.config import ArmSelectionError, load_robot_ex, load_workspace
 from ..core.types import DetectedObject, JointState, ToolPose
 from ..service.arm_service import ArmService, plan_goto  # noqa: F401  plan_goto는 테스트가 이 경로로도 쓴다
 
-COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "jog", "keys", "powertest", "shaketest", "servoinfo", "linkwatch", "info", "record", "replay", "seq", "gui", "doctor", "find-port", "calibrate"]
+COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "jog", "keys", "powertest", "shaketest", "servoinfo", "linkwatch", "info", "record", "replay", "seq", "gui", "doctor", "find-port", "incident", "calibrate"]
 
 
 def make_driver(sim: bool, cfg):
@@ -108,10 +108,11 @@ def main(argv=None) -> None:
     ap.add_argument("--verify-zero", action="store_true", help="calibrate: 속도 20%%로 전 관절을 0°로 보내고 실물과 3D의 0° 자세를 사람이 확인하면 팔 파일에 calibration_checked를 기록")
     ap.add_argument("--velocity", type=int, default=200, help="calibrate --auto: 끝단 찾기 속도(steps/s, 기본 200)")
     ap.add_argument("--torque-limit", type=int, help="calibrate --auto: 토크 한계(0~1000, 기본 500=50%%)")
+    ap.add_argument("--last", type=float, default=60.0, help="incident: 지금부터 거슬러 올라갈 초 (기본 60)")
     ap.add_argument("command", choices=COMMANDS)
     ap.add_argument("values", nargs="*", help="movej: 관절 6개 / goto: x y z yaw / pick: x y 각도 폭(0이면 크기를 모름) / gripper: 값 / record·replay·seq: 이름")
     a = ap.parse_args(argv)
-    if a.command in ("doctor", "find-port"):
+    if a.command in ("doctor", "find-port", "incident"):
         from ..bringup import run
 
         sys.exit(run(a))

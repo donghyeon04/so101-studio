@@ -1,14 +1,19 @@
 """NiceGUI 앱: 공통 틀(위쪽 상태줄, 사이드바, 아래쪽 상태줄, E-STOP)과 페이지 등록."""
 
+import logging
 import sys
+import time
 
 from nicegui import app, background_tasks, run, ui
 
-from ..core.config import ArmSelectionError
+from ..cli import make_driver
+from ..core.config import ArmSelectionError, load_robot_ex
+from ..core.ports import PortChoiceError, list_serial_ports, pick_port
+from ..doctor import doctor
 from . import scene3d, sensors, theme
 from .backend import Backend
 from .pages import arm, logs, manual, params, runs, safety, table, teach, workspace
-from .state import EMPTY, page_state
+from .state import EMPTY, component_states, page_state
 from .view_cube import VIEW_CUBE_JS
 from .watchdog_link import BROWSER_HB_JS, WatchdogLink
 
@@ -25,6 +30,7 @@ PAGES = (
     ("시스템", (("/runs", "실행 기록", "G8"), ("/logs", "로그", "G8"))),
 )
 BUILDERS = {"/": workspace.build, "/manual": manual.build, "/teach": teach.build, "/params": params.build, "/safety": safety.build, "/table": table.build, "/arm": arm.build, "/runs": runs.build, "/logs": logs.build, **sensors.pages()}  # 만든 페이지. 나머지는 자리만 있다
+COMPONENTS = ("버스", "서보")  # 감시 칸과 센서 칸은 따로 있다 (decisions/0030)
 TOP_STATS = ("센서", "실행 방식", "전압", "최고 온도", "속도", "조작권")  # 감시 칸은 아이콘이 있어 따로 그린다
 BOTTOM_STATS = ("손끝 좌표", "닿는지·오차", "안전 모드", "토크", "기록 폴더")
 
@@ -41,9 +47,12 @@ def make_root(backend: Backend):
         theme.apply()
         client = ui.context.client
         nav: dict[str, ui.button] = {}
+        components: dict[str, tuple] = {}
         stats: dict[str, ui.label] = {}
         badge: list[ui.badge] = []
         resume: list[ui.button] = []
+        reconnect: list[ui.button] = []
+        lock_row: list = []
         beating: list[bool] = []  # 이 브라우저가 지금 감시 프로세스에 heartbeat를 보내는가
         ui.add_head_html(BROWSER_HB_JS)
         ui.add_head_html(VIEW_CUBE_JS)
@@ -60,12 +69,15 @@ def make_root(backend: Backend):
                 badge[:] = [ui.badge(text, color=theme.STATE_COLORS[text]).classes("page-state").mark("page-state")]
                 resume[:] = [ui.button("정지 해제", on_click=resume_arm).props("outline no-caps").mark("resume")]
                 resume[0].visible = False
+                reconnect[:] = [ui.button("다시 연결", color="negative", on_click=reconnect_arm).props("no-caps").mark("reconnect")]
+                reconnect[0].visible = False
                 ui.space()
                 actions = ui.row().classes("items-center gap-2")
-            if backend.move_lock():  # 연결할 때 정해지고 그 뒤로 바뀌지 않는다
-                with ui.row().classes("w-full items-center gap-1 no-wrap").mark("lock-banner"):
-                    ui.icon("lock", color="negative")
-                    ui.label(f"움직이는 버튼이 꺼져 있습니다: {backend.move_lock()}").classes("page-body")
+            with ui.row().classes("w-full items-center gap-1 no-wrap").mark("lock-banner") as row:
+                ui.icon("lock", color="negative")
+                label = ui.label(f"움직이는 버튼이 꺼져 있습니다: {backend.move_lock()}").classes("page-body")
+            row.visible = bool(backend.move_lock())
+            lock_row[:] = [row, label]
             if path in BUILDERS:
                 BUILDERS[path](backend, client.id, actions)
                 return
@@ -79,6 +91,15 @@ def make_root(backend: Backend):
             if backend.pending and backend.owner == client.id and not pending_dialog.value:
                 pending_text.text = f"시뮬레이션에서 '{backend.pending[0]}'을 마쳤습니다. 실제 팔로 실행할까요?"
                 pending_dialog.open()
+            comm_lost = backend.comm_lost()
+            for name, (level, detail) in component_states(backend.state.status, time.time(), comm_lost).items():
+                icon_name, icon_color, text = theme.COMPONENT_STYLES[level]
+                icon, tooltip = components[name]
+                if stats[name].text != text:
+                    stats[name].text = text
+                    icon.name = icon_name
+                    icon.props(f"color={icon_color}")
+                tooltip.text = detail
             icon_name, icon_color = theme.WATCH_STYLES[stats["감시"].text]
             watch_icon.name = icon_name
             watch_icon.props(f"color={icon_color}")
@@ -87,16 +108,35 @@ def make_root(backend: Backend):
             if beating != [mine]:
                 beating[:] = [mine]
                 ui.run_javascript(f"so101Hb({str(mine).lower()})")
-            text = page_state(backend.state.status)
+            text = "오류" if comm_lost else page_state(backend.state.status)
+            if lock_row and not lock_row[0].is_deleted:
+                lock = backend.move_lock()
+                lock_row[0].visible = bool(lock)
+                lock_row[1].text = f"움직이는 버튼이 꺼져 있습니다: {lock}"
             if badge and not badge[0].is_deleted and badge[0].text != text:
                 badge[0].text = text
                 badge[0].props(f"color={theme.STATE_COLORS[text]}")
             if resume and not resume[0].is_deleted:
-                resume[0].visible = mine and text in ("정지", "오류")
+                resume[0].visible = mine and text in ("정지", "오류") and not comm_lost
+            if reconnect and not reconnect[0].is_deleted:
+                reconnect[0].visible = mine and comm_lost
 
         async def resume_arm() -> None:
             if backend.owner == client.id:
-                await run.io_bound(backend.resume)
+                reason = await run.io_bound(backend.resume)
+                if reason:
+                    ui.notify(reason, type="negative")
+
+        async def reconnect_arm() -> None:
+            if backend.owner != client.id:
+                return
+            reason, torque_off = await run.io_bound(backend.reconnect)
+            if reason:
+                ui.notify(reason, type="negative")
+            elif torque_off:
+                ui.notify(f"다시 연결했습니다. 토크가 꺼진 서보: {', '.join(torque_off)}. 팔을 받쳐 주세요", type="warning")
+            else:
+                ui.notify("다시 연결했습니다. 모든 서보의 토크가 켜져 있습니다", type="positive")
 
         async def run_pending() -> None:
             pending_dialog.close()
@@ -128,6 +168,12 @@ def make_root(backend: Backend):
             with ui.row().classes("items-center gap-1 no-wrap"):
                 watch_icon = ui.icon("remove_circle_outline", size="20px").mark("watch-icon")
                 stats["감시"] = _stat("감시")
+            for name in COMPONENTS:
+                with ui.row().classes("items-center gap-1 no-wrap"):
+                    icon = ui.icon("sync_problem", size="20px", color="grey-8").mark(f"component-{name}-icon")
+                    stats[name] = _stat(name)
+                    stats[name].mark(f"component-{name}")
+                    components[name] = (icon, ui.tooltip(""))
             for label in TOP_STATS:
                 stats[label] = _stat(label)
             stats["조작권"].text = "보기 전용"
@@ -161,21 +207,38 @@ def make_root(backend: Backend):
     return root
 
 
-def main(args) -> None:
-    """`python -m so101_studio.gui`와 `so101 gui`(REQ-005)의 입구."""
-    if not getattr(args, "sim", False):
-        # shortcut: 실제 팔 연결이 아직 없다, G9·G10에서 backend가 연결하면 지운다
-        sys.exit("아직 시뮬레이션만 지원한다: --sim을 붙여 실행한다")
-    link = WatchdogLink(sim=True)
-    link.start()
+def real_arm_args(arm_name: str | None) -> dict:
+    """연결된 보드로 팔과 포트를 고른다(decisions/0027). 목록만 읽고 포트는 열지 않는다. Backend에 넘길 인자를 돌려준다."""
+    ports = list_serial_ports()
+    serials = [p["serial"] for p in ports]
+    cfg, info = load_robot_ex(arm=arm_name, serials=serials)
+    port, _ = pick_port(ports, cfg.board_serial, None, info["local"].get("port"), cfg.port)
+    return {"real_driver": make_driver(False, cfg), "serials": serials, "port": port, "first_report": _first_report(arm_name, port)}
+
+
+def _first_report(arm_name: str | None, port: str) -> dict | None:
+    """연결 전에만 포트를 열 수 있어 시작할 때 한 번 읽는다. PING/READ만 보낸다(decisions/0027). 실패해도 앱은 뜬다."""
     try:
+        return doctor(probe=True, port=port, arm=arm_name)
+    except Exception:
+        logging.getLogger(__name__).exception("연결 전 점검 실패")
+        return None
+
+
+def main(args) -> None:
+    """`python -m so101_studio.gui`와 `so101 gui`(REQ-005)의 입구. --sim이 없으면 실제 팔에 연결한다(토크는 그대로, 움직이지 않는다)."""
+    sim = getattr(args, "sim", False)
+    link = WatchdogLink(sim=sim)
+    try:
+        arm_name = getattr(args, "arm", None)
         backend = Backend(
             speed=getattr(args, "speed", None), link=link, viser_port=getattr(args, "viser_port", scene3d.DEFAULT_PORT),
-            arm_name=getattr(args, "arm", None),
+            arm_name=arm_name, **({} if sim else real_arm_args(arm_name)),
         )
-    except (RuntimeError, ArmSelectionError) as e:
+    except (RuntimeError, ArmSelectionError, PortChoiceError) as e:
         link.stop()
         sys.exit(f"연결 실패: {e}")
+    link.start(backend.run_dir)  # 실행 폴더는 연결한 뒤에 생긴다
     app.on_startup(lambda: background_tasks.create(link.run(), name="watchdog heartbeat"))
     app.on_shutdown(backend.close)
     ui.run(

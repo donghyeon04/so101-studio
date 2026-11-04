@@ -84,6 +84,7 @@ class Teach:
         self._stop = threading.Event()
         self._t: list[float] = []  # 표본마다 실제 시각(초). 손으로 움직인 속도를 그대로 재현하려고 함께 저장한다
         self.truncated = False
+        self.read_error: str | None = None
         self.hz, self.max_s = cfg.record_hz, cfg.record_max_s
         self.last_cut = None  # until_limit 재생이 잘린 위치 (재생한 점 수, 전체 점 수, 이유)
 
@@ -101,7 +102,7 @@ class Teach:
         self.ctl.stop()
         self.ctl.driver.set_torque(False)
         self.hz, self.max_s = int(hz or self.cfg.record_hz), float(max_s or self.cfg.record_max_s)
-        self._rows, self._t, self.truncated = [], [], False
+        self._rows, self._t, self.truncated, self.read_error = [], [], False, None  # read_error: 기록 중 읽기가 실패해 끝났다면 그 이유
         self._stop.clear()
 
         def loop():
@@ -111,7 +112,12 @@ class Teach:
                 if now > self.max_s:
                     self.truncated = True
                     return
-                self._rows.append(list(astuple(self.ctl.driver.read_joints())))
+                try:
+                    row = list(astuple(self.ctl.driver.read_joints()))
+                except Exception as e:  # noqa: BLE001 포트가 빠지는 등 읽기가 안 되면 기록을 거기서 끝낸다(스레드가 예외로 죽지 않게). 모인 표본은 남는다
+                    self.read_error = repr(e)[:120]
+                    return
+                self._rows.append(row)
                 self._t.append(now)
                 time.sleep(1.0 / self.hz)
 
@@ -183,7 +189,7 @@ class Teach:
                     q, t, self.last_cut = q[:i], t[:i], (i, total, why)
                     break
             if len(q) < 10:
-                return MotionResult("out_of_bounds", 0.0, ToolPose(0, 0, 0, 0))
+                return MotionResult("out_of_bounds", 0.0, ToolPose(0, 0, 0, 0), reason=self.last_cut[2] if self.last_cut else None)
         r = self.ctl.execute(cfg_move_j(self.cfg, self.ctl.driver.read_joints(), first, 20)).wait()
         if r.status != "ok":
             return r

@@ -157,3 +157,40 @@ GitHub `donghyeon04/so101-studio`. `main`은 기획 문서 1차 병합(#1)까지
   - **doctor**: 점검 항목 `0° 자세 확인`(정상 = 확인됨, 주의 = 확인 필요와 고치는 방법)과 결과 키 `zero_check: {state: "checked"|"needed", reason, date, sha256}`가 더해졌다. GUI 점검 카드가 쓴다.
   - **기존 팔 so101_follower_01**: 확인 기록을 자동으로 채우지 않았다. 이 변경이 합쳐진 뒤 실제 팔은 `--verify-zero`를 하기 전까지 움직이는 명령이 `locked`다. 사용자와 함께 한 번 한다(클램프 고정, 반경 50cm 비우기, 전원 스위치 옆, COM3 사용 알림).
   - **확인하지 못한 것**: 실제 팔로 `--verify-zero`와 반복 측정은 하지 않았다(가짜 서보). 0° 자세의 그리퍼 값(약 8.2)은 `kinematics.VALUE_TO_Q` 가정에 따른 것이다.
+
+- **연결이 토크를 건드리지 않게 (2026-11-04, GUI 세션의 사고 보고)**: 팔이 0° 자세(곧게 뻗음)에서 GUI를 실제 팔로 켜자 토크가 풀려 팔이 주저앉았다. 원인은 확인하지 못했다(실물 재현 안 함). 연결 코드에서 토크를 끌 수 있던 유일한 곳은 `ArmDriver.connect`의 `bus.disable_torque()`(토크가 꺼져 있다고 읽을 때만)였다. 고친 것: (1) 토크 끄는 쓰기를 없앴다. 꺼져 있을 때도 EEPROM에 쓰려고 `Lock`만 푼다. (2) 토크가 꺼져 있다는 읽기는 한 번 더 읽어 확인한다(한 번 잘못 읽은 0을 믿지 않는다). (3) PID·가속·그리퍼 EEPROM 값은 이미 같으면 쓰지 않는다(뻗은 팔을 잡고 있는 서보 설정을 괜히 건드리지 않는다). (4) 연결 이벤트(`runs/*/events.jsonl`의 `connect`)에 `torque_on_at_connect`와 실제로 쓴 항목(`writes`)을 남긴다. 다음에 같은 일이 생기면 이 기록과 `ctl.fault`로 원인을 좁힌다. 가설(미확인): 팔이 뻗은 자세에서 서보 보호(과부하·과전류)가 토크를 끊었을 수도 있다. 실물 시험은 접힌 자세에서 시작하고 사람이 팔 아래를 받친 채 시작하는 것을 권한다.
+
+
+## 15. 블랙박스 기록 읽기·쓰기 API (REQ-018, 결정 0030)
+- **쓰는 쪽**: `ArmService(..., proc="cli"|"gui")`(없으면 환경변수 `SO101_PROC`, 기본 cli). 연결 전에 `runs/날짜-시각/`을 열어 `events.jsonl`, `status.jsonl`(10Hz, 연결 직후 첫 줄)을 쓴다. 모든 줄은 `{t(ns), proc, pid, seq, level, code, kind, data}`. GUI는 `svc.log_event(kind, data, level, code)`로 조작권·실행 방식·안전 설정 변경을 남기고, `svc.create_incident(reason, last_s, code="MANUAL")`(폴더 경로)로 사고 묶음을 만든다. 감시 프로세스는 `python -m so101_studio.watchdog --run-dir <svc.logger.dir>`로 같은 폴더의 `watchdog.jsonl`에 쓴다.
+- **읽는 쪽**(`so101_studio.core.logread`): `list_runs(root)`, `read_events(run_dir)`, `read_status(run_dir)`(나눈 파일과 옛 `status.csv` 포함), `merge_timeline(root, start_ns, end_ns)`(여러 프로세스를 t로 합침), `list_incidents(root)`, `read_incident(path)`. CSV 내보내기는 `core.logging.status_to_csv(run_dir)`.
+- **자동 기록**: connect/disconnect, 토크 켜기·끄기(부른 함수 포함, `ARM-TORQUE-ON/OFF`), 레지스터 쓰기(Goal_Position 제외, `ARM-REG-WRITE`), fault(`ARM-FAULT`), E-STOP, `WATCHDOG-TRIP`, 상태 루프 예외(첫 발생은 전체 traceback, 반복은 횟수), 처리 안 된 예외, `ARM-TORQUE-LOST`(2Hz로 읽은 Torque_Enable이 기대와 다름).
+- **사고 묶음** `runs/incidents/<시각>-<코드>/`: ring.jsonl(50Hz 틱 10초), timeline.jsonl(앞뒤 60초), 설정 사본과 sha256, doctor.json, meta.json(git 커밋·패키지 버전). fault/E-STOP/감시 작동/TORQUE-LOST/예외마다 자동(같은 코드는 10초 안에 한 번). 자동으로 지우지 않는다. `so101 incident [--last N]`은 이미 쓰인 기록으로만 만든다(다른 프로세스의 링 버퍼는 못 읽음).
+- **보관**: 시작할 때 30일·2GB를 넘으면 오래된 실행부터 지움(incidents 제외), status.jsonl은 50MB마다 `status.001.jsonl`로 나눔. 상태 줄은 큐가 차면 버리고 다음 줄의 `data.dropped`에 수를 남긴다.
+- **zip**: 사고 묶음은 폴더 하나라 GUI가 `shutil.make_archive`로 묶는다(API 없음).
+
+## 16. 안전 보완 (REQ-019, 결정 0031)
+- **작업대 XY 복귀**: `Safety._workspace(q, ref)`가 출발점(ref)이 작업대 x·y 밖이면 축마다 "벗어난 거리가 출발점보다 늘지 않는" 점만 허용한다(ref가 안이면 예전과 같다). 0° 자세처럼 밖에서 `home`으로 돌아올 수 있다. 작업대 크기·팔 받침 위치는 T6 실측 전까지 `workspace.yaml`을 바꾸지 않고, 0° 자세 시험은 안전 모드 free로 한다.
+- **통신 끊김**: 끊김 시간은 마지막으로 통신이 된 시각부터 0.5초로 잰다(`HealthMonitor.comm_ok(now)`). 정지 중에는 10Hz 상태 루프의 읽기 결과를 `MotionController.note_comm(ok)`로 알려 끊김을 보고, 컨트롤러 틱이 0.5초가 차는 즉시 `fault("comm_lost")`를 낸다(USB를 뽑은 뒤 약 0.5초). 이때 `ARM-FAULT` 대신 `ARM-COMM-LOST`(ERROR) 이벤트와 같은 이름의 사고 묶음을 남긴다.
+- **fault 뒤**: 조그 입력을 비우고, 마지막 위치 유지 쓰기도 하지 않는다(통신 끊김일 때). `ArmService.home/park/move_joints/move_tool/pick_and_place/place/set_gripper`는 버스를 읽거나 쓰지 않고 `MotionResult("fault")`를 돌려준다. `resume()`은 통신 끊김 fault에서는 `False`(이전에는 None)를 돌려주고 풀지 않는다. 다시 꽂아도 `connect()`를 해야 풀린다.
+- **다시 연결**: `ArmService.connect()`가 이미 연결된 상태면 먼저 정리한다. `driver.disconnect()`는 토크를 끄지 않고, 포트가 이미 사라져 예외가 나도 정리를 끝낸다. 새 컨트롤러는 현재 위치를 명령값으로 삼는다.
+- **실물 측정**(table_z_mm 접촉 4곳, 인쇄 격자 3점, 포트 빠짐 4경우, 토크 풀림 재현)은 사용자와 COM3으로 한다. 아직 안 했다.
+
+## 17. 그리퍼 예압·조임 한계·부하 감시·놓기 보정 (REQ-020, 결정 0033)
+- **조임 한계는 RAM**: `ArmDriver.set_gripper_torque_limit(v)`가 RAM `Torque_Limit`(48번)에 쓴다(EEPROM `Max_Torque_Limit`에는 쓰지 않는다). `gripper_torque_limit()`으로 읽는다. 닫는 동안 `gripper_squeeze_torque`(300), 들고 옮기는 동안 `gripper_hold_torque`(200), `place`가 끝나면(예외가 나도) 바꾸기 전 값으로 되돌린다. 접촉이 없었거나 닫기가 실패하면 바로 되돌린다. place를 부르지 않으면 200과 예압 고정이 남는다(다음 pick·place가 이어받는다).
+- **예압**: 접촉하면 `ctl.hold_gripper(실제 - grip_preload_units)`로 그리퍼 목표를 고정하고, 이후 궤적이 무엇을 주든 매 틱 이 값으로 덮는다(위로 올라가고 옮기는 동안 명령이 실제보다 많이 닫히지 않는다). 부호는 닫는 쪽(값이 작아지는 쪽)이다(기획 확인됨, arm-software-spec.md 6.6절). 그리퍼를 여는 명령(`set_gripper`로 지금보다 연 값, place의 열기)은 예압 고정을 풀고 조임 한계를 원래 값으로 되돌린다. `stop`·`estop`은 고정과 200을 유지한다(E-STOP이 쓰는 목표도 예압 값).
+- **no_object**: 접근 높이까지 올라온 뒤 `gripper_open`으로 연다(바닥에서는 열지 않는다). 결과는 `no_object`.
+- **그리퍼 부하 두 단계**: `MotionController._check_grip`(2Hz 건강 읽기에서). `gripper_load_warn_pct`(60%)를 `gripper_load_s`(1초) 넘게 넘으면 목표를 지금 위치로 맞추고 `ARM-GRIP-OVERLOAD-WARN`(WARN), 1초 더 이어지면 그리퍼를 열고 `fault("grip_overload")`와 `ARM-GRIP-OVERLOAD`(ERROR). 기준은 실측으로 정한다(정상 집기 5회 최대값 x 1.3).
+- **놓기 보정**: `Skills._opening_path()`가 `_closing_path`를 반대로(지금 값 -> `gripper_open`) 써서 열리는 동안 두 턱 끝의 중간점이 제자리에 머물게 손을 같이 보낸다. IK가 안 풀리면 예전처럼 제자리에서 연다.
+- **설정**(robot.yaml): `grip_preload_units` 2, `gripper_hold_torque` 200, `gripper_load_warn_pct` 60, `gripper_load_s` 1.0.
+- 실물 확인(집기 5회: 그리퍼 부하 최대값·과부하 오류 유무, 놓기 5회: 물체 밀림)은 사용자와 COM3으로 따로 한다. 아직 안 했다.
+
+## 18. 오프라인 준비 (REQ-021, GUI 세션 요청)
+- **끊긴 뒤 E-STOP**: `MotionController.estop()`이 버스를 못 읽어도 예외 없이 끝나고 `ARM-ESTOP`(data.comm_error)을 남긴다(`StopListener`도 정상 응답한다). 통신 끊김 fault(`comm_lost`)면 `estop`·`stop` 뒤에도 state는 fault로 남고 `resume()`은 False다. 끊긴 직후 아직 fault 전에 E-STOP을 하면 stopped가 되지만, 상태 루프가 끊김을 보고 곧 fault로 바꾼다. 다시 연결해야만 풀린다(결정 0031 보완 구현).
+- **`ArmService.connect`**: `self.kin`이 있으면 다시 만들지 않는다(URDF 로딩 1.7초 멈춤 제거). 연결된 채 `connect`를 부르면 먼저 정리한다. 연결한 포트는 `svc.port`.
+- **`MotionResult.reason`**: out_of_bounds일 때 안전 검사 이유(`workspace`, `z_floor`, `joint_limit:<관절>` 등). 다른 상태는 None.
+- **`run_diagnostic(svc, "linkwatch", port=...)`**: 포트를 주지 않으면 마지막으로 연결한 포트(`svc.port`)를 쓰고, 없으면 `cfg.port`.
+
+## 19. 과부하 추가 읽기와 감시 기록 폴더 갱신 (REQ-022)
+- **`ARM-LOAD-PROBE`**: 상태 루프가 어느 관절의 부하가 50% 이상을 읽거나(`why: high_load`) 읽기 오류를 낼 때(`why: status_loop_error`), 2Hz 주기를 기다리지 않고 그 순간 `read_health()`를 한 번 더 읽어 `torque`, `status_bits`, `load_pct`, `current_ma_by_joint`를 WARN 이벤트로 남긴다(1초에 한 번). 읽기 자체가 실패하면 그 오류를 남긴다. 서보 보호로 출력이 끊겨도 `Torque_Enable` 값만으로는 안 보일 수 있어, 그 순간의 Status 비트를 잡으려는 것이다. 제어 틱 안에는 읽기를 넣지 않는다.
+- **감시 기록 폴더**: `POST /arm` 본문에 `run_dir`(문자열)를 함께 주면 감시 프로세스가 `watchdog.jsonl`을 그 실행 폴더로 옮긴다(`WATCHDOG-RUN_DIR` 이벤트). 처음 `--run-dir`(없으면 `runs/`)와 같은 부모 바로 아래 폴더만 받고, 아니면 400이며 등록도 하지 않는다(브라우저가 부를 수 있는 입구로 임의 경로에 파일을 만들지 못하게). GUI의 `WatchdogLink`는 팔을 연결할 때마다 `svc.logger.dir`을 `run_dir`로 실어 등록한다.

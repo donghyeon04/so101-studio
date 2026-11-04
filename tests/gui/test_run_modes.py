@@ -13,8 +13,10 @@ from nicegui.testing import user_simulation
 from so101_studio.arm.sim_driver import SimDriver
 from so101_studio.core.config import load_robot
 from so101_studio.gui import app as gui_app
-from so101_studio.gui.backend import RUN_MODES, Backend
+from so101_studio.gui import backend as backend_module
+from so101_studio.gui.backend import COMM_LOST_TEXT, OUTSIDE_TEXT, RUN_MODES, Backend
 from so101_studio.gui.pages.common import Controls
+from so101_studio.gui.state import component_states
 
 
 def _alive_link() -> SimpleNamespace:
@@ -35,6 +37,7 @@ def twin(shared_twin):
     backend = shared_twin
     backend.link = _alive_link()
     backend.owner, backend.pending, backend.mode = None, None, "sim"
+    backend._reconnect_failed = False  # 다시 연결 실패 시험이 다음 시험으로 새지 않게
     backend.resume()
     backend.set_speed(100)
     for arm in backend._arms():
@@ -218,7 +221,7 @@ def test_locked_real_arm_refuses_real_modes_and_big_moves_but_reads(twin, monkey
     assert twin.mode == "sim"
     assert twin.run_diagnostic("powertest") == (None, LOCK)
     assert twin.run_diagnostic("servoinfo")[1] is None  # 읽기는 된다
-    assert twin._run_on(twin.real, lambda _arm: SimpleNamespace(status="locked")).startswith("실제 팔이 잠겨")
+    assert twin._run_on(twin.real, lambda _arm: SimpleNamespace(status="locked", reason=None)).startswith("실제 팔이 잠겨")
 
 
 def test_locked_real_arm_turns_off_moving_buttons_with_reason(twin, monkeypatch):
@@ -265,6 +268,109 @@ def test_locked_workspace_cannot_start_a_task(backend, monkeypatch):
             assert not next(iter(user.find(marker="task-auto").elements)).enabled
 
     asyncio.run(go())
+
+
+def _lose_comm(backend, monkeypatch):
+    monkeypatch.setattr(backend.real.ctl, "fault", "comm_lost")
+    monkeypatch.setattr(backend.real.ctl, "state", "fault")
+
+
+def test_comm_loss_turns_moves_off_and_resume_does_not_clear_it(twin, monkeypatch):
+    _lose_comm(twin, monkeypatch)
+    assert twin.comm_lost() and twin.move_lock() == COMM_LOST_TEXT
+    assert twin.set_run_mode("real") == COMM_LOST_TEXT
+    assert twin.resume() == COMM_LOST_TEXT
+    assert twin.comm_lost()  # 코드가 없어 전부 시뮬레이션일 때도 그대로
+
+
+def test_component_states_show_bus_error_even_without_fresh_status():
+    assert component_states(None, 10.0, comm_lost=True)["버스"][0] == "error"
+
+
+def test_reconnect_clears_the_loss_and_gives_a_working_task_runner(tmp_path, monkeypatch):
+    backend = Backend(log_root=None, real_driver=SimDriver(load_robot().poses.get("home")))
+    backend.link = _alive_link()
+    try:
+        old_ctl, old_studio = backend.real.ctl, backend.studio
+        old_ctl.fault, old_ctl.state = "comm_lost", "fault"
+        board = {"device": "COM7", "vid": 0x1A86, "pid": 0x55D3, "serial": backend.real.cfg.board_serial, "description": ""}
+        monkeypatch.setattr(backend_module, "list_serial_ports", lambda: [board])
+        monkeypatch.setattr(backend.real.driver, "read_health", lambda: {**SimDriver().read_health(), "torque": {"shoulder_pan": 1, "elbow_flex": 0}})
+        reason, torque_off = backend.reconnect()
+        assert reason is None and torque_off == ["elbow_flex"]
+        assert not backend.comm_lost() and backend.move_lock() is None
+        assert backend.real.ctl is not old_ctl and backend.studio is not old_studio and backend.studio.ctl is backend.real.ctl
+        assert backend.set_run_mode("real") is None
+        assert backend.home() is None
+    finally:
+        backend.link = None
+        backend.close()
+
+
+def test_watchdog_is_registered_again_even_when_connect_fails(twin, monkeypatch):
+    _lose_comm(twin, monkeypatch)
+    monkeypatch.setattr(twin, "_reconnect_failed", False)
+    board = {"device": "COM7", "vid": 0x1A86, "pid": 0x55D3, "serial": twin.real.cfg.board_serial, "description": ""}
+    monkeypatch.setattr(backend_module, "list_serial_ports", lambda: [board])
+    order = []
+    monkeypatch.setattr(twin.link, "rearm", lambda: order.append("rearm"))
+    monkeypatch.setattr(twin.real, "connect", lambda _port: (order.append("connect"), (False, "포트 없음"))[1])
+    assert twin.reconnect() == ("포트 없음", None)
+    assert order == ["connect", "rearm"]
+
+
+def test_reconnect_refuses_a_different_board(twin, monkeypatch):
+    _lose_comm(twin, monkeypatch)
+    other = {"device": "COM7", "vid": 0x1A86, "pid": 0x55D3, "serial": "OTHER", "description": ""}
+    monkeypatch.setattr(backend_module, "list_serial_ports", lambda: [other])
+    reason, torque_off = twin.reconnect()
+    assert "안 보인다" in reason and torque_off is None
+
+
+def test_reconnect_leaves_a_healthy_link_alone(twin, monkeypatch):
+    monkeypatch.setattr(twin.real, "connect", lambda _port: pytest.fail("끊긴 적 없는데 다시 연결했다"))
+    assert twin.reconnect()[0] == "통신이 끊긴 상태가 아닙니다"
+
+
+def test_failed_read_after_reconnect_still_offers_reconnect(twin, monkeypatch):
+    _lose_comm(twin, monkeypatch)
+    monkeypatch.setattr(twin, "_reconnect_failed", False)  # 다른 테스트로 새지 않게 되돌린다
+    board = {"device": "COM7", "vid": 0x1A86, "pid": 0x55D3, "serial": twin.real.cfg.board_serial, "description": ""}
+    monkeypatch.setattr(backend_module, "list_serial_ports", lambda: [board])
+
+    def half_connect(_port):
+        monkeypatch.setattr(twin.real.ctl, "fault", None)  # 새 컨트롤러에는 fault가 없다
+        raise ConnectionError("no status packet")
+
+    monkeypatch.setattr(twin.real, "connect", half_connect)
+    assert twin.reconnect() == ("no status packet", None)
+    assert twin.comm_lost()
+
+
+def test_out_of_bounds_explains_when_starting_outside_the_table(twin, monkeypatch):
+    result = SimpleNamespace(status="out_of_bounds", reason="workspace")
+    assert twin._run_on(twin.real, lambda _arm: result) == backend_module.MOTION_TEXT["out_of_bounds"]
+    monkeypatch.setattr(twin.real.safety, "box", lambda: {"x": [0, 1], "y": [0, 1], "z": [0, None]})
+    assert twin._run_on(twin.real, lambda _arm: result) == OUTSIDE_TEXT
+    floor = SimpleNamespace(status="out_of_bounds", reason="z_floor")  # 밖에서 출발해도 바닥에 걸린 것은 이 문장이 아니다
+    assert twin._run_on(twin.real, lambda _arm: floor) == backend_module.MOTION_TEXT["out_of_bounds"]
+
+
+def test_estop_still_stops_when_saving_a_recording_fails(twin, tmp_path, monkeypatch):
+    monkeypatch.setattr(twin.real.teach, "dir", tmp_path)
+    assert twin.record_begin("lost") is None
+    calls = []
+    real_stop = twin.real.record_stop
+
+    def broken(_name):
+        raise ConnectionError("no status packet")
+
+    monkeypatch.setattr(twin.real, "record_stop", broken)
+    monkeypatch.setattr(twin.real, "estop", lambda: calls.append("estop"))
+    twin.estop()
+    assert calls == ["estop"]
+    monkeypatch.setattr(twin.real, "record_stop", real_stop)
+    twin.real.record_stop("lost")
 
 
 def test_page_confirm_dialog_runs_pending_on_real(twin):

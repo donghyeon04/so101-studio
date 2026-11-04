@@ -14,6 +14,11 @@ class SimDriver:
         self.acceleration = 10
         self.simulated = True
         self.locked_reason: str | None = None
+        self.event_sink = None  # ArmDriver와 같은 자리(시뮬레이션은 레지스터가 없어 쓰지 않는다)
+        self.expect_torque: bool | None = None
+        self.torque_limit = 1000  # 그리퍼 RAM Torque_Limit(시험이 쓰기 순서를 본다)
+        self.torque_limit_writes: list[int] = []
+        self.grip_load = 0.0  # 그리퍼 부하(%) 시험용
 
     def connect(self, port: str = "sim", calibration_id: str = "sim") -> None:
         self.connected = True
@@ -33,9 +38,12 @@ class SimDriver:
     def read_health(self) -> dict:
         return {
             "temperature_c": {m: 25.0 for m in JOINTS},
-            "load_pct": {m: 0.0 for m in JOINTS},
+            "load_pct": {m: (self.grip_load if m == "gripper" else 0.0) for m in JOINTS},
             "voltage_v": 12.0,
             "current_ma": 0.0,
+            "current_ma_by_joint": {m: 0.0 for m in JOINTS},
+            "torque": {m: int(self._torque) for m in JOINTS},
+            "status_bits": {m: 0 for m in JOINTS},
         }
 
     def read_power(self) -> tuple[float, dict, dict]:
@@ -52,6 +60,11 @@ class SimDriver:
 
     def set_torque(self, on: bool) -> None:
         self._torque = on
+        self.expect_torque = on
 
     def set_gripper_torque_limit(self, value: int) -> None:
-        pass
+        self.torque_limit_writes.append(int(value))
+        self.torque_limit = int(value)
+
+    def gripper_torque_limit(self) -> int:
+        return self.torque_limit

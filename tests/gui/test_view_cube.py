@@ -316,5 +316,6 @@ def test_every_3d_page_has_the_cube(backend, path):
             await user.should_see(marker="scene3d")
             await user.should_see(marker="viewcube")
             await user.should_see(marker="viewcube-home")
+            await user.should_see(marker="scene-layers")
 
     asyncio.run(go())

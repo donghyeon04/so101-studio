@@ -1,18 +1,21 @@
 """ArmService·Studio를 감싸는 유일한 창구 (gui-spec 7·8절). 실행 방식, 조작권, REQ 임시 우회를 여기에 둔다."""
 
 import contextlib
-import csv
 import json
 import logging
 import re
+import shutil
+import tempfile
 import threading
-from collections import deque
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 
 from ..arm.kinematics import Kinematics
 from ..arm.sim_driver import SimDriver
+from ..core import logread
 from ..core.config import arm_files, load_robot_ex, load_workspace
+from ..core.ports import PortChoiceError, list_serial_ports, pick_port
 from ..core.types import DetectedObject, JointState, MotionResult, ToolPose
 from ..doctor import doctor
 from ..perception.manual import ManualSource
@@ -23,7 +26,15 @@ from ..service.studio import Studio
 from ..service.targets import reason_text, tip_vector
 from ..task.policy import reachable
 from .scene3d import Scene3D
-from .state import EMPTY, SAFETY_TEXT, LogBook, LogRecord, State, hottest_text
+from .state import (
+    EMPTY,
+    SAFETY_TEXT,
+    LogBook,
+    LogRecord,
+    State,
+    hottest_text,
+    run_bands,
+)
 from .watchdog_link import WatchdogLink
 
 JOG_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll")  # JointState 순서
@@ -40,6 +51,10 @@ JOG_YAW_DEG_S = 60.0
 RUN_MODES = {"sim": "시뮬레이션만", "real": "실제만", "both": "동시", "sim_first": "시뮬레이션 먼저"}
 REASON_EXTRA = {"z_ceiling": "허용 상자보다 높습니다"}  # service.targets에 아직 없는 이유
 BUSY_TEXT = "팔이 아직 움직이고 있습니다"
+COMM_LOST_TEXT = "통신이 끊겼습니다. 케이블과 전원을 확인하고 [다시 연결]을 눌러 주세요"
+OUTSIDE_TEXT = "작업대 밖에서 출발했습니다. 안쪽으로만 움직일 수 있습니다"
+LINKWATCH_TEXT = "linkwatch를 실행 중입니다. 끝나면 팔을 다시 연결합니다"
+LOG_LEVELS = {"DEBUG": "INFO", "INFO": "INFO", "WARN": "WARNING", "ERROR": "ERROR", "FATAL": "ERROR"}
 MOTION_TEXT = {
     "ik_fail": reason_text("ik_fail"),
     "out_of_bounds": "허용 범위 밖이라 움직이지 않았습니다",
@@ -77,16 +92,28 @@ class Plan:
     text: str
 
 
+def with_first_report(report: dict, first: dict | None) -> dict:
+    """포트를 열지 않아 건너뛴 항목을 연결 전에 읽은 값으로 채운다."""
+    started = {c["name"]: c for c in (first or {}).get("checks", []) if c["state"] != "skip"}
+    checks = [
+        {**started[c["name"]], "text": f"{started[c['name']]['text']} (앱을 시작할 때 읽은 값)"} if c["state"] == "skip" and c["name"] in started else c
+        for c in report["checks"]
+    ]
+    return {**report, "checks": checks, "ok": not any(c["state"] == "fail" for c in checks)}
+
+
 class Backend:
     workspace_path = "config/workspace.yaml"
     arms_path = "config/arms"
     local_path = "config/local.yaml"
 
     def __init__(self, speed: float | None = None, log_root: str | None = "runs", link: WatchdogLink | None = None,
-                 viser_port: int | None = None, real_driver=None, arm_name: str | None = None):
-        # shortcut: 보드 시리얼 없이 고른다(팔 파일이 여럿이면 --arm이나 local.yaml), G10에서 실제 포트의 시리얼을 넘긴다
-        cfg, self.arm_info = load_robot_ex(arm=arm_name)
+                 viser_port: int | None = None, real_driver=None, arm_name: str | None = None, serials=(), port: str | None = None, first_report: dict | None = None):
+        cfg, self.arm_info = load_robot_ex(arm=arm_name, serials=serials)
         self._arm_option = arm_name
+        self._first_report = first_report  # 팔을 연결하기 전에 포트를 열어 읽은 점검 결과
+        self._linkwatching = False
+        self._closing = False
         self.state = State()
         self.link = link
         self.scene: Scene3D | None = None
@@ -94,28 +121,30 @@ class Backend:
         self.runs_root = log_root or "runs"
         self.logbook = LogBook()
         logging.getLogger().addHandler(self.logbook)
-        self._event_log: deque = deque(maxlen=2000)
-        self._log_offset = 0
+        self._started_ns = time.time_ns()
+        self.run_focus: tuple | None = None  # 로그에서 고른 줄: (실행 이름, 시각). 실행 기록 페이지가 읽는다
         self._next_object = 0
-        self._path_kin: Kinematics | None = None
         self._listener = None
         self.owner: str | None = None  # 조작권을 가진 브라우저. NiceGUI 이벤트 루프에서만 바꾼다
         ws = load_workspace()
         # 실행 기록은 주 팔 하나만 남긴다. 같은 초에 만들면 폴더 이름이 겹친다
-        self.real = ArmService(real_driver, cfg, ws, speed, log_root) if real_driver else None
-        self.sim = ArmService(SimDriver(cfg.poses.get("home")), cfg, ws, speed, None if real_driver else log_root)
+        self.real = ArmService(real_driver, cfg, ws, speed, log_root, proc="gui") if real_driver else None
+        self.sim = ArmService(SimDriver(cfg.poses.get("home")), cfg, ws, speed, None if real_driver else log_root, proc="gui")
         self.arm = self.real or self.sim  # 상태줄과 3D의 실제 팔이 읽는 쪽
         self.mode = "sim"
         self.pending: tuple | None = None  # 시뮬레이션 먼저: 실제 팔로 실행할지 묻는 동작 (이름, action)
         self._planning = False
+        self._record_name: str | None = None
         for arm in self._arms():
-            ok, msg = arm.connect()
+            ok, msg = arm.connect(port if arm is self.real else None)
             if not ok:
                 raise RuntimeError(msg)
+        # 궤적 계산용으로 따로 둔다(팔의 Kinematics는 다른 스레드도 쓴다). 만드는 동안 파이썬 전체가 1초 넘게 멈춰, 감시 프로세스가 켜진 뒤에 만들면 앱이 강제 종료된다
+        self._path_kin = Kinematics(cfg.urdf, self.arm.ws.base, cfg.joint_limits_deg)
         self.arm.status_stream(self.state.update)
         self.source = ManualSource()
-        self.studio = Studio(self.arm, self.source, dry_run=self.real is None)  # 시뮬레이션에는 잡히는 물체가 없어 접촉 없음도 성공으로 본다
-        self.studio.bus.subscribe("task", self._on_task)
+        self._make_studio()
+        self._reconnect_failed = False
         self.paused = False
         if viser_port is not None:
             self.scene = Scene3D(cfg, self.arm.ws, self.arm.kin, viser_port)
@@ -126,10 +155,20 @@ class Backend:
         if link:  # 감시 프로세스의 정지 명령을 받는다
             self._listener = StopListener(self.arm, link.stop_port).start()
 
+    def _make_studio(self) -> None:
+        """Studio는 컨트롤러를 붙들고 있어, 다시 연결하면 새로 만든다."""
+        self.studio = Studio(self.arm, self.source, dry_run=self.real is None)  # 시뮬레이션에는 잡히는 물체가 없어 접촉 없음도 성공으로 본다
+        self.studio.bus.subscribe("task", self._on_task)
+
+    @property
+    def run_dir(self) -> str | None:
+        return str(self.arm.logger.dir) if self.arm.logger else None
+
     def claim(self, client: str) -> bool:
         """비어 있으면 조작권을 가져간다. 이 브라우저가 조작권을 가졌는지 돌려준다."""
         if self.owner is None:
             self.owner = client
+            self.arm.log_event("owner", {"client": client})
             if self.link:
                 self.link.want_armed = True
         return self.owner == client
@@ -138,12 +177,53 @@ class Backend:
         """감시 프로세스가 응답할 때만 실제 팔을 움직인다 (decisions/0026). 시뮬레이션은 상관없다."""
         return bool(self.link and self.link.alive)
 
-    def resume(self) -> None:
-        """비상 정지를 풀고 감시 프로세스에 다시 등록한다. 팔은 움직이지 않는다."""
+    def resume(self) -> str | None:
+        """비상 정지를 풀고 감시 프로세스에 다시 등록한다. 팔은 움직이지 않는다. 풀지 못하면 이유."""
         for arm in self._arms():
-            arm.resume()
+            arm.resume()  # 통신이 끊긴 팔은 컨트롤러가 거부한다 (decisions/0031)
+        if self.comm_lost():
+            return COMM_LOST_TEXT
         if self.link:
             self.link.rearm()
+        return None
+
+    def comm_lost(self) -> bool:
+        return bool(self.real and (self._reconnect_failed or self.real.ctl.fault == "comm_lost"))
+
+    def reconnect(self) -> tuple[str | None, list[str] | None]:
+        """통신이 끊긴 뒤 다시 연결한다. 팔은 움직이지 않고 토크도 끄지 않는다. (실패 이유, 토크가 꺼진 서보). 스레드에서 부른다."""
+        if not self.comm_lost():  # 멀쩡한 연결을 끊으면 움직이던 동작이 끊긴다
+            return "통신이 끊긴 상태가 아닙니다", None
+        self.record_finish()
+        return self._connect_real()
+
+    def _pick_port(self) -> str:
+        cfg = self.real.cfg
+        return pick_port(list_serial_ports(), cfg.board_serial, None, self.arm_info["local"].get("port"), cfg.port)[0]
+
+    def _connect_real(self) -> tuple[str | None, list[str] | None]:
+        try:
+            port = self._pick_port()
+        except PortChoiceError as e:
+            self._reconnect_failed = True
+            return str(e), None
+        try:
+            ok, msg = self.real.connect(port)
+            if not ok:
+                self._reconnect_failed = True
+                return msg, None
+            if self.link:
+                self.link.run_dir = self.run_dir
+            torque = self.real.driver.read_health()["torque"]
+        except Exception as e:  # noqa: BLE001  연결 직후 읽기가 실패하면 새 컨트롤러에 fault가 없어 끊김이 지워진 것처럼 보인다
+            self._reconnect_failed = True
+            return str(e), None
+        finally:
+            if self.link:
+                self.link.rearm()
+        self._reconnect_failed = False
+        self._make_studio()
+        return None, [name for name, on in torque.items() if not on]
 
     # ---- 실행 방식 (gui-spec 8절). 실제 장치용과 SimDriver용 ArmService를 고른다
     def set_run_mode(self, mode: str) -> str | None:
@@ -155,10 +235,19 @@ class Backend:
             if reason:
                 return reason
         self.mode, self.pending = mode, None
+        self.arm.log_event("run_mode", {"mode": mode})
         return None
 
     def move_lock(self) -> str | None:
-        """실제 팔이 잠겼으면 이유 (decisions/0027). 새 팔이거나 캘리브레이션이 다를 때다."""
+        """실제 팔을 움직일 수 없으면 이유: 새 팔이거나 캘리브레이션이 다를 때(decisions/0027), 통신이 끊겼을 때(0031)."""
+        if self.real is None:
+            return None
+        if self._linkwatching:
+            return LINKWATCH_TEXT
+        return self.real.locked_reason or (COMM_LOST_TEXT if self.comm_lost() else None)
+
+    def setup_lock(self) -> str | None:
+        """팔 준비가 덜 되어 잠겼으면 이유. 통신 끊김처럼 다시 연결로 풀리는 잠금은 뺀다."""
         return self.real.locked_reason if self.real else None
 
     def _real_blocked(self) -> str | None:
@@ -190,7 +279,15 @@ class Backend:
             return BUSY_TEXT
         except ValueError as e:  # 배율 때문에 속도 한계를 넘는 경우 등
             return str(e)
+        if result.reason == "workspace" and Backend._starts_outside(arm):
+            return OUTSIDE_TEXT
         return None if result.status == "ok" else MOTION_TEXT.get(result.status, result.status)
+
+    @staticmethod
+    def _starts_outside(arm: ArmService) -> bool:
+        """지금 손끝이 작업대 XY 밖인가. 밖에서는 안쪽으로 돌아오는 움직임만 허용된다 (decisions/0031)."""
+        tool, box = arm.kin.fk(arm.status().joints), arm.safety.box()
+        return not (box["x"][0] <= tool.x_mm <= box["x"][1] and box["y"][0] <= tool.y_mm <= box["y"][1])
 
     def _dispatch(self, action, label: str) -> str | None:
         """action(ArmService) -> MotionResult를 실행 방식대로 부른다. 실패 이유 또는 None. 스레드에서 부른다."""
@@ -491,9 +588,8 @@ class Backend:
     # ---- 장치·시스템
     def run_doctor(self) -> dict:
         """읽기 전용 점검. 블로킹이므로 스레드에서 부른다."""
-        # shortcut: 포트를 열지 않는 점검만 한다(COM3은 알린 뒤에만 연다, decisions/0024), G10에서 실제 팔 연결 전 탐침을 붙인다
-        try:
-            return doctor(probe=False, arm=self._arm_option)
+        try:  # 연결 중에는 포트를 열 수 없다. 서보 응답·전압은 연결 전에 읽은 값으로 채운다
+            return with_first_report(doctor(probe=False, arm=self._arm_option), self._first_report)
         except Exception as e:  # noqa: BLE001  점검이 실패해도 페이지는 살아 있어야 한다
             return {"ok": False, "checks": [{"name": "점검", "state": "fail", "text": f"점검하지 못했습니다: {e}", "fix": ""}], "ports": [], "arm": None, "esp32": None}
 
@@ -511,11 +607,42 @@ class Backend:
         path.write_text(text if count else f"{text.rstrip()}\n{line}\n".lstrip(), encoding="utf-8")
         return None
 
+    def _run_linkwatch(self, progress=None, stop=None) -> tuple[dict | None, str | None]:
+        """linkwatch는 포트를 직접 연다. 팔 연결을 끊고(토크는 그대로) 돌린 뒤 다시 연결한다. 그동안 움직이는 버튼은 잠긴다."""
+        if self.real is None:
+            return None, "linkwatch는 실제 팔의 포트가 필요합니다 (시뮬레이션에서는 쓸 수 없습니다)"
+        if self.real.ctl.state != "idle" or self.recording() or self.task_running():
+            return None, BUSY_TEXT
+        try:
+            port = self._pick_port()
+        except PortChoiceError as e:
+            return None, str(e)
+        result, reason = None, None
+        self._linkwatching = True
+        try:
+            self.real.disconnect()
+            try:
+                result = self.real.run_diagnostic("linkwatch", progress, lambda: self._closing or bool(stop and stop()), port=port)
+            except Exception as e:  # noqa: BLE001  포트를 못 열어도 팔은 다시 연결해야 한다
+                reason = f"linkwatch를 실행하지 못했습니다: {e}"
+        finally:
+            if not self._closing:
+                problem, torque_off = self._connect_real()
+                reason = reason or problem
+                if torque_off:
+                    reason = f"토크가 꺼진 서보: {', '.join(torque_off)}. 팔을 받쳐 주세요"
+            self._linkwatching = False
+        return result, reason
+
     def diagnostic_available(self, name: str) -> bool:
-        return name != "linkwatch"  # shortcut: 포트를 직접 열어 시뮬레이션에서는 못 쓴다, G10에서 실제 팔 연결을 끊고 부르게 한다
+        return name != "linkwatch" or self.real is not None  # 포트를 직접 열어 시뮬레이션에서는 못 쓴다
 
     def run_diagnostic(self, name: str, progress=None, stop=None) -> tuple[dict | None, str | None]:
         """(결과, 실패 이유). 블로킹이므로 스레드에서 부른다."""
+        if self.comm_lost():
+            return None, COMM_LOST_TEXT
+        if name == "linkwatch":
+            return self._run_linkwatch(progress, stop)
         kw = {"repeats": 1} if name == "powertest" else {}
         if self.real and (name in BIG_MOVES or not self.move_lock()) and self._real_blocked():  # 잠겨도 읽기는 된다
             return None, self._real_blocked()
@@ -528,52 +655,56 @@ class Backend:
 
     def run_names(self) -> list[str]:
         """실행 기록 폴더 이름. 최근 것이 먼저다."""
-        root = Path(self.runs_root)
-        if not root.is_dir():
-            return []
-        return sorted((d.name for d in root.iterdir() if d.is_dir() and (d / "events.jsonl").exists()), reverse=True)
+        return logread.list_runs(self.runs_root)
 
     def load_run(self, name: str) -> dict:
-        """실행 하나의 이벤트와 전압·온도. 화면에 보내는 점은 RUN_POINTS 이하로 줄인다."""
+        """실행 하나의 이벤트, 전압·온도, 토크·state·fault 띠. 옛 형식(status.csv)도 읽는다. 화면에 보내는 점은 RUN_POINTS 이하로 줄인다."""
         if name not in self.run_names():  # 화면에서 온 이름으로 다른 경로를 읽지 않는다
             raise ValueError(f"없는 실행: {name}")
         folder = Path(self.runs_root) / name
-        events = []
-        for line in (folder / "events.jsonl").read_text(encoding="utf-8").splitlines():
-            with contextlib.suppress(ValueError):  # 강제 종료로 마지막 줄이 잘렸을 수 있다
-                row = json.loads(line)
-                events.append({"t": row["t"], "kind": row["kind"], "text": json.dumps(row["data"], ensure_ascii=False)[:200]})
-        rows = []
-        path = folder / "status.csv"
-        if path.exists():
-            with path.open(encoding="utf-8", newline="") as f:
-                for row in csv.DictReader(f):
-                    with contextlib.suppress(ValueError, TypeError):
-                        rows.append((float(row["t"]), float(row["voltage_v"]), float(row["max_temp_c"])))
+        events = [
+            {"t": e["t"] / 1e9, "kind": e.get("kind"), "code": e.get("code"), "text": json.dumps(e.get("data"), ensure_ascii=False, default=str)}
+            for e in logread.read_events(folder)
+        ]
+        rows, states = [], []
+        for row in logread.read_status(folder):
+            data = row["data"]
+            temps = data.get("temperature_c")
+            temp = max(temps.values()) if temps else data.get("max_temp_c")
+            if data.get("voltage_v") is not None and temp is not None:
+                rows.append((row["t"] / 1e9, data["voltage_v"], temp))
+                states.append((row["t"] / 1e9, data))
         stride = max(1, len(rows) // RUN_POINTS)
         t0 = rows[0][0] if rows else 0.0
         return {
-            "name": name, "events": events, "rows": len(rows), "duration_s": rows[-1][0] - t0 if rows else 0.0,
+            "name": name, "t0": t0, "events": events, "rows": len(rows), "duration_s": rows[-1][0] - t0 if rows else 0.0,
             "voltage": [[round(t - t0, 2), v] for t, v, _ in rows[::stride]],
             "temperature": [[round(t - t0, 2), c] for t, _, c in rows[::stride]],
+            "bands": run_bands(states, t0),
         }
 
     def logs(self) -> list[LogRecord]:
-        """이번 실행의 이벤트와 파이썬 로그를 시간순으로."""
-        logger = self.arm.logger
-        if logger:
-            path = logger.dir / "events.jsonl"
-            with path.open(encoding="utf-8") as f:
-                f.seek(self._log_offset)
-                while line := f.readline():
-                    if not line.endswith("\n"):
-                        break
-                    self._log_offset = f.tell()
-                    with contextlib.suppress(ValueError):
-                        row = json.loads(line)
-                        level = "ERROR" if row["kind"] == "fault" else "WARNING" if row["kind"] in ("estop", "safety") else "INFO"
-                        self._event_log.append(LogRecord(row["t"], level, f"{row['kind']}: {json.dumps(row['data'], ensure_ascii=False)[:300]}"))
-        return sorted([*self._event_log, *self.logbook.records], key=lambda r: r.t)
+        """앱을 켠 뒤의 CLI·GUI·감시 프로세스 기록과 파이썬 로그를 한 시간축으로 (decisions/0030)."""
+        records = list(self.logbook.records)
+        if self.arm.logger:
+            for rec in logread.merge_timeline(self.runs_root, self._started_ns, time.time_ns(), include_status=False):
+                text = f"{rec.get('kind')}: {json.dumps(rec.get('data'), ensure_ascii=False, default=str)}"
+                records.append(LogRecord(rec["t"] / 1e9, LOG_LEVELS.get(rec["level"], "INFO"), text, rec["proc"], rec.get("code"), rec["file"].split("/")[0]))
+        return sorted(records, key=lambda r: r.t)
+
+    def incidents(self) -> list[dict]:
+        return logread.list_incidents(self.runs_root)
+
+    def make_incident(self) -> str | None:
+        """지금 사고 묶음을 만든다. 폴더 경로, 기록 중이 아니면 None. 스레드에서 부른다."""
+        return self.arm.create_incident("GUI에서 수동으로 만듦")
+
+    def incident_zip(self, name: str) -> str:
+        """사고 묶음을 zip으로 묶어 경로를 돌려준다. 스레드에서 부른다."""
+        found = next((i for i in self.incidents() if i["name"] == name), None)
+        if found is None:  # 화면에서 온 이름으로 다른 경로를 묶지 않는다
+            raise ValueError(f"없는 사고 묶음: {name}")
+        return shutil.make_archive(str(Path(tempfile.mkdtemp()) / name), "zip", found["path"])
 
     # ---- 교시
     def sequences(self) -> list[str]:
@@ -585,8 +716,6 @@ class Backend:
         q, t = self.arm.teach.load(name)
         stride = max(1, len(q) // SEQUENCE_POINTS)
         q, t = q[::stride], t[::stride] - t[0]
-        if self._path_kin is None:  # 팔의 Kinematics는 다른 스레드도 쓰므로 궤적 계산에는 따로 둔다
-            self._path_kin = Kinematics(self.arm.cfg.urdf, self.arm.ws.base, self.arm.cfg.joint_limits_deg)
         tips = [self._path_kin.fk(JointState(*row)) for row in q.tolist()]
         segments = [
             (s["label"], [(p.x_mm, p.y_mm, p.z_mm) for p, at in zip(tips, t, strict=True) if s["start_s"] <= at <= s["end_s"]])
@@ -596,9 +725,53 @@ class Backend:
             self.scene.show_trajectory(segments)
         return {"info": info, "t": t.round(3).tolist(), "q": q.round(2).tolist()}
 
+    # ---- 새 기록 (실제 팔에서만). 순서는 CLI record와 같다: 홈 -> 팔 잡기 -> 카운트다운 -> 토크 끄고 기록
+    def recording(self) -> bool:
+        return bool(self.real and self.real.teach.recording)
+
+    def record_name_problem(self, name: str) -> str | None:
+        """파일 이름이 되므로 경로 문자를 막고, 다른 기록을 덮어쓰지 않는다."""
+        if not re.fullmatch(r"[\w-]{1,40}", name or ""):
+            return "기록 이름은 글자, 숫자, -, _ 로 40자까지 쓸 수 있습니다"
+        if name in self.sequences():
+            return f"같은 이름의 기록이 있습니다: {name}"
+        return None
+
+    def record_prepare(self) -> str | None:
+        """홈으로 옮긴다. 토크를 끄면 팔이 처지므로 받침 근처에서 시작한다. 실패 이유 또는 None. 스레드에서 부른다."""
+        return self._real_blocked() or self._run_on(self.real, lambda arm: arm.home())
+
+    def record_begin(self, name: str) -> str | None:
+        """토크를 끄고 기록을 시작한다. 사람이 팔을 잡고 있어야 한다. 실패 이유 또는 None."""
+        reason = self._real_blocked() or self.record_name_problem(name)
+        if reason:
+            return reason
+        if self.task_running():
+            return "작업 실행 중입니다"
+        self.real.record_start()
+        self._record_name = name
+        return None
+
+    def record_finish(self) -> str | None:
+        """기록을 저장하고 토크를 켜서 지금 자세를 잡는다. 저장한 이름 또는 None."""
+        if not self.recording():
+            return None
+        name, self._record_name = self._record_name, None
+        try:
+            self.real.record_stop(name)
+        except Exception as e:  # noqa: BLE001  통신이 끊겼으면 저장·토크 켜기가 실패한다. 부르는 쪽의 비상 정지까지 막으면 안 된다
+            self.real.log_event("record_stop_failed", {"name": name, "error": repr(e)}, level="ERROR")
+            return None
+        return name
+
+    def record_truncated(self) -> float | None:
+        """최대 시간에 걸려 앞부분만 남았으면 그 시간(초)."""
+        teach = self.real.teach
+        return teach.max_s if teach.truncated else None
+
     def replay(self, name: str, speed: float, until_limit: bool = False, segment_speeds: dict[int, float] | None = None) -> str | None:
         reason = self._dispatch(lambda arm: arm.replay(name, speed, until_limit, segment_speeds), f"{name} 재생")
-        if reason == MOTION_TEXT["out_of_bounds"] and not until_limit:
+        if reason in (MOTION_TEXT["out_of_bounds"], OUTSIDE_TEXT) and not until_limit:
             return "기록에 허용 범위 밖 자세가 있어 재생하지 않았습니다(첫 자세까지는 이동합니다). 한계 앞까지만 재생을 켜 보세요"
         return reason
 
@@ -614,9 +787,12 @@ class Backend:
         """조작하던 브라우저의 연결이 끊기면 팔을 세운다(토크는 유지)."""
         if self.owner == client:
             self.owner = None
+            self.arm.log_event("owner_lost", {"client": client}, level="WARN")
+            self.record_finish()  # 토크가 꺼진 채 조작하던 화면이 사라지면 지금 자세를 잡는다
             self.stop_task()
 
     def estop(self) -> None:
+        self.record_finish()  # 기록 중에는 토크가 꺼져 있어 정지 명령만으로는 팔이 서지 않는다
         self.paused = False
         self.studio.stop()
         self.pending = None
@@ -624,9 +800,11 @@ class Backend:
             arm.estop()  # Studio.estop은 실행 기록에 남기지 않는다
 
     def close(self) -> None:
+        self._closing = True
         logging.getLogger().removeHandler(self.logbook)
         if self._listener:
             self._listener.close()
+        self.record_finish()
         self.stop_task()  # 제어 루프를 먼저 끄면 동작을 기다리던 스레드가 풀리지 않아 프로세스가 안 꺼진다
         for arm in self._arms():
             arm.ctl.wait_idle()

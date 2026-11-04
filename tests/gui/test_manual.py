@@ -71,7 +71,7 @@ def test_plan_reachable_point_shows_path_and_preview_without_moving(backend):
     assert backend.reach == "닿음"
     assert backend.arm.status().joints == before
     assert backend.scene._preview_root.visible is True
-    assert "/path" in backend.scene.server.scene._handle_from_node_name
+    assert "/marks/path" in backend.scene.server.scene._handle_from_node_name
     backend.scene.clear_target()
 
 
@@ -80,7 +80,7 @@ def test_plan_unreachable_point_gives_reason_and_no_preview(backend):
     assert not plan.ok and plan.text
     assert backend.reach == "안 닿음"
     assert backend.scene._preview_root.visible is False
-    assert "/path" not in backend.scene.server.scene._handle_from_node_name
+    assert "/marks/path" not in backend.scene.server.scene._handle_from_node_name
     backend.scene.clear_target()
 
 

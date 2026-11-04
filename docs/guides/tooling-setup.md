@@ -77,6 +77,21 @@
 
 ---
 
+### C-5. mattpocock/skills (`decisions/0032`)
+레포의 `.claude/skills/`에 들어 있어 따로 설치하지 않는다(플러그인 `mattpocock-skills`는 설치하지 않는다. 설치하면 겹친다). 원본 커밋 `4ae2317`, MIT.
+
+| 스킬 | 부르는 법 | 쓸 곳 |
+|---|---|---|
+| `grill-me` → `grilling` | `/grill-me` | 계획·설계를 여러 질문 라운드로 다듬기 |
+| `handoff` | `/handoff` | 세션 사이 인수인계 문서(임시 디렉터리) |
+| `wait-what` | `/wait-what` | 설명이 어려울 때 쉬운 한국어로 다시 |
+| `to-questionnaire` | `/to-questionnaire` | 팀원에게 물을 결정을 질문지로 |
+| `retro` | `/retro` | 세션이 끝날 때 작업 환경 개선점 |
+| `improve-codebase-architecture` | `/improve-codebase-architecture` | 로컬 세션에서 며칠에 한 번 코드 구조 점검 |
+| `codebase-design`, `prototype`, `pr`, `writing-for-agents` | 자동(상황에 맞으면 에이전트가 부름) | 모듈 설계, 버리는 시안, PR 본문, CLAUDE.md·스킬 쓰기 |
+
+쓰지 않는 것: `setup-matt-pocock-skills`, `grill-with-docs`, `domain-modeling`, `research`, `tdd`, `diagnosing-bugs`, `code-review`, `implement`, `implement-spec`, `triage`, `to-tickets`, `to-spec`, `wayfinder`, `ask-matt`, `teach`, `wizard` (규칙 충돌 또는 Superpowers와 겹침).
+
 ## D. 레퍼런스 평가 기준
 
 평가표와 조사 절차는 프로젝트 skill `.claude/skills/researching-references/SKILL.md`에 있다. 레포에 포함되어 있어서 어느 계정에서든 따로 설치할 필요가 없다.

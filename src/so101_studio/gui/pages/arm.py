@@ -31,6 +31,7 @@ def servo_rows(status) -> list[dict]:
 
 
 # 움직이는 명령은 사람이 직접 실행한다 (decisions/0027)
+ZERO_CHECK_STEP = "so101 calibrate --verify-zero로 0° 자세를 확인합니다 (팔이 움직입니다)"
 NEW_ARM_STEPS = (
     "1. lerobot-setup-motors로 서보 ID를 정합니다 (모터에 씁니다)",
     "2. lerobot-calibrate --robot.id=<id>로 캘리브레이션합니다 (팔이 움직입니다)",
@@ -64,6 +65,11 @@ def _doctor_card(backend, controls: Controls) -> None:
         state_icon.name, color, _ = theme.DOCTOR_STYLES[worst]
         state_icon.props(f"color={color}")
         state_text.text = summary
+        zero = report.get("zero_check")  # shortcut: REQ-017(#41)이 합쳐지기 전에는 없다, 합쳐지면 없는 경우를 뺀다
+        if zero:
+            zero_icon.name, color, _ = theme.DOCTOR_STYLES["ok" if zero["state"] == "checked" else "warn"]
+            zero_icon.props(f"color={color}")
+            zero_text.text = f"0° 자세 확인: 확인됨 ({zero['date']})" if zero["state"] == "checked" else f"0° 자세 확인: 필요 ({zero['reason']})"
         problems.clear()
         details.clear()
         with problems:
@@ -87,17 +93,24 @@ def _doctor_card(backend, controls: Controls) -> None:
         with ui.row().classes("items-center gap-1 no-wrap"):
             state_icon = ui.icon("schedule", color="grey-8").mark("doctor-icon")
             state_text = ui.label("점검 중").classes("page-body").mark("doctor-state")
-        ui.label("포트를 열지 않고 확인합니다. 서보 응답과 전압은 터미널에서 so101 doctor로 봅니다").classes("page-body")
+        probe_note = "서보 응답과 전압은 앱을 시작할 때 읽은 값입니다. 지금 값은 아래 표에서 봅니다" if backend.real else "포트를 열지 않고 확인합니다. 서보 응답과 전압은 터미널에서 so101 doctor로 봅니다"
+        ui.label(probe_note).classes("page-body")
         problems = ui.column().classes("w-full gap-1").mark("doctor-problems")
         with ui.expansion("전체 항목").classes("w-full").mark("doctor-all"):
             details = ui.column().classes("w-full gap-1").mark("doctor-details")
         ui.separator()
         ui.label(f"팔 파일: {info['arm'] or '없음'} ({info['reason']})").classes("page-body").mark("arm-file")
+        with ui.row().classes("items-center gap-1 no-wrap"):  # decisions/0029
+            zero_icon = ui.icon("schedule", color="grey-8").mark("zero-check-icon")
+            zero_text = ui.label("0° 자세 확인: 준비 중").classes("page-body").mark("zero-check")
         if len(names) > 1:
             with ui.row().classes("items-center gap-2"):
                 picker = ui.select(names, value=info["arm"] or names[0], label="팔").classes("w-64").mark("arm-picker")
                 controls.add(ui.button("팔 바꾸기", on_click=controls.guard(choose)).props("outline no-caps").mark("arm-change"))
-        if not info["arm"] or backend.move_lock():
+        lock = backend.setup_lock()
+        if lock and lock.startswith("0° 자세"):
+            ui.label(f"터미널에서 {ZERO_CHECK_STEP}").classes("page-body").mark("zero-check-step")
+        elif not info["arm"] or lock:
             with ui.column().classes("gap-0").mark("new-arm-steps"):
                 ui.label("새 팔이면 이 순서로 준비합니다").classes("card-title")
                 for step in NEW_ARM_STEPS:
@@ -169,7 +182,8 @@ def build(backend, client_id: str, actions) -> None:
                 buttons = {}
                 for name, text in DIAGNOSTICS.items():
                     buttons[name] = ui.button(text, on_click=press(name)).props("outline no-caps").classes("w-full").mark(f"diag-{name}")
-                ui.label("linkwatch는 실제 팔의 포트가 필요해 시뮬레이션에서는 꺼져 있습니다").classes("page-body")
+                note = "linkwatch는 팔 연결을 잠시 끊고 포트를 직접 엽니다. 토크는 유지됩니다. [진단 중단]으로 끝내면 다시 연결합니다" if backend.real else "linkwatch는 실제 팔의 포트가 필요해 시뮬레이션에서는 꺼져 있습니다"
+                ui.label(note).classes("page-body")
 
     shown = [0]
 

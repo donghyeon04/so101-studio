@@ -22,7 +22,11 @@ grasp_tilt_deg: 35         # 손목 한계 때문에 이 각도까지만 기울�
 grasp_tilt_tol_deg: 15     # 턱 축이 팔이 뻗은 방향(앞뒤)에서 이만큼 안쪽일 때만 기울인다(5축 팔은 옆으로 기울일 수 없다)
 grasp_max_open_mm: 70      # 최대로 벌릴 틈(mm). 70이면 기울기 24°(손목 한계 안)라 V자가 대칭으로 보인다. 100은 손목 한계 35°에서 잘려 한쪽으로 보임. 물체가 약 60mm까지면 충분
 contact_lag_units: 4       # 닫는 중 실제 그리퍼 값이 명령보다 이만큼 앞서 멈춰 있으면 물체에 닿은 것으로 본다
-gripper_squeeze_torque: 300  # 닫을 때 조임 힘 한계(0~1000). 얇은 물체가 미끄러져 빠지지 않게 낮춤
+gripper_squeeze_torque: 300  # 닫을 때 조임 힘 한계(0~1000, RAM Torque_Limit). 얇은 물체가 미끄러져 빠지지 않게 낮춤
+gripper_hold_torque: 200     # 들고 옮기는 동안 조임 힘 한계. 그리퍼 Overload_Torque 25% 아래로 둔다(300이면 몇 초 뒤 과부하 보호에 걸린다). 놓은 뒤 원래 값으로 되돌린다
+grip_preload_units: 2        # 접촉 뒤 그리퍼 목표 = 지금 위치에서 이만큼 더 닫힌 쪽. 명령값이 실제보다 많이 닫혀 계속 미는 것을 없앤다
+gripper_load_warn_pct: 60    # 그리퍼 부하 감시 기준(%). 넘은 채 gripper_load_s 지나면 조임을 멈추고 WARN, 1초 더 이어지면 열고 fault. 정상 집기 5회 최대값x1.3으로 실측해 바꾼다
+gripper_load_s: 1.0          # 위 기준을 넘고 있어야 하는 시간(초)
 place_height_mm: 30        # 놓을 때 그리퍼 끝 높이
 gripper_open: 60           # 놓을 때 여는 정도(0~100)
 record_hz: 20            # 교시 기록 주기(Hz)
