@@ -285,3 +285,22 @@ def test_inside_path_is_sent_whole(tmp_path):
     src = make_source(cfg, clk, esp, arm, tmp_path)
     probe = src.start_check(src.scan().objects[0])
     assert probe._clip([(300, 200), (300, 240)]) == [[(300, 200), (300, 240)]]
+
+
+def test_fake_arm_slows_on_circle_and_corners():
+    """#77: 한 호출 안에서는 서지 않지만 원(v²/r <= 가속 한도, 반지름 45mm면 약 73mm/s)과 꺾임에서는 속도를 줄인다."""
+    from so101_studio.perception.ultrasonic.benchmark import FakeArm
+    from so101_studio.perception.ultrasonic.fake_esp32 import SimClock
+    from so101_studio.perception.ultrasonic.model import load_config
+
+    cfg, clk = load_config(), SimClock()
+    arm = FakeArm(clk, cfg, (300, 50))
+    ring = [(300 + 45 * math.cos(2 * math.pi * k / 36), 150 + 45 * math.sin(2 * math.pi * k / 36)) for k in range(37)]
+    arm.follow_path(ring, 55, 100)
+    circle_s = arm.calls[-1][1]
+    arm.follow_path([(300, 100), (480, 100), (390, 190), (390, 10)], 55, 100)
+    cross_s = arm.calls[-1][1]
+    # 등속 100mm/s + 가속·감속(약 0.83초)이면 원은 약 3.7초. 감속이 있으면 그보다 느리다
+    assert circle_s > 4.0
+    # L3+L4(총 길이 약 487mm): 꺾임 두 곳에서 줄이므로 직선 3번 값(약 5.7초)보다 길다
+    assert cross_s > 6.0

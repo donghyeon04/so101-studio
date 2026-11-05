@@ -16,12 +16,29 @@
 - `{"cmd":"gap","ms":N}`: 측정 간격 변경 → `{"t":"gap","ms":N}`. 설계서 7절에 없어 정식 규약에 넣을지 기획 확인 필요.
 - `once`의 `k`는 `"r"`, `"a"`, `"ra"`(번갈아 n회씩), `max_mm` 선택. 끝나면 `{"t":"done"}`.
 
-## 실측 절차 (U0, 서보 없음)
-실물 시험 전체 순서는 `measurements.md`의 "실물 시험 순서". 배선: 레이더 TRIG 25/ECHO 26, 팔 TRIG 32/ECHO 33, ECHO는 1k/2k 분압(5V→3.3V), 센서 전원 ESP32 5V. 펌웨어는 Arduino IDE 2에서 ESP32 보드로 올린다(업로드 중 시리얼 모니터는 닫는다).
-- B1: 센서를 110mm 높이에 아래로 고정, 40mm 상자를 옆에서 5mm씩 밀어 넣는다. 자리마다 `bench --k a --n 20 --gap 60 --label B1-x<mm>`, 거리가 바뀌는 수평 거리를 기록(앞뒤·좌우).
-- B2: 센서 20mm 높이 수평(`--k r`), 200mm 앞 상자를 5°씩 돌리며 자리마다 `--gap 60 --n 10 --label B2-<deg>`, 응답 없음이 늘어나는 각도를 기록.
-- B3: 고정 물체 앞에 두 센서를 서로 비스듬히 두고 `bench --k ra --n 200 --gaps 20,25,29,33,40 --label B3`. 출력의 간격별 엉뚱한 값 비율이 낮아지는 최소 간격이 `ping_gap_ms`.
-- 결과 CSV는 `runs/bench/`(git 제외). 값만 총괄에게 넘겨 `measurements.md`에 적는다.
+## 실측 절차 (U0, 서보 없음) — 그대로 따라 한다
+실물 시험 전체 순서는 `measurements.md`의 "실물 시험 순서". ESP32 포트를 쓰기 전과 뒤에 총괄에게 "ESP32 사용 시작/반납"을 알린다. 사용자가 옆에 있어야 한다. COM3(팔)은 쓰지 않는다.
+
+**0. 배선**(전원을 끄고): 레이더 TRIG 25/ECHO 26, 팔 TRIG 32/ECHO 33, ECHO는 1kΩ/2kΩ 분압(5V → 3.3V), 센서 전원은 ESP32 5V(VIN), GND 공통. 서보는 아직 없다. ESP32는 PC에 USB 데이터 케이블로 연결한다.
+
+**1. 포트 찾기**: `so101.cmd find-port`의 안내대로 ESP32 USB를 뽑아 사라진 포트가 ESP32 포트(예: COM5)다. 이 포트를 총괄에 알린다.
+
+**2. 펌웨어 올리기**(`firmware/esp32_scanner`, 컴파일은 통과 확인함). 둘 중 하나:
+- Arduino IDE 2: 보드 `ESP32 Dev Module`(esp32:esp32 패키지 3.3.12), 포트 선택, 업로드. 올리는 동안 시리얼 모니터는 닫는다.
+- 명령(arduino-cli 1.5.2는 `C:\Users\c\tools\arduino-cli-dl\arduino-cli.exe`): `arduino-cli.exe upload -p COM5 --fqbn esp32:esp32:esp32 firmware/esp32_scanner`
+올린 뒤 ESP32의 EN(리셋) 버튼을 한 번 누른다.
+
+**3. 연결 확인**: 레포 루트에서 `conda activate so101`, PowerShell은 `$env:PYTHONPATH="C:/Users/c/Desktop/so101-studio-us/src"`(session-workflow 2절). 그리고
+`python -m so101_studio.perception.ultrasonic.bench --port COM5 --k a --n 5 --label check`
+`hello: {...}`가 나오고 팔 센서 거리(mm)가 5개 보이면 된다(보드가 921600에서 안 되면 `--baud 115200`과 펌웨어 `Serial.begin` 값을 같이 바꾼다).
+
+**4. 측정**(결과 CSV는 `runs/bench/`, 값만 총괄에 보낸다. 아래 `--n`은 한 자리에서 잰 횟수):
+- **B1 아래로 본 빔 반경**: 팔 센서를 110mm 높이에 아래로 고정, 높이 40mm 상자를 옆에서 5mm씩 밀어 넣는다. 자리마다 `bench --port COM5 --k a --n 20 --gap 60 --label B1-<앞뒤 또는 좌우>-<mm>`. 거리가 바뀌는(상자 윗면이 보이기 시작하는) 수평 거리를 앞뒤·좌우로 기록 → `beam_half_deg`.
+- **B2 옆에서 본 면 각도 한계**: 레이더 센서를 20mm 높이 수평, 200mm 앞에 상자를 놓고 5°씩 돌리며 자리마다 `bench --port COM5 --k r --n 10 --gap 60 --label B2-<각도>`. 응답 없음(null)이 늘어나는 각도를 기록 → 면 반사 허용각.
+- **B3 최소 측정 간격**: 고정 물체 앞에 두 센서를 서로 비스듬히 두고 `bench --port COM5 --k ra --n 200 --gaps 20,25,29,33,40 --label B3`. 출력의 간격별 엉뚱한 값 비율이 낮아지는 최소 간격 → `ping_gap_ms`.
+- 간격 60ms 이상은 메아리가 없을 때 ECHO가 약 38ms HIGH로 남는 영향을 피하려는 것이다.
+
+**5. 총괄에 보낼 값**: 포트, 펌웨어 커밋, 위 B1·B2·B3 값(표), 이상한 점. 올린 뒤 "ESP32 반납"을 알린다.
 
 ## 측정
 (없음)

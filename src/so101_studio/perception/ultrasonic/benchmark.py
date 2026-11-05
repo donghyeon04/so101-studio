@@ -48,11 +48,13 @@ def arm_base() -> tuple[float, float]:
 
 class FakeArm:
     """가상 팔: 손끝 위치 기록, 센서 위치(손끝 + yaw로 돌린 오프셋), follow_path(REQ-023 모양).
-    시간 모델(8.5절): 호출마다 정지에서 출발·정지로 끝, 가속·감속 accel, 호출 사이 gap_s. 못 가는 경로는 움직이지 않고 []."""
+    시간 모델(8.5절, #77): 호출마다 정지에서 출발·정지로 끝, 가속·감속 accel, 호출 사이 gap_s, 한 호출 안에서는 서지 않되
+    꺾임·원에서 가속 한도를 넘지 않게 속도를 줄인다(원은 v²/r <= accel, 반지름 45mm면 약 73mm/s). 못 가는 경로는 움직이지 않고 []."""
 
-    def __init__(self, clk, cfg, base, travel_mm_s=400.0, reach=REACH, accel=120.0, gap_s=0.25, motion_scale=1.0):
+    def __init__(self, clk, cfg, base, travel_mm_s=400.0, reach=REACH, accel=120.0, gap_s=0.25, motion_scale=1.0, corner_radius_mm=10.0):
         self.clk, self.base, self.reach = clk, base, reach
         self.travel, self.accel, self.gap_s, self.motion_scale = travel_mm_s, accel, gap_s, motion_scale
+        self.corner_radius_mm = corner_radius_mm  # 모서리를 지나는 가상 곡률 반경(#77 가정, #73 결과로 고친다)
         self.off0 = (cfg.arm_sensor_offset_mm.x, cfg.arm_sensor_offset_mm.y, cfg.arm_sensor_offset_mm.z)
         self.yaw = 90.0  # 평소 손목 자세
         self.tip = base
@@ -98,25 +100,67 @@ class FakeArm:
         for k in range(1, n + 1):
             self._tick((a[0] + (to[0] - a[0]) * k / n, a[1] + (to[1] - a[1]) * k / n), z)
 
+    def _vertex_limits(self, pts, vmax):
+        """꺾임·원에서 가속 한도(accel)를 넘지 않게 줄인 속도(#77): 완전히 서는 것은 호출의 처음과 끝뿐이다.
+        작은 꺾임(30° 미만, 원 같은 곡선을 꺾은선으로 근사한 것)은 곡률 반경 R = 이웃 구간 중 짧은 길이 / (2 sin(꺾임/2)) 에서 v = sqrt(accel x R).
+        큰 꺾임(모서리)은 모서리를 corner_radius_mm로 둥글게 지난다고 보고 v = sqrt(accel x corner_radius_mm)."""
+        out = []
+        for i in range(1, len(pts) - 1):
+            a, b, c = pts[i - 1], pts[i], pts[i + 1]
+            l1, l2 = math.dist(a, b), math.dist(b, c)
+            if l1 < 1e-9 or l2 < 1e-9:
+                out.append(vmax)
+                continue
+            cosang = ((b[0] - a[0]) * (c[0] - b[0]) + (b[1] - a[1]) * (c[1] - b[1])) / (l1 * l2)
+            turn = math.degrees(math.acos(max(-1.0, min(1.0, cosang))))
+            if turn < 1.0:
+                out.append(vmax)
+            elif turn < 30.0:
+                out.append(min(vmax, math.sqrt(self.accel * min(l1, l2) / (2 * math.sin(math.radians(turn) / 2)))))
+            else:
+                out.append(min(vmax, math.sqrt(self.accel * self.corner_radius_mm)))
+        return out
+
     def _profile_walk(self, pts, z, vmax):
+        """폴리라인 전체를 한 번에 간다. 거리 1mm 단위로 속도 한도(꺾임·원 감속)를 잡고 가속·감속 120mm/s²로 앞뒤 훑어
+        처음·끝 0에서 출발·정지하는 속도 곡선을 만든 뒤 50Hz로 샘플링한다."""
         seg = [math.dist(a, b) for a, b in itertools.pairwise(pts)]
         L = sum(seg)
+        if L < 1e-9:
+            return []
         a = self.accel / self.motion_scale**2
-        v = min(vmax / self.motion_scale, math.sqrt(a * L)) if L else 0.0
-        ta, tc = v / a, (L - v * v / a) / v if v else 0.0
-        T = 2 * ta + tc
-        out, t = [], 0.0
-        while t < T - 1e-9:
-            t = min(t + DT, T)
-            s = 0.5 * a * t * t if t < ta else (v * v / (2 * a) + v * (t - ta) if t < ta + tc else L - 0.5 * a * (T - t) ** 2)
-            i, rem = 0, s
-            while i < len(seg) - 1 and rem > seg[i]:
-                rem -= seg[i]
-                i += 1
-            f = rem / seg[i] if seg[i] else 1.0
-            p, q = pts[i], pts[i + 1]
-            out.append(self._tick((p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f), z))
+        vmax = vmax / self.motion_scale
+        n = max(2, math.ceil(L))
+        ds = L / n
+        limit = [vmax] * (n + 1)
+        cum = 0.0
+        for k, v in enumerate(self._vertex_limits(pts, vmax)):
+            cum += seg[k]
+            limit[round(cum / ds)] = min(limit[round(cum / ds)], v)
+        v = [0.0] + [0.0] * n
+        for i in range(1, n + 1):  # 앞으로: 가속 한도
+            v[i] = min(limit[i], math.sqrt(v[i - 1] ** 2 + 2 * a * ds))
+        v[n] = 0.0
+        for i in range(n - 1, -1, -1):  # 뒤로: 감속 한도
+            v[i] = min(v[i], math.sqrt(v[i + 1] ** 2 + 2 * a * ds))
+        out, s_pos, t = [], 0.0, 0.0
+        while s_pos < L - 1e-9:
+            i = min(int(s_pos / ds), n - 1)
+            vi = max((v[i] + v[i + 1]) / 2, 1.0)  # 0에서 출발할 때 멈추지 않게 바닥값
+            step = max(min(vi * DT, L - s_pos), 1e-6)
+            s_pos += step
+            t += step / vi
+            out.append(self._at_arclen(pts, seg, s_pos, z))
         return out
+
+    def _at_arclen(self, pts, seg, s, z):
+        i, rem = 0, s
+        while i < len(seg) - 1 and rem > seg[i]:
+            rem -= seg[i]
+            i += 1
+        f = rem / seg[i] if seg[i] else 1.0
+        p, q = pts[i], pts[i + 1]
+        return self._tick((p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f), z)
 
     def follow_path(self, pts, z, speed, yaw=None):
         bad = [p for p in pts if not self.reachable(p)]
@@ -271,7 +315,7 @@ def commit() -> str:
 
 
 def format_table(results: list[dict]) -> str:
-    lines = [f"commit {results[0]['commit']}", "| 시나리오 | 모델 | 모드 | 수 | 성공 평균 | 성공 % | 남은 물체 | 인식 평균(초) | 인식 90%(초) |", "|---|---|---|---|---|---|---|---|---|"]
+    lines = [f"commit {results[0]['commit']}", f"재현: {results[0].get('command', '?')}", "| 시나리오 | 모델 | 모드 | 수 | 성공 평균 | 성공 % | 남은 물체 | 인식 평균(초) | 인식 90%(초) |", "|---|---|---|---|---|---|---|---|---|"]
     for r in results:
         s = r["summary"]
         lines.append(f"| {r['scenario']} | {r['model']} | {r['mode']} | {s['runs']} | {s['success_mean']:.2f}/{s['objects']} | {s['success_pct']:.0f}% | "
@@ -297,9 +341,10 @@ def main(argv=None):
     modes = ["accurate", "fast"] if a.mode == "both" else [a.mode]
     opts = {k: v for k, v in (("line_mm", a.line_mm), ("speed_mm_s", a.speed)) if v is not None}
     results, sha = [], commit()
+    cmd = "python -m so101_studio.perception.ultrasonic.benchmark " + " ".join(argv if argv is not None else __import__("sys").argv[1:])
     for name, model, mode in itertools.product(names, models, modes):
         rows = run_scenario(name, model, a.seeds, mode, verify=a.verify, **opts)
-        results.append({"commit": sha, "scenario": name, "model": model, "mode": mode, "options": {**opts, "verify": a.verify}, "summary": summarize(rows),
+        results.append({"commit": sha, "command": cmd, "scenario": name, "model": model, "mode": mode, "options": {**opts, "verify": a.verify}, "summary": summarize(rows),
                         "rows": [{k: v for k, v in r.items() if k != "log"} for r in rows]})
         print(format_table(results[-1:]).split("\n", 1)[1] if len(results) > 1 else format_table(results), flush=True)
     out = Path(a.out)
