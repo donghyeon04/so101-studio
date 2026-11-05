@@ -383,7 +383,11 @@ class ArmService:
         경로는 CORNER_STOP_DEG보다 크게 꺾이는 점에서만 끊어 구간마다 한 번에 이어 지난다(원 36점이 36번 서지 않는다).
         points_mm는 손끝 xy다(센서 xy가 아니다). yaw_deg는 경로 동안 고정할 손목 각도(None이면 지금 값). 센서 오프셋은 set_sensor_offset으로 먼저 받아 둬야 한다.
         반환: 구간을 따라가는 동안 50Hz 제어 틱마다 PoseSample(PC 단조 시계 perf_counter_ns, 손끝 위치, 센서 위치). 센서 위치는 그 틱에 읽은 실제 관절값으로 계산한다(그 때문에 이 동안만 틱마다 버스를 한 번 읽는다; 읽기 시간은 follow_path 기록의 read_ms_max·mean).
-        결과(ok, ik_fail, out_of_bounds+reason, stopped…)는 self.last_path. 속도는 min(요청, tool_v_max × 속도%)."""
+        결과는 self.last_path(MotionResult)에 남고, 빈 목록이 와도 이것으로 원인을 구분한다:
+          "ok": 끝까지 따라감(목록이 비지 않음). "ik_fail": 접근이나 경로 어딘가가 닿지 않아 움직이지 않음(빈 목록). "out_of_bounds": 안전 검사(관절 한계·작업 영역·바닥)에 걸려 움직이지 않음, last_path.reason에 이유(빈 목록).
+          "stopped": stop()으로 도중에 멈춤(그때까지의 샘플, 아직 접근 중이었다면 빈 목록). "fault": 통신 끊김 등 fault로 끝남(마찬가지). E-STOP도 진행 중이면 "stopped", 이미 멈춘 뒤 부르면 바로 "stopped"(빈 목록)다.
+          "locked": 캘리브레이션 불일치로 잠김(빈 목록). 호출하는 쪽은 빈 목록이면 last_path.status로 "그 구간 못 감"(ik_fail·out_of_bounds)과 "정지·사고"(stopped·fault·locked)를 가른다.
+        속도는 min(요청, tool_v_max × 속도%)."""
         pts = [(float(x), float(y)) for x, y in points_mm]
         if len(pts) < 2:
             raise ValueError("점이 2개 이상 있어야 합니다")

@@ -224,3 +224,5 @@ runs/
 
 # PC별 설정 (decisions/0027)
 config/local.yaml
+
+config/ultrasonic_baseline.json
