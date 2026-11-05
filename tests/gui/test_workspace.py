@@ -79,8 +79,8 @@ def test_state_tracks_chosen_and_placed():
 
 def test_registry_has_manual_page_and_pending_sensors():
     assert [path for path, _, _ in sensors.menu()] == ["/ultrasonic", "/camera", "/input"]
-    assert "/input" in sensors.pages()
-    assert sensors.pending_titles() == ["초음파 A·B", "카메라"]
+    assert {"/input", "/ultrasonic"} <= set(sensors.pages())
+    assert sensors.pending_titles() == ["카메라"]
     assert [v.name for v in sensors.mini_views()] == ["manual"]
 
 

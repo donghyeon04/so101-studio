@@ -41,8 +41,8 @@ def pending_titles() -> list[str]:
 
 
 # 메뉴 순서는 gui-spec 3절을 따른다
-register("ultrasonic", "초음파 A·B", "/ultrasonic", task="3단계")
+register("ultrasonic", "초음파", "/ultrasonic", task="3단계")
 register("camera", "카메라", "/camera", task="4단계")
-from . import manual_view
+from . import manual_view, ultrasonic_view
 
-__all__ = ["SENSORS", "SensorView", "manual_view", "menu", "mini_views", "pages", "pending_titles", "register"]
+__all__ = ["SENSORS", "SensorView", "manual_view", "menu", "mini_views", "pages", "pending_titles", "register", "ultrasonic_view"]
