@@ -66,6 +66,21 @@ class UltrasonicSource:
             self.link.expect(False)
         else:
             self._run_passes(1 if self.cfg.radar.early_start else 2)  # T3
+        objs, raw = self._candidates()
+        if not objs and len(self._passes) < self.cfg.radar.prefetch_sweeps:
+            # 한 바퀴에서 아무것도 안 보여도 바로 "없음"으로 끝내지 않는다: 바퀴를 더 돌려 합친다(응답 없음을 빼고 각도별 중앙값이라,
+            # 약한 반사가 한 번이라도 잡히면 호가 이어진다). 물체가 하나라도 보이면 이 시간은 들지 않는다.
+            more = self.cfg.radar.prefetch_sweeps - len(self._passes)
+            first = self._passes
+            self._run_passes(more)
+            self._passes = first + self._passes
+            objs, raw = self._candidates()
+        if self.bus:
+            self.bus.publish("us.candidates", {"objects": [dataclasses.asdict(o) for o in objs], "arcs": raw["arcs"],
+                                               "masked": raw["masked"]})
+        return ScanResult(objs, (self.clock.now_ns() - t0) / 1e9, raw)
+
+    def _candidates(self):
         vals, raw = radar.combine(self._passes, self._links_fn, self.cfg)
         cands, arcs = radar.find_candidates(vals, self.baseline, self.cfg)
         objs = []
@@ -78,10 +93,7 @@ class UltrasonicSource:
             objs.append(DetectedObject(f"us-{self._n}", c.x, c.y, None, 0.0, 0.0,
                                        min(0.3, 0.1 + 0.05 * c.arc_len), "ultrasonic"))
         raw.update(arcs=arcs, passes=len(self._passes), values=vals)
-        if self.bus:
-            self.bus.publish("us.candidates", {"objects": [dataclasses.asdict(o) for o in objs], "arcs": arcs,
-                                               "masked": raw["masked"]})
-        return ScanResult(objs, (self.clock.now_ns() - t0) / 1e9, raw)
+        return objs, raw
 
     def notify_picked(self, object_id: str) -> None:
         pass  # 레이더가 매번 새로 보므로 따로 뺄 것이 없다
