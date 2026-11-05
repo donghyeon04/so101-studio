@@ -25,7 +25,9 @@ class FakeESP32:
     def __init__(self, clock, boxes: list[Box], cfg, *, arm_sensor_fn=None, arm_links_fn=None,
                  seed: int = 0, noise_mm: float = 2.0, noise_pct: float = 0.003, dropout: float = 0.03,
                  boot_offset_us: int = 5_000_000, wrist_beam_half_deg: float | None = None,
-                 max_incidence_deg: float | None = None, servo_lag_deg: float = 0.0, corner=None):
+                 max_incidence_deg: float | None = None, servo_lag_deg: float = 0.0, corner=None,
+                 ignore_first_writes: int = 0):
+        self._ignore_writes = ignore_first_writes  # 부팅 중이라 처음 몇 줄은 못 받는다(포트를 열면 ESP32가 리셋되는 경우)
         # 센서 모델(8.5절): 거리 잡음 = noise_mm + noise_pct x 거리, 응답 없음 dropout, 손목 센서 빔 반각, 레이더 면 반사 허용각,
         # 서보 지연(갈 때 -lag°, 올 때 +lag°), 모서리 반사 corner = (반각 배율, 거리 mm, 확률)
         self.noise_pct, self.wrist_beam_half_deg = noise_pct, wrist_beam_half_deg
@@ -47,6 +49,9 @@ class FakeESP32:
     # --- transport ---
     def write(self, line: str) -> None:
         if self._dead:
+            return
+        if self._ignore_writes > 0:
+            self._ignore_writes -= 1
             return
         self._advance()  # 명령 이전 시각까지 먼저 처리
         m = json.loads(line)

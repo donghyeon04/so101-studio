@@ -97,7 +97,11 @@ String str(const String &s, const char *key) {
 
 void sweepEnd() {
   Serial.print("{\"t\":\"end\",\"dir\":"); Serial.print(swDir); Serial.print(",\"us\":"); Serial.print(micros()); Serial.println("}");
-  if (swBounce) { swDir = -swDir; swAngle = swDir < 0 ? swLast : swFrom; } else { swAngle = swFrom; }
+  if (swBounce) { swDir = -swDir; swAngle = swDir < 0 ? swLast : swFrom; }
+  else {  // 시작 각도로 크게 되돌아간다: 도착할 때까지 측정을 미룬다(MG90S 60°당 약 0.1초에 여유)
+    swAngle = swFrom;
+    notBeforeMs = millis() + (uint32_t)(swLast - swFrom) * 100UL / 60 * 3 / 2 + 30;
+  }
   if (swLeft > 0 && --swLeft == 0) mode = IDLE;
   if (mode == SWEEP) servoWrite(swAngle);
 }

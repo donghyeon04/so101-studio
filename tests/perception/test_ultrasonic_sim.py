@@ -304,3 +304,24 @@ def test_fake_arm_slows_on_circle_and_corners():
     assert circle_s > 4.0
     # L3+L4(총 길이 약 487mm): 꺾임 두 곳에서 줄이므로 직선 3번 값(약 5.7초)보다 길다
     assert cross_s > 6.0
+
+
+def test_connect_retries_hello_while_esp32_boots(tmp_path):
+    """포트를 열면 ESP32가 리셋되어 처음 몇 번의 hello가 사라진다. 0.5초마다 다시 보내 약 5초까지 기다린다."""
+    from so101_studio.perception.ultrasonic.fake_esp32 import FakeESP32, SimClock
+    from so101_studio.perception.ultrasonic.link import Link, UltrasonicLinkError
+    from so101_studio.perception.ultrasonic.model import load_config
+    from so101_studio.perception.ultrasonic.source import UltrasonicSource
+
+    cfg = load_config()
+    clk = SimClock()
+    src = UltrasonicSource(Link(FakeESP32(clk, [], cfg, ignore_first_writes=3), clk), cfg, arm_origin_mm=(300, 50),
+                           baseline_path=tmp_path / "b.json")
+    src.connect()  # 처음 3번은 무시되고 4번째에 응답
+    assert clk.t_ns >= 1_400_000_000  # 0.5초 x 3번 기다렸다
+    clk2 = SimClock()
+    dead = UltrasonicSource(Link(FakeESP32(clk2, [], cfg, ignore_first_writes=100), clk2), cfg, arm_origin_mm=(300, 50),
+                            baseline_path=tmp_path / "b2.json")
+    with pytest.raises(UltrasonicLinkError, match="hello"):
+        dead.connect()
+    assert 4.5e9 <= clk2.t_ns <= 6e9  # 약 5초 시도

@@ -26,9 +26,10 @@
 **1. 포트 찾기**: `so101.cmd find-port`의 안내대로 ESP32 USB를 뽑아 사라진 포트가 ESP32 포트(예: COM5)다. 이 포트를 총괄에 알린다.
 
 **2. 펌웨어 올리기**(`firmware/esp32_scanner`, 컴파일은 통과 확인함). 둘 중 하나:
-- Arduino IDE 2: 보드 `ESP32 Dev Module`(esp32:esp32 패키지 3.3.12), 포트 선택, 업로드. 올리는 동안 시리얼 모니터는 닫는다.
+- Arduino IDE 2: 보드 `ESP32 Dev Module`(**ESP32 보드 패키지 3.x 필요**: 서보 PWM에 쓰는 `ledcAttach`는 3.x 전용이다, 확인한 버전 esp32:esp32 3.3.12), 포트 선택, 업로드. 올리는 동안 시리얼 모니터는 닫는다.
 - 명령(arduino-cli 1.5.2는 `C:\Users\c\tools\arduino-cli-dl\arduino-cli.exe`): `arduino-cli.exe upload -p COM5 --fqbn esp32:esp32:esp32 firmware/esp32_scanner`
 올린 뒤 ESP32의 EN(리셋) 버튼을 한 번 누른다.
+**서보를 달 때 주의**: 펌웨어는 부팅할 때마다(그리고 포트를 열어 ESP32가 리셋될 때마다) 서보를 90°(정면)로 움직인다. 서보나 브래킷에 손을 대지 않고, 전원을 켜기 전에 회전 범위(10~170°)에 아무것도 없는지 확인한다.
 
 **3. 연결 확인**: 레포 루트에서 `conda activate so101`, PowerShell은 `$env:PYTHONPATH="C:/Users/c/Desktop/so101-studio-us/src"`(session-workflow 2절). 그리고
 `python -m so101_studio.perception.ultrasonic.bench --port COM5 --k a --n 5 --label check`
