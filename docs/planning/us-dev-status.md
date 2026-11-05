@@ -137,5 +137,5 @@ yaw 90에서는 센서가 손끝 왼쪽(-x)에 있어 안쪽(100)은 잘 되고 
 ## RESCAN·빈 바퀴 추가·실패 상한 (기획 #77, dev/us-radar, 승인 전)
 - `radar.empty_extra_sweeps`(기본 3): 첫 1~2바퀴에 후보가 없으면 그만큼 더 돌려 합쳐 다시 판단(후보가 있으면 시간이 들지 않는다).
 - `radar.rescan_home`(기본 켬): 후보가 없으면 작업 실행이 팔을 레이더 시야 밖 대기 자세로 옮긴 뒤 `source.rescan()`(prefetch_sweeps바퀴)을 한 번 부른다. 후보가 있으면 DECIDE, 또 없으면 DONE이고 연달아 두 번은 안 한다. 벤치마크는 대기 자세(PREPARE 자세)가 정해지지 않아 팔 원점 위(`arm.base`, 높이 150mm)로 흉내 낸다.
-- `check.max_fail_per_run`(기본 0=끔): 한 작업 실행의 확인 실패(물체 없음·못 감)가 N번이면 `source.give_up`이 True가 되어 작업 실행이 끝낸다. `begin_cycle()`이 비운다.
+- `check.max_fail_per_run`(기본 0=끔): 한 작업 실행의 실패가 N번이면 `source.give_up`이 True가 되어 작업 실행이 끝낸다. 세는 것: 확인 "물체 없음"·"못 감", 그리고 작업 실행이 `source.note_failure(x, y)`로 알리는 실패(확인한 자리에서 집기가 실패한 경우). 같은 자리가 두 번째 실패면 이번 사이클에서 다시 고르지 않는다. `begin_cycle()`이 비운다. (확인 결과가 틀렸지만 물체가 있는 자리면 실패로 알 수 없어 세지 않는다.)
 - 벤치마크 옵션: `--rescan-home on|off`, `--max-fail N`, `--empty-extra N`. 표 끝에 "빠른 vs 정확" 줄(빠른이 정확보다 인식 평균 시간이 10% 이상 짧은지, 성공률 차이)을 낸다. 90%는 가장 가까운 순위, 평균·중앙값·최대와 같은 표본이다.

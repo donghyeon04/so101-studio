@@ -142,21 +142,26 @@ class UltrasonicSource:
             self.link.send(cmd="stop")
             self.link.expect(False)
         if cand is not None:
-            if status in ("empty", "unreachable"):
-                self._fail_count += 1
             if status == "empty":
+                self._fail_count += 1
                 self._rejected.append((cand.x_mm, cand.y_mm))  # 레이더 오검출: 후보 삭제
             elif status == "unreachable":
-                near = next((f for f in self._fails if math.hypot(f[0] - cand.x_mm, f[1] - cand.y_mm) <= self.cfg.radar.merge_mm / 2), None)
-                if near is None:
-                    near = [cand.x_mm, cand.y_mm, 0]
-                    self._fails.append(near)
-                near[2] += 1
-                if near[2] >= 2:  # 같은 자리가 두 번 못 가면 이번 사이클에서 다시 고르지 않는다(DECIDE→CHECK 무한 반복 방지)
-                    self._rejected.append((cand.x_mm, cand.y_mm))
+                self.note_failure(cand.x_mm, cand.y_mm)
             if self.bus:
                 self.bus.publish("us.check_result", {"id": cand.id, "object": dataclasses.asdict(result) if result else None,
                                                      "info": info or {}, "status": status})
+
+    def note_failure(self, x_mm: float, y_mm: float) -> None:
+        """확인 실패(못 가서 못 잼)나 집기 실패를 작업 실행이 알린다. check.max_fail_per_run에 센다.
+        같은 자리가 두 번째면 이번 사이클에서 다시 고르지 않는다(DECIDE→CHECK 무한 반복 방지)."""
+        self._fail_count += 1
+        near = next((f for f in self._fails if math.hypot(f[0] - x_mm, f[1] - y_mm) <= self.cfg.radar.merge_mm / 2), None)
+        if near is None:
+            near = [x_mm, y_mm, 0]
+            self._fails.append(near)
+        near[2] += 1
+        if near[2] >= 2:
+            self._rejected.append((x_mm, y_mm))
 
     def begin_cycle(self) -> None:
         """작업 사이클 시작 때 작업 실행(REQ-025)이 부른다: 지운 자리와 실패 횟수를 비운다. calibrate()도 부른다."""

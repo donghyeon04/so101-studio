@@ -274,6 +274,8 @@ def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, resc
         square = picked and box.width == box.length
         good = picked and err <= 15 and (square or angle_ok(obj.angle_deg, box.angle_deg % 180))
         log.append({"result": "ok" if good else "bad" if picked else "miss", "err": err})
+        if not picked:  # 확인한 자리에 물체가 없어 집기 실패: 작업 실행이 실패를 알린다
+            src.note_failure(cand.x_mm, cand.y_mm)
         ok += good
         if picked:
             esp.boxes.remove(box)
