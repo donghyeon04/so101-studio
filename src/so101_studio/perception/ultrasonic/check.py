@@ -175,7 +175,10 @@ class Probe:
                  ctr[1] + c.ring_r_mm * math.sin(2 * math.pi * k / c.ring_n)) for k in range(c.ring_n + 1)]
         got = yield self._seg_of("R", ring)
         got = [] if got is UNREACHABLE else got
-        th = [math.atan2(y - ctr[1], x - ctr[0]) for x, y, z, d in got if z - d > c.hit_mm]
+        # 칸(sample_mm 호 길이)마다 한 번만 센다: 팔이 멈칫하며 같은 자리를 여러 번 재도 방향 평균이 쏠리지 않게
+        cells = {round((math.atan2(y - ctr[1], x - ctr[0]) % (2 * math.pi)) * c.ring_r_mm / c.sample_mm)
+                 for x, y, z, d in got if z - d > c.hit_mm}
+        th = [i * c.sample_mm / c.ring_r_mm for i in sorted(cells)]
         sx = sum(math.sin(2 * t) for t in th)
         cx = sum(math.cos(2 * t) for t in th)
         R = math.hypot(sx, cx) / len(th) if th else 0.0

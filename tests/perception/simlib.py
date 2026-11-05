@@ -18,7 +18,11 @@ TOOL_V_MAX = 100.0  # robot.yaml tool_v_max_mm_s
 
 class FakeArm:
     # 기본은 도달 제한 없음. 실제에 가까운 범위(REQ-023: 반경 100~240mm, 각도 25~155°)는 STRICT_REACH
-    def __init__(self, clk, cfg, travel_mm_s=400.0, reach=None):
+    # follow_path 시간 모델(팔 세션 측정, dev/arm-req-023 measurements.md): 호출마다 정지에서 시작·정지로 끝, 가속 120mm/s²,
+    # 호출 사이 0.25초. motion_scale > 1이면 측정이 모델보다 느린 만큼(180mm 직선 측정 3.63초 / 모델 2.77초) 여유를 준다.
+    def __init__(self, clk, cfg, travel_mm_s=400.0, reach=None, accel=120.0, gap_s=0.25, motion_scale=1.0):
+        self.accel, self.gap_s, self.motion_scale = accel, gap_s, motion_scale
+        self.calls = []  # (경로 길이 mm, 걸린 초)
         self.reach = reach
         self.last_path = None
         self.clk, self.travel = clk, travel_mm_s
@@ -70,6 +74,27 @@ class FakeArm:
                     out.append(p)
         return out
 
+    def _profile_walk(self, pts, z, vmax):
+        """정지에서 출발해 가속(accel)·순항(vmax)·감속으로 폴리라인 전체를 한 번에 간다."""
+        seg = [math.dist(a, b) for a, b in itertools.pairwise(pts)]
+        L = sum(seg)
+        a = self.accel / self.motion_scale**2  # 시간을 motion_scale배로 늘린다
+        v = min(vmax / self.motion_scale, math.sqrt(a * L)) if L else 0.0
+        ta, tc = v / a, (L - v * v / a) / v if v else 0.0
+        T = 2 * ta + tc
+        out, t = [], 0.0
+        while t < T - 1e-9:
+            t = min(t + DT, T)
+            s = 0.5 * a * t * t if t < ta else (v * v / (2 * a) + v * (t - ta) if t < ta + tc else L - 0.5 * a * (T - t) ** 2)
+            i, rem = 0, s
+            while i < len(seg) - 1 and rem > seg[i]:
+                rem -= seg[i]
+                i += 1
+            f = rem / seg[i] if seg[i] else 1.0
+            a_, b_ = pts[i], pts[i + 1]
+            out.append(self._tick((a_[0] + (b_[0] - a_[0]) * f, a_[1] + (b_[1] - a_[1]) * f), z))
+        return out
+
     def move(self, to, z, speed=None):
         self._walk([self.tip, to], z, speed or self.travel, False)
 
@@ -83,20 +108,24 @@ class FakeArm:
         speed = min(speed, TOOL_V_MAX)
         if math.dist(self.tip, pts[0]) > 0.5 or abs(self.z - z) > 0.5:
             self.move(pts[0], z)
+        self.clk.sleep(self.gap_s)  # 호출 사이 정지
+        t0 = self.clk.now_ns()
         first = PoseSample(self.clk.now_ns(), (*pts[0], z), self._sensor(pts[0], z))
-        return [first, *self._walk(pts, z, speed, True)]
+        poses = [first, *self._profile_walk(pts, z, speed)]
+        self.calls.append((sum(math.dist(a, b) for a, b in itertools.pairwise(pts)), (self.clk.now_ns() - t0) / 1e9))
+        return poses
 
 
 STRICT_REACH = (100, 240, 25, 155)
 
 
-def build(boxes, mode="accurate", seed=0, reach=None, **check):
+def build(boxes, mode="accurate", seed=0, reach=None, arm_kw=None, **check):
     cfg = load_config(mode=mode, **check)
     clk = SimClock()
     arm_holder = {}
     esp = FakeESP32(clk, boxes, cfg, seed=seed, arm_sensor_fn=lambda t: arm_holder["a"].sensor_at(t),
                     arm_links_fn=lambda t: arm_holder["a"].links_at(t))
-    arm = arm_holder["a"] = FakeArm(clk, cfg, **({"reach": reach} if reach else {}))
+    arm = arm_holder["a"] = FakeArm(clk, cfg, **({"reach": reach} if reach else {}), **(arm_kw or {}))
     return cfg, clk, esp, arm
 
 

@@ -6,7 +6,7 @@
 | # | 작업 | 상태 |
 |---|---|---|
 | U0 | 실측용 펌웨어 `firmware/esp32_scanner`, `perception/ultrasonic/bench.py` | 코드 작성, 펌웨어 컴파일·실물 미확인(Arduino CLI 없음). 사용자와 B1~B3 대기 |
-| U2 | model, fake_esp32, radar, check, source, link, config | 코드·시험 완료(PR 대기). 가상 ESP32로 물체 3개 끝까지: 정확 38.5초·3.0/3, 빠른 29.7초·3.0/3 (팔 100mm/s) |
+| U2 | model, fake_esp32, radar, check, source, link, config | 코드·시험 완료(PR 대기). 가상 ESP32로 물체 3개 끝까지(팔 follow_path 비용 반영): 성공은 정확 3.0/3, 빠른 2.3/3이지만 시간은 정확 54.7초(기준 45), 빠른 T9 켬 73.9초·끔 47.4초(기준 30)로 기준 초과 — 기획 요청 대기 |
 | U5 | 펌웨어 7절 전부 | 대기(서보 11/12 예정) |
 | U6·U7·U9 | 총괄이 보냄 | - |
 
@@ -31,7 +31,10 @@
 
 ## U2 구현 메모
 - 시험은 가상 시계(`SimClock`)로 돈다. `FakeESP32.write/readlines`가 `SerialTransport`와 같은 모양이라 `Link`가 구분하지 못한다. 시험용 가상 팔은 `tests/perception/simlib.py`.
-- 팔 확인 속도 100mm/s(기획 답). 빠른 모드는 `line_mm: 130`을 쓴다(U9 조정값): 180이면 약 35초(30초 기준 초과), 130이면 29.7초·성공 3.0/3, 120이면 29초·2.5/3.
+- 팔 확인 속도 100mm/s(기획 답). 빠른 모드는 `line_mm: 130`을 쓴다(U9 조정값).
+- **시간 모델(팔 세션 측정)**: 가상 팔은 호출마다 정지에서 출발·정지로 끝, 가속 120mm/s², 호출 사이 0.25초. (모델: 180mm 직선 2.64초, 36mm 1.10초. 측정: 3.63초, 1.30초라 모델이 가볍다. `motion_scale=1.25`면 정확 65초.) 이 모델에서 물체 3개(10회 평균, 성공/인식 초): 정확 line180 3.0/54.7 · line130 2.5/47.7 · line100 1.8/43.4, 빠른 T9 끔 line180 3.0/54.3 · line130 2.3/47.4 · line100 1.7/43.3, 빠른 T9 켬(36mm 조각 45번 호출) line130 2.3/73.9. 가속 240mm/s²이면 빠른 T9 끔 line130 3.0/41.1, 정확 line180 2.8/48.4. 기준은 45·30초라 이 모델에서는 둘 다 못 맞춘다. 시간 시험은 xfail로 두고 성공만 확인한다.
+- 원(R)은 follow_path 한 번(연속 37점 경로)이고, 정확 모드는 물체당 follow_path 5번(L1·L2·R·L3·L4)이다.
+- 원 방향 추정은 호 길이 칸마다 한 번만 센다(팔이 호출 시작·끝에서 느려 같은 자리를 여러 번 재면 방향 평균이 쏠려서).
 - **REQ-023 임시**: `PathSegment`, `PoseSample(t_ns, tool_mm, sensor_mm)`, `CheckProbe`, `CheckableSource`는 `model.py`에 임시 정의. `follow_path`는 못 가는 경로면 움직이지 않고 빈 목록을 돌려준다(이유는 `arm.last_path`). 8.2절 루프 그대로 `probe.feed([])`가 불리고, 그 구간은 데이터 없음으로 보고 다음 경로로 가며(신뢰도 -0.2, `probe.info["unreachable"]`), 전부 못 가면 `probe.status == "unreachable"`, 결과 None이고 후보는 지우지 않는다. 물체 없음은 `status == "empty"`이고 후보가 삭제된다(같은 자리는 다시 안 나온다).
 - 시뮬레이션 도달(반경 100~240mm, 각도 25~155°)에서는 ±90mm 직선이 반경 방향이면 항상 일부가 범위를 벗어난다(폭 140mm < 직선 180mm). 그래서 반경 방향 선(L2 등)은 대부분 거부된다. `line_mm`·`ring_r_mm`은 설정값이라 기획 답에 따라 바꾼다.
 - `check.py`의 `sensor_to_tip` 한 곳에서만 센서 선 → 손끝 점 변환(yaw로 돌린 오프셋). `check.yaw_deg` 설정(기본 0, 이 각도일 때의 `arm_sensor_offset_mm`).
