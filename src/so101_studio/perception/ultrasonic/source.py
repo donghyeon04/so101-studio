@@ -5,8 +5,7 @@ import math
 from bisect import bisect_right
 from pathlib import Path
 
-import yaml
-
+from ...core.config import load_workspace
 from ...core.types import DetectedObject, ScanResult
 from . import radar
 from .check import Probe
@@ -14,9 +13,9 @@ from .link import UltrasonicLinkError
 from .model import PoseSample
 
 
-def _arm_origin_from_workspace(path="config/workspace.yaml") -> tuple[float, float]:
-    b = yaml.safe_load(Path(path).read_text(encoding="utf-8"))["robot_base_in_table"]
-    return b["x_mm"], b["y_mm"]
+def _arm_origin_from_workspace() -> tuple[float, float]:
+    b = load_workspace().base  # 다른 설정처럼 config/ 아래를 현재 폴더 기준으로 읽는다(so101 런처가 레포 루트로 옮겨 실행)
+    return b.x_mm, b.y_mm
 
 
 class UltrasonicSource:
@@ -37,7 +36,8 @@ class UltrasonicSource:
         self._last_pose: PoseSample | None = None
         self._prefetching = False
         self._checking = False
-        self._rejected: list[tuple[float, float]] = []
+        self._rejected: list[tuple[float, float]] = []  # 이번 사이클에 다시 고르지 않을 자리
+        self._fails: list[list] = []  # [x, y, 못 간 횟수]: 못 가서 못 잰 후보는 두 번째에 뺀다(6절)
         self._n = 0
 
     # --- PerceptionSource ---
@@ -51,7 +51,7 @@ class UltrasonicSource:
         self._run_passes(3)
         self.baseline = radar.make_baseline(self._passes)
         self.baseline.save(self.baseline_path)
-        self._rejected.clear()
+        self.begin_cycle()
         return {"angles": len(self.baseline.d), "unstable": sorted(self.baseline.unstable)}
 
     def scan(self) -> ScanResult:
@@ -111,10 +111,23 @@ class UltrasonicSource:
             self.link.expect(False)
         if cand is not None:
             if status == "empty":
-                self._rejected.append((cand.x_mm, cand.y_mm))  # 레이더 오검출: 후보 삭제(못 가서 못 잰 경우는 지우지 않는다)
+                self._rejected.append((cand.x_mm, cand.y_mm))  # 레이더 오검출: 후보 삭제
+            elif status == "unreachable":
+                near = next((f for f in self._fails if math.hypot(f[0] - cand.x_mm, f[1] - cand.y_mm) <= self.cfg.radar.merge_mm / 2), None)
+                if near is None:
+                    near = [cand.x_mm, cand.y_mm, 0]
+                    self._fails.append(near)
+                near[2] += 1
+                if near[2] >= 2:  # 같은 자리가 두 번 못 가면 이번 사이클에서 다시 고르지 않는다(DECIDE→CHECK 무한 반복 방지)
+                    self._rejected.append((cand.x_mm, cand.y_mm))
             if self.bus:
                 self.bus.publish("us.check_result", {"id": cand.id, "object": dataclasses.asdict(result) if result else None,
                                                      "info": info or {}, "status": status})
+
+    def begin_cycle(self) -> None:
+        """작업 사이클 시작 때 작업 실행(REQ-025)이 부른다: 지운 자리와 실패 횟수를 비운다. calibrate()도 부른다."""
+        self._rejected.clear()
+        self._fails.clear()
 
     def prefetch(self, arm_links_fn) -> None:
         """T5: 놓는 동안 레이더를 돌린다. 다음 scan()이 그 바퀴들을 합쳐 쓴다."""

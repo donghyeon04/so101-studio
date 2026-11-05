@@ -164,12 +164,78 @@ def test_all_unreachable_keeps_candidate(tmp_path):
     assert len(src.scan().objects) == 1  # 다시 스캔해도 후보가 남아 있다
 
 
-def test_yaw_rotates_sensor_offset(tmp_path):
-    """손목 yaw 90도면 센서 오프셋이 돌아가므로 손끝 경로가 달라져도 확인 결과는 같다."""
-    cfg, clk, esp, arm = build([Box(300, 170, 0)], yaw_deg=90)
+@pytest.mark.parametrize("yaw", [0, 45, 90])
+def test_yaw_rotates_sensor_offset(tmp_path, yaw):
+    """손목 yaw에 따라 센서 오프셋이 돌아가므로 손끝 경로가 달라져도 확인 결과는 같다."""
+    cfg, clk, esp, arm = build([Box(300, 170, 0)], yaw_deg=yaw)
     src = make_source(cfg, clk, esp, arm, tmp_path)
     obj, _, _ = do_check(src, arm, src.scan().objects[0])
     assert math.dist((obj.x_mm, obj.y_mm), (300, 170)) < 10
+
+
+def test_sensor_to_tip_default_yaw_90():
+    """기본 yaw 90: 도구 프레임 오프셋 (0, 30)이 작업대 좌표 (-30, 0)으로 돌아간다(센서 = 손끝 + 돌린 오프셋)."""
+    from so101_studio.perception.ultrasonic.check import sensor_to_tip
+    from so101_studio.perception.ultrasonic.model import load_config
+
+    cfg = load_config()
+    assert cfg.check.yaw_deg == 90
+    (tip,) = sensor_to_tip([(100.0, 100.0)], cfg)
+    assert tip == pytest.approx((130.0, 100.0))
+
+
+def test_origin_comes_from_workspace_config(tmp_path):
+    from so101_studio.perception.ultrasonic.fake_esp32 import FakeESP32, SimClock
+    from so101_studio.perception.ultrasonic.link import Link
+    from so101_studio.perception.ultrasonic.model import load_config
+    from so101_studio.perception.ultrasonic.source import UltrasonicSource
+
+    clk, cfg = SimClock(), load_config()
+    src = UltrasonicSource(Link(FakeESP32(clk, [], cfg), clk), cfg, baseline_path=tmp_path / "b.json")
+    assert src.arm_origin == (300.0, 50.0)  # config/workspace.yaml robot_base_in_table
+
+
+def test_unreachable_twice_is_dropped_until_next_cycle(tmp_path):
+    """못 가서 못 잰 후보는 두 번째에 뺀다(6절). 사이클 시작(begin_cycle)에 다시 나온다."""
+    cfg, clk, esp, arm = build([Box(300, 400, 0)], reach=STRICT_REACH)  # 레이더 앞 변 쪽: 팔이 못 간다
+    src = make_source(cfg, clk, esp, arm, tmp_path)
+    for n in (1, 2):
+        cands = src.scan().objects
+        assert len(cands) == 1, n
+        obj, probe, _ = do_check(src, arm, cands[0])
+        assert obj is None and probe.status == "unreachable"
+    assert src.scan().objects == []  # 두 번 못 갔으니 이번 사이클에서는 더 안 고른다
+    src.begin_cycle()
+    assert len(src.scan().objects) == 1
+
+
+def test_abort_stops_esp32_and_keeps_candidate(tmp_path):
+    """정지·E-STOP: probe.abort()가 ESP32에 stop을 보내고 후보는 지우지 않는다."""
+    cfg, clk, esp, arm = build([Box(300, 170, 0)])
+    src = make_source(cfg, clk, esp, arm, tmp_path)
+    cand = src.scan().objects[0]
+    probe = src.start_check(cand)
+    assert probe.next_segment() is not None
+    clk.sleep(0.2)
+    assert esp._stream is not None
+    probe.abort()
+    assert esp._stream is None and probe.status == "aborted" and probe.next_segment() is None
+    assert len(src.scan().objects) == 1  # 지워지지 않았다
+
+
+def test_check_path_published_at_start_and_end(tmp_path):
+    from so101_studio.core.events import EventBus
+
+    cfg, clk, esp, arm = build([Box(300, 235, 0)], reach=STRICT_REACH)
+    bus, got = EventBus(), []
+    bus.subscribe("us.check_path", got.append)
+    src = make_source(cfg, clk, esp, arm, tmp_path)
+    src.bus = bus
+    do_check(src, arm, src.scan().objects[0])
+    stage_phases = [(e["stage"], e["phase"]) for e in got]
+    assert stage_phases[0] == ("L1", "start") and got[0]["points"] == []
+    assert ("L1", "end") in stage_phases
+    assert any(e["unreachable"] for e in got)  # 못 간 구간은 unreachable로 알린다
 
 
 def _all_segments(src, arm, cand):
@@ -186,9 +252,10 @@ def test_clip_to_reach_splits_and_limits_paths(tmp_path):
     cfg, clk, esp, arm = build([Box(300, 170, 0)], clip_to_reach=True)
     src = make_source(cfg, clk, esp, arm, tmp_path)
     probe = src.start_check(src.scan().objects[0])
-    pieces = probe._clip([(300, -40), (300, 200)])  # 손끝 y -70~170: 원점(300,50)에서 반경 60 안(y -10~110)은 건너뛴다
+    # yaw 90이라 손끝 x = 센서 x + 30 = 330, 손끝 y = 센서 y. 원점(300,50) 반경 60 안(손끝 y -2~102)은 건너뛴다
+    pieces = probe._clip([(300, -70), (300, 170)])
     assert len(pieces) == 2
-    assert pieces[0][-1][1] == pytest.approx(20, abs=3) and pieces[1][0][1] == pytest.approx(140, abs=3)  # 센서 y(손끝 y + 30)
+    assert pieces[0][-1][1] == pytest.approx(-2, abs=3) and pieces[1][0][1] == pytest.approx(102, abs=3)
     reach = cfg.check.tool_reach_mm
     probe, _obj, segs = _all_segments(src, arm, src.scan().objects[0])
     for seg in segs:
@@ -200,4 +267,4 @@ def test_clip_off_sends_whole_paths(tmp_path):
     cfg, clk, esp, arm = build([Box(300, 170, 0)])
     src = make_source(cfg, clk, esp, arm, tmp_path)
     probe = src.start_check(src.scan().objects[0])
-    assert probe._clip([(300, -40), (300, 200)]) == [[(300, -40), (300, 200)]]
+    assert probe._clip([(300, -70), (300, 170)]) == [[(300, -70), (300, 170)]]

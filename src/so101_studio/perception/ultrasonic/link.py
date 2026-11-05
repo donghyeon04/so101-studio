@@ -102,6 +102,8 @@ class Link:
                 m["t_ns"] = self.to_ns(m["us"])
             self.inbox.append(m)
         now = self.clock.now_ns()
+        if self._sync_t0 is not None and now - self._sync_t0 > 1_000_000_000:
+            self._sync_t0 = None  # 응답이 안 왔다: 다음 poll에서 다시 보낸다
         if self._expect and now - self._last_rx > self.LOST_S * 1e9:
             raise UltrasonicLinkError("US-LOST: ESP32 응답이 1초 넘게 없다")
         if self._sync_t0 is None and now - self._last_sync >= self.sync_every_ns:

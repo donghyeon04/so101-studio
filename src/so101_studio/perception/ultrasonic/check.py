@@ -59,15 +59,26 @@ class Probe:
         name, seg, sensor_pts = self._cur
         if not poses:
             self.info.setdefault("unreachable", []).append(name)
+            self._publish_path(name, seg, [], phase="end", unreachable=True)
             self._step(UNREACHABLE)
             return
         # 경로 밖 점(접근 이동 중 측정 등)은 버린다
         pts = [p for p in self.src.arm_points(poses) if _near(p, sensor_pts, 12)]
+        self._publish_path(name, seg, [(x, y, z - d) for x, y, z, d in pts], phase="end")
+        self._step(pts)
+
+    def abort(self) -> None:
+        """정지·E-STOP·fault로 확인을 중간에 끝낼 때 작업 실행이 부른다(follow_path의 last_path가 stopped·fault·locked일 때).
+        ESP32에 stop을 보내고 결과 없이 닫는다. 후보는 지우지 않는다(status "aborted")."""
+        self._gen.close()
+        self._seg, self._res, self.status = None, None, "aborted"
+        self.src.end_check(self.cand, None, self.info, self.status)
+
+    def _publish_path(self, name, seg, points, phase, unreachable=False):
         if self.bus:
             self.bus.publish("us.check_path", {
-                "id": self.cand.id, "stage": name, "points_mm": seg.points_mm, "tool_z_mm": seg.tool_z_mm,
-                "points": [(x, y, z - d) for x, y, z, d in pts]})
-        self._step(pts)
+                "id": self.cand.id, "stage": name, "phase": phase, "points_mm": seg.points_mm,
+                "tool_z_mm": seg.tool_z_mm, "points": points, "unreachable": unreachable})
 
     def result(self) -> DetectedObject | None:
         self.src.end_check(self.cand, self._res, self.info, self.status)
@@ -80,6 +91,9 @@ class Probe:
             self._seg, self._res = None, e.value
             self.status = "ok" if self._res else ("unreachable" if self.info.get("unreachable") else "empty")
             self.info["check_s"] = (self.src.clock.now_ns() - self._t0) / 1e9
+        else:
+            if self._seg is not None:  # 구간을 시작할 때 한 번: 화면이 팔이 움직이는 동안 경로를 그린다
+                self._publish_path(*self._cur[:2], [], phase="start")
 
     # --- 경로 ---
     def _inside(self, sensor_p) -> bool:

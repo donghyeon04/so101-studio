@@ -80,3 +80,12 @@ line100은 100mm 물체의 양 끝을 못 봐서 길이·방향이 틀어진다(
 | 빠른 line100 | 1.7/43.3 | 1.7/43.9 |
 
 3개일 때가 1개일 때보다 훨씬 나쁘다. 이유: (1) 레이더가 긴 물체의 비스듬한 면을 두 호로 쪼개 가짜 후보가 생기거나(예: 정답 (200,190)에 후보 (131,212)), 물체 간격이 110~130mm이면 한 후보로 합쳐진다(merge_mm 110). (2) 확인 원·직선이 이웃 물체를 잡는다. (3) 실패하면 같은 물체를 다시 확인해 시간이 늘어난다. U9에서 레이더 호 합치기·가짜 후보를 손봐야 한다.
+
+## 작업 실행(REQ-025)이 부를 것 (PR #72 검토 반영)
+- `source.begin_cycle()`: 작업 사이클 시작 때 부른다. 지운 자리와 못 간 횟수를 비운다(`calibrate()`도 부른다). 같은 자리가 "물체 없음"이면 바로, "못 가서 못 잼"이면 두 번째에 이번 사이클에서 뺀다(6절).
+- `probe.abort()`: 확인 중 정지·E-STOP·fault로 끝낼 때 부른다(follow_path가 빈 목록을 주고 `last_path.status`가 stopped·fault·locked일 때). ESP32에 `stop`을 보내고 후보는 지우지 않는다(`probe.status == "aborted"`). 빈 목록이 `ik_fail`·`out_of_bounds`면 `abort`가 아니라 그대로 `probe.feed([])`다.
+- `follow_path`가 블로킹인 동안에는 `Link.poll()`이 불리지 않아, ESP32 끊김은 그 구간이 끝난 뒤에야 알게 된다(지금은 구간이 몇 초라 괜찮다).
+- `check.yaw_deg` 기본 90(평소 손목 자세). 센서 오프셋은 도구 프레임 값이고 yaw로 돌려 작업대 좌표로 바꾼다(`sensor_to_tip`): yaw 90에서 (0, 30) → (-30, 0). 팔 쪽 `sensor_position`(`tool_axes(q) @ offset`)과 같은 회전인지는 #73이 합쳐진 뒤 같은 yaw에서 두 값을 비교하는 시험으로 확인한다(지금은 yaw → 도구 x축 방향 = (cos yaw, sin yaw)로 가정).
+- 설정 경로는 다른 설정처럼 `config/…`를 현재 폴더 기준으로 읽는다(`so101` 런처가 레포 루트로 옮겨 실행한다). 팔 원점은 `core.config.load_workspace()`에서 읽는다.
+- `us.check_path`는 구간 시작에 `phase: "start"`, `points: []`로 한 번, 끝에 `phase: "end"`로 한 번 낸다. 건너뛴 구간은 `unreachable: true`, `points: []`.
+- REQ-023 타입이 `perception/base.py`(#73)에 들어가면 `model.py`의 임시 정의(PathSegment, PoseSample, CheckProbe, CheckableSource)를 지우고 거기서 가져오는 후속 커밋을 낸다.

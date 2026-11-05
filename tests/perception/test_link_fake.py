@@ -52,6 +52,25 @@ def test_stream_pauses_radar_and_stop():
     assert link.poll() == []
 
 
+def test_sync_timeout_resends():
+    """sync 응답을 못 받으면 1초 뒤 비우고 다시 보낸다(안 그러면 다시는 sync하지 않는다)."""
+    clk, esp, link = make()
+    link.sync()
+    link.sync_every_ns = 0
+    esp.disconnect()  # 응답이 없다
+    link.poll()
+    assert link._sync_t0 is not None
+    clk.sleep(1.5)
+    link.poll()  # 1초 넘어 비우고 새로 보냄
+    assert link._sync_t0 == clk.t_ns
+    esp._dead = False
+    link.sync_every_ns = 10**12
+    clk.sleep(1.1)
+    link.poll()  # 다시 비우고 보냄(이번엔 ESP32가 받는다)
+    link.poll()
+    assert link._sync_t0 is None
+
+
 def test_link_lost():
     clk, esp, link = make()
     link.sync()

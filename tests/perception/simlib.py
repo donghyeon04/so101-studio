@@ -27,7 +27,7 @@ class FakeArm:
         self.last_path = None
         self.clk, self.travel = clk, travel_mm_s
         self.off0 = (cfg.arm_sensor_offset_mm.x, cfg.arm_sensor_offset_mm.y, cfg.arm_sensor_offset_mm.z)
-        self.yaw = 0.0
+        self.yaw = 90.0  # 평소 손목 자세
         self.tip = BASE
         self.z = 150.0
         self.hist = [(0, BASE, self.z)]  # (t_ns, 손끝 xy, 손끝 z)
