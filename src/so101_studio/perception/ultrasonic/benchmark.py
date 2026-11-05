@@ -2,7 +2,7 @@
 성능 숫자는 이 도구로만 낸다. 새 아이디어(확인선 길이, 모드, 속도 등)는 옵션으로 붙인다.
 
 python -m so101_studio.perception.ultrasonic.benchmark [--scenario spread90|spread120|demo|single|all] [--seeds N] [--mode accurate|fast|both]
-                                                       [--model optimistic|pessimistic|both] [--line-mm N] [--speed N] [--rescan-home on|off] [--max-fail N] [--empty-extra N]
+                                                       [--model optimistic|pessimistic|both] [--line-mm N] [--speed N] [--rescan-home on|off] [--max-fail N] [--empty-extra N] [--no-note-failure]
 """
 import argparse
 import itertools
@@ -234,7 +234,7 @@ def random_layout(rng, name) -> list[Box]:
     raise RuntimeError("배치를 못 만들었다")
 
 
-def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, rescan_home=None):
+def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, rescan_home=None, report_failures=True):
     """처음 scan()부터 물체가 다 없어질 때까지(작업 실행 흉내). 인식 시간 = 레이더 + 확인, 집기·놓기는 뺀다.
     판정(8.5절): 확인 결과 자리에 가장 가까운 실제 물체가 30mm 안이면 그 물체를 집은 것. 위치 오차 15mm 이하이고 방향까지 맞으면 성공(정사각형은 위치만).
     rescan_home(RESCAN, 기획 #77): 후보가 없으면 팔을 대기 자세로 옮겨 src.rescan()(4바퀴)을 한 번 하고, 후보가 있으면 계속, 또 없으면 끝낸다.
@@ -274,7 +274,7 @@ def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, resc
         square = picked and box.width == box.length
         good = picked and err <= 15 and (square or angle_ok(obj.angle_deg, box.angle_deg % 180))
         log.append({"result": "ok" if good else "bad" if picked else "miss", "err": err})
-        if not picked:  # 확인한 자리에 물체가 없어 집기 실패: 작업 실행이 실패를 알린다
+        if not picked and report_failures:  # 확인한 자리에 물체가 없어 집기 실패: 작업 실행이 실패를 알린다(note_failure)
             src.note_failure(cand.x_mm, cand.y_mm)
         ok += good
         if picked:
@@ -287,7 +287,7 @@ def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, resc
     return ok, recog, log
 
 
-def run_scenario(name, model, seeds, mode, rescan_home=None, **opts):
+def run_scenario(name, model, seeds, mode, rescan_home=None, report_failures=True, **opts):
     """시나리오 하나: 씨앗값 0..seeds-1마다 배치를 만들어 사이클을 돈다. single은 반경 구간(SINGLE_RADII)마다 seeds번."""
     rows = []
     cells = [(r, s) for r in SINGLE_RADII for s in range(seeds)] if name == "single" else [(None, s) for s in range(seeds)]
@@ -303,7 +303,7 @@ def run_scenario(name, model, seeds, mode, rescan_home=None, **opts):
         n = len(boxes)
         cfg, clk, esp, arm = build(boxes, mode=mode, seed=seed, model=model, **opts)
         src = make_source(cfg, clk, esp, arm)
-        ok, secs, log = run_cycle(src, arm, esp, rescan_home=rescan_home)
+        ok, secs, log = run_cycle(src, arm, esp, rescan_home=rescan_home, report_failures=report_failures)
         rows.append({"radius": radius, "seed": seed, "n": n, "ok": ok, "recog_s": secs, "left": len(esp.boxes), "log": log})
     return rows
 
@@ -362,6 +362,7 @@ def main(argv=None):
     ap.add_argument("--line-mm", type=int, help="확인 직선 길이(기본 설정값)")
     ap.add_argument("--speed", type=float, help="확인 속도 mm/s(기본 설정값)")
     ap.add_argument("--rescan-home", choices=["on", "off"], help="후보가 없을 때 대기 자세로 옮겨 RESCAN(기본: 설정 radar.rescan_home)")
+    ap.add_argument("--no-note-failure", action="store_true", help="집기 실패를 source.note_failure로 알리지 않는다(효과 비교용)")
     ap.add_argument("--max-fail", type=int, help="check.max_fail_per_run(확인 실패가 이만큼이면 끝냄, 기본: 설정값 0)")
     ap.add_argument("--empty-extra", type=int, help="radar.empty_extra_sweeps(기본: 설정값 3)")
     ap.add_argument("--out", default="runs/bench")
@@ -376,8 +377,8 @@ def main(argv=None):
     results, sha = [], commit()
     cmd = "python -m so101_studio.perception.ultrasonic.benchmark " + " ".join(argv if argv is not None else __import__("sys").argv[1:])
     for name, model, mode in itertools.product(names, models, modes):
-        rows = run_scenario(name, model, a.seeds, mode, rescan_home=rescan, **opts)
-        results.append({"commit": sha, "command": cmd, "scenario": name, "model": model, "mode": mode, "options": {**opts, "rescan_home": rescan}, "summary": summarize(rows),
+        rows = run_scenario(name, model, a.seeds, mode, rescan_home=rescan, report_failures=not a.no_note_failure, **opts)
+        results.append({"commit": sha, "command": cmd, "scenario": name, "model": model, "mode": mode, "options": {**opts, "rescan_home": rescan, "note_failure": not a.no_note_failure}, "summary": summarize(rows),
                         "rows": [{k: v for k, v in r.items() if k != "log"} for r in rows]})
         print(format_table(results[-1:]).split("\n", 1)[1] if len(results) > 1 else format_table(results), flush=True)
     out = Path(a.out)
