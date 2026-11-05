@@ -60,8 +60,9 @@ def load_config(path="config/ultrasonic.yaml", mode=None, **check) -> Cfg:
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     raw["mode"] = mode or raw["mode"]
     if raw["mode"] == "fast":
-        # line_mm 130은 U9 조정값: 100mm/s에서 180이면 빠른 모드 인식 약 35초(성공 3.0/3), 130이면 약 29.7초(3.0/3), 120이면 29초(2.5/3)
-        raw["check"].update(approach_line=True, early_stop_cells=3, line_mm=130)
+        # T9(early_stop_cells)는 팔 세션 측정(조각마다 정지·가속·0.25초)으로 약 74초라 끈다(기획 답 전 임시, 총괄 지시).
+        # line_mm 130은 U9 조정값(시간은 줄지만 성공이 떨어진다: 180이면 3.0/3, 130이면 2.3/3)
+        raw["check"].update(approach_line=True, early_stop_cells=0, line_mm=130)
     raw["check"].update(check)
     return _wrap(raw)
 

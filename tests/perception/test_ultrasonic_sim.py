@@ -95,7 +95,7 @@ def test_three_objects_end_to_end_success(tmp_path, mode):
 
 
 @pytest.mark.xfail(reason="팔 세션이 잰 follow_path 비용(호출마다 정지·가속 120mm/s², 호출 사이 0.25초)을 넣으면 "
-                          "정확 약 55초(기준 45), 빠른 약 74초(기준 30). 기획 요청 대기", strict=False)
+                          "정확 약 55초(기준 45), 빠른(T9 끔) 약 47초(기준 30), T9 켜면 약 74초. 기획 요청 대기(PR #68)", strict=False)
 @pytest.mark.parametrize("mode,limit_s", [("accurate", 45), ("fast", 30)])
 def test_three_objects_end_to_end_time(tmp_path, mode, limit_s):
     """1절: 인식 시간 정확 45초·빠른 30초 이하 (팔 확인 속도 100mm/s)."""

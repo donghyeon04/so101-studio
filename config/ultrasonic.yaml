@@ -1,4 +1,4 @@
-# 초음파 인식 설정 (docs/planning/ultrasonic-spec.md 8.3절). mode: fast면 check.approach_line=true, early_stop_cells=3, line_mm=130으로 덮어쓴다(4절 T8·T9, line_mm은 U9 조정값).
+# 초음파 인식 설정 (docs/planning/ultrasonic-spec.md 8.3절). mode: fast면 check.approach_line=true, line_mm=130으로 덮어쓴다(4절 T8, line_mm은 U9 조정값). T9(early_stop_cells)는 조각 호출 비용 때문에 기획 답 전까지 0(끔).
 mode: accurate            # accurate | fast
 port: auto                # local.yaml이 우선
 baud: 921600
@@ -30,6 +30,6 @@ check:
   ring_n: 36
   hit_mm: 15
   approach_line: false    # fast 모드에서 true (T8)
-  early_stop_cells: 0     # fast 모드에서 3 (T9)
+  early_stop_cells: 0     # T9. 4절은 fast에서 3이지만 조각 호출 비용 때문에 기획 답 전까지 끔
   fallback_grid_mm: 20
 arm_sensor_offset_mm: {x: 0, y: 30, z: 55}   # 손끝 기준, A0 보정으로 고침
