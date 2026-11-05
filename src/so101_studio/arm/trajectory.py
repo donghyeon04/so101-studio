@@ -59,6 +59,65 @@ class QuinticShape:
         return 10 * u**3 - 15 * u**4 + 6 * u**5, (30 * u**2 - 60 * u**3 + 30 * u**4) / self.duration_s
 
 
+class LookaheadShape:
+    """호 길이 L의 꺾은선을 처음에 서서 출발해 끝에서 서도록 지나는 시간 곡선. 경로를 ds 간격으로 나눈 점마다 속도 상한을 두고
+    (곧은 구간은 v_max, 꼭짓점을 감는 호(vertices: (호 길이 위치, 속도, 호 길이 t))에서는 그 호의 속도, 되돌아가는 꺾임은 0, 처음과 끝은 0)
+    앞뒤로 훑어 접선 가속이 a_max 이하가 되는 속도 곡선을 만든다. 점 사이는 등가속이다. 가속이 바뀌는 순간의 저크는 제한하지 않는다."""
+
+    def __init__(self, length: float, vertices: list[tuple[float, float, float]], v_max: float, a_max: float, ds: float = 1.0):
+        s = sorted({*np.arange(0.0, length, ds).tolist(), length, *[p for p, _, _ in vertices]})
+        s = np.array(s)
+        lim = np.full(len(s), float(v_max))
+        lim[0] = lim[-1] = 0.0
+        for pos, v, t in vertices:
+            if v <= 1e-9 or t <= 1e-9:  # 호 없이 서서 도는 꺾임
+                lim[int(np.argmin(np.abs(s - pos)))] = 0.0
+            else:
+                lim[(s >= pos - t - 1e-9) & (s <= pos + t + 1e-9)] = np.minimum(lim[(s >= pos - t - 1e-9) & (s <= pos + t + 1e-9)], v)
+        v2 = lim**2
+        for i in range(1, len(s)):  # 앞으로 훑기: 앞 점에서 a_max로 가속해 닿을 수 있는 속도까지
+            v2[i] = min(v2[i], v2[i - 1] + 2 * a_max * (s[i] - s[i - 1]))
+        for i in range(len(s) - 2, -1, -1):  # 뒤로 훑기: 뒤 점에서 멈출 수 있게 a_max로 감속할 수 있는 속도까지
+            v2[i] = min(v2[i], v2[i + 1] + 2 * a_max * (s[i + 1] - s[i]))
+        self._s, self._v = s, np.sqrt(v2)
+        d, v0, v1 = np.diff(s), self._v[:-1], self._v[1:]
+        self._acc = (v1**2 - v0**2) / (2 * d)  # 점 사이 등가속
+        dt = 2 * d / np.maximum(v0 + v1, 1e-12)
+        self._t = np.r_[0.0, np.cumsum(dt)]
+        self.length = float(length)
+        self.duration_s = float(self._t[-1]) if self._t[-1] > 0 else 0.2
+        self.corner_speeds = [float(self._v[int(np.argmin(np.abs(s - (pos + t if v > 1e-9 and t > 1e-9 else pos))))]) for pos, v, t in vertices]  # 꺾임마다 줄인 뒤 통과 속도(시험·기록용)
+
+    def frac(self, t: float) -> tuple[float, float]:  # 위치 비율, 속도 비율(1/s)
+        t = min(max(t, 0.0), self.duration_s)
+        i = min(max(int(np.searchsorted(self._t, t, side="right")) - 1, 0), len(self._acc) - 1)
+        tau = t - self._t[i]
+        v = max(self._v[i] + self._acc[i] * tau, 0.0)
+        pos = self._s[i] + self._v[i] * tau + 0.5 * self._acc[i] * tau * tau
+        return min(float(pos) / self.length, 1.0), float(v) / self.length
+
+
+def junction_arcs(P: list[np.ndarray], a_max: float, tol_mm: float = 2.5) -> list[tuple[float, float]]:
+    """꺾은선 P의 안쪽 꼭짓점마다 (속도 mm/s, 호 길이 t mm). 꼭짓점을 반지름 R의 호로 감아 지난다고 보고 구심 가속 v²/R = a_max에서 v = sqrt(a_max·R), 호 길이는 꼭짓점 앞뒤로 t = R·tan(φ/2).
+    R은 모서리를 깎는 거리가 tol_mm 이하(R ≤ tol·cos(φ/2)/(1-cos(φ/2)))이고 t가 짧은 쪽 구간의 절반 이하(R ≤ l/(2·tan(φ/2)))가 되게 잡는다. φ = 꺾인 각.
+    φ가 작으면(원처럼 완만) 곡률 반지름 그대로, 180°로 되돌아가면 R=0이라 선다(속도 0, 호 없음). 거의 곧은 꼭짓점은 (inf, 0)."""
+    out = []
+    for k in range(1, len(P) - 1):
+        u, w = P[k] - P[k - 1], P[k + 1] - P[k]
+        lu, lw = float(np.linalg.norm(u)), float(np.linalg.norm(w))
+        phi = math.acos(float(np.clip(u @ w / (lu * lw), -1.0, 1.0))) if lu > 1e-9 and lw > 1e-9 else 0.0
+        if phi < 1e-6:
+            out.append((float("inf"), 0.0))
+            continue
+        if phi > math.pi - 1e-6:
+            out.append((0.0, 0.0))
+            continue
+        c = math.cos(phi / 2)
+        r = min(tol_mm * c / (1 - c), min(lu, lw) / (2 * math.tan(phi / 2)))
+        out.append((math.sqrt(a_max * r), r * math.tan(phi / 2)))
+    return out
+
+
 class RuckigShape:
     """한 경로 길이 L을 Ruckig(속도·가속도·저크 한계)로 지나는 1축 시간 곡선."""
 
@@ -147,7 +206,7 @@ class LineTrajectory:
 
 
 def polyline_l(kin, poses, seed: JointState, v_mm_s: float, a_mm_s2: float = 500.0,
-               step_mm: float = 5.0, profile: str = "quintic", j_mm_s3: float = 3000.0) -> LineTrajectory | None:
+               step_mm: float = 5.0, profile: str = "quintic", j_mm_s3: float = 3000.0, blend: bool = False) -> LineTrajectory | None:
     """poses(ToolPose 목록)를 직선으로 이어 한 번에(꺾이는 점에서 서지 않고) 지나는 궤적. 점 하나라도 IK가 실패하거나 해가 튀면 전체를 거부(None)한다.
     경유점은 전체 길이를 step_mm 이하로 균일하게 나눈 곳(호 길이 기준)이라 속도가 고르다.
     shortcut: 꺾이는 점의 모서리를 최대 step_mm/2만큼 깎는다. 정확히 지나야 하는 점이 있으면 step_mm를 줄인다."""
@@ -171,7 +230,11 @@ def polyline_l(kin, poses, seed: JointState, v_mm_s: float, a_mm_s2: float = 500
         if q is None or np.abs(_arr(q) - pts[-1]).max() > MAX_WAYPOINT_JUMP_DEG:
             return None
         pts.append(_arr(q))
-    if profile == "ruckig" and length > 1e-6:
+    if blend and len(P) > 2 and length > 1e-6:  # 꺾이는 점에서 서지 않고 가속 한도 안의 속도로 지난다(처음과 끝에서만 선다)
+        a_eff = a_mm_s2 / math.sqrt(2)  # 접선 가속(출발·정지)과 곡선의 구심 가속이 겹쳐도 합이 a_mm_s2를 넘지 않게 둘 다 a/√2로 잡는다
+        arcs = junction_arcs(P, a_eff)
+        shape = LookaheadShape(length, [(float(c), v, t) for c, (v, t) in zip(cum[1:-1], arcs)], v_mm_s, a_eff)
+    elif profile == "ruckig" and length > 1e-6:
         shape = RuckigShape(length, v_mm_s, a_mm_s2, j_mm_s3)
     else:
         shape = QuinticShape(max(1.875 * length / v_mm_s, math.sqrt(5.7735 * length / a_mm_s2), 0.2))

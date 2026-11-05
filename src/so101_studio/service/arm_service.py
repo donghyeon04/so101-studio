@@ -25,7 +25,6 @@ from .targets import point_to_pose, tip_vector
 
 STATUS_HZ = 10
 HEALTH_HZ = 2
-CORNER_STOP_DEG = 45.0  # follow_path가 이 각도보다 크게 꺾이는 점에서만 선다(작게 꺾이는 점은 서지 않고 이어 지난다)
 LOAD_PROBE_PCT = 50.0  # 어느 관절이든 부하가 이 값 이상이거나 상태 루프가 오류를 내면 그 순간 토크·상태 비트·부하를 바로 한 번 더 읽어 남긴다 (결정 0030 보강)
 PROBE_COOLDOWN_S = 1.0
 INCIDENT_COOLDOWN_S = 10.0  # 같은 이유의 사고 묶음은 이 시간 안에 다시 만들지 않는다(연달아 나는 fault·E-STOP이 묶음을 쏟아내지 않게)
@@ -369,25 +368,23 @@ class ArmService:
         d = self.kin.tool_axes(q) @ np.array([off["x"], off["y"], 0.0])
         return float(x + d[0]), float(y + d[1]), float(h + off["z"])
 
-    def _path_pose(self, x: float, y: float, z_mm: float, yaw: float, tip: np.ndarray) -> ToolPose:
-        """경로 점(손끝 xy, 작업대 면 위 높이)을 팔에 보낼 ToolPose로. 센서 경로 → 손끝 경로 변환은 여기서 하지 않는다(check.py 한 곳, ultrasonic-spec 8.2절)."""
-        return point_to_pose(x, y, z_mm, yaw, "table", self.ws.base, self.cfg.table_z_mm, tip)
-
     def arm_links(self, q: JointState | None = None) -> list[tuple[float, float]]:
         """어깨·팔꿈치·손목·손끝의 작업대 xy(mm). 레이더가 팔 자리를 지울 때 쓰는 arm_links_fn (ultrasonic-spec 8.2절)."""
         return self.kin.link_points(q or self.driver.read_joints())
 
     def follow_path(self, points_mm, tool_z_mm: float, speed_mm_s: float, yaw_deg: float | None = None) -> list[PoseSample]:
         """손끝(고정 턱 끝)을 수직 아래로 둔 채 작업대 좌표 꺾은선(points_mm)을 tool_z_mm 높이로 따라간다 (REQ-023, 블로킹).
-        움직이기 전에 접근과 모든 구간을 계획하고 안전 검사까지 마쳐서, 하나라도 못 가면 아무것도 움직이지 않고 빈 목록을 돌려준다.
-        경로는 CORNER_STOP_DEG보다 크게 꺾이는 점에서만 끊어 구간마다 한 번에 이어 지난다(원 36점이 36번 서지 않는다).
         points_mm는 손끝 xy다(센서 xy가 아니다). yaw_deg는 경로 동안 고정할 손목 각도(None이면 지금 값). 센서 오프셋은 set_sensor_offset으로 먼저 받아 둬야 한다.
-        반환: 구간을 따라가는 동안 50Hz 제어 틱마다 PoseSample(PC 단조 시계 perf_counter_ns, 손끝 위치, 센서 위치). 센서 위치는 그 틱에 읽은 실제 관절값으로 계산한다(그 때문에 이 동안만 틱마다 버스를 한 번 읽는다; 읽기 시간은 follow_path 기록의 read_ms_max·mean).
+        한 번의 호출은 지금 손끝 위치에서 첫 점까지 가는 것까지 이어서 서지 않고 지난다: 처음과 끝에서만 가속·감속하고, 꺾이는 점과 원에서는 가속 한도(tool_a_max_mm_s2) 안의 속도로 줄여 지난다
+        (속도 v ≤ sqrt(a·R), R은 모서리를 2.5mm 안으로 깎는 호 또는 곡률 반지름; 반대로 되돌아가는 180° 꺾임은 서서 돈다). 속도는 min(요청, tool_v_max × 속도%).
+        지금 위치에서 첫 점까지 직선으로 갈 수 없으면(IK 실패·관절 도약) 예전처럼 plan_goto의 안전 경로(관절 이동 후 위에서 수직 하강)로 먼저 가고 경로는 그다음에 따로 지난다(이 경우 접근과 경로 사이에서 선다).
+        움직이기 전에 접근과 모든 구간을 계획해 안전 검사까지 마치고, 하나라도 못 가면 아무것도 움직이지 않고 빈 목록을 돌려준다.
+        반환: 따라가는 동안 50Hz 제어 틱마다 PoseSample(PC 단조 시계 perf_counter_ns, 손끝 위치, 센서 위치). 접근을 합쳤을 때는 접근 구간의 샘플도 들어 있다(tool_mm로 가를 수 있다).
+        센서 위치는 그 틱에 읽은 실제 관절값으로 계산한다(그 때문에 이 동안만 틱마다 버스를 한 번 읽는다; 읽는 시간은 follow_path 기록의 read_ms_max·mean, 읽기가 실패하면 0.5초 안에 comm_lost fault).
         결과는 self.last_path(MotionResult)에 남고, 빈 목록이 와도 이것으로 원인을 구분한다:
           "ok": 끝까지 따라감(목록이 비지 않음). "ik_fail": 접근이나 경로 어딘가가 닿지 않아 움직이지 않음(빈 목록). "out_of_bounds": 안전 검사(관절 한계·작업 영역·바닥)에 걸려 움직이지 않음, last_path.reason에 이유(빈 목록).
           "stopped": stop()으로 도중에 멈춤(그때까지의 샘플, 아직 접근 중이었다면 빈 목록). "fault": 통신 끊김 등 fault로 끝남(마찬가지). E-STOP도 진행 중이면 "stopped", 이미 멈춘 뒤 부르면 바로 "stopped"(빈 목록)다.
-          "locked": 캘리브레이션 불일치로 잠김(빈 목록). 호출하는 쪽은 빈 목록이면 last_path.status로 "그 구간 못 감"(ik_fail·out_of_bounds)과 "정지·사고"(stopped·fault·locked)를 가른다.
-        속도는 min(요청, tool_v_max × 속도%)."""
+          "locked": 캘리브레이션 불일치로 잠김(빈 목록). 호출하는 쪽은 빈 목록이면 last_path.status로 "그 구간 못 감"(ik_fail·out_of_bounds)과 "정지·사고"(stopped·fault·locked)를 가른다."""
         pts = [(float(x), float(y)) for x, y in points_mm]
         if len(pts) < 2:
             raise ValueError("점이 2개 이상 있어야 합니다")
@@ -399,33 +396,16 @@ class ArmService:
             self.last_path = gate
             return []
         v = min(speed_mm_s, self.cfg.tool_v_max_mm_s * self.speed / 100)
-        q0 = self.driver.read_joints()
-        yaw = self.kin.fk(q0).yaw_deg if yaw_deg is None else float(yaw_deg)  # None이면 손목 회전은 지금 그대로
-        tip = tip_vector(self.kin, -90.0, yaw, q0.gripper, "tip")  # 점마다 버스를 읽지 않게 시작에 읽은 그리퍼 값으로 한 번만
-        poses = [self._path_pose(x, y, tool_z_mm, yaw, tip) for x, y in pts]
-        approach = plan_goto(self.kin, self.cfg, q0, poses[0], self.speed)
-        fail = None if approach is not None else "ik_fail"
-        runs, q = [], approach[-1].sample(approach[-1].duration_s) if approach else None
-        for run in self._split_corners(poses) if approach else []:
-            tr = polyline_l(self.kin, run, q, v, self.cfg.tool_a_max_mm_s2, profile=self.cfg.trajectory_profile, j_mm_s3=self.cfg.tool_jerk_max_mm_s3)
-            if tr is None:
-                fail = "ik_fail"
-                break
-            runs.append(tr)
-            q = tr.sample(tr.duration_s)
-        reason = None
-        for tr in (approach or []) + runs:
-            if fail is None and (reason := self.safety.check_path(tr)):
-                fail = "out_of_bounds"
+        pre, runs, fail, reason = self._plan_path(pts, tool_z_mm, v, yaw_deg)
         info = {"points": pts, "tool_z_mm": tool_z_mm, "speed_mm_s": v}
         if fail:
             self.last_path = MotionResult(fail, 0.0, ToolPose(0, 0, 0, 0), reason=reason)
             self._log("follow_path", {**info, "status": fail, "reason": reason})
             return []
         self.driver.set_torque(True)
-        r = self._run(approach)
         raw: list[tuple[int, JointState, int]] = []
-        if r.status == "ok":
+        r = self._run(pre) if pre else MotionResult("ok", 0.0, ToolPose(0, 0, 0, 0))
+        if r.status == "ok" and runs:
             self.ctl.tap = lambda t, qq, ns: raw.append((t, qq, ns))
             try:
                 r = self._run(runs)
@@ -434,24 +414,46 @@ class ArmService:
         self.last_path = r
         samples = [PoseSample(t, self.tool_position(qq), self.sensor_position(qq)) for t, qq, _ in raw]
         reads = [ns / 1e6 for _, _, ns in raw]
-        self._log("follow_path", {**info, "status": r.status, "samples": len(samples), "runs": len(runs),
+        self._log("follow_path", {**info, "status": r.status, "samples": len(samples), "pre": len(pre), "runs": len(runs),
                                   "read_ms_max": round(max(reads, default=0.0), 3), "read_ms_mean": round(sum(reads) / len(reads), 3) if reads else 0.0})
         return samples
 
-    @staticmethod
-    def _split_corners(poses: list[ToolPose]) -> list[list[ToolPose]]:
-        """꺾임이 CORNER_STOP_DEG보다 큰 점에서 나눈다(그 점이 앞 구간의 끝이자 뒤 구간의 시작)."""
-        runs, cur = [], [poses[0]]
-        for i in range(1, len(poses)):
-            cur.append(poses[i])
-            if i + 1 < len(poses):
-                u = np.array([poses[i].x_mm - poses[i - 1].x_mm, poses[i].y_mm - poses[i - 1].y_mm])
-                w = np.array([poses[i + 1].x_mm - poses[i].x_mm, poses[i + 1].y_mm - poses[i].y_mm])
-                nu, nw = np.linalg.norm(u), np.linalg.norm(w)
-                if nu > 1e-9 and nw > 1e-9 and np.degrees(np.arccos(np.clip(u @ w / (nu * nw), -1, 1))) > CORNER_STOP_DEG:
-                    runs.append(cur)
-                    cur = [poses[i]]
-        return [*runs, cur]
+    def _plan_path(self, pts, tool_z_mm: float, v: float, yaw_deg: float | None):
+        """(접근 궤적 목록, 경로 궤적 목록, 실패 이유 또는 None, 안전 검사 이유). 움직이지 않는다. 지금 위치에서 첫 점까지 직선으로 갈 수 있으면 접근 없이 한 궤적으로 합친다."""
+        q0 = self.driver.read_joints()
+        cur = self.kin.fk(q0)
+        yaw = cur.yaw_deg if yaw_deg is None else float(yaw_deg)  # None이면 손목 회전은 지금 그대로
+        tip = tip_vector(self.kin, -90.0, yaw, q0.gripper, "tip")  # 점마다 버스를 읽지 않게 시작에 읽은 그리퍼 값으로 한 번만
+        poses = [self._path_pose(x, y, tool_z_mm, yaw, tip) for x, y in pts]
+        kw = {"v_mm_s": v, "a_mm_s2": self.cfg.tool_a_max_mm_s2, "profile": self.cfg.trajectory_profile, "j_mm_s3": self.cfg.tool_jerk_max_mm_s3}
+
+        def dedupe(ps):  # 같은 자리가 이어지면 하나로(길이 0인 구간은 꺾임 계산을 망친다)
+            out = []
+            for p in ps:
+                if not out or abs(p.x_mm - out[-1].x_mm) + abs(p.y_mm - out[-1].y_mm) + abs(p.z_mm - out[-1].z_mm) > 0.01:
+                    out.append(p)
+            return out
+
+        merged = polyline_l(self.kin, dedupe([cur, *poses]), q0, blend=True, **kw) if len(dedupe([cur, *poses])) > 1 else None
+        if merged is not None:
+            pre, runs = [], [merged]
+        else:
+            pre = plan_goto(self.kin, self.cfg, q0, poses[0], self.speed)  # 직선으로 못 가면 위에서 수직으로 내려가는 안전 경로
+            if pre is None:
+                return [], [], "ik_fail", None
+            path = dedupe(poses)
+            tr = polyline_l(self.kin, path, pre[-1].sample(pre[-1].duration_s), blend=True, **kw) if len(path) > 1 else None
+            if len(path) > 1 and tr is None:
+                return [], [], "ik_fail", None
+            runs = [tr] if tr is not None else []
+        for tr in pre + runs:
+            if why := self.safety.check_path(tr):
+                return [], [], "out_of_bounds", why
+        return pre, runs, None, None
+
+    def _path_pose(self, x: float, y: float, z_mm: float, yaw: float, tip: np.ndarray) -> ToolPose:
+        """경로 점(손끝 xy, 작업대 면 위 높이)을 팔에 보낼 ToolPose로. 센서 경로 → 손끝 경로 변환은 여기서 하지 않는다(check.py 한 곳, ultrasonic-spec 8.2절)."""
+        return point_to_pose(x, y, z_mm, yaw, "table", self.ws.base, self.cfg.table_z_mm, tip)
 
     def point_pose(self, x: float, y: float, h: float, yaw: float = 90.0, frame: str = "table", tcp: str = "tip") -> ToolPose:
         """frame 기준 (x, y, 작업대 면 위 높이 h)인 끝점(tcp)을 수직 하강으로 가져갈 ToolPose. GUI에서 점을 찍을 때 쓰고, preview_tool·move_tool에 넘긴다."""

@@ -1,4 +1,5 @@
 """REQ-023: follow_path(경로 따라가기와 센서 위치 샘플), 팔 링크 점, 도달 불가 거부."""
+import itertools
 import math
 import threading
 import time
@@ -27,6 +28,11 @@ def svc(tmp_path):
     s.disconnect()
 
 
+def _goto(svc, x, y, yaw=90.0):
+    """경로 시작점에 먼저 가 둔다(follow_path의 샘플이 접근을 빼고 경로만 담게)."""
+    assert svc.move_tool(svc.point_pose(x, y, Z, yaw)).status == "ok"
+
+
 def _tip(svc, q):
     ref = svc.kin.fk(q)
     f = svc.kin.jaw_tip_offsets(ref.pitch_deg, ref.yaw_deg, q.gripper)[0]
@@ -35,6 +41,7 @@ def _tip(svc, q):
 
 def test_follow_straight_line_samples_monotonic_about_50hz(svc):
     pts = [(260.0, 200.0), (340.0, 200.0)]
+    _goto(svc, *pts[0])
     samples = svc.follow_path(pts, Z, 60.0)
     assert svc.last_path.status == "ok" and len(samples) > 20
     t = np.array([s.t_ns for s in samples])
@@ -66,32 +73,98 @@ def test_tip_tracks_polyline_within_tolerance(svc):
 
 
 def _count_executes(svc, start):
-    """시작점에 먼저 가 둔 뒤(접근이 한 번의 직선이 되게) execute 호출을 센다."""
-    assert svc.move_tool(svc.point_pose(*start, Z)).status == "ok"
+    """시작점에 먼저 가 둔 뒤(접근이 길이 0이 되게) execute 호출을 센다."""
+    _goto(svc, *start)
     calls = []
     orig = svc.ctl.execute
     svc.ctl.execute = lambda tr: (calls.append(tr), orig(tr))[1]
     return calls
 
 
+def _ring(c=(300.0, 180.0), r=45.0, n=37):
+    return [(c[0] + r * math.cos(math.radians(i * 360 / (n - 1))), c[1] + r * math.sin(math.radians(i * 360 / (n - 1)))) for i in range(n)]
+
+
 def test_circle_is_one_continuous_run_not_36_stops(svc):
-    c = (300.0, 180.0)
-    ring = [(c[0] + 45 * math.cos(math.radians(i * 10)), c[1] + 45 * math.sin(math.radians(i * 10))) for i in range(37)]
+    ring = _ring()
     calls = _count_executes(svc, ring[0])
     samples = svc.follow_path(ring, Z, 60.0)
-    assert svc.last_path.status == "ok" and len(calls) == 2 and len(samples) > 20  # 접근 + 원 한 번
+    assert svc.last_path.status == "ok" and len(calls) == 1 and len(samples) > 20  # 원이 한 번의 동작
     xy = np.array([s.sensor_mm[:2] for s in samples])
     assert np.ptp(xy[:, 0]) > 80  # 원을 한 바퀴 돈 센서 궤적
 
 
-def test_only_sharp_corners_stop(svc):
+def test_any_corner_is_one_call_and_one_motion(svc):
     calls = _count_executes(svc, (260.0, 180.0))
-    svc.follow_path([(260.0, 180.0), (320.0, 180.0), (320.0, 240.0)], Z, 60.0)  # 90° 꺾임 하나
-    assert len(calls) == 3  # 접근 + 두 구간
-    svc.move_tool(svc.point_pose(260.0, 180.0, Z))
-    calls.clear()
-    svc.follow_path([(260.0, 180.0), (300.0, 180.0), (340.0, 190.0)], Z, 60.0)  # 약 14° 꺾임
+    svc.follow_path([(260.0, 180.0), (320.0, 180.0), (320.0, 240.0)], Z, 60.0)  # 90° 꺾임
+    assert len(calls) == 1
+    svc.follow_path([(320.0, 240.0), (280.0, 240.0), (320.0, 240.0)], Z, 60.0)  # 180° 되돌아감도 한 번의 동작(꺾이는 점에서만 선다)
     assert len(calls) == 2
+
+
+def _limits(svc, pts, speed=100.0):
+    """경로를 계획만 하고(움직이지 않음) 경로를 따라가는 속도·접선 가속을 시간 곡선(shape)에서 재고, 한 주기 이동량 한도(check_step)와 틱당 관절 변화를 확인한다.
+    손끝 위치를 FK로 차분하지 않는 까닭: IK는 경유점마다 최대 3mm 오차를 허용해(Kinematics.ik tol_mm) 이계 차분이 그 잡음에 묻힌다."""
+    v = min(speed, CFG.tool_v_max_mm_s * svc.speed / 100)
+    _pre, runs, fail, why = svc._plan_path(pts, Z, v, None)
+    assert fail is None, (fail, why)
+    tr = runs[-1]
+    qs = [tr.sample(t) for t in np.arange(0.0, tr.duration_s + 0.02, 0.02)]
+    assert all(svc.safety.check_step(a, b) is None for a, b in itertools.pairwise(qs))
+    step = max(float(np.abs(np.array(list(vars(b).values())) - np.array(list(vars(a).values()))).max()) for a, b in itertools.pairwise(qs))
+    ts = np.arange(0.0, tr.duration_s + 1e-9, 0.01)
+    length = tr.shape.length
+    vel = np.array([tr.shape.frac(t)[1] * length for t in ts])  # 경로를 따라가는 속도(mm/s)
+    at = np.abs(np.diff(vel)) / 0.01  # 접선 가속
+    return {"vmax": float(vel.max()), "at": float(at.max()), "dur": tr.duration_s, "vel": vel, "ts": ts, "step": step, "shape": tr.shape}
+
+
+A_EFF = CFG.tool_a_max_mm_s2 / math.sqrt(2)
+
+
+def test_circle_stays_within_speed_and_accel_limits(svc):
+    _goto(svc, *_ring()[0])
+    m = _limits(svc, _ring())
+    assert m["vmax"] <= CFG.tool_v_max_mm_s * 1.001 and m["at"] <= A_EFF * 1.01
+    assert m["vel"][30:-30].min() > 5.0  # 도중에 서지 않는다(처음과 끝만 선다)
+    centripetal = m["vel"] ** 2 / 45.0  # 원 위의 구심 가속
+    assert np.hypot(np.r_[np.diff(m["vel"]) / 0.01, 0.0], centripetal).max() <= CFG.tool_a_max_mm_s2 * 1.02  # 접선+구심 합이 한도 안
+    assert m["step"] < 5.0
+
+
+def test_90_degree_corner_slows_but_does_not_stop_and_respects_limits(svc):
+    pts = [(240.0, 180.0), (330.0, 180.0), (330.0, 270.0)]
+    _goto(svc, *pts[0])
+    m = _limits(svc, pts)
+    assert m["vmax"] <= CFG.tool_v_max_mm_s * 1.001 and m["at"] <= A_EFF * 1.01
+    (vc,) = m["shape"].corner_speeds
+    assert 5.0 < vc < 40.0  # 꺾임에서 줄지만 서지 않는다(모서리를 2.5mm 안으로 깎는 반지름 6mm 호: v = sqrt(a/√2·R) ≈ 23mm/s)
+    pos = np.array([m["shape"].frac(t)[0] for t in m["ts"]])
+    at_corner = m["vel"][int(np.argmin(np.abs(pos - 0.5)))]  # 경로 절반(= 꺾이는 점)에서의 속도
+    assert at_corner == pytest.approx(vc, rel=0.1)
+
+
+def test_reversal_stops_at_the_turn(svc):
+    pts = [(240.0, 180.0), (320.0, 180.0), (240.0, 180.0)]
+    _goto(svc, *pts[0])
+    m = _limits(svc, pts)
+    assert m["shape"].corner_speeds == [0.0]  # 되돌아가는 꺾임은 서서 돈다
+    assert m["at"] <= A_EFF * 1.01
+
+
+def test_unreachable_first_point_falls_back_to_safe_approach(svc, monkeypatch):
+    import so101_studio.service.arm_service as mod
+
+    real = mod.polyline_l
+    n = {"c": 0}
+
+    def first_fails(*a, **k):  # 지금 위치에서 첫 점까지 직선으로 못 가는 경우를 흉내: 합친 궤적 계획만 실패
+        n["c"] += 1
+        return None if n["c"] == 1 else real(*a, **k)
+
+    monkeypatch.setattr(mod, "polyline_l", first_fails)
+    pre, runs, fail, _why = svc._plan_path([(260.0, 180.0), (320.0, 180.0)], Z, 30.0, None)
+    assert fail is None and len(pre) >= 1 and len(runs) == 1  # plan_goto의 안전 경로가 접근으로 남는다
 
 
 def test_samples_use_actual_joint_reads_not_commands(svc):
@@ -202,6 +275,7 @@ def test_arm_links_are_shoulder_elbow_wrist_tip_in_table_xy(svc):
 
 
 def test_samples_carry_tool_and_sensor_and_yaw_is_held(svc):
+    _goto(svc, 260.0, 200.0, yaw=0.0)
     smp = svc.follow_path([(260.0, 200.0), (340.0, 200.0)], Z, 60.0, yaw_deg=0.0)
     assert svc.last_path.status == "ok" and svc.status().tool.yaw_deg == pytest.approx(0.0, abs=1.0)
     for s in smp[::10]:
