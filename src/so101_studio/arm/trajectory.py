@@ -145,20 +145,27 @@ class LineTrajectory:
         return (self.pts[i + 1] - self.pts[i]) * (len(self.pts) - 1) * ds
 
 
-def move_l(kin, start, goal, seed: JointState, v_mm_s: float, a_mm_s2: float = 500.0,
-           step_mm: float = 5.0, profile: str = "quintic", j_mm_s3: float = 3000.0) -> LineTrajectory | None:
-    """start→goal(ToolPose)를 직선으로 잇는다. 점 하나라도 IK가 실패하거나 해가 튀면 전체를 거부(None)한다."""
+def polyline_l(kin, poses, seed: JointState, v_mm_s: float, a_mm_s2: float = 500.0,
+               step_mm: float = 5.0, profile: str = "quintic", j_mm_s3: float = 3000.0) -> LineTrajectory | None:
+    """poses(ToolPose 목록)를 직선으로 이어 한 번에(꺾이는 점에서 서지 않고) 지나는 궤적. 점 하나라도 IK가 실패하거나 해가 튀면 전체를 거부(None)한다.
+    경유점은 전체 길이를 step_mm 이하로 균일하게 나눈 곳(호 길이 기준)이라 속도가 고르다.
+    shortcut: 꺾이는 점의 모서리를 최대 step_mm/2만큼 깎는다. 정확히 지나야 하는 점이 있으면 step_mm를 줄인다."""
     from dataclasses import replace
 
-    p0, p1 = np.array([start.x_mm, start.y_mm, start.z_mm]), np.array([goal.x_mm, goal.y_mm, goal.z_mm])
-    length = float(np.linalg.norm(p1 - p0))
+    P = [np.array([p.x_mm, p.y_mm, p.z_mm]) for p in poses]
+    seg = [float(np.linalg.norm(b - a)) for a, b in zip(P, P[1:])]
+    length = sum(seg)
     n = max(1, math.ceil(length / step_mm))
+    cum = np.concatenate([[0.0], np.cumsum(seg)])
     pts, q = [_arr(seed)], seed
     for i in range(1, n + 1):
-        f = i / n
-        x, y, z = p0 + (p1 - p0) * f
-        pose = replace(goal, x_mm=x, y_mm=y, z_mm=z, yaw_deg=start.yaw_deg + (goal.yaw_deg - start.yaw_deg) * f,
-                       pitch_deg=start.pitch_deg + (goal.pitch_deg - start.pitch_deg) * f)
+        d = length * i / n
+        k = min(int(np.searchsorted(cum, d, side="right")) - 1, len(seg) - 1)
+        f = 0.0 if seg[k] < 1e-9 else (d - cum[k]) / seg[k]
+        a, b = poses[k], poses[k + 1]
+        x, y, z = P[k] + (P[k + 1] - P[k]) * f
+        pose = replace(b, x_mm=x, y_mm=y, z_mm=z, yaw_deg=a.yaw_deg + (b.yaw_deg - a.yaw_deg) * f,
+                       pitch_deg=a.pitch_deg + (b.pitch_deg - a.pitch_deg) * f)
         q = kin.ik(pose, q)
         if q is None or np.abs(_arr(q) - pts[-1]).max() > MAX_WAYPOINT_JUMP_DEG:
             return None
@@ -168,6 +175,12 @@ def move_l(kin, start, goal, seed: JointState, v_mm_s: float, a_mm_s2: float = 5
     else:
         shape = QuinticShape(max(1.875 * length / v_mm_s, math.sqrt(5.7735 * length / a_mm_s2), 0.2))
     return LineTrajectory(np.array(pts), shape)
+
+
+def move_l(kin, start, goal, seed: JointState, v_mm_s: float, a_mm_s2: float = 500.0,
+           step_mm: float = 5.0, profile: str = "quintic", j_mm_s3: float = 3000.0) -> LineTrajectory | None:
+    """start→goal(ToolPose)를 직선으로 잇는다. 점 하나라도 IK가 실패하거나 해가 튀면 전체를 거부(None)한다."""
+    return polyline_l(kin, [start, goal], seed, v_mm_s, a_mm_s2, step_mm, profile, j_mm_s3)
 
 
 def cfg_move_j(cfg, q0: JointState, q1: JointState, speed_pct: float):

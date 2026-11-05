@@ -62,6 +62,63 @@ def test_tip_tracks_polyline_within_tolerance(svc):
     assert np.hypot(tip[0] - 320.0, tip[1] - 240.0) < 3.0 and tip[2] == pytest.approx(Z, abs=3.0)
 
 
+def _count_executes(svc, start):
+    """시작점에 먼저 가 둔 뒤(접근이 한 번의 직선이 되게) execute 호출을 센다."""
+    assert svc.move_tool(svc.point_pose(*start, Z)).status == "ok"
+    calls = []
+    orig = svc.ctl.execute
+    svc.ctl.execute = lambda tr: (calls.append(tr), orig(tr))[1]
+    return calls
+
+
+def test_circle_is_one_continuous_run_not_36_stops(svc):
+    c = (300.0, 180.0)
+    ring = [(c[0] + 45 * math.cos(math.radians(i * 10)), c[1] + 45 * math.sin(math.radians(i * 10))) for i in range(37)]
+    calls = _count_executes(svc, ring[0])
+    samples = svc.follow_path(ring, Z, 60.0, OFF)
+    assert svc.last_path.status == "ok" and len(calls) == 2 and len(samples) > 20  # 접근 + 원 한 번
+    xy = np.array([s.sensor_mm[:2] for s in samples])
+    assert np.ptp(xy[:, 0]) > 80  # 원을 한 바퀴 돈 센서 궤적
+
+
+def test_only_sharp_corners_stop(svc):
+    calls = _count_executes(svc, (260.0, 180.0))
+    svc.follow_path([(260.0, 180.0), (320.0, 180.0), (320.0, 240.0)], Z, 60.0, OFF)  # 90° 꺾임 하나
+    assert len(calls) == 3  # 접근 + 두 구간
+    svc.move_tool(svc.point_pose(260.0, 180.0, Z))
+    calls.clear()
+    svc.follow_path([(260.0, 180.0), (300.0, 180.0), (340.0, 190.0)], Z, 60.0, OFF)  # 약 14° 꺾임
+    assert len(calls) == 2
+
+
+def test_samples_use_actual_joint_reads_not_commands(svc):
+    class Lagging(SimDriver):  # 읽는 값이 명령보다 늘 뒤처지는 장치
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            self.hist = []
+
+        def write_joints(self, q):
+            self.hist.append(q)
+            super().write_joints(q)
+
+        def read_joints(self):
+            return self.hist[-6] if len(self.hist) > 6 else super().read_joints()
+
+    s = ArmService(Lagging(CFG.poses["home"]), CFG, WS, speed_pct=100, log_root=None)
+    s.connect()
+    pts = [(240.0, 200.0), (340.0, 200.0)]
+    smp = s.follow_path(pts, Z, 60.0, OFF)
+    cmd = ArmService(SimDriver(CFG.poses["home"]), CFG, WS, speed_pct=100, log_root=None)
+    cmd.connect()
+    ref = cmd.follow_path(pts, Z, 60.0, OFF)
+    assert smp and ref
+    # 뒤처진 읽기라 같은 시각 번호의 센서 x는 명령 기준보다 뒤(작아야 한다)
+    k = len(smp) // 2
+    assert smp[k].sensor_mm[0] < ref[min(k, len(ref) - 1)].sensor_mm[0] - 1.0
+    s.disconnect()
+    cmd.disconnect()
+
+
 def test_unreachable_path_is_rejected_before_moving(svc):
     before = svc.driver.read_joints()
     assert svc.follow_path([(260.0, 200.0), (300.0, 900.0)], Z, 60.0, OFF) == []
