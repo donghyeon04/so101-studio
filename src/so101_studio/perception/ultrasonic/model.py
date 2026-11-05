@@ -56,14 +56,13 @@ def _wrap(v):
     return Cfg({k: _wrap(x) for k, x in v.items()}) if isinstance(v, dict) else v
 
 
-def load_config(path="config/ultrasonic.yaml", mode=None, **check) -> Cfg:
+def load_config(path="config/ultrasonic.yaml", mode=None, radar=None, **check) -> Cfg:
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     raw["mode"] = mode or raw["mode"]
     if raw["mode"] == "fast":
-        # T9(early_stop_cells)는 팔 세션 측정(조각마다 정지·가속·0.25초)으로 약 74초라 끈다(기획 답 전 임시, 총괄 지시).
-        # line_mm 130은 U9 조정값(시간은 줄지만 성공이 떨어진다: 180이면 3.0/3, 130이면 2.3/3)
-        raw["check"].update(approach_line=True, early_stop_cells=0, line_mm=130)
+        raw["check"].update(approach_line=True)  # T8. T9(early_stop_cells)는 두 모드 모두 끈다(4절)
     raw["check"].update(check)
+    raw["radar"].update(radar or {})
     return _wrap(raw)
 
 
@@ -94,22 +93,29 @@ def _to_box(b: Box, x, y):
     return dx * math.cos(a) + dy * math.sin(a), -dx * math.sin(a) + dy * math.cos(a)
 
 
-def ray_box(b: Box, ox, oy, az_deg) -> float | None:
-    """수평 광선이 물체 옆면에 처음 닿는 거리(slab 방식). 안 닿으면 None."""
+def ray_box(b: Box, ox, oy, az_deg, max_incidence_deg=None) -> float | None:
+    """수평 광선이 물체 옆면에 처음 닿는 거리(slab 방식). 안 닿으면 None.
+    max_incidence_deg: 면 법선과 광선이 이 각도보다 비스듬하면 반사가 약해 메아리가 없다(8.5절 면 반사 허용각). None = 항상 있다."""
     a = math.radians(b.angle_deg)
     az = math.radians(az_deg)
     px, py = _to_box(b, ox, oy)
     ux = math.cos(az - a)
     uy = math.sin(az - a)
-    lo, hi = 0.0, math.inf
+    lo, hi, enter = 0.0, math.inf, None
     for p, u, h in ((px, ux, b.length / 2), (py, uy, b.width / 2)):
         if abs(u) < 1e-9:
             if abs(p) > h:
                 return None
             continue
         t1, t2 = sorted(((-h - p) / u, (h - p) / u))
+        if t1 > lo:
+            enter = u  # 들어가는 면의 법선 방향 성분
         lo, hi = max(lo, t1), min(hi, t2)
-    return lo if lo <= hi else None
+    if lo > hi:
+        return None
+    if max_incidence_deg is not None and enter is not None and math.degrees(math.acos(min(abs(enter), 1.0))) > max_incidence_deg:
+        return None
+    return lo
 
 
 def ray_disc(cx, cy, r, ox, oy, az_deg) -> float | None:
@@ -123,14 +129,46 @@ def ray_disc(cx, cy, r, ox, oy, az_deg) -> float | None:
     return max(t - math.sqrt(r * r - d2), 0.0)
 
 
-def radar_echo(ox, oy, az_deg, boxes, discs, half_deg, max_mm) -> float | None:
-    """수평 빔의 첫 메아리 거리. 빔 안 7개 광선 중 가장 가까운 면(discs = 팔 링크 원)."""
+def box_corners(b: Box) -> list[tuple[float, float]]:
+    a = math.radians(b.angle_deg)
+    c, s = math.cos(a), math.sin(a)
+    return [(b.x + sx * b.length / 2 * c - sy * b.width / 2 * s, b.y + sx * b.length / 2 * s + sy * b.width / 2 * c)
+            for sx, sy in ((1, 1), (1, -1), (-1, 1), (-1, -1))]
+
+
+def corner_echo(ox, oy, az_deg, boxes, half_deg, factor, range_mm, prob, rng) -> float | None:
+    """모서리 반사(8.5절): 빔 중심에서 반각 x factor 안, range_mm 안의 보이는 모서리가 확률 prob로 메아리를 낸다."""
+    best = None
+    for b in boxes:
+        for cx, cy in box_corners(b):
+            d = math.hypot(cx - ox, cy - oy)
+            if d > range_mm or (best is not None and d >= best):
+                continue
+            diff = abs((math.degrees(math.atan2(cy - oy, cx - ox)) - az_deg + 180) % 360 - 180)
+            if diff > factor * half_deg:
+                continue
+            first = min((x for x in (ray_box(o, ox, oy, math.degrees(math.atan2(cy - oy, cx - ox))) for o in boxes) if x is not None),
+                        default=d)
+            if first < d - 3 or rng.random() >= prob:  # 다른 면에 가려졌거나 이번엔 안 울렸다
+                continue
+            best = d
+    return best
+
+
+def radar_echo(ox, oy, az_deg, boxes, discs, half_deg, max_mm, max_incidence_deg=None,
+               corner=None, rng=None) -> float | None:
+    """수평 빔의 첫 메아리 거리. 빔 안 7개 광선 중 가장 가까운 면(discs = 팔 링크 원).
+    corner = (반각 배율, 거리 mm, 확률)이면 모서리 반사도 낸다."""
     best = None
     for k in range(-3, 4):
         az = az_deg + half_deg * k / 3
-        for d in [ray_box(b, ox, oy, az) for b in boxes] + [ray_disc(cx, cy, r, ox, oy, az) for cx, cy, r in discs]:
+        for d in [ray_box(b, ox, oy, az, max_incidence_deg) for b in boxes] + [ray_disc(cx, cy, r, ox, oy, az) for cx, cy, r in discs]:
             if d is not None and (best is None or d < best):
                 best = d
+    if corner is not None:
+        c = corner_echo(ox, oy, az_deg, boxes, half_deg, *corner, rng)
+        if c is not None and (best is None or c < best):
+            best = c
     return best if best is not None and best <= max_mm else None
 
 

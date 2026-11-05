@@ -23,7 +23,13 @@ class FakeESP32:
     DISC_R = 20  # 팔 링크 원 반경(mm)
 
     def __init__(self, clock, boxes: list[Box], cfg, *, arm_sensor_fn=None, arm_links_fn=None,
-                 seed: int = 0, noise_mm: float = 1.5, dropout: float = 0.03, boot_offset_us: int = 5_000_000):
+                 seed: int = 0, noise_mm: float = 2.0, noise_pct: float = 0.003, dropout: float = 0.03,
+                 boot_offset_us: int = 5_000_000, wrist_beam_half_deg: float | None = None,
+                 max_incidence_deg: float | None = None, servo_lag_deg: float = 0.0, corner=None):
+        # 센서 모델(8.5절): 거리 잡음 = noise_mm + noise_pct x 거리, 응답 없음 dropout, 손목 센서 빔 반각, 레이더 면 반사 허용각,
+        # 서보 지연(갈 때 -lag°, 올 때 +lag°), 모서리 반사 corner = (반각 배율, 거리 mm, 확률)
+        self.noise_pct, self.wrist_beam_half_deg = noise_pct, wrist_beam_half_deg
+        self.max_incidence_deg, self.servo_lag_deg, self.corner = max_incidence_deg, servo_lag_deg, corner
         self.clock, self.boxes, self.cfg = clock, boxes, cfg
         self.arm_sensor_fn, self.arm_links_fn = arm_sensor_fn, arm_links_fn  # t_ns -> (x,y,z) / [(x,y)]
         self.rng = random.Random(seed)
@@ -125,7 +131,7 @@ class FakeESP32:
     def _step_sweep(self, t: int) -> None:
         sw = self._sweep
         a = sw["angles"][sw["i"]]
-        self._measure("r", t, sw["max_mm"], a)
+        self._measure("r", t, sw["max_mm"], a, sw["dir"])
         sw["i"] += sw["dir"]
         if 0 <= sw["i"] < len(sw["angles"]):
             return
@@ -140,10 +146,10 @@ class FakeESP32:
             if sw["left"] == 0:
                 self._sweep = None
 
-    def _measure(self, k: str, t: int, max_mm: float, angle) -> None:
-        d = self._dist(k, t, angle)
+    def _measure(self, k: str, t: int, max_mm: float, angle, direction=1) -> None:
+        d = self._dist(k, t, angle, direction)
         if d is not None:
-            d += self.rng.gauss(0, self.noise_mm)
+            d += self.rng.gauss(0, self.noise_mm + self.noise_pct * d)
         if d is None or d > max_mm or self.rng.random() < self.dropout:
             d = None
         else:
@@ -153,12 +159,13 @@ class FakeESP32:
         else:
             self._emit(t="a", d=d, us=self._us(t))
 
-    def _dist(self, k: str, t: int, angle) -> float | None:
+    def _dist(self, k: str, t: int, angle, direction=1) -> float | None:
         c, half = self.cfg, self.cfg.beam_half_deg
         if k == "r":
             r = c.radar
             discs = [(x, y, self.DISC_R) for x, y in (self.arm_links_fn(t) if self.arm_links_fn else [])]
-            az = r.heading_deg + (angle - 90)
-            return radar_echo(r.station_mm.x, r.station_mm.y, az, self.boxes, discs, half, 1e9)
+            az = r.heading_deg + (angle - 90 - direction * self.servo_lag_deg)
+            return radar_echo(r.station_mm.x, r.station_mm.y, az, self.boxes, discs, half, 1e9, self.max_incidence_deg,
+                              self.corner, self.rng)
         pose = self.arm_sensor_fn(t) if self.arm_sensor_fn else None
-        return None if pose is None else arm_echo(*pose, self.boxes, half)
+        return None if pose is None else arm_echo(*pose, self.boxes, self.wrist_beam_half_deg or half)
