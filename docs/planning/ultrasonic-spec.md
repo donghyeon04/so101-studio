@@ -282,7 +282,7 @@ while (seg := probe.next_segment()) is not None:
     probe.feed(poses)
 obj = probe.result()
 ```
-- `follow_path` 한 번의 호출은 멈추지 않고 이어서 간다. 꺾이는 점에서 서지 않고(`move_p`처럼 블렌딩), 가속·감속은 처음과 끝에만 한다. 한도는 기존 `tool_v_max_mm_s`·`tool_a_max` 그대로다. 지금 손끝 위치에서 첫 점까지 옮겨 가는 것도 같은 호출에 넣는다. `check.py`는 다음 선의 시작점을 지금 위치에서 가까운 끝으로 고른다.
+- `follow_path` 한 번의 호출은 멈추지 않고 이어서 간다. 꺾이는 점에서 서지 않고(`move_p`처럼 블렌딩), 완전히 서는 것은 처음과 끝에만 한다. 한도는 기존 `tool_v_max_mm_s`·`tool_a_max` 그대로이고 **한도가 우선한다**. 꺾이는 점(L3 끝 → L4 시작 등)과 원에서는 가속 한도를 넘지 않을 만큼 속도를 줄여 지나간다(원은 v²/반지름 ≤ `tool_a_max`). 줄인 속도는 `PoseSample` 시각에 그대로 남으므로 `check.py`는 따로 보정하지 않는다. 8.5절 벤치마크의 가상 팔도 같은 규칙으로 속도를 줄인다. 지금 손끝 위치에서 첫 점까지 옮겨 가는 것도 같은 호출에 넣는다. `check.py`는 다음 선의 시작점을 지금 위치에서 가까운 끝으로 고른다.
 - 경로는 손끝 기준이다(2026-11-05 사용자 승인). `check.py`는 센서가 지나갈 선(6절)을 정한 뒤, 경로 동안 고정한 yaw로 돌린 `arm_sensor_offset_mm`을 빼서 손끝 점으로 바꿔 `PathSegment`에 넣는다. 이 변환은 `check.py` 한 곳에서만 한다.
 - `probe.feed`는 그 구간 시각 범위의 ESP32 팔 센서 측정을 `PoseSample`과 시각으로 맞춰(선형 보간) 점(x, y, h)으로 바꾼다.
 - 인식 모듈은 팔 모듈을 import하지 않는다. 팔 링크 위치는 작업 실행이 `arm_links_fn`으로 넘긴다(의존 방향 `system-architecture.md` 2절 유지).
