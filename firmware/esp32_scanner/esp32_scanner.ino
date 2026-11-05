@@ -1,4 +1,4 @@
-// 실측용 최소 펌웨어 (U0). 규약: docs/planning/ultrasonic-spec.md 7절 중 hello/sync/once/stream/stop + gap.
+// 실측용 최소 펌웨어 (U0). 규약: docs/planning/ultrasonic-spec.md 7절 중 hello/once/stream/stop + gap(sync는 U5에서).
 // 서보 없음. 센서 전원은 ESP32 5V, ECHO는 1k/2k 분압. 외부 라이브러리 없음.
 #include <Arduino.h>
 
@@ -13,16 +13,20 @@ uint32_t streamPeriodMs = 33;
 uint32_t streamMaxMm = 300;
 uint32_t lastStreamMs = 0;
 
-// 한 번 재서 mm를 돌려준다. 응답 없음 -1. 앞 측정과 gapMs 이상 띄운다.
+// 한 번 재서 mm를 돌려준다. 응답 없음(또는 ECHO가 LOW로 안 돌아옴) -1.
+// 앞 트리거와 gapMs 이상 띄운다. 메아리가 없으면 ECHO가 약 38ms HIGH로 남을 수 있어 LOW를 먼저 기다린다.
 int ping(char k, uint32_t maxMm) {
-  while (millis() - lastPingMs < gapMs) delay(1);
   int trig = k == 'r' ? TRIG_R : TRIG_A, echo = k == 'r' ? ECHO_R : ECHO_A;
+  while (millis() - lastPingMs < gapMs) delay(1);
+  uint32_t w = millis();
+  while (digitalRead(echo) == HIGH && millis() - w < 60) delayMicroseconds(100);
+  if (digitalRead(echo) == HIGH) { lastPingMs = millis(); return -1; }
   digitalWrite(trig, LOW); delayMicroseconds(2);
   digitalWrite(trig, HIGH); delayMicroseconds(10);
   digitalWrite(trig, LOW);
-  uint32_t timeoutUs = maxMm * 2000UL / 343 + 300;  // 왕복 시간 + 여유
+  lastPingMs = millis();  // gap은 트리거 시각부터 센다
+  uint32_t timeoutUs = maxMm * 2000UL / 343 + 2500;  // 왕복 시간 + 메아리 시작 대기 여유 (ESP32 pulseIn은 이 대기도 제한에 포함)
   uint32_t us = pulseIn(echo, HIGH, timeoutUs);
-  lastPingMs = millis();
   if (us == 0) return -1;
   int mm = (int)(us * 343UL / 2000UL);
   return mm > (int)maxMm ? -1 : mm;
@@ -55,9 +59,6 @@ void handle(const String &line) {
   if (cmd == "hello") {
     Serial.print("{\"t\":\"hello\",\"fw\":\""); Serial.print(FW);
     Serial.println("\",\"servo\":\"none\",\"k\":[\"r\",\"a\"]}");
-  } else if (cmd == "sync") {
-    Serial.print("{\"t\":\"sync\",\"pc\":"); Serial.print(num(line, "pc", 0)); // 정수 ns는 64비트라 PC가 돌려받는 값으로만 쓴다
-    Serial.print(",\"us\":"); Serial.print((uint32_t)micros()); Serial.println("}");
   } else if (cmd == "gap") {
     gapMs = constrain(num(line, "ms", 33), 5, 1000);
     Serial.print("{\"t\":\"gap\",\"ms\":"); Serial.print(gapMs); Serial.println("}");

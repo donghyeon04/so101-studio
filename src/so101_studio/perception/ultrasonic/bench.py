@@ -33,10 +33,16 @@ def run_once(ser, k, n, gap_ms, max_mm):
     send(ser, cmd="gap", ms=gap_ms)
     read_json(ser, 2)
     send(ser, cmd="once", k=k, n=n, max_mm=max_mm)
-    rows = []
-    while (m := read_json(ser, 5)) is not None and m.get("t") != "done":
+    rows, done = [], False
+    while (m := read_json(ser, 5)) is not None:
+        if m.get("t") == "done":
+            done = True
+            break
         if m.get("t") in ("r", "a"):
             rows.append((m["t"], m["d"], m["us"]))
+    if not done or len(rows) != n * len(k):
+        print(f"경고: gap {gap_ms}ms done={'받음' if done else '못 받음'}, "
+              f"측정 {len(rows)}개 (기대 {n * len(k)}개). 이 간격 결과는 믿지 말 것")
     return rows
 
 
