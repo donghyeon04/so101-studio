@@ -97,7 +97,7 @@ PPT 흐름도(캘리브레이션 → 스캔 → 판단 → 실행 → 남은 물
 |---|---|---|
 | `PREPARE` | 팔을 센서 시야 밖 대기 자세로(`park`) | `SCAN` |
 | `SCAN` | `perception.scan()` | `DECIDE` |
-| `DECIDE` | 도달 범위 밖 물체 제외 → 우선순위(기본: 팔에서 가까운 순) → 1개 선택 | 있으면 `PICK`, 없으면 `DONE` |
+| `DECIDE` | 도달 범위 밖 물체 제외 → 우선순위(기본: 팔에서 가까운 순) → 1개 선택 | 있으면 `PICK`, 없으면 `DONE`. 미리 찾기(prefetch)를 쓰는 초음파는 없을 때 `RESCAN`을 한 번 거친다(`ultrasonic-spec.md` 2절) |
 | `CHECK` | 확인 기능이 있는 인식 방식만(`CheckableSource`, `ultrasonic-spec.md` 8.2절): 팔이 후보 위를 지나가며 손목 센서로 재서 물체를 확정. 물체가 없으면 그 후보를 지움 | 확정 `PICK`, 없음 `DECIDE` |
 | `PICK` | `arm.pick(obj)` | 성공 `PLACE`, 실패 시 재시도 1회 후 건너뛰고 `PREPARE` (재시도는 목표 층) |
 | `PLACE` | `arm.place(zone)` | `PREPARE` (물체를 하나 옮길 때마다 다시 스캔) |
