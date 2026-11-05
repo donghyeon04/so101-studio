@@ -2,7 +2,7 @@
 성능 숫자는 이 도구로만 낸다. 새 아이디어(확인선 길이, 모드, 속도 등)는 옵션으로 붙인다.
 
 python -m so101_studio.perception.ultrasonic.benchmark [--scenario spread90|spread120|demo|single|all] [--seeds N] [--mode accurate|fast|both]
-                                                       [--model optimistic|pessimistic|both] [--line-mm N] [--speed N] [--verify]
+                                                       [--model optimistic|pessimistic|both] [--line-mm N] [--speed N] [--rescan-home on|off] [--max-fail N] [--empty-extra N]
 """
 import argparse
 import itertools
@@ -234,24 +234,34 @@ def random_layout(rng, name) -> list[Box]:
     raise RuntimeError("배치를 못 만들었다")
 
 
-def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, verify_at_home=False):
+def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, rescan_home=None):
     """처음 scan()부터 물체가 다 없어질 때까지(작업 실행 흉내). 인식 시간 = 레이더 + 확인, 집기·놓기는 뺀다.
     판정(8.5절): 확인 결과 자리에 가장 가까운 실제 물체가 30mm 안이면 그 물체를 집은 것. 위치 오차 15mm 이하이고 방향까지 맞으면 성공(정사각형은 위치만).
-    verify_at_home: (설계서 2절은 "후보 없음 → DONE"이라 기본은 끔) 켜면 후보가 없을 때 팔을 홈으로 옮겨(배출 구역 근처 물체를 가리던 팔을 치운 뒤) 한 번 더 scan()하고 끝낸다.
+    rescan_home(RESCAN, 기획 #77): 후보가 없으면 팔을 대기 자세로 옮겨 src.rescan()(4바퀴)을 한 번 하고, 후보가 있으면 계속, 또 없으면 끝낸다.
+    대기 자세(PREPARE 자세)는 아직 정해지지 않아 팔 원점 위(arm.base, 높이 150mm)로 흉내 낸다. None이면 설정 radar.rescan_home을 따른다.
+    check.max_fail_per_run: 확인 실패가 그만큼이면 끝낸다(src.give_up).
     prefetch는 PLACE 시작(집은 뒤 배출 구역으로 옮기기 시작할 때)에 건다(2절·T5)."""
-    clk, recog, log, ok, verified = arm.clk, 0.0, [], 0, False
+    if rescan_home is None:
+        rescan_home = src.cfg.radar.rescan_home
+    clk, recog, log, ok, rescanned = arm.clk, 0.0, [], 0, False
     src.begin_cycle()
     for _ in range(max_iter):
+        if src.give_up:
+            break
         t0 = clk.now_ns()
-        scan = src.scan()
+        if rescanned:  # 대기 자세로 옮긴 뒤의 RESCAN 결과
+            scan = src.rescan()
+        else:
+            scan = src.scan()
         recog += (clk.now_ns() - t0) / 1e9
         near = [o for o in scan.objects if 90 <= math.dist((o.x_mm, o.y_mm), arm.base) <= 250]
         if not near:
-            if verify_at_home and not verified and math.dist(arm.tip, arm.base) > 1:
-                verified = True
-                arm.move(arm.base, 150)
+            if rescan_home and not rescanned:
+                rescanned = True
+                arm.move(arm.base, 150)  # 레이더 시야 밖 대기 자세(흉내)
                 continue
             break
+        rescanned = False  # 후보가 나왔으니 다음에 또 없으면 다시 RESCAN할 수 있다(연달아 두 번만 안 함)
         cand = min(near, key=lambda o: math.dist((o.x_mm, o.y_mm), arm.base))
         obj, probe, dt = do_check(src, arm, cand)
         recog += dt
@@ -275,7 +285,7 @@ def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, veri
     return ok, recog, log
 
 
-def run_scenario(name, model, seeds, mode, verify=False, **opts):
+def run_scenario(name, model, seeds, mode, rescan_home=None, **opts):
     """시나리오 하나: 씨앗값 0..seeds-1마다 배치를 만들어 사이클을 돈다. single은 반경 구간(SINGLE_RADII)마다 seeds번."""
     rows = []
     cells = [(r, s) for r in SINGLE_RADII for s in range(seeds)] if name == "single" else [(None, s) for s in range(seeds)]
@@ -291,7 +301,7 @@ def run_scenario(name, model, seeds, mode, verify=False, **opts):
         n = len(boxes)
         cfg, clk, esp, arm = build(boxes, mode=mode, seed=seed, model=model, **opts)
         src = make_source(cfg, clk, esp, arm)
-        ok, secs, log = run_cycle(src, arm, esp, verify_at_home=verify)
+        ok, secs, log = run_cycle(src, arm, esp, rescan_home=rescan_home)
         rows.append({"radius": radius, "seed": seed, "n": n, "ok": ok, "recog_s": secs, "left": len(esp.boxes), "log": log})
     return rows
 
@@ -301,7 +311,9 @@ def summarize(rows) -> dict:
     secs = sorted(r["recog_s"] for r in rows)
     out = {"runs": len(rows), "objects": n, "success_mean": statistics.mean(r["ok"] for r in rows),
            "success_pct": 100 * statistics.mean(r["ok"] for r in rows) / n, "left_mean": statistics.mean(r["left"] for r in rows),
-           "recog_mean_s": statistics.mean(secs), "recog_p90_s": secs[min(int(len(secs) * 0.9), len(secs) - 1)]}
+           "recog_mean_s": statistics.mean(secs), "recog_median_s": statistics.median(secs),
+           "recog_p90_s": secs[math.ceil(0.9 * len(secs)) - 1],  # 가장 가까운 순위(n=20이면 18번째). 평균과 같은 표본
+           "recog_max_s": secs[-1]}
     if rows[0]["radius"] is not None:
         out["by_radius_pct"] = {r: 100 * statistics.mean(x["ok"] for x in rows if x["radius"] == r) for r in SINGLE_RADII}
     return out
@@ -315,14 +327,28 @@ def commit() -> str:
 
 
 def format_table(results: list[dict]) -> str:
-    lines = [f"commit {results[0]['commit']}", f"재현: {results[0].get('command', '?')}", "| 시나리오 | 모델 | 모드 | 수 | 성공 평균 | 성공 % | 남은 물체 | 인식 평균(초) | 인식 90%(초) |", "|---|---|---|---|---|---|---|---|---|"]
+    lines = [f"commit {results[0]['commit']}", f"재현: {results[0].get('command', '?')}", "| 시나리오 | 모델 | 모드 | 수 | 성공 평균 | 성공 % | 남은 물체 | 인식 평균(초) | 인식 중앙값(초) | 인식 90%(초) | 인식 최대(초) |", "|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in results:
         s = r["summary"]
         lines.append(f"| {r['scenario']} | {r['model']} | {r['mode']} | {s['runs']} | {s['success_mean']:.2f}/{s['objects']} | {s['success_pct']:.0f}% | "
-                     f"{s['left_mean']:.2f} | {s['recog_mean_s']:.0f} | {s['recog_p90_s']:.0f} |")
+                     f"{s['left_mean']:.2f} | {s['recog_mean_s']:.0f} | {s['recog_median_s']:.0f} | {s['recog_p90_s']:.0f} | {s['recog_max_s']:.0f} |")
         if "by_radius_pct" in s:
-            lines.append("|  | 반경별 성공 % | " + " ".join(f"{k}:{v:.0f}" for k, v in s["by_radius_pct"].items()) + " | | | | | | |")
+            lines.append("|  | 반경별 성공 % | " + " ".join(f"{k}:{v:.0f}" for k, v in s["by_radius_pct"].items()) + " | | | | | | | |")
+    lines += compare_modes(results)
     return "\n".join(lines)
+
+
+def compare_modes(results) -> list[str]:
+    """빠른 모드가 정확 모드보다 인식 시간이 10% 이상 짧은지(모드를 합칠지 판단용). 같은 시나리오·모델끼리 평균 시간을 비교한다."""
+    by = {(r["scenario"], r["model"], r["mode"]): r["summary"] for r in results}
+    out = []
+    for (sc, md, mode), s in by.items():
+        if mode != "accurate" or (sc, md, "fast") not in by:
+            continue
+        f = by[(sc, md, "fast")]
+        gain = 100 * (s["recog_mean_s"] - f["recog_mean_s"]) / s["recog_mean_s"]
+        out.append(f"| 비교 {sc} {md} | 빠른이 정확보다 {gain:+.0f}% 빠름({'10% 이상 ✓' if gain >= 10 else '10% 미만'}), 성공 {f['success_pct'] - s['success_pct']:+.0f}%p |")
+    return (["", "| 빠른 vs 정확 | |", "|---|---|", *out]) if out else []
 
 
 def main(argv=None):
@@ -333,18 +359,23 @@ def main(argv=None):
     ap.add_argument("--model", default="both", help="optimistic | pessimistic | both")
     ap.add_argument("--line-mm", type=int, help="확인 직선 길이(기본 설정값)")
     ap.add_argument("--speed", type=float, help="확인 속도 mm/s(기본 설정값)")
-    ap.add_argument("--verify", action="store_true", help="후보가 없으면 팔을 홈으로 옮겨 한 번 더 scan()한다(설계서 2절과 다른 흐름이라 기본 끔)")
+    ap.add_argument("--rescan-home", choices=["on", "off"], help="후보가 없을 때 대기 자세로 옮겨 RESCAN(기본: 설정 radar.rescan_home)")
+    ap.add_argument("--max-fail", type=int, help="check.max_fail_per_run(확인 실패가 이만큼이면 끝냄, 기본: 설정값 0)")
+    ap.add_argument("--empty-extra", type=int, help="radar.empty_extra_sweeps(기본: 설정값 3)")
     ap.add_argument("--out", default="runs/bench")
     a = ap.parse_args(argv)
     names = list(SCENARIOS) if a.scenario == "all" else [a.scenario]
     models = list(MODELS) if a.model == "both" else [a.model]
     modes = ["accurate", "fast"] if a.mode == "both" else [a.mode]
-    opts = {k: v for k, v in (("line_mm", a.line_mm), ("speed_mm_s", a.speed)) if v is not None}
+    opts = {k: v for k, v in (("line_mm", a.line_mm), ("speed_mm_s", a.speed), ("max_fail_per_run", a.max_fail)) if v is not None}
+    if a.empty_extra is not None:
+        opts["radar"] = {"empty_extra_sweeps": a.empty_extra}
+    rescan = None if a.rescan_home is None else a.rescan_home == "on"
     results, sha = [], commit()
     cmd = "python -m so101_studio.perception.ultrasonic.benchmark " + " ".join(argv if argv is not None else __import__("sys").argv[1:])
     for name, model, mode in itertools.product(names, models, modes):
-        rows = run_scenario(name, model, a.seeds, mode, verify=a.verify, **opts)
-        results.append({"commit": sha, "command": cmd, "scenario": name, "model": model, "mode": mode, "options": {**opts, "verify": a.verify}, "summary": summarize(rows),
+        rows = run_scenario(name, model, a.seeds, mode, rescan_home=rescan, **opts)
+        results.append({"commit": sha, "command": cmd, "scenario": name, "model": model, "mode": mode, "options": {**opts, "rescan_home": rescan}, "summary": summarize(rows),
                         "rows": [{k: v for k, v in r.items() if k != "log"} for r in rows]})
         print(format_table(results[-1:]).split("\n", 1)[1] if len(results) > 1 else format_table(results), flush=True)
     out = Path(a.out)

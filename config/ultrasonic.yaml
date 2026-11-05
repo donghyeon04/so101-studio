@@ -16,6 +16,8 @@ radar:
   merge_mm: 110
   range_offset_mm: 15
   prefetch_sweeps: 4
+  empty_extra_sweeps: 3   # 첫 1~2바퀴에 후보가 없으면 이만큼 더 돌려 합쳐 다시 판단
+  rescan_home: true       # 후보가 없으면 레이더 시야를 가리지 않는 대기 자세로 옮겨 prefetch_sweeps바퀴 다시 본다(RESCAN, 연달아 두 번은 안 함)
   early_start: true
   arm_mask_deg: 5
   arm_mask_mm: 60
@@ -32,5 +34,6 @@ check:
   approach_line: false    # fast 모드에서 true (T8)
   early_stop_cells: 0     # T9, 지금은 두 모드 모두 0
   fallback_grid_mm: 20
+  max_fail_per_run: 0     # 한 번의 작업 실행에서 확인 실패(물체 없음·못 감)가 이만큼이면 끝낸다. 0 = 끔
   tool_reach_mm: {min: 60, max: 255}   # 손끝 반경, 팔 원점 기준 (REQ-023 계산 50~265 + 여유)
 arm_sensor_offset_mm: {x: 0, y: 30, z: 55}   # 손끝 기준 도구 프레임(x = 턱이 벌어지는 축), A0 보정으로 고침

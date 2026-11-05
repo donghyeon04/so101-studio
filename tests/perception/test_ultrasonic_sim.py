@@ -96,7 +96,7 @@ def _cycles(tmp_path, mode, n=10, **kw):
         boxes = [Box(b.x, b.y, b.angle_deg) for b in THREE]
         cfg, clk, esp, arm = build(boxes, mode=mode, seed=seed, **kw)
         src = make_source(cfg, clk, esp, arm, tmp_path)
-        ok, secs, _ = run_cycle(src, arm, esp)
+        ok, secs, _ = run_cycle(src, arm, esp, rescan_home=False)
         oks.append(ok)
         times.append(secs)
     print(f"{mode}: 성공 평균 {sum(oks) / n:.1f}/3, 인식 평균 {sum(times) / n:.1f}초, 최대 {max(times):.1f}초")
@@ -304,3 +304,32 @@ def test_fake_arm_slows_on_circle_and_corners():
     assert circle_s > 4.0
     # L3+L4(총 길이 약 487mm): 꺾임 두 곳에서 줄이므로 직선 3번 값(약 5.7초)보다 길다
     assert cross_s > 6.0
+
+
+def test_empty_scan_adds_extra_sweeps_and_rescan_runs_four(tmp_path):
+    """첫 바퀴에 후보가 없으면 empty_extra_sweeps(3)바퀴를 더 돌려 합친다. 있으면 1바퀴만. RESCAN은 4바퀴."""
+    cfg, clk, esp, arm = build([])
+    src = make_source(cfg, clk, esp, arm, tmp_path)
+    assert src.scan().raw["passes"] == 1 + cfg.radar.empty_extra_sweeps
+    esp.boxes.append(Box(300, 170, 0))
+    assert src.scan().raw["passes"] == 1
+    assert src.rescan().raw["passes"] == cfg.radar.prefetch_sweeps
+
+
+def test_max_fail_per_run_gives_up(tmp_path):
+    """check.max_fail_per_run: 확인 실패가 그만큼이면 give_up. begin_cycle()이 비운다. 0이면 끔."""
+    cfg, clk, esp, arm = build([Box(300, 170, 0)], max_fail_per_run=1)
+    src = make_source(cfg, clk, esp, arm, tmp_path)
+    cand = src.scan().objects[0]
+    assert not src.give_up
+    esp.boxes.clear()
+    do_check(src, arm, cand)  # 물체 없음 = 확인 실패 한 번
+    assert src.give_up
+    src.begin_cycle()
+    assert not src.give_up
+    cfg0, clk0, esp0, arm0 = build([Box(300, 170, 0)])  # 기본 0 = 끔
+    src0 = make_source(cfg0, clk0, esp0, arm0, tmp_path)
+    cand0 = src0.scan().objects[0]
+    esp0.boxes.clear()
+    do_check(src0, arm0, cand0)
+    assert not src0.give_up

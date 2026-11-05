@@ -38,6 +38,7 @@ class UltrasonicSource:
         self._checking = False
         self._rejected: list[tuple[float, float]] = []  # 이번 사이클에 다시 고르지 않을 자리
         self._fails: list[list] = []  # [x, y, 못 간 횟수]: 못 가서 못 잰 후보는 두 번째에 뺀다(6절)
+        self._fail_count = 0  # 이번 작업 실행의 확인 실패(물체 없음·못 감) 횟수
         self._n = 0
 
     # --- PerceptionSource ---
@@ -67,18 +68,37 @@ class UltrasonicSource:
         else:
             self._run_passes(1 if self.cfg.radar.early_start else 2)  # T3
         objs, raw = self._candidates()
-        if not objs and len(self._passes) < self.cfg.radar.prefetch_sweeps:
-            # 한 바퀴에서 아무것도 안 보여도 바로 "없음"으로 끝내지 않는다: 바퀴를 더 돌려 합친다(응답 없음을 빼고 각도별 중앙값이라,
-            # 약한 반사가 한 번이라도 잡히면 호가 이어진다). 물체가 하나라도 보이면 이 시간은 들지 않는다.
-            more = self.cfg.radar.prefetch_sweeps - len(self._passes)
+        if not objs and len(self._passes) <= 2 and self.cfg.radar.empty_extra_sweeps > 0:
+            # 첫 1~2바퀴에 아무것도 안 보여도 바로 "없음"으로 끝내지 않는다: empty_extra_sweeps바퀴를 더 돌려 합친다(응답 없음을 빼고
+            # 각도별 중앙값이라 약한 반사가 한 번이라도 잡히면 호가 이어진다). 물체가 하나라도 보이면 이 시간은 들지 않는다.
             first = self._passes
-            self._run_passes(more)
+            self._run_passes(self.cfg.radar.empty_extra_sweeps)
             self._passes = first + self._passes
             objs, raw = self._candidates()
         if self.bus:
             self.bus.publish("us.candidates", {"objects": [dataclasses.asdict(o) for o in objs], "arcs": raw["arcs"],
                                                "masked": raw["masked"]})
         return ScanResult(objs, (self.clock.now_ns() - t0) / 1e9, raw)
+
+    def rescan(self) -> ScanResult:
+        """RESCAN(설계서 2절): 후보가 없을 때 작업 실행이 팔을 레이더 시야 밖 대기 자세로 옮긴 뒤 부른다.
+        prefetch_sweeps바퀴를 새로 돌려 합친다. 후보가 있으면 DECIDE, 또 없으면 DONE이고 연달아 두 번은 부르지 않는다."""
+        t0 = self.clock.now_ns()
+        if self.baseline is None:
+            self.baseline = radar.Baseline.load(self.baseline_path)
+        self._prefetching = False
+        self._run_passes(self.cfg.radar.prefetch_sweeps)
+        objs, raw = self._candidates()
+        if self.bus:
+            self.bus.publish("us.candidates", {"objects": [dataclasses.asdict(o) for o in objs], "arcs": raw["arcs"],
+                                               "masked": raw["masked"], "rescan": True})
+        return ScanResult(objs, (self.clock.now_ns() - t0) / 1e9, raw)
+
+    @property
+    def give_up(self) -> bool:
+        """check.max_fail_per_run이 0이 아니고 이번 작업 실행의 확인 실패가 그만큼 쌓였으면 True: 작업 실행은 끝낸다."""
+        n = self.cfg.check.max_fail_per_run
+        return n > 0 and self._fail_count >= n
 
     def _candidates(self):
         vals, raw = radar.combine(self._passes, self._links_fn, self.cfg)
@@ -122,6 +142,8 @@ class UltrasonicSource:
             self.link.send(cmd="stop")
             self.link.expect(False)
         if cand is not None:
+            if status in ("empty", "unreachable"):
+                self._fail_count += 1
             if status == "empty":
                 self._rejected.append((cand.x_mm, cand.y_mm))  # 레이더 오검출: 후보 삭제
             elif status == "unreachable":
@@ -140,6 +162,7 @@ class UltrasonicSource:
         """작업 사이클 시작 때 작업 실행(REQ-025)이 부른다: 지운 자리와 실패 횟수를 비운다. calibrate()도 부른다."""
         self._rejected.clear()
         self._fails.clear()
+        self._fail_count = 0
 
     def prefetch(self, arm_links_fn) -> None:
         """T5: 놓는 동안 레이더를 돌린다. 다음 scan()이 그 바퀴들을 합쳐 쓴다."""
