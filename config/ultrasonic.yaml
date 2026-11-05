@@ -30,8 +30,8 @@ check:
   ring_r_mm: 45
   ring_n: 36
   hit_mm: 15
-  approach_line: false    # fast 모드에서 true (T8)
-  early_stop_cells: 0     # T9, 지금은 두 모드 모두 0
+  approach_line: false    # T8 옵션 (결정 0038): true면 첫 확인선을 팔 원점에서 후보로 가는 방향으로
+  early_stop_cells: 0     # T9, 경로 안에서 멈추는 기능이 생길 때까지 0(끔)
   fallback_grid_mm: 20
   max_fail_per_run: 3     # 한 번의 작업 실행에서 확인·집기 실패가 이만큼이면 DONE. 0 = 끔
   tool_reach_mm: {min: 60, max: 255}   # 손끝 반경, 팔 원점 기준 (REQ-023 계산 50~265 + 여유)
