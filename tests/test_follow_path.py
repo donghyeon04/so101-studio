@@ -2,6 +2,7 @@
 import math
 import threading
 import time
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -215,4 +216,86 @@ def test_follow_path_requires_sensor_offset(tmp_path):
     s.connect()
     with pytest.raises(ValueError):
         s.follow_path([(260.0, 200.0), (300.0, 200.0)], Z, 60.0)
+    s.disconnect()
+
+
+class ReadFails(SimDriver):
+    """write는 되는데 read만 실패하는 장치(서보 하나가 빠지거나 버스 잡음 때 sync_read만 응답이 없다)."""
+    fail = False
+
+    def read_joints(self):
+        if self.fail:
+            raise ConnectionError("read timeout")
+        return super().read_joints()
+
+
+def _flaky_service(tmp_path):
+    s = ArmService(ReadFails(CFG.poses["home"]), CFG, WS, speed_pct=100, log_root=None)
+    assert s.connect()[0]
+    s.set_sensor_offset(OFF)
+    return s
+
+
+def _run_async(fn):
+    out = {}
+    th = threading.Thread(target=lambda: out.update(r=fn()), daemon=True)
+    th.start()
+    return th, out
+
+
+def _wait(cond, limit=10.0):
+    end = time.time() + limit
+    while not cond() and time.time() < end:
+        time.sleep(0.01)
+    return cond()
+
+
+def test_read_failure_during_path_ends_with_comm_lost_fault(tmp_path):
+    s = _flaky_service(tmp_path)
+    th, _out = _run_async(lambda: s.follow_path([(240.0, 200.0), (420.0, 200.0)], Z, 40.0))
+    assert _wait(lambda: s.ctl.tap is not None)
+    time.sleep(0.2)
+    s.driver.fail = True
+    th.join(8)
+    assert not th.is_alive(), "읽기가 실패해도 follow_path는 돌아와야 한다"
+    assert s.last_path.status == "fault" and s.ctl.state == "fault" and s.ctl.fault == "comm_lost"
+    s.driver.fail = False
+    s.disconnect()
+
+
+def test_read_failure_during_approach_does_not_hang(tmp_path):
+    s = _flaky_service(tmp_path)
+    th, out = _run_async(lambda: s.follow_path([(240.0, 200.0), (420.0, 200.0)], Z, 40.0))
+    assert _wait(lambda: s.ctl.state == "moving")
+    s.driver.fail = True  # 접근 이동 중(마지막 틱에서 결과를 읽을 때)에 읽기가 끊긴다
+    th.join(8)
+    assert not th.is_alive() and out["r"] == [] and s.last_path.status == "fault"
+    s.driver.fail = False
+    s.disconnect()
+
+
+def test_read_failure_at_the_last_tick_still_finishes_the_handle(tmp_path):
+    s = _flaky_service(tmp_path)
+    th, out = _run_async(lambda: s.move_joints(replace(s.driver.read_joints(), shoulder_pan=20.0), 100))
+    assert _wait(lambda: s.ctl.state == "moving")
+    s.driver.fail = True
+    th.join(8)
+    assert not th.is_alive() and out["r"].status == "fault"
+    s.driver.fail = False
+    s.disconnect()
+
+
+def test_follow_path_reads_the_bus_a_constant_number_of_times_for_planning(tmp_path):
+    s = ArmService(SimDriver(CFG.poses["home"]), CFG, WS, speed_pct=100, log_root=None)
+    s.connect()
+    s.set_sensor_offset(OFF)
+    n = {"c": 0}
+    orig = s.driver.read_joints
+    s.driver.read_joints = lambda: (n.__setitem__("c", n["c"] + 1), orig())[1]
+    c = (300.0, 180.0)
+    ring = [(c[0] + 45 * math.cos(math.radians(i * 10)), c[1] + 45 * math.sin(math.radians(i * 10))) for i in range(37)]
+    s.ctl.tap = None
+    s.follow_path(ring, Z, 100.0)
+    per_tick = len(s.ctl.ring)  # 틱마다 한 번(tap)은 정상이므로 계획 읽기만 센다: 점마다 읽으면 37번이 더 붙는다
+    assert n["c"] < per_tick + 30
     s.disconnect()

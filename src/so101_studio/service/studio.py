@@ -21,7 +21,7 @@ class Studio:
         self.task = TaskRunner(arm.skills, source, arm.ws, self.bus, accept_no_object=dry_run)
         self.bus.subscribe("task", lambda e: arm._log("task", e))
         self.summary = RunSummary(getattr(source, "name", type(source).__name__))
-        self.bus.subscribe("task", lambda e: self.summary.on_event(e))
+        self.bus.subscribe("task", self._record_summary)
         self._thread: threading.Thread | None = None
         self.perception = PerceptionManager(self, source)
         self._step = threading.Event()
@@ -52,14 +52,27 @@ class Studio:
         self._thread.start()
         return None
 
+    def _record_summary(self, e) -> None:
+        """기록 실패가 작업을 멈추면 안 된다: 요약을 모으다 난 예외는 남기기만 한다."""
+        try:
+            self.summary.on_event(e)
+        except Exception as ex:  # noqa: BLE001
+            self._summary_failed(ex)
+
+    def _summary_failed(self, ex: Exception) -> None:
+        try:
+            self.arm._log("summary_failed", {"error": repr(ex)}, "WARN", "ARM-SUMMARY-FAILED")
+        except Exception:  # noqa: BLE001, S110 기록도 안 되면 조용히 넘어간다
+            pass
+
     def _write_summary(self) -> None:
         """실행이 끝나거나 멈출 때 runs/<시각>/summary.json을 쓴다(기록 폴더가 없는 시험·시뮬레이션은 건너뛴다)."""
-        lg = getattr(self.arm, "logger", None)
-        if lg is not None:
-            try:
+        try:
+            lg = getattr(self.arm, "logger", None)
+            if lg is not None:
                 self.summary.write(lg.dir / "summary.json", self.result)
-            except OSError as e:
-                self.arm._log("summary_failed", {"error": repr(e)}, "WARN", "ARM-SUMMARY-FAILED")
+        except Exception as e:  # noqa: BLE001 끝난 작업이 기록 실패로 예외가 되면 안 된다
+            self._summary_failed(e)
 
     def _wait_step(self) -> None:
         if self.task._stop:  # 정지 요청이 있으면 기다리지 않는다 (stop()의 신호는 한 번만 풀어 주므로)

@@ -369,9 +369,9 @@ class ArmService:
         d = self.kin.tool_axes(q) @ np.array([off["x"], off["y"], 0.0])
         return float(x + d[0]), float(y + d[1]), float(h + off["z"])
 
-    def _path_pose(self, x: float, y: float, z_mm: float, yaw: float) -> ToolPose:
+    def _path_pose(self, x: float, y: float, z_mm: float, yaw: float, tip: np.ndarray) -> ToolPose:
         """경로 점(손끝 xy, 작업대 면 위 높이)을 팔에 보낼 ToolPose로. 센서 경로 → 손끝 경로 변환은 여기서 하지 않는다(check.py 한 곳, ultrasonic-spec 8.2절)."""
-        return self.point_pose(x, y, z_mm, yaw)
+        return point_to_pose(x, y, z_mm, yaw, "table", self.ws.base, self.cfg.table_z_mm, tip)
 
     def arm_links(self, q: JointState | None = None) -> list[tuple[float, float]]:
         """어깨·팔꿈치·손목·손끝의 작업대 xy(mm). 레이더가 팔 자리를 지울 때 쓰는 arm_links_fn (ultrasonic-spec 8.2절)."""
@@ -401,7 +401,8 @@ class ArmService:
         v = min(speed_mm_s, self.cfg.tool_v_max_mm_s * self.speed / 100)
         q0 = self.driver.read_joints()
         yaw = self.kin.fk(q0).yaw_deg if yaw_deg is None else float(yaw_deg)  # None이면 손목 회전은 지금 그대로
-        poses = [self._path_pose(x, y, tool_z_mm, yaw) for x, y in pts]
+        tip = tip_vector(self.kin, -90.0, yaw, q0.gripper, "tip")  # 점마다 버스를 읽지 않게 시작에 읽은 그리퍼 값으로 한 번만
+        poses = [self._path_pose(x, y, tool_z_mm, yaw, tip) for x, y in pts]
         approach = plan_goto(self.kin, self.cfg, q0, poses[0], self.speed)
         fail = None if approach is not None else "ik_fail"
         runs, q = [], approach[-1].sample(approach[-1].duration_s) if approach else None

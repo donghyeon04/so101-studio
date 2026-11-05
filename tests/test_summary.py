@@ -51,3 +51,17 @@ def test_stop_also_writes_summary(tmp_path):
     st.stop()
     st._thread.join(2)
     assert json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))["end"] == "STOPPED"
+
+
+def test_summary_failures_never_stop_the_task(tmp_path, monkeypatch):
+    arm = types.SimpleNamespace(ctl=StubSkills().ctl, kin=None, cfg=None, ws=WS, skills=StubSkills(), _log=lambda *a: None,
+                                logger=types.SimpleNamespace(dir=tmp_path))
+    st = Studio(arm, ListSource([obj(1, 300, 170)]))
+
+    def boom(*a, **k):
+        raise RuntimeError("기록 실패")
+
+    monkeypatch.setattr(RunSummary, "on_event", boom)  # 구독 콜백이 예외를 내도(start가 요약을 새로 만들므로 클래스에서 바꾼다)
+    monkeypatch.setattr(RunSummary, "write", boom)  # 쓰기가 OSError 말고 다른 예외를 내도
+    res = st.start(blocking=True)
+    assert res["end"] == "no_objects" and res["picked"] == ["obj-1"]

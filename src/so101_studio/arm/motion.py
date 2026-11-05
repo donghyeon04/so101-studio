@@ -71,8 +71,16 @@ class MotionController:
         want = self.kin.fk(self._last)
         return got, float(np.linalg.norm([got.x_mm - want.x_mm, got.y_mm - want.y_mm, got.z_mm - want.z_mm]))
 
-    def _result(self, status: str, t0: float) -> MotionResult:
-        tool, err = self._final_tool()
+    def _result(self, status: str, t0: float, needs_read: bool = False) -> MotionResult:
+        """동작의 결과. 버스를 못 읽어도 결과는 반드시 돌려준다(wait()가 영원히 안 끝나지 않게). 읽기 실패는 끊김의 시작으로 건강 감시에 알리고,
+        needs_read(정상 끝)이면 상태를 fault로 바꿔 돌려준다. 손끝 위치는 모른다(0)."""
+        try:
+            tool, err = self._final_tool()
+        except Exception:  # noqa: BLE001 포트 빠짐·응답 없음 등 어떤 읽기 실패든
+            self.health.comm_failed(time.perf_counter())
+            tool, err = ToolPose(0, 0, 0, 0), None
+            if needs_read:
+                status = "fault"
         return MotionResult(status, time.perf_counter() - t0, tool, err)
 
     def execute(self, traj) -> MotionHandle:
@@ -322,17 +330,17 @@ class MotionController:
             return
         self._last = q  # 쓰기 실패도 시도한 위치로 센다(통신 끊김이 'step' fault로 오인되지 않게)
         self.driver.write_joints(q)
-        self.health.comm_ok(time.perf_counter())
         if self.tap is not None:  # 실제 관절값을 읽어 넘긴다(읽는 데 걸린 시간도 함께, 틱 주기를 지키는지 보려고)
             r0 = time.perf_counter_ns()
-            actual = self.driver.read_joints()
+            actual = self.driver.read_joints()  # 실패하면 예외: 통신 정상 표시(아래)를 건너뛰어 끊김 시계가 이어지고 0.5초 안에 comm_lost가 된다
             r1 = time.perf_counter_ns()
             self.tap((r0 + r1) // 2, actual, r1 - r0)
+        self.health.comm_ok(time.perf_counter())
         if t >= traj.duration_s:
             self._job = None
             if self.state == "moving":
                 self.state = "idle"
-            handle._finish(self._result("ok" if kind == "move" else "stopped", t0))
+            handle._finish(self._result("ok" if kind == "move" else "stopped", t0, needs_read=True))
 
     def _tick_jog(self) -> None:
         mode, v, t_in = self._jog
