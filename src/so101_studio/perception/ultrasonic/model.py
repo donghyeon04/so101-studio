@@ -27,12 +27,6 @@ class PoseSample:  # 팔 50Hz 루프의 실제 관절값으로 계산
     sensor_mm: tuple[float, float, float]  # 팔 센서 위치 = 손끝 + yaw로 돌린 arm_sensor_offset_mm
 
 
-class PathUnreachable(Exception):  # REQ-023 임시: follow_path가 못 가는 경로를 거부할 때(이름·모양은 팔 세션 정의로 바꾼다)
-    def __init__(self, points_mm=()):
-        super().__init__(f"도달할 수 없는 점 {len(points_mm)}개")
-        self.points_mm = list(points_mm)
-
-
 class CheckProbe(Protocol):
     def next_segment(self) -> PathSegment | None: ...
 

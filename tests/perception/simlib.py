@@ -6,7 +6,6 @@ from bisect import bisect_right
 from so101_studio.perception.ultrasonic.fake_esp32 import FakeESP32, SimClock
 from so101_studio.perception.ultrasonic.link import Link
 from so101_studio.perception.ultrasonic.model import (
-    PathUnreachable,
     PoseSample,
     load_config,
 )
@@ -21,6 +20,7 @@ class FakeArm:
     # 기본은 도달 제한 없음. 실제에 가까운 범위(REQ-023: 반경 100~240mm, 각도 25~155°)는 STRICT_REACH
     def __init__(self, clk, cfg, travel_mm_s=400.0, reach=None):
         self.reach = reach
+        self.last_path = None
         self.clk, self.travel = clk, travel_mm_s
         self.off0 = (cfg.arm_sensor_offset_mm.x, cfg.arm_sensor_offset_mm.y, cfg.arm_sensor_offset_mm.z)
         self.yaw = 0.0
@@ -76,7 +76,8 @@ class FakeArm:
     def follow_path(self, pts, z, speed, yaw=None):
         bad = [p for p in pts if not self.reachable(p)]
         if bad:
-            raise PathUnreachable(bad)  # REQ-023 임시: 못 가는 경로는 움직이기 전에 거부한다
+            self.last_path = {"reason": "unreachable", "points": bad}  # REQ-023: 못 가는 경로는 움직이지 않고 []
+            return []
         if yaw is not None:
             self.yaw = yaw
         speed = min(speed, TOOL_V_MAX)
@@ -114,10 +115,7 @@ def do_check(src, arm, cand):
     probe = src.start_check(cand)
     t0 = arm.clk.now_ns()
     while (seg := probe.next_segment()) is not None:
-        try:
-            probe.feed(arm.follow_path(seg.points_mm, seg.tool_z_mm, seg.speed_mm_s, seg.yaw_deg))
-        except PathUnreachable as e:
-            probe.unreachable(e)
+        probe.feed(arm.follow_path(seg.points_mm, seg.tool_z_mm, seg.speed_mm_s, seg.yaw_deg))
     return probe.result(), probe, (arm.clk.now_ns() - t0) / 1e9
 
 

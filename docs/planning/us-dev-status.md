@@ -32,10 +32,12 @@
 ## U2 구현 메모
 - 시험은 가상 시계(`SimClock`)로 돈다. `FakeESP32.write/readlines`가 `SerialTransport`와 같은 모양이라 `Link`가 구분하지 못한다. 시험용 가상 팔은 `tests/perception/simlib.py`.
 - 팔 확인 속도 100mm/s(기획 답). 빠른 모드는 `line_mm: 130`을 쓴다(U9 조정값): 180이면 약 35초(30초 기준 초과), 130이면 29.7초·성공 3.0/3, 120이면 29초·2.5/3.
-- **REQ-023 임시**: `PathSegment`, `PoseSample(t_ns, tool_mm, sensor_mm)`, `CheckProbe`, `CheckableSource`, `PathUnreachable`는 `model.py`에 임시 정의. `follow_path`가 못 가는 경로를 거부하는 방식은 아직 정해지지 않아 `PathUnreachable` 예외로 가정했다. 거부되면 작업 실행이 `probe.unreachable(exc)`를 `probe.feed` 대신 부른다. 그 구간은 데이터 없음으로 보고 다음 경로로 가며(신뢰도 -0.2, `probe.info["unreachable"]`), 전부 못 가면 `probe.status == "unreachable"`, 결과 None이고 후보는 지우지 않는다. 물체 없음은 `status == "empty"`이고 후보가 삭제된다(같은 자리는 다시 안 나온다).
+- **REQ-023 임시**: `PathSegment`, `PoseSample(t_ns, tool_mm, sensor_mm)`, `CheckProbe`, `CheckableSource`는 `model.py`에 임시 정의. `follow_path`는 못 가는 경로면 움직이지 않고 빈 목록을 돌려준다(이유는 `arm.last_path`). 8.2절 루프 그대로 `probe.feed([])`가 불리고, 그 구간은 데이터 없음으로 보고 다음 경로로 가며(신뢰도 -0.2, `probe.info["unreachable"]`), 전부 못 가면 `probe.status == "unreachable"`, 결과 None이고 후보는 지우지 않는다. 물체 없음은 `status == "empty"`이고 후보가 삭제된다(같은 자리는 다시 안 나온다).
 - 시뮬레이션 도달(반경 100~240mm, 각도 25~155°)에서는 ±90mm 직선이 반경 방향이면 항상 일부가 범위를 벗어난다(폭 140mm < 직선 180mm). 그래서 반경 방향 선(L2 등)은 대부분 거부된다. `line_mm`·`ring_r_mm`은 설정값이라 기획 답에 따라 바꾼다.
 - `check.py`의 `sensor_to_tip` 한 곳에서만 센서 선 → 손끝 점 변환(yaw로 돌린 오프셋). `check.yaw_deg` 설정(기본 0, 이 각도일 때의 `arm_sensor_offset_mm`).
-- 빠른 모드의 T9(일찍 멈춤)는 선을 36mm 조각으로 나눠 `follow_path`를 여러 번 부른다. 조각 사이에 팔이 멈추면 시간이 늘 수 있다(가상 팔은 끊김 없이 이어진다고 가정). 팔 세션이 이어 부르는 구간을 부드럽게 이을 수 있는지 확인이 필요하다.
+- 빠른 모드의 T9(일찍 멈춤)는 선을 36mm 조각으로 나눠 `follow_path`를 여러 번 부른다. 조각 사이에 팔이 멈추면 시간이 늘 수 있다(가상 팔은 끊김 없이 이어진다고 가정). 팔 세션이 이어 부르는 구간을 부드럽게 이을 수 있는지 확인이 필요하다. **지금 보고한 시간(정확 38.5초, 빠른 29.7초)에는 구간 사이 멈춤 시간이 들어 있지 않다**(팔 세션이 REQ-023을 끝내면 받아 반영).
+- 정지·E-STOP으로 `follow_path`가 빈 목록을 돌려주는 경우는 작업 실행(REQ-025)이 `arm.last_path`를 먼저 보고 끊는다는 가정이다(probe까지 오지 않는다). 시험에는 이 경우가 없다.
+- 모든 값은 가상 ESP32 + 가상 팔이다. 도달 거부와 멈춤 시간은 실제 `follow_path`로 확인하지 않았다.
 - 배출한 물체가 다음 스캔에 후보로 잡힐 수 있다. `UltrasonicSource(ignore_zones=[(x, y, 반경)])`로 뺀다(작업 실행이 배출 구역을 넘긴다).
 - 기준값 파일 `config/ultrasonic_baseline.json`은 git 제외여야 한다(`.gitignore`는 내 영역 밖이라 총괄에 요청).
 

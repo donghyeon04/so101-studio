@@ -7,7 +7,7 @@ import statistics
 from ...core.types import DetectedObject
 from .model import PathSegment, beam_radius
 
-UNREACHABLE = object()  # feed 대신 넣는 표시: 그 구간을 팔이 거부했다
+UNREACHABLE = object()  # 제너레이터에 보내는 표시: 그 구간을 팔이 못 갔다
 
 
 def sensor_to_tip(pts, cfg):
@@ -54,7 +54,13 @@ class Probe:
         return self._seg
 
     def feed(self, poses) -> None:
+        """구간이 끝난 뒤 부른다. poses가 빈 목록이면 follow_path가 그 경로를 못 간 것(움직이지 않고 [] 반환, REQ-023)이라
+        데이터 없음으로 보고 다음 경로로 간다. 정지·E-STOP으로 빈 목록이 오는 경우는 작업 실행이 먼저 끊는다는 가정이다."""
         name, seg, sensor_pts = self._cur
+        if not poses:
+            self.info.setdefault("unreachable", []).append(name)
+            self._step(UNREACHABLE)
+            return
         # 경로 밖 점(접근 이동 중 측정 등)은 버린다
         pts = [p for p in self.src.arm_points(poses) if _near(p, sensor_pts, 12)]
         if self.bus:
@@ -62,11 +68,6 @@ class Probe:
                 "id": self.cand.id, "stage": name, "points_mm": seg.points_mm, "tool_z_mm": seg.tool_z_mm,
                 "points": [(x, y, z - d) for x, y, z, d in pts]})
         self._step(pts)
-
-    def unreachable(self, exc=None) -> None:
-        """follow_path가 이 구간을 거부했을 때 부른다(feed 대신). 그 구간은 데이터 없음으로 보고 다음 경로로 간다."""
-        self.info.setdefault("unreachable", []).append(self._cur[0])
-        self._step(UNREACHABLE)
 
     def result(self) -> DetectedObject | None:
         self.src.end_check(self.cand, self._res, self.info, self.status)
