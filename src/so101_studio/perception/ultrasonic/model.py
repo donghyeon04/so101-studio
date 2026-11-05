@@ -56,11 +56,8 @@ def _wrap(v):
     return Cfg({k: _wrap(x) for k, x in v.items()}) if isinstance(v, dict) else v
 
 
-def load_config(path="config/ultrasonic.yaml", mode=None, radar=None, **check) -> Cfg:
+def load_config(path="config/ultrasonic.yaml", radar=None, **check) -> Cfg:
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
-    raw["mode"] = mode or raw["mode"]
-    if raw["mode"] == "fast":
-        raw["check"].update(approach_line=True)  # T8. T9(early_stop_cells)는 두 모드 모두 끈다(4절)
     raw["check"].update(check)
     raw["radar"].update(radar or {})
     return _wrap(raw)

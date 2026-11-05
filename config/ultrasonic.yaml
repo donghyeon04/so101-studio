@@ -1,5 +1,4 @@
-# 초음파 인식 설정 (docs/planning/ultrasonic-spec.md 8.3절). mode: fast면 check.approach_line=true로 덮어쓴다(4절 T8). T9(early_stop_cells)는 두 모드 모두 끈다.
-mode: accurate            # accurate | fast
+# 초음파 인식 설정 (docs/planning/ultrasonic-spec.md 8.3절). 확인 모드는 하나다(결정 0038). T8은 check.approach_line 옵션, T9(early_stop_cells)는 끈다.
 port: auto                # local.yaml이 우선
 baud: 921600
 ping_gap_ms: 33
@@ -16,6 +15,8 @@ radar:
   merge_mm: 110
   range_offset_mm: 15
   prefetch_sweeps: 4
+  empty_extra_sweeps: 3   # 첫 1~2바퀴에 후보가 없으면 이만큼 더 돌려 합쳐 다시 판단
+  rescan_home: true       # 후보가 없으면 레이더 시야를 가리지 않는 대기 자세로 옮겨 prefetch_sweeps바퀴 다시 본다(RESCAN, 연달아 두 번은 안 함)
   early_start: true
   arm_mask_deg: 5
   arm_mask_mm: 60
@@ -29,8 +30,9 @@ check:
   ring_r_mm: 45
   ring_n: 36
   hit_mm: 15
-  approach_line: false    # fast 모드에서 true (T8)
-  early_stop_cells: 0     # T9, 지금은 두 모드 모두 0
+  approach_line: false    # T8 옵션 (결정 0038): true면 첫 확인선을 팔 원점에서 후보로 가는 방향으로
+  early_stop_cells: 0     # T9, 경로 안에서 멈추는 기능이 생길 때까지 0(끔)
   fallback_grid_mm: 20
+  max_fail_per_run: 3     # 한 번의 작업 실행에서 확인·집기 실패가 이만큼이면 DONE. 0 = 끔
   tool_reach_mm: {min: 60, max: 255}   # 손끝 반경, 팔 원점 기준 (REQ-023 계산 50~265 + 여유)
 arm_sensor_offset_mm: {x: 0, y: 30, z: 55}   # 손끝 기준 도구 프레임(x = 턱이 벌어지는 축), A0 보정으로 고침

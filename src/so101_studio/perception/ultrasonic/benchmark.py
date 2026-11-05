@@ -1,8 +1,8 @@
 """초음파 성능 벤치마크 (ultrasonic-spec 8.5절, 결정 0037): 가상 ESP32 + 가상 팔 위에서 실제 radar.py·check.py·source.py를 돌린다.
 성능 숫자는 이 도구로만 낸다. 새 아이디어(확인선 길이, 모드, 속도 등)는 옵션으로 붙인다.
 
-python -m so101_studio.perception.ultrasonic.benchmark [--scenario spread90|spread120|demo|single|all] [--seeds N] [--mode accurate|fast|both]
-                                                       [--model optimistic|pessimistic|both] [--line-mm N] [--speed N] [--verify]
+python -m so101_studio.perception.ultrasonic.benchmark [--scenario spread90|spread120|demo|single|all] [--seeds N] [--approach-line]
+                                                       [--model optimistic|pessimistic|both] [--line-mm N] [--speed N] [--rescan-home on|off] [--max-fail N] [--empty-extra N] [--no-note-failure]
 """
 import argparse
 import itertools
@@ -180,9 +180,9 @@ class FakeArm:
         return poses
 
 
-def build(boxes, mode="accurate", seed=0, model="optimistic", reach=REACH, arm_kw=None, esp_kw=None, radar=None, **check):
+def build(boxes, seed=0, model="optimistic", reach=REACH, arm_kw=None, esp_kw=None, radar=None, **check):
     """설정 + 가상 시계 + 가상 ESP32 + 가상 팔. model: MODELS 이름 또는 None(이상적 센서)."""
-    cfg = load_config(mode=mode, radar=radar, **check)
+    cfg = load_config(radar=radar, **check)
     clk = SimClock()
     holder = {}
     kw = dict(MODELS[model]) if model else {}
@@ -234,24 +234,37 @@ def random_layout(rng, name) -> list[Box]:
     raise RuntimeError("배치를 못 만들었다")
 
 
-def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, verify_at_home=False):
+def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, rescan_home=None, report_failures=True):
     """처음 scan()부터 물체가 다 없어질 때까지(작업 실행 흉내). 인식 시간 = 레이더 + 확인, 집기·놓기는 뺀다.
     판정(8.5절): 확인 결과 자리에 가장 가까운 실제 물체가 30mm 안이면 그 물체를 집은 것. 위치 오차 15mm 이하이고 방향까지 맞으면 성공(정사각형은 위치만).
-    verify_at_home: (설계서 2절은 "후보 없음 → DONE"이라 기본은 끔) 켜면 후보가 없을 때 팔을 홈으로 옮겨(배출 구역 근처 물체를 가리던 팔을 치운 뒤) 한 번 더 scan()하고 끝낸다.
+    rescan_home(RESCAN, 기획 #77): 후보가 없으면 팔을 대기 자세로 옮겨 src.rescan()(4바퀴)을 한 번 하고, 후보가 있으면 계속, 또 없으면 끝낸다.
+    대기 자세(PREPARE 자세)는 아직 정해지지 않아 팔 원점 위(arm.base, 높이 150mm)로 흉내 낸다. None이면 설정 radar.rescan_home을 따른다.
+    check.max_fail_per_run: 확인 실패가 그만큼이면 끝낸다(src.give_up).
     prefetch는 PLACE 시작(집은 뒤 배출 구역으로 옮기기 시작할 때)에 건다(2절·T5)."""
-    clk, recog, log, ok, verified = arm.clk, 0.0, [], 0, False
+    if rescan_home is None:
+        rescan_home = src.cfg.radar.rescan_home
+    clk, recog, log, ok, rescanned = arm.clk, 0.0, [], 0, False
     src.begin_cycle()
     for _ in range(max_iter):
+        if src.give_up:
+            break
         t0 = clk.now_ns()
-        scan = src.scan()
+        if rescanned:  # 대기 자세로 옮긴 뒤의 RESCAN 결과
+            scan = src.rescan()
+        else:
+            scan = src.scan()
         recog += (clk.now_ns() - t0) / 1e9
+        for o in scan.objects:  # 레이더 후보 위치 오차: 남은 실제 물체 중 가장 가까운 것까지(없으면 기록 안 함)
+            if esp.boxes:
+                log.append({"result": "radar", "err": min(math.dist((b.x, b.y), (o.x_mm, o.y_mm)) for b in esp.boxes)})
         near = [o for o in scan.objects if 90 <= math.dist((o.x_mm, o.y_mm), arm.base) <= 250]
         if not near:
-            if verify_at_home and not verified and math.dist(arm.tip, arm.base) > 1:
-                verified = True
-                arm.move(arm.base, 150)
+            if rescan_home and not rescanned:
+                rescanned = True
+                arm.move(arm.base, 150)  # 레이더 시야 밖 대기 자세(흉내)
                 continue
             break
+        rescanned = False  # 후보가 나왔으니 다음에 또 없으면 다시 RESCAN할 수 있다(연달아 두 번만 안 함)
         cand = min(near, key=lambda o: math.dist((o.x_mm, o.y_mm), arm.base))
         obj, probe, dt = do_check(src, arm, cand)
         recog += dt
@@ -263,7 +276,10 @@ def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, veri
         picked = err <= 30
         square = picked and box.width == box.length
         good = picked and err <= 15 and (square or angle_ok(obj.angle_deg, box.angle_deg % 180))
-        log.append({"result": "ok" if good else "bad" if picked else "miss", "err": err})
+        log.append({"result": "ok" if good else "bad" if picked else "miss", "err": err,
+                    "angle": (None if square else angle_ok(obj.angle_deg, box.angle_deg % 180)) if picked else None})
+        if not picked and report_failures:  # 확인한 자리에 물체가 없어 집기 실패: 작업 실행이 실패를 알린다(note_failure)
+            src.note_failure(cand.x_mm, cand.y_mm)
         ok += good
         if picked:
             esp.boxes.remove(box)
@@ -275,7 +291,7 @@ def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, veri
     return ok, recog, log
 
 
-def run_scenario(name, model, seeds, mode, verify=False, **opts):
+def run_scenario(name, model, seeds, rescan_home=None, report_failures=True, **opts):
     """시나리오 하나: 씨앗값 0..seeds-1마다 배치를 만들어 사이클을 돈다. single은 반경 구간(SINGLE_RADII)마다 seeds번."""
     rows = []
     cells = [(r, s) for r in SINGLE_RADII for s in range(seeds)] if name == "single" else [(None, s) for s in range(seeds)]
@@ -289,10 +305,13 @@ def run_scenario(name, model, seeds, mode, verify=False, **opts):
         else:
             boxes = random_layout(rng, name)
         n = len(boxes)
-        cfg, clk, esp, arm = build(boxes, mode=mode, seed=seed, model=model, **opts)
+        cfg, clk, esp, arm = build(boxes, seed=seed, model=model, **opts)
         src = make_source(cfg, clk, esp, arm)
-        ok, secs, log = run_cycle(src, arm, esp, verify_at_home=verify)
-        rows.append({"radius": radius, "seed": seed, "n": n, "ok": ok, "recog_s": secs, "left": len(esp.boxes), "log": log})
+        ok, secs, log = run_cycle(src, arm, esp, rescan_home=rescan_home, report_failures=report_failures)
+        rows.append({"radius": radius, "seed": seed, "n": n, "ok": ok, "recog_s": secs, "left": len(esp.boxes), "log": log,
+                     "radar_errs": [x["err"] for x in log if x["result"] == "radar"],
+                     "check_errs": [x["err"] for x in log if x["result"] in ("ok", "bad")],
+                     "angles": [x["angle"] for x in log if x["result"] in ("ok", "bad") and x["angle"] is not None]})
     return rows
 
 
@@ -301,7 +320,21 @@ def summarize(rows) -> dict:
     secs = sorted(r["recog_s"] for r in rows)
     out = {"runs": len(rows), "objects": n, "success_mean": statistics.mean(r["ok"] for r in rows),
            "success_pct": 100 * statistics.mean(r["ok"] for r in rows) / n, "left_mean": statistics.mean(r["left"] for r in rows),
-           "recog_mean_s": statistics.mean(secs), "recog_p90_s": secs[min(int(len(secs) * 0.9), len(secs) - 1)]}
+           "recog_mean_s": statistics.mean(secs), "recog_median_s": statistics.median(secs),
+           "recog_p90_s": secs[math.ceil(0.9 * len(secs)) - 1],  # 가장 가까운 순위(n=20이면 18번째). 평균과 같은 표본
+           "recog_max_s": secs[-1]}
+    # 1절 윗 3줄용 정확도(같은 표본): 레이더 후보 위치 오차, 확인 위치 오차, 방향 정답률
+    radar = sorted(e for r in rows for e in r["radar_errs"])
+    check = sorted(e for r in rows for e in r["check_errs"])
+    angles = [a for r in rows for a in r["angles"]]
+    out["radar_n"], out["check_n"], out["angle_n"] = len(radar), len(check), len(angles)
+    if radar:
+        out.update(radar_err_median_mm=statistics.median(radar), radar_err_p90_mm=radar[math.ceil(0.9 * len(radar)) - 1],
+                   radar_within90_pct=100 * sum(e <= 90 for e in radar) / len(radar))
+    if check:
+        out.update(check_err_median_mm=statistics.median(check), check_err_p90_mm=check[math.ceil(0.9 * len(check)) - 1])
+    if angles:
+        out["angle_pct"] = 100 * sum(angles) / len(angles)
     if rows[0]["radius"] is not None:
         out["by_radius_pct"] = {r: 100 * statistics.mean(x["ok"] for x in rows if x["radius"] == r) for r in SINGLE_RADII}
     return out
@@ -315,13 +348,21 @@ def commit() -> str:
 
 
 def format_table(results: list[dict]) -> str:
-    lines = [f"commit {results[0]['commit']}", f"재현: {results[0].get('command', '?')}", "| 시나리오 | 모델 | 모드 | 수 | 성공 평균 | 성공 % | 남은 물체 | 인식 평균(초) | 인식 90%(초) |", "|---|---|---|---|---|---|---|---|---|"]
+    lines = [f"commit {results[0]['commit']}", f"재현: {results[0].get('command', '?')}",
+             "| 시나리오 | 모델 | 수 | 성공 평균 | 성공 % | 남은 물체 | 인식 평균(초) | 중앙값 | 90% | 최대 |", "|---|---|---|---|---|---|---|---|---|---|"]
     for r in results:
         s = r["summary"]
-        lines.append(f"| {r['scenario']} | {r['model']} | {r['mode']} | {s['runs']} | {s['success_mean']:.2f}/{s['objects']} | {s['success_pct']:.0f}% | "
-                     f"{s['left_mean']:.2f} | {s['recog_mean_s']:.0f} | {s['recog_p90_s']:.0f} |")
+        lines.append(f"| {r['scenario']} | {r['model']} | {s['runs']} | {s['success_mean']:.2f}/{s['objects']} | {s['success_pct']:.0f}% | "
+                     f"{s['left_mean']:.2f} | {s['recog_mean_s']:.0f} | {s['recog_median_s']:.0f} | {s['recog_p90_s']:.0f} | {s['recog_max_s']:.0f} |")
         if "by_radius_pct" in s:
             lines.append("|  | 반경별 성공 % | " + " ".join(f"{k}:{v:.0f}" for k, v in s["by_radius_pct"].items()) + " | | | | | | |")
+    lines += ["", "| 시나리오 | 모델 | 레이더 후보 오차 중앙·90%(mm) | 90mm 안 % | 확인 위치 오차 중앙·90%(mm) | 방향 정답률 % |", "|---|---|---|---|---|---|"]
+    for r in results:
+        s = r["summary"]
+        lines.append(f"| {r['scenario']} | {r['model']} | {s.get('radar_err_median_mm', float('nan')):.0f}·{s.get('radar_err_p90_mm', float('nan')):.0f} "
+                     f"(n={s['radar_n']}) | {s.get('radar_within90_pct', float('nan')):.0f} | "
+                     f"{s.get('check_err_median_mm', float('nan')):.1f}·{s.get('check_err_p90_mm', float('nan')):.1f} (n={s['check_n']}) | "
+                     f"{s.get('angle_pct', float('nan')):.0f} (n={s['angle_n']}) |")
     return "\n".join(lines)
 
 
@@ -329,28 +370,36 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--scenario", default="all", help="spread90 | spread120 | demo | single | all")
     ap.add_argument("--seeds", type=int, default=20, help="시나리오마다 배치 수(8.5절: 20 이상). single은 반경 구간마다")
-    ap.add_argument("--mode", default="both", help="accurate | fast | both")
+    ap.add_argument("--approach-line", action="store_true", help="T8: 첫 확인선을 팔 원점에서 후보로 가는 방향으로(check.approach_line)")
     ap.add_argument("--model", default="both", help="optimistic | pessimistic | both")
     ap.add_argument("--line-mm", type=int, help="확인 직선 길이(기본 설정값)")
     ap.add_argument("--speed", type=float, help="확인 속도 mm/s(기본 설정값)")
-    ap.add_argument("--verify", action="store_true", help="후보가 없으면 팔을 홈으로 옮겨 한 번 더 scan()한다(설계서 2절과 다른 흐름이라 기본 끔)")
+    ap.add_argument("--rescan-home", choices=["on", "off"], help="후보가 없을 때 대기 자세로 옮겨 RESCAN(기본: 설정 radar.rescan_home)")
+    ap.add_argument("--no-note-failure", action="store_true", help="집기 실패를 source.note_failure로 알리지 않는다(효과 비교용)")
+    ap.add_argument("--max-fail", type=int, help="check.max_fail_per_run(실패가 이만큼이면 끝냄, 기본: 설정값 3)")
+    ap.add_argument("--empty-extra", type=int, help="radar.empty_extra_sweeps(기본: 설정값 3)")
     ap.add_argument("--out", default="runs/bench")
     a = ap.parse_args(argv)
     names = list(SCENARIOS) if a.scenario == "all" else [a.scenario]
     models = list(MODELS) if a.model == "both" else [a.model]
-    modes = ["accurate", "fast"] if a.mode == "both" else [a.mode]
-    opts = {k: v for k, v in (("line_mm", a.line_mm), ("speed_mm_s", a.speed)) if v is not None}
+    opts = {k: v for k, v in (("line_mm", a.line_mm), ("speed_mm_s", a.speed), ("max_fail_per_run", a.max_fail)) if v is not None}
+    if a.approach_line:
+        opts["approach_line"] = True
+    if a.empty_extra is not None:
+        opts["radar"] = {"empty_extra_sweeps": a.empty_extra}
+    rescan = None if a.rescan_home is None else a.rescan_home == "on"
     results, sha = [], commit()
     cmd = "python -m so101_studio.perception.ultrasonic.benchmark " + " ".join(argv if argv is not None else __import__("sys").argv[1:])
-    for name, model, mode in itertools.product(names, models, modes):
-        rows = run_scenario(name, model, a.seeds, mode, verify=a.verify, **opts)
-        results.append({"commit": sha, "command": cmd, "scenario": name, "model": model, "mode": mode, "options": {**opts, "verify": a.verify}, "summary": summarize(rows),
+    for name, model in itertools.product(names, models):
+        rows = run_scenario(name, model, a.seeds, rescan_home=rescan, report_failures=not a.no_note_failure, **opts)
+        results.append({"commit": sha, "command": cmd, "scenario": name, "model": model, "options": {**opts, "rescan_home": rescan, "note_failure": not a.no_note_failure}, "summary": summarize(rows),
                         "rows": [{k: v for k, v in r.items() if k != "log"} for r in rows]})
-        print(format_table(results[-1:]).split("\n", 1)[1] if len(results) > 1 else format_table(results), flush=True)
+        print(f"  {name} {model}: 성공 {results[-1]['summary']['success_mean']:.2f}/{results[-1]['summary']['objects']}", flush=True)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     path = out / f"{time.strftime('%Y%m%d-%H%M%S')}-{sha}.json"
     path.write_text(json.dumps(results, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(format_table(results))
     print("saved", path)
 
 
