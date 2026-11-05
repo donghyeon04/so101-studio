@@ -2,7 +2,7 @@
 성능 숫자는 이 도구로만 낸다. 새 아이디어(확인선 길이, 모드, 속도 등)는 옵션으로 붙인다.
 
 python -m so101_studio.perception.ultrasonic.benchmark [--scenario spread90|spread120|demo|single|all] [--seeds N] [--mode accurate|fast|both]
-                                                       [--model optimistic|pessimistic|both] [--line-mm N] [--speed N] [--no-verify]
+                                                       [--model optimistic|pessimistic|both] [--line-mm N] [--speed N] [--verify]
 """
 import argparse
 import itertools
@@ -190,10 +190,11 @@ def random_layout(rng, name) -> list[Box]:
     raise RuntimeError("배치를 못 만들었다")
 
 
-def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, verify_at_home=True):
+def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, verify_at_home=False):
     """처음 scan()부터 물체가 다 없어질 때까지(작업 실행 흉내). 인식 시간 = 레이더 + 확인, 집기·놓기는 뺀다.
     판정(8.5절): 확인 결과 자리에 가장 가까운 실제 물체가 30mm 안이면 그 물체를 집은 것. 위치 오차 15mm 이하이고 방향까지 맞으면 성공(정사각형은 위치만).
-    verify_at_home: 후보가 없으면 팔을 홈으로 옮겨(배출 구역 근처 물체를 가리던 팔을 치운 뒤) 한 번 더 scan()하고 끝낸다."""
+    verify_at_home: (설계서 2절은 "후보 없음 → DONE"이라 기본은 끔) 켜면 후보가 없을 때 팔을 홈으로 옮겨(배출 구역 근처 물체를 가리던 팔을 치운 뒤) 한 번 더 scan()하고 끝낸다.
+    prefetch는 PLACE 시작(집은 뒤 배출 구역으로 옮기기 시작할 때)에 건다(2절·T5)."""
     clk, recog, log, ok, verified = arm.clk, 0.0, [], 0, False
     src.begin_cycle()
     for _ in range(max_iter):
@@ -230,7 +231,7 @@ def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, veri
     return ok, recog, log
 
 
-def run_scenario(name, model, seeds, mode, verify=True, **opts):
+def run_scenario(name, model, seeds, mode, verify=False, **opts):
     """시나리오 하나: 씨앗값 0..seeds-1마다 배치를 만들어 사이클을 돈다. single은 반경 구간(SINGLE_RADII)마다 seeds번."""
     rows = []
     cells = [(r, s) for r in SINGLE_RADII for s in range(seeds)] if name == "single" else [(None, s) for s in range(seeds)]
@@ -288,7 +289,7 @@ def main(argv=None):
     ap.add_argument("--model", default="both", help="optimistic | pessimistic | both")
     ap.add_argument("--line-mm", type=int, help="확인 직선 길이(기본 설정값)")
     ap.add_argument("--speed", type=float, help="확인 속도 mm/s(기본 설정값)")
-    ap.add_argument("--no-verify", action="store_true", help="후보가 없을 때 팔을 홈으로 옮겨 다시 보지 않는다")
+    ap.add_argument("--verify", action="store_true", help="후보가 없으면 팔을 홈으로 옮겨 한 번 더 scan()한다(설계서 2절과 다른 흐름이라 기본 끔)")
     ap.add_argument("--out", default="runs/bench")
     a = ap.parse_args(argv)
     names = list(SCENARIOS) if a.scenario == "all" else [a.scenario]
@@ -297,8 +298,8 @@ def main(argv=None):
     opts = {k: v for k, v in (("line_mm", a.line_mm), ("speed_mm_s", a.speed)) if v is not None}
     results, sha = [], commit()
     for name, model, mode in itertools.product(names, models, modes):
-        rows = run_scenario(name, model, a.seeds, mode, verify=not a.no_verify, **opts)
-        results.append({"commit": sha, "scenario": name, "model": model, "mode": mode, "options": opts, "summary": summarize(rows),
+        rows = run_scenario(name, model, a.seeds, mode, verify=a.verify, **opts)
+        results.append({"commit": sha, "scenario": name, "model": model, "mode": mode, "options": {**opts, "verify": a.verify}, "summary": summarize(rows),
                         "rows": [{k: v for k, v in r.items() if k != "log"} for r in rows]})
         print(format_table(results[-1:]).split("\n", 1)[1] if len(results) > 1 else format_table(results), flush=True)
     out = Path(a.out)
