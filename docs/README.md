@@ -62,7 +62,7 @@
 | `docs/decisions/0031-safety-xy-return-and-comm-loss-test.md` | 결정 | 확정 | 작업대 XY 검사에 밖→안 복귀 허용, 작업대는 실측으로(임의 확대 안 함), table_z·손끝은 접촉 측정, 포트 빠짐 4경우 안전 시험, 토크 풀림은 status 값으로 판단 (0015 보완) |
 | `docs/decisions/0032-mattpocock-skills.md` | 결정 | 확정 | mattpocock/skills는 11개만 `.claude/skills/`에 넣고 프로젝트 규칙에 맞게 고침(용어·결정 위치, 임시 디렉터리 산출물, 한국어), `/grill-me`는 여러 질문 라운드 |
 | `docs/decisions/0033-gripper-hold-preload-and-place-compensation.md` | 결정 | 확정 | 그리퍼 접촉 뒤 예압으로 잡기, 조임 한계는 RAM Torque_Limit(닫기 300·들기 200·놓은 뒤 복원), no_object면 올라와서 열기, 그리퍼 부하 2단계 감시, 놓기 중심 보정 (0010~0012 보완) |
-| `docs/decisions/0034-ultrasonic-radar-plus-arm-check.md` | 결정 | 확정 | 초음파 인식은 앞 변 가운데 레이더(서보 1개)로 후보를 찾고 팔 손목 센서가 십자·원형으로 확인하는 2단계, 작업 순서에 CHECK, 시간 줄이기 기법을 설정으로, 정확·빠른 모드 (0006 보완) |
+| `docs/decisions/0034-ultrasonic-radar-plus-arm-check.md` | 결정 | 확정 | 초음파 인식은 앞 변 가운데 레이더(서보 1개)로 후보를 찾고 팔 손목 센서가 십자·원형으로 확인하는 2단계, 작업 순서에 CHECK, 시간 줄이기 기법을 설정으로, 정확·빠른 모드(→ 0038로 하나) (0006 보완) |
 | `docs/decisions/0035-scan-servo-and-power.md` | 결정 | 확정 | 스캔 서보 MG90S 2개(예비 1), 서보 전원은 기존 12V 5A를 Y 케이블 + 12V→5V 강압 모듈로, 브래킷은 모두 출력(손목은 SO-ARM100 손목 카메라 마운트 개조, 레이더는 공개 받침 + 새 클램프) (0034 보완) |
 | `docs/decisions/0036-three-local-sessions-with-hub.md` | 결정 | 확정 | 로컬 세션을 GUI(Opus, 총괄)·팔(Sonnet)·초음파(Sonnet) 셋으로, 총괄이 일 나누기·요청 대장·Sonnet PR 검토, 진행 상황은 문서에 (0024 보완) |
 | `docs/decisions/0037-single-shared-calculator.md` | 결정 | 확정 | 검증용 계산기는 주제마다 하나만, 레포 안 실제 코드 위에(초음파는 8.5절 벤치마크, 도달은 팔 세션 계산), 아이디어는 옵션으로, 기획은 가정을 정하고 검토, 설계서 숫자는 고정 시나리오 결과만 |
