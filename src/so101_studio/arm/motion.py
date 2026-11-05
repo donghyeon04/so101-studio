@@ -54,6 +54,7 @@ class MotionController:
         self.locked_reason: str | None = None  # 이 이유가 있으면 움직이는 명령을 모두 거부한다(status "locked"). ArmService.connect가 정한다 (decisions/0027)
         self.ring = RingBuffer()  # 50Hz 틱의 최근 10초(명령, 실제, 틱 간격, 버스 오류). 사고 묶음이 쓴다 (decisions/0030)
         self.on_event = None  # on_event(kind, level, code, data): fault·E-STOP 같은 이벤트를 기록하는 쪽(ArmService)이 연결한다
+        self.tap = None  # 틱마다 (perf_counter_ns, 명령 q)를 받는 함수(경로 따라가기가 손끝 궤적을 모을 때). 틱 안에서는 가볍게 append만 한다
         self.actual_hint = None  # 가장 최근에 읽은 실제 관절값(10Hz 상태 루프가 채운다). 틱 안에서는 버스를 읽지 않는다
         self._tick_ref = None  # (handle, 직전 틱의 궤적 시간)
         self.time_lost_s = 0.0  # 틱 지연 때문에 늦춘 동작 시간의 누적(진단용: 크면 제어 주기가 밀리고 있다)
@@ -322,6 +323,8 @@ class MotionController:
         self._last = q  # 쓰기 실패도 시도한 위치로 센다(통신 끊김이 'step' fault로 오인되지 않게)
         self.driver.write_joints(q)
         self.health.comm_ok(time.perf_counter())
+        if self.tap is not None:
+            self.tap(time.perf_counter_ns(), q)
         if t >= traj.duration_s:
             self._job = None
             if self.state == "moving":

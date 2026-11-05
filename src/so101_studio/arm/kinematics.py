@@ -66,6 +66,18 @@ class Kinematics:
         m = Rt @ np.array([-(a_m + 7.9), 0.0, b_m - FRAME_B])
         return f, m
 
+    def link_points(self, q: JointState) -> list[tuple[float, float]]:
+        """어깨(위팔 관절)·팔꿈치·손목·고정 턱 끝의 작업대 xy(mm). 레이더가 팔이 가린 자리를 지울 때 쓴다."""
+        tip = self.fk(q)
+        f, _ = self.jaw_tip_offsets(tip.pitch_deg, tip.yaw_deg, q.gripper)
+        self._k.forward_kinematics(np.array([getattr(q, j) for j in ARM_JOINTS], float))  # 프레임 위치는 마지막 FK 상태에서 읽는다
+        out = []
+        for name in ("upper_arm_link", "lower_arm_link", "wrist_link"):
+            t = self._k.robot.get_T_world_frame(name)[:3, 3] * 1000
+            out.append(frames.robot_to_table(float(t[0]) - PAN_AXIS_X_MM, float(t[1]), self.base))
+        out.append((tip.x_mm + float(f[0]), tip.y_mm + float(f[1])))
+        return out
+
     def tool_axes(self, q: JointState) -> np.ndarray:
         """도구 프레임의 x·y·z 축(열)을 작업대 좌표계 벡터로 돌려준다. z = 도구 앞(턱 끝 방향), x = 턱이 벌어지는 축(가동 턱은 -x 쪽)."""
         R = self._k.forward_kinematics(np.array([getattr(q, j) for j in ARM_JOINTS], float))[:3, :3] @ self._C.T
