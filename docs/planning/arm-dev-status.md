@@ -4,6 +4,37 @@
 
 작성: 2026-11-01. 브랜치 `dev/arm-t0-t7`. 측정 원본은 `measurements.md`, 결정은 `docs/decisions/0008~0019`, 하드웨어 연결은 `docs/guides/arm-hardware-setup.md`.
 
+## 인수인계 (2026-11-06, 새 계정·PC로 옮기며)
+읽는 순서: `CLAUDE.md` → `docs/guides/session-workflow.md` → 이 절 → `session-requests.md` → PR #68 최근 댓글. 요청 대장은 총괄(GUI 세션)이 관리하고 팔 세션은 상태 변화를 총괄에게 알린다. 질문·승인·합치기는 총괄을 거친다(사용자에게 직접 묻지 않는다, 7절).
+
+**브랜치와 PR**
+- 합쳐짐: #73 REQ-023(`follow_path`, `PoseSample`, `arm_links`, `summary.json`), #78 REQ-026(읽기만 실패해도 동작이 끝나 돌아옴), #85 REQ-027(잠긴 팔 토크 차단, `ArmService.enable_torque`).
+- 이 인수인계와 함께 올린 PR `dev/arm-path-torque`: `follow_path`의 마지막 `driver.set_torque(True)`를 `enable_torque()`로 바꾼 한 줄(REQ-027 마무리) + 이 절. 전체 pytest 결과는 PR 본문에 있다.
+- 안 합침: PR #41 `dev/arm-autocal-repeat`(REQ-017, 자동 캘리브레이션 반복·`--verify-zero`·영점 잠금). **G10 실물 시험이 끝난 뒤** 사용자가 정한다. 합치기 전에 `origin/main`을 합치고 전체 pytest·ruff를 다시 돌린다. 합친 뒤에는 `--verify-zero`를 하기 전까지 실제 팔이 잠긴다.
+
+**하던 일과 다음 한 걸음: REQ-025 (아직 시작 안 함, 커밋된 코드 없음)**
+`main`에서 새 브랜치를 따서 시작한다. 근거 `ultrasonic-spec.md` 2·8.2·9절 U8, `system-architecture.md` 5절, 결정 0034·0038(확인 모드는 하나, fast/accurate 분기 금지). 총괄 지시 내용:
+- `TaskRunner`에 `CHECK` 상태: 소스가 `CheckableSource`일 때만 실행(`ManualSource` 등은 그대로). 루프는 `probe = source.start_check(cand)` → `probe.next_segment()` → `arm.follow_path(seg.points_mm, seg.tool_z_mm, seg.speed_mm_s, seg.yaw_deg)` → `probe.feed(poses)` → `probe.result()`. `set_sensor_offset`은 시작할 때 `config/ultrasonic.yaml`의 `arm_sensor_offset_mm`로 한 번.
+- `follow_path`가 빈 목록이면 `arm.last_path.status`를 본다: `ik_fail`·`out_of_bounds`면 `probe.feed([])`, `stopped`·`fault`·`locked`면 `probe.abort()` 후 작업을 끝낸다.
+- 시작에 `source.begin_cycle()`, PICK 실패(재시도 뒤 건너뜀) 때 `source.note_failure(x, y)`, `DECIDE` 전에 `source.give_up`이 True면 `DONE`.
+- `RESCAN`: 후보가 없으면 대기 자세(`PREPARE`와 같은 자세)로 옮겨 `source.rescan()`. 있으면 `DECIDE`, 또 없으면 `DONE`, 연달아 두 번은 안 한다. `radar.rescan_home` 설정을 따른다.
+- `PLACE` 동안 `source.prefetch(arm_links_fn)`. `arm_links_fn`은 `t_ns → [(x, y)]`라 시각별 실제 관절값으로 `ArmService.arm_links(q)`를 잇는 부분이 필요하다(PoseSample 시각과 틱 관절값을 맞춘다).
+- `run --source ultrasonic [--step]`. `TaskEvent`에 `CHECK`·`RESCAN`이 나오고 `summary.json`에 물체별 레이더·확인 시간이 들어간다(`Studio.summary.note(object_id, ...)`). `Studio.bus`로 `us.*` 이벤트가 나가게 source에 bus를 넘긴다(GUI가 구독).
+- 인식 모듈은 팔을 import하지 않는다. 초음파 쪽 파일(`perception/ultrasonic/`, `config/ultrasonic.yaml`)을 고쳐야 하면 직접 고치지 않고 총괄에게 알린다. 벤치마크·성능 계산기는 만들지 않는다(결정 0037).
+- 완료 기준: `--sim`과 `FakeESP32`로 물체 3개 끝까지, `CHECK`·`RESCAN`·`note_failure`·`give_up` 각각의 시험, `CHECK` 중 stop·E-STOP 때 ESP32에 `stop`이 가는 시험, 읽기 실패 시험, `ManualSource` 동작 그대로, 전체 pytest·ruff.
+
+**막힌 것**
+- 실제 팔(COM3) 시험은 사용자가 옆에 있을 때만, 총괄이 포트 사용·반납을 조율한다. 순서는 `measurements.md`의 "실물 시험 순서". 지금까지 이 세션은 실제 팔을 쓰지 않았다(전부 `--sim`).
+- PR #41은 G10 뒤. 기획 쪽 결정이 필요한 것(확인 경로의 도달 범위 자르기, `joint_offsets_deg`/URDF 팔꿈치 약 5° 불일치)은 총괄의 [기획 요청]으로 간다.
+
+**알려진 함정**
+- 실물 미확인: ① `follow_path` 틱마다 `read_joints` 한 번 추가(`follow_path` 이벤트의 `read_ms_max`로 50Hz를 지키는지, 읽기 제한 시간 약 35ms) ② 저크 미제한(사다리꼴 속도 곡선): 떨림·위치 오차는 A1에서 같이 잰다 ③ 센서 오프셋(`arm_sensor_offset_mm`)과 A0 보정 ④ REQ-018 기록 성능, REQ-019 `table_z_mm` 접촉·격자·포트 빠짐 4경우, REQ-020 집기·놓기 5회와 그리퍼 부하 기준 ⑤ 읽기만 계속 실패하고 `read_health`는 되는 부분 고장은 fault까지 안 간다(명령은 돌아옴).
+- `follow_path`는 `set_sensor_offset`을 먼저 해야 한다(없으면 `ValueError`). 한 호출은 서지 않고 이어 가고(호로 감는 경로 + 관절 스플라인), `home`·`park` 같은 먼 자세에서 오는 첫 호출은 접근을 합치지 못해 안전 경로를 먼저 간다(접근 약 3.5초). `scipy`가 필요하다(conda로 설치, `environment.yml`).
+- 잠긴 팔에는 토크를 켜지 않는다: 움직이는 명령은 `ArmService.enable_torque()`만 쓰고 직접 `driver.set_torque(True)`를 부르지 않는다.
+- 전체 `python -m pytest -q`는 약 17~20분 걸린다. 이 PC에서 가끔 요약 없이 끝난다(exit 127, MKL DLL 경로): conda PATH(`export PATH="/c/Users/c/miniforge3/envs/so101/Library/bin:/c/Users/c/miniforge3/envs/so101:$PATH"`)를 확인하고 `-v`로 파일에 받아 다시 돌린다. 시험 파일을 돌리는 동안 같은 작업 트리에서 브랜치를 바꾸지 않는다.
+- GitHub PR은 `gh` 없이 브라우저로 연다(Claude 브라우저 창). 본문 편집 버튼이 잘 안 열려 최신 내용은 댓글로 올렸다. 제목·본문을 채운 뒤 `Create pull request` 버튼 위치는 스크롤 뒤 `getBoundingClientRect`로 재서 누른다("Close with comment"나 "Merge pull request"를 누르지 않게 조심).
+- git에 없는 파일: `config/local.yaml`(PC별 포트·팔), `config/ultrasonic_baseline.json`(레이더 기준값, `.gitignore`). 새 PC에서 처음 연결하면 서보 캘리브레이션이 `config/calibration/`과 다를 수 있어 팔이 잠긴다(`doctor`로 먼저 본다).
+
 ## 1. 한 줄 요약
 SO-101 팔의 동작 라이브러리(이동, 직교·좌표 이동, 집기·놓기, 교시·재생, 안전 검사, 자동 작업)와 서비스 API, 블랙박스 기록, 통신·그리퍼 안전 보완이 구현돼 `--sim`과 실제 팔에서 확인됐다. GUI는 GUI 세션이 따로 만들고(`decisions/0024`), 초음파 인식은 초음파 세션이 만든다(`decisions/0036`, `ultrasonic-spec.md`). 팔 쪽 남은 일은 실물 측정이고, 순서는 `measurements.md`의 "실물 시험 순서"를 따른다.
 
