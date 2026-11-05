@@ -6,7 +6,7 @@
 | # | 작업 | 상태 |
 |---|---|---|
 | U0 | 실측용 펌웨어 `firmware/esp32_scanner`, `perception/ultrasonic/bench.py` | 코드 작성, 펌웨어 컴파일·실물 미확인(Arduino CLI 없음). 사용자와 B1~B3 대기 |
-| U2 | model, fake_esp32, radar, check, source, link, config | 대기 |
+| U2 | model, fake_esp32, radar, check, source, link, config | 코드·시험 완료(PR 대기). 가상 ESP32로 물체 3개 끝까지: 정확 38.5초·3.0/3, 빠른 29.7초·3.0/3 (팔 100mm/s) |
 | U5 | 펌웨어 7절 전부 | 대기(서보 11/12 예정) |
 | U6·U7·U9 | 총괄이 보냄 | - |
 
@@ -28,3 +28,19 @@
 
 ## 보낸 요청
 (없음)
+
+## U2 구현 메모
+- 시험은 가상 시계(`SimClock`)로 돈다. `FakeESP32.write/readlines`가 `SerialTransport`와 같은 모양이라 `Link`가 구분하지 못한다. 시험용 가상 팔은 `tests/perception/simlib.py`.
+- 팔 확인 속도 100mm/s(기획 답). 빠른 모드는 `line_mm: 130`을 쓴다(U9 조정값): 180이면 약 35초(30초 기준 초과), 130이면 29.7초·성공 3.0/3, 120이면 29초·2.5/3.
+- **REQ-023 임시**: `PathSegment`, `PoseSample(t_ns, tool_mm, sensor_mm)`, `CheckProbe`, `CheckableSource`, `PathUnreachable`는 `model.py`에 임시 정의. `follow_path`가 못 가는 경로를 거부하는 방식은 아직 정해지지 않아 `PathUnreachable` 예외로 가정했다. 거부되면 작업 실행이 `probe.unreachable(exc)`를 `probe.feed` 대신 부른다. 그 구간은 데이터 없음으로 보고 다음 경로로 가며(신뢰도 -0.2, `probe.info["unreachable"]`), 전부 못 가면 `probe.status == "unreachable"`, 결과 None이고 후보는 지우지 않는다. 물체 없음은 `status == "empty"`이고 후보가 삭제된다(같은 자리는 다시 안 나온다).
+- 시뮬레이션 도달(반경 100~240mm, 각도 25~155°)에서는 ±90mm 직선이 반경 방향이면 항상 일부가 범위를 벗어난다(폭 140mm < 직선 180mm). 그래서 반경 방향 선(L2 등)은 대부분 거부된다. `line_mm`·`ring_r_mm`은 설정값이라 기획 답에 따라 바꾼다.
+- `check.py`의 `sensor_to_tip` 한 곳에서만 센서 선 → 손끝 점 변환(yaw로 돌린 오프셋). `check.yaw_deg` 설정(기본 0, 이 각도일 때의 `arm_sensor_offset_mm`).
+- 빠른 모드의 T9(일찍 멈춤)는 선을 36mm 조각으로 나눠 `follow_path`를 여러 번 부른다. 조각 사이에 팔이 멈추면 시간이 늘 수 있다(가상 팔은 끊김 없이 이어진다고 가정). 팔 세션이 이어 부르는 구간을 부드럽게 이을 수 있는지 확인이 필요하다.
+- 배출한 물체가 다음 스캔에 후보로 잡힐 수 있다. `UltrasonicSource(ignore_zones=[(x, y, 반경)])`로 뺀다(작업 실행이 배출 구역을 넘긴다).
+- 기준값 파일 `config/ultrasonic_baseline.json`은 git 제외여야 한다(`.gitignore`는 내 영역 밖이라 총괄에 요청).
+
+## 이벤트 내용 (Studio.bus, GUI는 REQ-024에서 사용)
+- `us.sweep`: `{"pass": 몇 번째, "dir": 1|-1, "t_ns": PC 시계, "angles": [도], "d": [mm 또는 None]}` 한 방향 회전이 끝날 때마다.
+- `us.candidates`: `{"objects": [DetectedObject를 dict로(angle_deg=None, confidence<=0.3)], "arcs": [{"first","last","center"(서보 각도),"d"}], "masked": [팔 때문에 지운 각도]}` scan()마다.
+- `us.check_path`: `{"id": 후보 id, "stage": "L1"|"L2"|"R"|"L3"|"L4"|"GRID", "points_mm": 손끝 경로, "tool_z_mm", "points": [(x, y, h)] 센서 위치와 물체 높이(h = 센서 높이 - 거리)}` 구간이 끝날 때마다.
+- `us.check_result`: `{"id", "object": DetectedObject dict 또는 None, "info": {"R", "h_mm", "stages", "check_s", "unreachable"?}, "status": "ok"|"empty"|"unreachable"}`.
