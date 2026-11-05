@@ -30,3 +30,6 @@
 | REQ-020 | 그리퍼 예압·조임 한계(RAM)·no_object 때 열기·부하 두 단계·놓기 보정 (결정 0033) | 기획 → 팔 | 기존 동작 변경(결정 0033 승인) | 진행(코드·시뮬 시험 완료, 실물 집기·놓기 5회와 부하 기준 실측은 사용자와 대기) | dev/arm-grip-preload | 과부하 즉시 추가 읽기와 감시 --run-dir 갱신은 사용자 답 뒤 따로 |
 | REQ-021 | 오프라인 준비: 끊긴 뒤 E-STOP(예외 없음·comm_lost 유지), connect가 Kinematics 재사용, MotionResult.reason, linkwatch 포트 | GUI → 팔 | 1번은 결정 0031 구현 보완(기획 확인 필요), 2~4번은 추가 | 진행(코드·시험 완료 PR 전) | dev/arm-offline-prep | 과부하 추가 읽기·감시 --run-dir 갱신은 사용자 답 대기 |
 | REQ-022 | 과부하 즉시 추가 읽기(ARM-LOAD-PROBE)와 감시 기록 폴더 갱신(POST /arm의 run_dir) | GUI → 팔(사용자 승인) | 추가 | 진행(코드·시험 완료 PR 전) | dev/arm-load-probe | 기록·감시 보강, 안전 동작 변경 없음 |
+| REQ-023 | `ArmService.follow_path(points_mm, tool_z_mm, speed_mm_s) -> list[PoseSample]`(손끝 수직 아래, 50Hz 실제 관절값으로 팔 센서 위치·시각), 팔 링크 점 작업대 xy 함수, 손끝 55mm 확인 높이 도달 확인 | 기획 → 팔 | 추가 | 예정 | | `ultrasonic-spec.md` 8.2절, 9절 U3. 결정 0034 |
+| REQ-024 | 초음파 화면: 레이더 부채꼴·각도별 값·후보·지운 각도, 확인 경로와 높이 점, 결과(사각형+방향), 스캔 그래프(E2), 정확/빠른 모드, 기준값 다시 재기 | 기획 → GUI | 추가 | 예정 | | `ultrasonic-spec.md` 8.2절 이벤트, 9절 U4. U2의 가상 ESP32로 개발 |
+| REQ-025 | 작업 실행 `CHECK` 상태(`CheckableSource`면 실행), 놓는 동안 레이더 미리 돌리기(`prefetch`), `run --source ultrasonic` | 기획 → 팔 | 기존 동작 변경(상태 추가, 결정 0034 승인) | 예정 | | `ultrasonic-spec.md` 2절, 8.2절, 9절 U8 |

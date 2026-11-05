@@ -79,14 +79,14 @@ class PerceptionSource(Protocol):
 | 구현 | 단계 | 내용 |
 |---|---|---|
 | `ManualSource` | **지금** | 사람이 입력한 좌표 또는 `config/manual_objects.yaml`을 그대로 돌려준다. 센서 없이 전체 흐름(스캔 → 집기 → 반복)을 개발·시연할 수 있다 |
-| `UltrasonicSource` | 3단계 | ESP32에 스캔 명령 → 각도별 거리 수신 → dip 검출, 좌표 변환, 매칭, 크기·방향 추정 |
+| `UltrasonicSource` | 3단계 | 레이더(앞 변 가운데, 서보 1개)로 후보 위치 → 팔 손목 센서 확인(`start_check`)으로 중심·방향·크기. 상세는 `ultrasonic-spec.md`, `decisions/0034` |
 | `CameraSource` | 4단계 | 영상 → 같은 `ScanResult` |
 
 ## 5. 작업 실행 모듈 (`task/`)
 PPT 흐름도(캘리브레이션 → 스캔 → 판단 → 실행 → 남은 물체가 있으면 다시 스캔)를 상태 머신으로 옮긴다.
 
 ```
- IDLE ──시작──▶ PREPARE ──▶ SCAN ──▶ DECIDE ──물체 있음──▶ PICK ──▶ PLACE ─┐
+ IDLE ──시작──▶ PREPARE ──▶ SCAN ──▶ DECIDE ──물체 있음──▶ (CHECK) ──▶ PICK ──▶ PLACE ─┐
    ▲            (팔 park)    │         │                                   │
    │                         │         └──물체 없음──▶ DONE ──▶ IDLE        │
    │                         └◀──────────── 다시 스캔 ◀────────────────────┘
@@ -98,6 +98,7 @@ PPT 흐름도(캘리브레이션 → 스캔 → 판단 → 실행 → 남은 물
 | `PREPARE` | 팔을 센서 시야 밖 대기 자세로(`park`) | `SCAN` |
 | `SCAN` | `perception.scan()` | `DECIDE` |
 | `DECIDE` | 도달 범위 밖 물체 제외 → 우선순위(기본: 팔에서 가까운 순) → 1개 선택 | 있으면 `PICK`, 없으면 `DONE` |
+| `CHECK` | 확인 기능이 있는 인식 방식만(`CheckableSource`, `ultrasonic-spec.md` 8.2절): 팔이 후보 위를 지나가며 손목 센서로 재서 물체를 확정. 물체가 없으면 그 후보를 지움 | 확정 `PICK`, 없음 `DECIDE` |
 | `PICK` | `arm.pick(obj)` | 성공 `PLACE`, 실패 시 재시도 1회 후 건너뛰고 `PREPARE` (재시도는 목표 층) |
 | `PLACE` | `arm.place(zone)` | `PREPARE` (물체를 하나 옮길 때마다 다시 스캔) |
 
@@ -105,11 +106,9 @@ PPT 흐름도(캘리브레이션 → 스캔 → 판단 → 실행 → 남은 물
 - **사이클 상한:** 같은 물체를 3회 연속 실패하거나 사이클이 20회를 넘으면 `DONE`으로 끝낸다.
 - 모든 상태 전환은 `TaskEvent`로 발행되고 기록된다.
 
-## 6. PC ↔ ESP32 통신 규약 (틀만, 상세는 3단계)
-- USB 시리얼 115200bps, 한 줄에 JSON 하나(줄바꿈으로 구분).
-- PC → ESP32: `{"cmd":"ping"}`, `{"cmd":"scan","station":"A","from":10,"to":170,"step":2,"samples":5}`, `{"cmd":"stop"}`
-- ESP32 → PC: `{"type":"sample","station":"A","angle":12,"dist_mm":[312,310,315,311,309]}` (측정값 원본 그대로, 필터는 PC에서) / `{"type":"done","station":"A"}` / `{"type":"error","msg":"..."}`
-- 두 스테이션은 PC가 A → B 순서로 명령해 순차 측정한다(간섭 방지).
+## 6. PC ↔ ESP32 통신 규약
+- `ultrasonic-spec.md` 7절이 기준이다(결정 0034). USB 시리얼, 한 줄에 JSON 하나, 측정마다 ESP32 시각, 센서 2개(레이더·팔)는 33ms 이상 띄워 번갈아 측정, 팔 센서 우선.
+- 옛 두 스테이션(A → B) 규약은 대체됐다.
 
 ## 7. 서비스 계층과 이벤트
 - 앱은 `Studio` 객체 하나만 만든다. `studio.arm`(`ArmService`, 팔 설계서 6.9절), `studio.task`, `studio.perception`을 가진다.
@@ -137,7 +136,7 @@ GUI를 실행하면 감시 프로세스(`so101_studio.watchdog`)가 별도 프�
 src/so101_studio/
   core/          types.py, frames.py, config.py, events.py, logging.py
   arm/           (팔 설계서 3절)
-  perception/    base.py, manual.py, ultrasonic.py(3단계), camera.py(4단계)
+  perception/    base.py, manual.py, ultrasonic/(3단계, ultrasonic-spec.md 8.1절), camera.py(4단계)
   task/          runner.py, policy.py (우선순위·도달 범위 판단)
   service/       studio.py, arm_service.py
   cli/           __main__.py
