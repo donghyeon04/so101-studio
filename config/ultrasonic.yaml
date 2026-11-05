@@ -22,7 +22,8 @@ radar:
 check:
   max_object_height_mm: 40
   clearance_mm: 15
-  speed_mm_s: 180
+  speed_mm_s: 100         # tool_v_max_mm_s와 같게 (4절)
+  yaw_deg: 0              # 확인 경로 동안 고정할 손목 각도. arm_sensor_offset_mm는 이 각도일 때의 값
   sample_mm: 6
   line_mm: 180
   ring_r_mm: 45

@@ -1,7 +1,7 @@
 import math
 
 import pytest
-from simlib import angle_ok, build, do_check, make_source, run_cycle
+from simlib import STRICT_REACH, angle_ok, build, do_check, make_source, run_cycle
 
 from so101_studio.core.types import DetectedObject
 from so101_studio.perception.ultrasonic.model import Box
@@ -74,9 +74,9 @@ def test_unsafe_clearance_rejected(tmp_path):
         src.start_check(src.scan().objects[0])
 
 
-@pytest.mark.parametrize("mode,limit_s", [("accurate", 30), ("fast", 20)])
+@pytest.mark.parametrize("mode,limit_s", [("accurate", 45), ("fast", 30)])
 def test_three_objects_end_to_end(tmp_path, mode, limit_s):
-    """1절: 10회 평균 2개 이상 성공, 인식 시간 정확 30초·빠른 20초 이하 (팔 속도 180mm/s)."""
+    """1절: 10회 평균 2개 이상 성공, 인식 시간 정확 45초·빠른 30초 이하 (팔 확인 속도 100mm/s)."""
     oks, times = [], []
     for seed in range(10):
         boxes = [Box(b.x, b.y, b.angle_deg) for b in THREE]
@@ -120,12 +120,31 @@ def test_prefetch_makes_next_scan_instant(tmp_path):
     assert res.raw["passes"] == cfg.radar.prefetch_sweeps
 
 
-def test_three_objects_at_tool_speed_100(tmp_path):
-    """tool_v_max 100mm/s에서도 끝까지 간다. 시간은 정확/빠른 모드 모두 늘어난다(총괄 요청: 100에서의 값도 낸다)."""
-    for mode in ("accurate", "fast"):
-        boxes = [Box(b.x, b.y, b.angle_deg) for b in THREE]
-        cfg, clk, esp, arm = build(boxes, mode=mode, seed=3, speed_mm_s=100)
-        src = make_source(cfg, clk, esp, arm, tmp_path)
-        ok, secs, _ = run_cycle(src, arm, esp, cfg)
-        print(f"100mm/s {mode}: 성공 {ok}/3, 인식 {secs:.1f}초")
-        assert ok >= 2
+def test_unreachable_segment_is_skipped_not_deleted(tmp_path):
+    """바깥쪽 물체: 세로선(L2)이 도달 밖이면 그 구간을 건너뛰고(unreachable 기록) 나머지로 확정한다."""
+    cfg, clk, esp, arm = build([Box(300, 235, 0)], reach=STRICT_REACH)
+    src = make_source(cfg, clk, esp, arm, tmp_path)
+    cand = src.scan().objects[0]
+    obj, probe, _ = do_check(src, arm, cand)
+    assert "L2" in probe.info["unreachable"]
+    assert obj is not None and probe.status == "ok"
+    assert math.dist((obj.x_mm, obj.y_mm), (300, 235)) < 15
+    assert obj.confidence < 0.9  # 못 간 구간이 있으면 덜 믿는다
+
+
+def test_all_unreachable_keeps_candidate(tmp_path):
+    """전부 도달 밖이면 못 잰 것이지 물체가 없는 게 아니다: 후보를 지우지 않는다."""
+    cfg, clk, esp, arm = build([Box(300, 380, 0)], reach=STRICT_REACH)
+    src = make_source(cfg, clk, esp, arm, tmp_path)
+    cand = src.scan().objects[0]
+    obj, probe, _ = do_check(src, arm, cand)
+    assert obj is None and probe.status == "unreachable"
+    assert len(src.scan().objects) == 1  # 다시 스캔해도 후보가 남아 있다
+
+
+def test_yaw_rotates_sensor_offset(tmp_path):
+    """손목 yaw 90도면 센서 오프셋이 돌아가므로 손끝 경로가 달라져도 확인 결과는 같다."""
+    cfg, clk, esp, arm = build([Box(300, 170, 0)], yaw_deg=90)
+    src = make_source(cfg, clk, esp, arm, tmp_path)
+    obj, _, _ = do_check(src, arm, src.scan().objects[0])
+    assert math.dist((obj.x_mm, obj.y_mm), (300, 170)) < 10

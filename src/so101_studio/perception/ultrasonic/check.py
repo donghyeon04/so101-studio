@@ -1,16 +1,30 @@
 """팔 확인 (ultrasonic-spec 6절): 십자(L1·L2) -> 원(R) -> 긴 축(L3)·짧은 축(L4) 경로와 추정.
 경로는 센서 위치 기준으로 짜고, 손끝 경로로 바꾸는 곳은 sensor_to_tip 하나다."""
+import itertools
 import math
 import statistics
 
 from ...core.types import DetectedObject
 from .model import PathSegment, beam_radius
 
+UNREACHABLE = object()  # feed 대신 넣는 표시: 그 구간을 팔이 거부했다
+
 
 def sensor_to_tip(pts, cfg):
-    """센서 경로 -> 손끝 xy 경로 (follow_path의 points_mm는 손끝 xy, 임시 합의). 센서 오프셋은 작업대 좌표로 고정(손목 회전 무시)."""
-    off = cfg.arm_sensor_offset_mm
-    return [(x - off.x, y - off.y) for x, y in pts]
+    """센서가 지날 선 -> 손끝 xy 경로. 이 변환은 여기 한 곳뿐이다(설계서 8.2절).
+    arm_sensor_offset_mm를 경로 동안 고정한 yaw로 돌려 센서 점에서 뺀다."""
+    off, a = cfg.arm_sensor_offset_mm, math.radians(cfg.check.yaw_deg)
+    ox, oy = off.x * math.cos(a) - off.y * math.sin(a), off.x * math.sin(a) + off.y * math.cos(a)
+    return [(x - ox, y - oy) for x, y in pts]
+
+
+def _near(p, poly, tol) -> bool:
+    for (ax, ay), (bx, by) in itertools.pairwise(poly):
+        vx, vy = bx - ax, by - ay
+        t = max(0.0, min(1.0, ((p[0] - ax) * vx + (p[1] - ay) * vy) / (vx * vx + vy * vy or 1.0)))
+        if math.hypot(p[0] - ax - t * vx, p[1] - ay - t * vy) <= tol:
+            return True
+    return False
 
 
 class Probe:
@@ -29,6 +43,7 @@ class Probe:
         self._cur = None
         self._started = False
         self._res: DetectedObject | None = None
+        self.status = "running"  # ok | empty(물체 없음, 후보 삭제) | unreachable(팔이 못 가서 못 재었다, 후보는 지우지 않는다)
         self._t0 = src.clock.now_ns()
 
     # --- CheckProbe ---
@@ -39,16 +54,22 @@ class Probe:
         return self._seg
 
     def feed(self, poses) -> None:
-        pts = self.src.arm_points(poses)
-        name, seg, _ = self._cur
+        name, seg, sensor_pts = self._cur
+        # 경로 밖 점(접근 이동 중 측정 등)은 버린다
+        pts = [p for p in self.src.arm_points(poses) if _near(p, sensor_pts, 12)]
         if self.bus:
             self.bus.publish("us.check_path", {
                 "id": self.cand.id, "stage": name, "points_mm": seg.points_mm, "tool_z_mm": seg.tool_z_mm,
                 "points": [(x, y, z - d) for x, y, z, d in pts]})
         self._step(pts)
 
+    def unreachable(self, exc=None) -> None:
+        """follow_path가 이 구간을 거부했을 때 부른다(feed 대신). 그 구간은 데이터 없음으로 보고 다음 경로로 간다."""
+        self.info.setdefault("unreachable", []).append(self._cur[0])
+        self._step(UNREACHABLE)
+
     def result(self) -> DetectedObject | None:
-        self.src.end_check(self.cand, self._res, self.info)
+        self.src.end_check(self.cand, self._res, self.info, self.status)
         return self._res
 
     def _step(self, pts):
@@ -56,11 +77,13 @@ class Probe:
             self._seg = next(self._gen) if pts is None else self._gen.send(pts)
         except StopIteration as e:
             self._seg, self._res = None, e.value
+            self.status = "ok" if self._res else ("unreachable" if self.info.get("unreachable") else "empty")
             self.info["check_s"] = (self.src.clock.now_ns() - self._t0) / 1e9
 
     # --- 경로 ---
     def _seg_of(self, name, sensor_pts):
-        seg = PathSegment(sensor_to_tip(sensor_pts, self.cfg), self.tool_z, self.cfg.check.speed_mm_s)
+        seg = PathSegment(sensor_to_tip(sensor_pts, self.cfg), self.tool_z, self.cfg.check.speed_mm_s,
+                          self.cfg.check.yaw_deg)
         self._cur = (name, seg, sensor_pts)
         return seg
 
@@ -97,6 +120,8 @@ class Probe:
         while s0 < c.line_mm - 1e-6:
             s1 = min(c.line_mm, s0 + chunk)
             pts = yield self._seg_of(name, [(start[0] + u[0] * s, start[1] + u[1] * s) for s in (s0, s1)])
+            if pts is UNREACHABLE:
+                break  # 도달 밖: 여기까지 잰 것으로 판단한다
             samples += [((x - start[0]) * u[0] + (y - start[1]) * u[1], z - d, z, x, y) for x, y, z, d in pts]
             runs = self._runs(samples)
             if c.early_stop_cells and samples:
@@ -121,6 +146,7 @@ class Probe:
             xs = (center[0] - 50, center[0] + 50)
             pts += [(xs[j % 2], y), (xs[1 - j % 2], y)]
         got = yield self._seg_of("GRID", pts)
+        got = [] if got is UNREACHABLE else got
         hit = [(x, y) for x, y, z, d in got if z - d > c.hit_mm]
         if not hit:
             return None
@@ -147,6 +173,7 @@ class Probe:
         ring = [(ctr[0] + c.ring_r_mm * math.cos(2 * math.pi * k / c.ring_n),
                  ctr[1] + c.ring_r_mm * math.sin(2 * math.pi * k / c.ring_n)) for k in range(c.ring_n + 1)]
         got = yield self._seg_of("R", ring)
+        got = [] if got is UNREACHABLE else got
         th = [math.atan2(y - ctr[1], x - ctr[0]) for x, y, z, d in got if z - d > c.hit_mm]
         sx = sum(math.sin(2 * t) for t in th)
         cx = sum(math.cos(2 * t) for t in th)
@@ -166,6 +193,8 @@ class Probe:
         conf = 0.5 + 0.5 * min(R, 1)
         if any(h["broken"] for h in hs) or math.dist(c3, c4) > 10 or not (h3 and h4):
             conf -= 0.2
+        if self.info.get("unreachable"):
+            conf -= 0.2  # 못 간 구간이 있어 덜 믿는다
         self.info.update(R=R, h_mm=statistics.median(h["h"] for h in hs) if hs else 0.0, stages=len(hs))
         return DetectedObject(id=self.cand.id, x_mm=c4[0], y_mm=c4[1], angle_deg=math.degrees(phi) if R > 0.3 else None,
                               width_mm=size(h4), length_mm=size(h3), confidence=conf, source="ultrasonic")

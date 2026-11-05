@@ -95,8 +95,7 @@ class UltrasonicSource:
     def start_check(self, candidate: DetectedObject) -> Probe:
         self.link.send(cmd="stop")
         self._prefetching = False
-        c = self.cfg.check
-        hz = max(1, min(round(1000 / self.cfg.ping_gap_ms), round(c.speed_mm_s / c.sample_mm)))
+        hz = round(1000 / self.cfg.ping_gap_ms)  # 30Hz
         self._service()
         self._arm_buf.clear()
         self._last_pose = None
@@ -105,17 +104,17 @@ class UltrasonicSource:
         self._checking = True
         return Probe(self, candidate, self.cfg, self.arm_origin, self.bus)
 
-    def end_check(self, cand=None, result=None, info=None) -> None:
+    def end_check(self, cand=None, result=None, info=None, status="ok") -> None:
         if self._checking:
             self._checking = False
             self.link.send(cmd="stop")
             self.link.expect(False)
         if cand is not None:
-            if result is None:
-                self._rejected.append((cand.x_mm, cand.y_mm))  # 레이더 오검출: 후보 삭제
+            if status == "empty":
+                self._rejected.append((cand.x_mm, cand.y_mm))  # 레이더 오검출: 후보 삭제(못 가서 못 잰 경우는 지우지 않는다)
             if self.bus:
                 self.bus.publish("us.check_result", {"id": cand.id, "object": dataclasses.asdict(result) if result else None,
-                                                     "info": info or {}})
+                                                     "info": info or {}, "status": status})
 
     def prefetch(self, arm_links_fn) -> None:
         """T5: 놓는 동안 레이더를 돌린다. 다음 scan()이 그 바퀴들을 합쳐 쓴다."""

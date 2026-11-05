@@ -13,16 +13,24 @@ from ..base import PerceptionSource
 
 # --- REQ-023 임시: 8.2절 형식. 팔 세션의 정의가 main에 합쳐지면 지우고 거기서 가져온다 ---
 @dataclass
-class PathSegment:  # 작업대 좌표, 손끝은 수직 아래. points_mm는 손끝 xy(임시 합의)
-    points_mm: list[tuple[float, float]]
+class PathSegment:  # 작업대 좌표, 손끝은 수직 아래
+    points_mm: list[tuple[float, float]]  # 손끝 xy (센서 xy 아님)
     tool_z_mm: float
-    speed_mm_s: float
+    speed_mm_s: float  # 실제 속도 = min(이 값, tool_v_max_mm_s x 속도%)
+    yaw_deg: float | None = None  # 경로 동안 고정할 손목 각도. None = 지금 값 유지
 
 
 @dataclass
 class PoseSample:  # 팔 50Hz 루프의 실제 관절값으로 계산
     t_ns: int  # PC 단조 시계
-    sensor_mm: tuple[float, float, float]  # 팔 센서 위치 (작업대 좌표)
+    tool_mm: tuple[float, float, float]  # 손끝 위치 (작업대 좌표)
+    sensor_mm: tuple[float, float, float]  # 팔 센서 위치 = 손끝 + yaw로 돌린 arm_sensor_offset_mm
+
+
+class PathUnreachable(Exception):  # REQ-023 임시: follow_path가 못 가는 경로를 거부할 때(이름·모양은 팔 세션 정의로 바꾼다)
+    def __init__(self, points_mm=()):
+        super().__init__(f"도달할 수 없는 점 {len(points_mm)}개")
+        self.points_mm = list(points_mm)
 
 
 class CheckProbe(Protocol):
@@ -58,7 +66,7 @@ def load_config(path="config/ultrasonic.yaml", mode=None, **check) -> Cfg:
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     raw["mode"] = mode or raw["mode"]
     if raw["mode"] == "fast":
-        # line_mm 130은 U9 조정값: 180이면 T9가 거의 안 줄어(선 끝 13mm) 인식 22.5초, 130이면 약 19초(성공 2.4/3)
+        # line_mm 130은 U9 조정값: 100mm/s에서 180이면 빠른 모드 인식 약 35초(성공 3.0/3), 130이면 약 29.7초(3.0/3), 120이면 29초(2.5/3)
         raw["check"].update(approach_line=True, early_stop_cells=3, line_mm=130)
     raw["check"].update(check)
     return _wrap(raw)
