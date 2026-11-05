@@ -70,6 +70,7 @@ class ArmService:
         self.logger: RunLogger | None = None
         self.kin = self.safety = self.ctl = self.skills = self.teach = None
         self.port: str | None = None  # 마지막으로 연결한 포트
+        self.sensor_offset_mm: dict | None = None  # 손목 센서 오프셋. 초음파 설정(arm_sensor_offset_mm)을 호출하는 쪽이 set_sensor_offset으로 한 번 넘긴다
         self.last_path: MotionResult | None = None  # 마지막 follow_path의 결과(status, reason)
         self._callbacks: list = []
         self._status_thread: threading.Thread | None = None
@@ -348,40 +349,54 @@ class ArmService:
         self.driver.set_torque(True)
         return self._done("goto", self._run(trajs), goal=asdict(pose))
 
-    def sensor_position(self, q: JointState, offset_mm: dict) -> tuple[float, float, float]:
-        """손목 센서의 작업대 좌표(x, y, 작업대 면 위 높이). 센서는 고정 턱 끝에서 도구 프레임 수평축으로 (x, y), 위로 z 떨어져 있다 (ultrasonic-spec 3.3)."""
-        off = offset_mm
+    def set_sensor_offset(self, offset_mm: dict) -> None:
+        """손목 초음파 센서가 고정 턱 끝에서 떨어진 위치({x, y, z}, config/ultrasonic.yaml의 arm_sensor_offset_mm). 값은 이 서비스에 두지 않고 호출하는 쪽이 넘긴다.
+        x·y는 도구 프레임 수평축(x = 턱이 벌어지는 축), z는 턱 끝 위 높이 (ultrasonic-spec 3.3)."""
+        self.sensor_offset_mm = {"x": float(offset_mm["x"]), "y": float(offset_mm["y"]), "z": float(offset_mm["z"])}
+
+    def tool_position(self, q: JointState) -> tuple[float, float, float]:
+        """손끝(고정 턱 끝)의 작업대 좌표(x, y, 작업대 면 위 높이)."""
         ref = self.kin.fk(q)
         tip = np.array([ref.x_mm, ref.y_mm, ref.z_mm]) + self.kin.jaw_tip_offsets(ref.pitch_deg, ref.yaw_deg, q.gripper)[0]
-        p = tip + self.kin.tool_axes(q) @ np.array([off["x"], off["y"], 0.0])
-        return float(p[0]), float(p[1]), float(tip[2] - self.cfg.table_z_mm + off["z"])
+        return float(tip[0]), float(tip[1]), float(tip[2] - self.cfg.table_z_mm)
+
+    def sensor_position(self, q: JointState) -> tuple[float, float, float]:
+        """손목 센서의 작업대 좌표 = 손끝 + 손목 yaw로 돌린 센서 오프셋(set_sensor_offset)."""
+        if self.sensor_offset_mm is None:
+            raise ValueError("set_sensor_offset으로 센서 오프셋을 먼저 넘겨야 합니다")
+        off = self.sensor_offset_mm
+        x, y, h = self.tool_position(q)
+        d = self.kin.tool_axes(q) @ np.array([off["x"], off["y"], 0.0])
+        return float(x + d[0]), float(y + d[1]), float(h + off["z"])
 
     def _path_pose(self, x: float, y: float, z_mm: float, yaw: float) -> ToolPose:
-        """경로 점(작업대 xy, 작업대 면 위 높이)을 팔에 보낼 ToolPose로. 점의 기준은 임시로 손끝(고정 턱 끝)이다: 센서 기준으로 바꾸려면 여기서 센서 오프셋만큼 빼면 된다."""
+        """경로 점(손끝 xy, 작업대 면 위 높이)을 팔에 보낼 ToolPose로. 센서 경로 → 손끝 경로 변환은 여기서 하지 않는다(check.py 한 곳, ultrasonic-spec 8.2절)."""
         return self.point_pose(x, y, z_mm, yaw)
 
     def arm_links(self, q: JointState | None = None) -> list[tuple[float, float]]:
         """어깨·팔꿈치·손목·손끝의 작업대 xy(mm). 레이더가 팔 자리를 지울 때 쓰는 arm_links_fn (ultrasonic-spec 8.2절)."""
         return self.kin.link_points(q or self.driver.read_joints())
 
-    def follow_path(self, points_mm, tool_z_mm: float, speed_mm_s: float, sensor_offset_mm: dict) -> list[PoseSample]:
+    def follow_path(self, points_mm, tool_z_mm: float, speed_mm_s: float, yaw_deg: float | None = None) -> list[PoseSample]:
         """손끝(고정 턱 끝)을 수직 아래로 둔 채 작업대 좌표 꺾은선(points_mm)을 tool_z_mm 높이로 따라간다 (REQ-023, 블로킹).
         움직이기 전에 접근과 모든 구간을 계획하고 안전 검사까지 마쳐서, 하나라도 못 가면 아무것도 움직이지 않고 빈 목록을 돌려준다.
         경로는 CORNER_STOP_DEG보다 크게 꺾이는 점에서만 끊어 구간마다 한 번에 이어 지난다(원 36점이 36번 서지 않는다).
-        sensor_offset_mm({x, y, z})은 config/ultrasonic.yaml의 arm_sensor_offset_mm를 호출하는 쪽이 넘긴다(값을 여기 두지 않는다). points_mm는 임시로 손끝 xy다(_path_pose 한 곳에서 처리, 기획 답에 따라 바뀔 수 있다).
-        반환: 구간을 따라가는 동안 50Hz 제어 틱마다 PoseSample(PC 단조 시계 perf_counter_ns, 센서 위치). 센서 위치는 그 틱에 읽은 실제 관절값으로 계산한다(그 때문에 이 동안만 틱마다 버스를 한 번 읽는다; 읽기 시간은 follow_path 기록의 read_ms_max·mean).
+        points_mm는 손끝 xy다(센서 xy가 아니다). yaw_deg는 경로 동안 고정할 손목 각도(None이면 지금 값). 센서 오프셋은 set_sensor_offset으로 먼저 받아 둬야 한다.
+        반환: 구간을 따라가는 동안 50Hz 제어 틱마다 PoseSample(PC 단조 시계 perf_counter_ns, 손끝 위치, 센서 위치). 센서 위치는 그 틱에 읽은 실제 관절값으로 계산한다(그 때문에 이 동안만 틱마다 버스를 한 번 읽는다; 읽기 시간은 follow_path 기록의 read_ms_max·mean).
         결과(ok, ik_fail, out_of_bounds+reason, stopped…)는 self.last_path. 속도는 min(요청, tool_v_max × 속도%)."""
         pts = [(float(x), float(y)) for x, y in points_mm]
         if len(pts) < 2:
             raise ValueError("점이 2개 이상 있어야 합니다")
         if speed_mm_s <= 0:
             raise ValueError("속도는 0보다 커야 합니다")
+        if self.sensor_offset_mm is None:
+            raise ValueError("set_sensor_offset으로 센서 오프셋을 먼저 넘겨야 합니다")
         if (gate := self._comm_gate()) is not None:
             self.last_path = gate
             return []
         v = min(speed_mm_s, self.cfg.tool_v_max_mm_s * self.speed / 100)
         q0 = self.driver.read_joints()
-        yaw = self.kin.fk(q0).yaw_deg  # 손목 회전은 지금 그대로
+        yaw = self.kin.fk(q0).yaw_deg if yaw_deg is None else float(yaw_deg)  # None이면 손목 회전은 지금 그대로
         poses = [self._path_pose(x, y, tool_z_mm, yaw) for x, y in pts]
         approach = plan_goto(self.kin, self.cfg, q0, poses[0], self.speed)
         fail = None if approach is not None else "ik_fail"
@@ -412,7 +427,7 @@ class ArmService:
             finally:
                 self.ctl.tap = None
         self.last_path = r
-        samples = [PoseSample(t, self.sensor_position(qq, sensor_offset_mm)) for t, qq, _ in raw]
+        samples = [PoseSample(t, self.tool_position(qq), self.sensor_position(qq)) for t, qq, _ in raw]
         reads = [ns / 1e6 for _, _, ns in raw]
         self._log("follow_path", {**info, "status": r.status, "samples": len(samples), "runs": len(runs),
                                   "read_ms_max": round(max(reads, default=0.0), 3), "read_ms_mean": round(sum(reads) / len(reads), 3) if reads else 0.0})

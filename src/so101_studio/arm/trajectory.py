@@ -1,4 +1,5 @@
 """관절 공간 궤적 (arm-software-spec.md 6.3). 지금은 move_j(5차 다항식)와 정지용 감속만."""
+import itertools
 import math
 from dataclasses import astuple, dataclass
 
@@ -153,7 +154,7 @@ def polyline_l(kin, poses, seed: JointState, v_mm_s: float, a_mm_s2: float = 500
     from dataclasses import replace
 
     P = [np.array([p.x_mm, p.y_mm, p.z_mm]) for p in poses]
-    seg = [float(np.linalg.norm(b - a)) for a, b in zip(P, P[1:])]
+    seg = [float(np.linalg.norm(b - a)) for a, b in itertools.pairwise(P)]
     length = sum(seg)
     n = max(1, math.ceil(length / step_mm))
     cum = np.concatenate([[0.0], np.cumsum(seg)])

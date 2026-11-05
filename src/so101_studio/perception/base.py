@@ -21,15 +21,17 @@ class PerceptionSource(Protocol):
 
 @dataclass
 class PathSegment:  # 작업대 좌표, 손끝은 수직 아래 (ultrasonic-spec 8.2절)
-    points_mm: list[tuple[float, float]]
+    points_mm: list[tuple[float, float]]  # 손끝 xy (센서 xy 아님)
     tool_z_mm: float  # 작업대 면 위 손끝 높이
-    speed_mm_s: float
+    speed_mm_s: float  # 실제 속도 = min(이 값, tool_v_max_mm_s × 속도%)
+    yaw_deg: float | None = None  # 경로 동안 고정할 손목 각도. None = 지금 값 유지
 
 
 @dataclass
 class PoseSample:  # 팔 50Hz 제어 틱마다 한 개
     t_ns: int  # PC 단조 시계(time.perf_counter_ns)
-    sensor_mm: tuple[float, float, float]  # 팔 센서 위치(작업대 좌표, z는 작업대 면 위 높이)
+    tool_mm: tuple[float, float, float]  # 손끝 위치(작업대 좌표, z는 작업대 면 위 높이)
+    sensor_mm: tuple[float, float, float]  # 팔 센서 위치 = 손끝 + yaw로 돌린 arm_sensor_offset_mm (z는 작업대 면 위 높이)
 
 
 class CheckProbe(Protocol):

@@ -21,6 +21,7 @@ def svc(tmp_path):
     s = ArmService(SimDriver(CFG.poses["home"]), CFG, WS, speed_pct=100, log_root=str(tmp_path))
     ok, msg = s.connect()
     assert ok, msg
+    s.set_sensor_offset(OFF)
     yield s
     s.disconnect()
 
@@ -33,7 +34,7 @@ def _tip(svc, q):
 
 def test_follow_straight_line_samples_monotonic_about_50hz(svc):
     pts = [(260.0, 200.0), (340.0, 200.0)]
-    samples = svc.follow_path(pts, Z, 60.0, OFF)
+    samples = svc.follow_path(pts, Z, 60.0)
     assert svc.last_path.status == "ok" and len(samples) > 20
     t = np.array([s.t_ns for s in samples])
     assert (np.diff(t) > 0).all()
@@ -46,18 +47,19 @@ def test_follow_straight_line_samples_monotonic_about_50hz(svc):
 
 
 def test_sensor_is_offset_from_tip_by_config_value(svc):
-    svc.follow_path([(260.0, 200.0), (300.0, 200.0)], Z, 60.0, OFF)
+    svc.follow_path([(260.0, 200.0), (300.0, 200.0)], Z, 60.0)
     q = svc.driver.read_joints()
     tip = _tip(svc, q)
-    x, y, z = svc.sensor_position(q, OFF)
+    x, y, z = svc.sensor_position(q)
     assert math.hypot(x - tip[0], y - tip[1]) == pytest.approx(30.0, abs=0.5)
     assert z == pytest.approx(tip[2] + 55.0, abs=0.5)
-    assert svc.sensor_position(q, {"x": 0, "y": 0, "z": 10})[2] == pytest.approx(tip[2] + 10.0, abs=0.5)
+    svc.set_sensor_offset({"x": 0, "y": 0, "z": 10})
+    assert svc.sensor_position(q)[2] == pytest.approx(tip[2] + 10.0, abs=0.5)
 
 
 def test_tip_tracks_polyline_within_tolerance(svc):
     pts = [(260.0, 180.0), (320.0, 180.0), (320.0, 240.0)]
-    svc.follow_path(pts, Z, 60.0, OFF)
+    svc.follow_path(pts, Z, 60.0)
     tip = _tip(svc, svc.driver.read_joints())
     assert np.hypot(tip[0] - 320.0, tip[1] - 240.0) < 3.0 and tip[2] == pytest.approx(Z, abs=3.0)
 
@@ -75,7 +77,7 @@ def test_circle_is_one_continuous_run_not_36_stops(svc):
     c = (300.0, 180.0)
     ring = [(c[0] + 45 * math.cos(math.radians(i * 10)), c[1] + 45 * math.sin(math.radians(i * 10))) for i in range(37)]
     calls = _count_executes(svc, ring[0])
-    samples = svc.follow_path(ring, Z, 60.0, OFF)
+    samples = svc.follow_path(ring, Z, 60.0)
     assert svc.last_path.status == "ok" and len(calls) == 2 and len(samples) > 20  # 접근 + 원 한 번
     xy = np.array([s.sensor_mm[:2] for s in samples])
     assert np.ptp(xy[:, 0]) > 80  # 원을 한 바퀴 돈 센서 궤적
@@ -83,11 +85,11 @@ def test_circle_is_one_continuous_run_not_36_stops(svc):
 
 def test_only_sharp_corners_stop(svc):
     calls = _count_executes(svc, (260.0, 180.0))
-    svc.follow_path([(260.0, 180.0), (320.0, 180.0), (320.0, 240.0)], Z, 60.0, OFF)  # 90° 꺾임 하나
+    svc.follow_path([(260.0, 180.0), (320.0, 180.0), (320.0, 240.0)], Z, 60.0)  # 90° 꺾임 하나
     assert len(calls) == 3  # 접근 + 두 구간
     svc.move_tool(svc.point_pose(260.0, 180.0, Z))
     calls.clear()
-    svc.follow_path([(260.0, 180.0), (300.0, 180.0), (340.0, 190.0)], Z, 60.0, OFF)  # 약 14° 꺾임
+    svc.follow_path([(260.0, 180.0), (300.0, 180.0), (340.0, 190.0)], Z, 60.0)  # 약 14° 꺾임
     assert len(calls) == 2
 
 
@@ -106,11 +108,13 @@ def test_samples_use_actual_joint_reads_not_commands(svc):
 
     s = ArmService(Lagging(CFG.poses["home"]), CFG, WS, speed_pct=100, log_root=None)
     s.connect()
+    s.set_sensor_offset(OFF)
     pts = [(240.0, 200.0), (340.0, 200.0)]
-    smp = s.follow_path(pts, Z, 60.0, OFF)
+    smp = s.follow_path(pts, Z, 60.0)
     cmd = ArmService(SimDriver(CFG.poses["home"]), CFG, WS, speed_pct=100, log_root=None)
     cmd.connect()
-    ref = cmd.follow_path(pts, Z, 60.0, OFF)
+    cmd.set_sensor_offset(OFF)
+    ref = cmd.follow_path(pts, Z, 60.0)
     assert smp and ref
     # 뒤처진 읽기라 같은 시각 번호의 센서 x는 명령 기준보다 뒤(작아야 한다)
     k = len(smp) // 2
@@ -121,13 +125,13 @@ def test_samples_use_actual_joint_reads_not_commands(svc):
 
 def test_unreachable_path_is_rejected_before_moving(svc):
     before = svc.driver.read_joints()
-    assert svc.follow_path([(260.0, 200.0), (300.0, 900.0)], Z, 60.0, OFF) == []
+    assert svc.follow_path([(260.0, 200.0), (300.0, 900.0)], Z, 60.0) == []
     assert svc.last_path.status in ("ik_fail", "out_of_bounds")
     assert svc.driver.read_joints() == before  # 접근도 하지 않았다
 
 
 def test_out_of_workspace_reports_reason(svc):
-    svc.follow_path([(260.0, 200.0), (700.0, 200.0)], Z, 60.0, OFF)
+    svc.follow_path([(260.0, 200.0), (700.0, 200.0)], Z, 60.0)
     assert svc.last_path.status in ("ik_fail", "out_of_bounds")
     if svc.last_path.status == "out_of_bounds":
         assert svc.last_path.reason
@@ -136,8 +140,9 @@ def test_out_of_workspace_reports_reason(svc):
 def test_speed_is_capped_by_tool_v_max_and_speed_pct(tmp_path):
     s = ArmService(SimDriver(CFG.poses["home"]), CFG, WS, speed_pct=30, log_root=str(tmp_path))
     s.connect()
+    s.set_sensor_offset(OFF)
     t0 = time.perf_counter()
-    samples = s.follow_path([(260.0, 200.0), (300.0, 200.0)], Z, 500.0, OFF)
+    samples = s.follow_path([(260.0, 200.0), (300.0, 200.0)], Z, 500.0)
     cap = CFG.tool_v_max_mm_s * 0.3
     assert samples[-1].t_ns - samples[0].t_ns >= 1e9 * 40.0 / cap * 0.5 and time.perf_counter() - t0 > 0
     s.disconnect()
@@ -146,7 +151,7 @@ def test_speed_is_capped_by_tool_v_max_and_speed_pct(tmp_path):
 def test_stop_during_path_returns_samples_so_far(svc):
     out = {}
     pts = [(240.0, 200.0), (360.0, 200.0)]
-    th = threading.Thread(target=lambda: out.update(s=svc.follow_path(pts, Z, 40.0, OFF)))
+    th = threading.Thread(target=lambda: out.update(s=svc.follow_path(pts, Z, 40.0)))
     th.start()
     deadline = time.time() + 10
     while svc.ctl.tap is None and time.time() < deadline:
@@ -160,7 +165,7 @@ def test_stop_during_path_returns_samples_so_far(svc):
 
 def test_estop_during_path_ends_it_and_keeps_stopped(svc):
     out = {}
-    th = threading.Thread(target=lambda: out.update(s=svc.follow_path([(240.0, 200.0), (360.0, 200.0)], Z, 40.0, OFF)))
+    th = threading.Thread(target=lambda: out.update(s=svc.follow_path([(240.0, 200.0), (360.0, 200.0)], Z, 40.0)))
     th.start()
     deadline = time.time() + 10
     while svc.ctl.tap is None and time.time() < deadline:
@@ -169,14 +174,14 @@ def test_estop_during_path_ends_it_and_keeps_stopped(svc):
     svc.estop()
     th.join(10)
     assert not th.is_alive() and svc.last_path.status != "ok" and svc.ctl.state == "stopped"
-    assert svc.follow_path([(260.0, 200.0), (300.0, 200.0)], Z, 40.0, OFF) == [] and svc.last_path.status == "stopped"
+    assert svc.follow_path([(260.0, 200.0), (300.0, 200.0)], Z, 40.0) == [] and svc.last_path.status == "stopped"
 
 
 def test_too_few_points_or_bad_speed_raise(svc):
     with pytest.raises(ValueError):
-        svc.follow_path([(260.0, 200.0)], Z, 40.0, OFF)
+        svc.follow_path([(260.0, 200.0)], Z, 40.0)
     with pytest.raises(ValueError):
-        svc.follow_path([(260.0, 200.0), (300.0, 200.0)], Z, 0.0, OFF)
+        svc.follow_path([(260.0, 200.0), (300.0, 200.0)], Z, 0.0)
 
 
 def test_arm_links_are_shoulder_elbow_wrist_tip_in_table_xy(svc):
@@ -189,7 +194,25 @@ def test_arm_links_are_shoulder_elbow_wrist_tip_in_table_xy(svc):
     assert pts[3] == pytest.approx((svc.status().tool.x_mm + (_tip(svc, q)[0] - svc.status().tool.x_mm),
                                     svc.status().tool.y_mm + (_tip(svc, q)[1] - svc.status().tool.y_mm)))
     # 팔을 뻗은 자세에서는 손끝이 어깨에서 가장 멀다
-    svc.follow_path([(300.0, 250.0), (300.0, 270.0)], Z, 60.0, OFF)
+    svc.follow_path([(300.0, 250.0), (300.0, 270.0)], Z, 60.0)
     p2 = svc.arm_links()
     d2 = [math.hypot(x - base[0], y - base[1]) for x, y in p2]
     assert d2[3] > 150 and d2[2] > d2[1] > d2[0]  # 손끝과 손목이 멀리 나가고 어깨→팔꿈치→손목 순으로 멀어진다
+
+
+def test_samples_carry_tool_and_sensor_and_yaw_is_held(svc):
+    smp = svc.follow_path([(260.0, 200.0), (340.0, 200.0)], Z, 60.0, yaw_deg=0.0)
+    assert svc.last_path.status == "ok" and svc.status().tool.yaw_deg == pytest.approx(0.0, abs=1.0)
+    for s in smp[::10]:
+        assert s.tool_mm[2] == pytest.approx(Z, abs=3.0)
+        assert math.hypot(s.sensor_mm[0] - s.tool_mm[0], s.sensor_mm[1] - s.tool_mm[1]) == pytest.approx(30.0, abs=0.5)
+    first = smp[0]  # yaw 0°면 센서 방향이 yaw 90°일 때와 90° 다르다
+    assert (first.sensor_mm[0] - first.tool_mm[0], first.sensor_mm[1] - first.tool_mm[1]) != pytest.approx((-30.0, 0.0), abs=1.0)
+
+
+def test_follow_path_requires_sensor_offset(tmp_path):
+    s = ArmService(SimDriver(CFG.poses["home"]), CFG, WS, speed_pct=100, log_root=None)
+    s.connect()
+    with pytest.raises(ValueError):
+        s.follow_path([(260.0, 200.0), (300.0, 200.0)], Z, 60.0)
+    s.disconnect()
