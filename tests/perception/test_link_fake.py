@@ -81,3 +81,15 @@ def test_link_lost():
     clk.sleep(0.2)
     with pytest.raises(UltrasonicLinkError):
         link.poll()
+
+
+def test_real_clock_is_perf_counter_ns():
+    """팔 PoseSample.t_ns(perf_counter_ns)와 같은 시계다: 두 값의 차이가 작고, 해상도가 15.6ms가 아니다."""
+    import time
+
+    from so101_studio.perception.ultrasonic.model import RealClock
+
+    a, b, c = time.perf_counter_ns(), RealClock.now_ns(), time.perf_counter_ns()
+    assert a <= b <= c and c - a < 5_000_000
+    ticks = {RealClock.now_ns() for _ in range(2000)}
+    assert len(ticks) > 20  # 15.6ms 단위로 계단 지는 시계면 몇 개 안 된다

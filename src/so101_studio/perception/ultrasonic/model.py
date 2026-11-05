@@ -68,7 +68,8 @@ def load_config(path="config/ultrasonic.yaml", mode=None, **check) -> Cfg:
 
 
 class RealClock:
-    now_ns = staticmethod(time.monotonic_ns)
+    # PoseSample.t_ns(팔, #73)와 같은 시계여야 한다. Windows에서 time.monotonic은 해상도 15.6ms라 perf_counter_ns를 쓴다.
+    now_ns = staticmethod(time.perf_counter_ns)
     sleep = staticmethod(time.sleep)
 
 
