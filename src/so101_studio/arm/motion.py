@@ -72,12 +72,13 @@ class MotionController:
         return got, float(np.linalg.norm([got.x_mm - want.x_mm, got.y_mm - want.y_mm, got.z_mm - want.z_mm]))
 
     def _result(self, status: str, t0: float, needs_read: bool = False) -> MotionResult:
-        """동작의 결과. 버스를 못 읽어도 결과는 반드시 돌려준다(wait()가 영원히 안 끝나지 않게). 읽기 실패는 끊김의 시작으로 건강 감시에 알리고,
-        needs_read(정상 끝)이면 상태를 fault로 바꿔 돌려준다. 손끝 위치는 모른다(0)."""
+        """동작의 결과. 버스를 못 읽어도 결과는 반드시 돌려준다: job을 비운 뒤 여기서 예외가 나면 handle이 끝나지 못해 wait()가 영원히 안 돌아온다(REQ-026).
+        읽기 실패는 끊김의 시작으로 건강 감시에 알리고(0.5초 뒤 comm_lost), needs_read(정상 끝)이면 status를 fault로 바꿔 돌려준다. 손끝 위치는 모른다(0)."""
         try:
             tool, err = self._final_tool()
-        except Exception:  # noqa: BLE001 포트 빠짐·응답 없음 등 어떤 읽기 실패든
+        except Exception as e:  # noqa: BLE001 포트 빠짐·응답 없음 등 어떤 읽기 실패든
             self.health.comm_failed(time.perf_counter())
+            self._emit("final_read_failed", "WARN", "ARM-FINAL-READ-FAILED", {"status": status, "error": repr(e)[:120]})
             tool, err = ToolPose(0, 0, 0, 0), None
             if needs_read:
                 status = "fault"

@@ -159,6 +159,7 @@ GitHub `donghyeon04/so101-studio`, 개발은 `main`에서 딴 `dev/<작업>` 브
 - **통신 끊김**: 끊김 시간은 마지막으로 통신이 된 시각부터 0.5초로 잰다(`HealthMonitor.comm_ok(now)`). 정지 중에는 10Hz 상태 루프의 읽기 결과를 `MotionController.note_comm(ok)`로 알려 끊김을 보고, 컨트롤러 틱이 0.5초가 차는 즉시 `fault("comm_lost")`를 낸다(USB를 뽑은 뒤 약 0.5초). 이때 `ARM-FAULT` 대신 `ARM-COMM-LOST`(ERROR) 이벤트와 같은 이름의 사고 묶음을 남긴다.
 - **fault 뒤**: 조그 입력을 비우고, 마지막 위치 유지 쓰기도 하지 않는다(통신 끊김일 때). `ArmService.home/park/move_joints/move_tool/pick_and_place/place/set_gripper`는 버스를 읽거나 쓰지 않고 `MotionResult("fault")`를 돌려준다. `resume()`은 통신 끊김 fault에서는 `False`(이전에는 None)를 돌려주고 풀지 않는다. 다시 꽂아도 `connect()`를 해야 풀린다.
 - **다시 연결**: `ArmService.connect()`가 이미 연결된 상태면 먼저 정리한다. `driver.disconnect()`는 토크를 끄지 않고, 포트가 이미 사라져 예외가 나도 정리를 끝낸다. 새 컨트롤러는 현재 위치를 명령값으로 삼는다.
+- **읽기만 실패하는 통신(REQ-026)**: 쓰기는 되고 읽기만 응답이 없을 때(서보 하나가 빠지거나 버스 잡음), 동작이 끝나는 틱에서 `_final_tool`이 읽다 예외를 내면 job은 이미 비워져 handle이 끝나지 못해 `wait()`가 영원히 안 돌아오던 문제를 고쳤다. `MotionController._result`는 이제 읽기에 실패해도 결과를 돌려주고(정상 끝이면 `status="fault"`, 손끝 위치는 0), 끊김 시계를 시작해 0.5초 안팎에 `comm_lost` fault로 이어지게 하고, `ARM-FINAL-READ-FAILED`(WARN)를 남긴다. `stop()`·`retarget`·`execute`의 결과 계산도 같은 함수를 써서 예외를 내지 않는다. 시험: `tests/test_comm_hang.py`.
 - **실물 측정**(table_z_mm 접촉 4곳, 인쇄 격자 3점, 포트 빠짐 4경우, 토크 풀림 재현)은 사용자와 COM3으로 한다. 아직 안 했다.
 
 ## 17. 그리퍼 예압·조임 한계·부하 감시·놓기 보정 (REQ-020, 결정 0033)
