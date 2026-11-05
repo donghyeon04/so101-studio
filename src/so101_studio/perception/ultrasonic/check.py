@@ -82,6 +82,47 @@ class Probe:
             self.info["check_s"] = (self.src.clock.now_ns() - self._t0) / 1e9
 
     # --- 경로 ---
+    def _inside(self, sensor_p) -> bool:
+        tip = sensor_to_tip([sensor_p], self.cfg)[0]
+        r = math.hypot(tip[0] - self.origin[0], tip[1] - self.origin[1])
+        reach = self.cfg.check.tool_reach_mm
+        return reach.min <= r <= reach.max
+
+    def _clip(self, pts):
+        """PR #71: 손끝이 도달 범위(tool_reach_mm) 밖인 점을 건너뛴다. 끊기면 조각마다 따로 follow_path를 부른다.
+        clip_to_reach가 꺼져 있으면 그대로 한 구간."""
+        if not self.cfg.check.clip_to_reach:
+            return [pts]
+        dense = []
+        for a, b in itertools.pairwise(pts):
+            n = max(1, math.ceil(math.dist(a, b) / 2))  # 2mm 간격으로 판정
+            dense += [(a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n) for k in range(n)]
+        dense.append(pts[-1])
+        pieces, run = [], []
+        for p in [*dense, None]:
+            if p is not None and self._inside(p):
+                run.append(p)
+                continue
+            if len(run) >= 2:  # 2mm 간격 점이 둘 이상. 닫힌 원은 처음과 끝이 같으니 끝점 거리로 거르지 않는다
+                pieces.append([run[0], run[-1]] if len(pts) == 2 else run)
+            run = []
+        return pieces
+
+    def _follow(self, name, sensor_pts):
+        """경로를 도달 범위로 자른 조각마다 구간 하나씩 내고, 받은 점을 모두 돌려준다. 하나도 못 가면 UNREACHABLE.
+        self._pieces에 마지막으로 보낸 조각들을 남긴다."""
+        self._pieces = self._clip(sensor_pts)
+        if not self._pieces:
+            self.info.setdefault("unreachable", []).append(name)  # 전부 도달 밖이라 호출 자체를 안 한다
+            return UNREACHABLE
+        got, ok = [], False
+        for pc in self._pieces:
+            pts = yield self._seg_of(name, pc)
+            if pts is not UNREACHABLE:
+                ok = True
+                got += pts
+        return got if ok else UNREACHABLE
+
     def _seg_of(self, name, sensor_pts):
         seg = PathSegment(sensor_to_tip(sensor_pts, self.cfg), self.tool_z, self.cfg.check.speed_mm_s,
                           self.cfg.check.yaw_deg)
@@ -117,12 +158,20 @@ class Probe:
         half = c.line_mm / 2
         start = (center[0] - u[0] * half, center[1] - u[1] * half)
         chunk = c.line_mm if not c.early_stop_cells else c.sample_mm * 6  # T9: 짧게 끊어 가며 일찍 멈춘다
-        samples, s0, runs = [], 0.0, []
+        samples, s0, runs, cuts = [], 0.0, [], []
         while s0 < c.line_mm - 1e-6:
             s1 = min(c.line_mm, s0 + chunk)
-            pts = yield self._seg_of(name, [(start[0] + u[0] * s, start[1] + u[1] * s) for s in (s0, s1)])
+            ends = [(start[0] + u[0] * s, start[1] + u[1] * s) for s in (s0, s1)]
+            pts = yield from self._follow(name, ends)
             if pts is UNREACHABLE:
-                break  # 도달 밖: 여기까지 잰 것으로 판단한다
+                s0 = s1
+                continue
+            # 잘린 경계(호출 끝점이 아닌 조각 끝)의 선 위 위치: 메아리 구간이 거기 닿으면 중심이 치우칠 수 있다
+            for pc in self._pieces:
+                for p in pc[:: len(pc) - 1] if len(pc) > 1 else pc:
+                    sp = (p[0] - start[0]) * u[0] + (p[1] - start[1]) * u[1]
+                    if all(math.dist(p, e) > 1.0 for e in ends):
+                        cuts.append(sp)
             samples += [((x - start[0]) * u[0] + (y - start[1]) * u[1], z - d, z, x, y) for x, y, z, d in pts]
             runs = self._runs(samples)
             if c.early_stop_cells and samples:
@@ -135,7 +184,8 @@ class Probe:
         r = min(runs, key=lambda r: 0 if r["s0"] <= half <= r["s1"] else min(abs(r["s0"] - half), abs(r["s1"] - half)))
         mid = (r["s0"] + r["s1"]) / 2
         return {"xy": (start[0] + u[0] * mid, start[1] + u[1] * mid), "extent": r["s1"] - r["s0"] + c.sample_mm,
-                    "h": r["h"], "z": r["z"], "broken": r["broken"]}
+                "h": r["h"], "z": r["z"], "broken": r["broken"],
+                "cut": any(abs(r[k] - cp) <= 1.5 * c.sample_mm for cp in cuts for k in ("s0", "s1"))}
 
     def _grid(self, center):
         """L1·L2가 다 비었을 때: 후보 둘레 100x100mm를 격자로 한 번 훑는다. 걸린 점들의 평균을 돌려준다."""
@@ -146,7 +196,7 @@ class Probe:
             y = center[1] - 50 + j * c.fallback_grid_mm
             xs = (center[0] - 50, center[0] + 50)
             pts += [(xs[j % 2], y), (xs[1 - j % 2], y)]
-        got = yield self._seg_of("GRID", pts)
+        got = yield from self._follow("GRID", pts)
         got = [] if got is UNREACHABLE else got
         hit = [(x, y) for x, y, z, d in got if z - d > c.hit_mm]
         if not hit:
@@ -173,7 +223,7 @@ class Probe:
 
         ring = [(ctr[0] + c.ring_r_mm * math.cos(2 * math.pi * k / c.ring_n),
                  ctr[1] + c.ring_r_mm * math.sin(2 * math.pi * k / c.ring_n)) for k in range(c.ring_n + 1)]
-        got = yield self._seg_of("R", ring)
+        got = yield from self._follow("R", ring)
         got = [] if got is UNREACHABLE else got
         # 칸(sample_mm 호 길이)마다 한 번만 센다: 팔이 멈칫하며 같은 자리를 여러 번 재도 방향 평균이 쏠리지 않게
         cells = {round((math.atan2(y - ctr[1], x - ctr[0]) % (2 * math.pi)) * c.ring_r_mm / c.sample_mm)
@@ -197,6 +247,8 @@ class Probe:
         conf = 0.5 + 0.5 * min(R, 1)
         if any(h["broken"] for h in hs) or math.dist(c3, c4) > 10 or not (h3 and h4):
             conf -= 0.2
+        if any(h["cut"] for h in hs):
+            conf -= 0.2  # 메아리 구간이 도달 범위로 잘린 끝에 닿았다(#71)
         if self.info.get("unreachable"):
             conf -= 0.2  # 못 간 구간이 있어 덜 믿는다
         self.info.update(R=R, h_mm=statistics.median(h["h"] for h in hs) if hs else 0.0, stages=len(hs))

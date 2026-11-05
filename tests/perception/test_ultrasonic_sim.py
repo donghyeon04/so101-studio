@@ -170,3 +170,34 @@ def test_yaw_rotates_sensor_offset(tmp_path):
     src = make_source(cfg, clk, esp, arm, tmp_path)
     obj, _, _ = do_check(src, arm, src.scan().objects[0])
     assert math.dist((obj.x_mm, obj.y_mm), (300, 170)) < 10
+
+
+def _all_segments(src, arm, cand):
+    probe = src.start_check(cand)
+    segs = []
+    while (seg := probe.next_segment()) is not None:
+        segs.append(seg)
+        probe.feed(arm.follow_path(seg.points_mm, seg.tool_z_mm, seg.speed_mm_s, seg.yaw_deg))
+    return probe, probe.result(), segs
+
+
+def test_clip_to_reach_splits_and_limits_paths(tmp_path):
+    """PR #71: 손끝이 tool_reach_mm 밖인 점은 건너뛰고, 끊기면 조각마다 따로 보낸다. 켜지 않으면 그대로."""
+    cfg, clk, esp, arm = build([Box(300, 170, 0)], clip_to_reach=True)
+    src = make_source(cfg, clk, esp, arm, tmp_path)
+    probe = src.start_check(src.scan().objects[0])
+    pieces = probe._clip([(300, -40), (300, 200)])  # 손끝 y -70~170: 원점(300,50)에서 반경 60 안(y -10~110)은 건너뛴다
+    assert len(pieces) == 2
+    assert pieces[0][-1][1] == pytest.approx(20, abs=3) and pieces[1][0][1] == pytest.approx(140, abs=3)  # 센서 y(손끝 y + 30)
+    reach = cfg.check.tool_reach_mm
+    probe, _obj, segs = _all_segments(src, arm, src.scan().objects[0])
+    for seg in segs:
+        for x, y in seg.points_mm:
+            assert reach.min - 1 <= math.hypot(x - 300, y - 50) <= reach.max + 1
+
+
+def test_clip_off_sends_whole_paths(tmp_path):
+    cfg, clk, esp, arm = build([Box(300, 170, 0)])
+    src = make_source(cfg, clk, esp, arm, tmp_path)
+    probe = src.start_check(src.scan().objects[0])
+    assert probe._clip([(300, -40), (300, 200)]) == [[(300, -40), (300, 200)]]

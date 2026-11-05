@@ -32,4 +32,6 @@ check:
   approach_line: false    # fast 모드에서 true (T8)
   early_stop_cells: 0     # T9. 4절은 fast에서 3이지만 조각 호출 비용 때문에 기획 답 전까지 끔
   fallback_grid_mm: 20
+  clip_to_reach: false    # PR #71 "도달 범위로 자르기". 승인 전에는 끔
+  tool_reach_mm: {min: 60, max: 255}   # 손끝 반경, 팔 원점 기준 (REQ-023 계산 50~265 + 여유)
 arm_sensor_offset_mm: {x: 0, y: 30, z: 55}   # 손끝 기준, A0 보정으로 고침
