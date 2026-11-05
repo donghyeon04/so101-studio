@@ -28,7 +28,7 @@
 | `docs/planning/ultrasonic-spec.md` | 기획 | 확정 | 초음파 인식 설계서: 레이더 + 팔 확인, 합격 기준, 하드웨어 치수·배선·서보 전원(A 충전기/B 12V 공유)·구매 목록·브래킷 레퍼런스, 스캔 서보 추천, 시간 줄이기 기법 T1~T11, 레이더·확인 처리, ESP32 통신 규약, PC 구조, 작업 순서 U0~U9, 시험 |
 | `docs/guides/arm-hardware-setup.md` | 가이드 | 확정 | 팔 하드웨어 구성, COM 포트, 서보 ID 1~6, 캘리브레이션 파일 복사, 다른 PC에서 처음 연결하는 순서, 문제 해결 |
 | `docs/guides/tooling-setup.md` | 가이드 | 확정 | 계정마다 설치할 플러그인, MCP, 스킬 |
-| `docs/guides/session-workflow.md` | 가이드 | 확정 | 세션 역할(로컬 셋, GUI 세션 총괄), worktree와 브랜치, REQ 요청·완료 양식, 기획 요청, 포트 같이 쓰기 |
+| `docs/guides/session-workflow.md` | 가이드 | 확정 | 세션 역할(로컬 셋, GUI 세션 총괄), worktree와 브랜치, REQ 요청·완료 양식, 기획 요청, 포트 같이 쓰기, 질문과 승인은 총괄로 |
 | `docs/decisions/0001-claude-md-authoring.md` | 결정 | 확정 | CLAUDE.md는 짧게, 절차는 skill로 |
 | `docs/decisions/0002-docs-structure.md` | 결정 | 확정 | 문서 유형 4종, 색인, 상태값, 조사 원문 비보관 |
 | `docs/decisions/0003-arm-control-stack.md` | 결정 | 확정 | LeRobot SOFollower + placo IK, MoveJ/L/P는 얇게 직접 구현 |
