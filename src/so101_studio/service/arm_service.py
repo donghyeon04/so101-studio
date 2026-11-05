@@ -12,7 +12,7 @@ from ..arm.motion import MotionController
 from ..arm.safety import MODES, Safety, SafetySettings
 from ..arm.skills import Skills
 from ..arm.teach import Teach
-from ..arm.trajectory import cfg_move_j, cfg_move_l, polyline_l
+from ..arm.trajectory import cfg_move_j, cfg_move_l, smooth_l
 from ..core.blackbox import install_excepthooks
 from ..core.config import RobotConfig, WorkspaceConfig, load_workspace
 from ..core.incident import Incident, create_incident
@@ -375,8 +375,8 @@ class ArmService:
     def follow_path(self, points_mm, tool_z_mm: float, speed_mm_s: float, yaw_deg: float | None = None) -> list[PoseSample]:
         """손끝(고정 턱 끝)을 수직 아래로 둔 채 작업대 좌표 꺾은선(points_mm)을 tool_z_mm 높이로 따라간다 (REQ-023, 블로킹).
         points_mm는 손끝 xy다(센서 xy가 아니다). yaw_deg는 경로 동안 고정할 손목 각도(None이면 지금 값). 센서 오프셋은 set_sensor_offset으로 먼저 받아 둬야 한다.
-        한 번의 호출은 지금 손끝 위치에서 첫 점까지 가는 것까지 이어서 서지 않고 지난다: 처음과 끝에서만 가속·감속하고, 꺾이는 점과 원에서는 가속 한도(tool_a_max_mm_s2) 안의 속도로 줄여 지난다
-        (속도 v ≤ sqrt(a·R), R은 모서리를 2.5mm 안으로 깎는 호 또는 곡률 반지름; 반대로 되돌아가는 180° 꺾임은 서서 돈다). 속도는 min(요청, tool_v_max × 속도%).
+        한 번의 호출은 지금 손끝 위치에서 첫 점까지 가는 것까지 이어서 서지 않고 지난다: 처음과 끝에서만 가속·감속하고, 꺾이는 점과 원은 호(모서리를 2.5mm 안으로 깎는 반지름 R)로 감아
+        구심 가속이 한도(tool_a_max_mm_s2) 안이 되게 속도를 줄여 지난다(v ≤ sqrt(a/√2·R); 반대로 되돌아가는 180° 꺾임은 서서 돈다). 경로는 호 위 1mm 간격 경유점을 관절 공간 스플라인으로 잇는다(smooth_l). 속도는 min(요청, tool_v_max × 속도%).
         지금 위치에서 첫 점까지 직선으로 갈 수 없으면(IK 실패·관절 도약) 예전처럼 plan_goto의 안전 경로(관절 이동 후 위에서 수직 하강)로 먼저 가고 경로는 그다음에 따로 지난다(이 경우 접근과 경로 사이에서 선다).
         움직이기 전에 접근과 모든 구간을 계획해 안전 검사까지 마치고, 하나라도 못 가면 아무것도 움직이지 않고 빈 목록을 돌려준다.
         반환: 따라가는 동안 50Hz 제어 틱마다 PoseSample(PC 단조 시계 perf_counter_ns, 손끝 위치, 센서 위치). 접근을 합쳤을 때는 접근 구간의 샘플도 들어 있다(tool_mm로 가를 수 있다).
@@ -392,6 +392,10 @@ class ArmService:
             raise ValueError("속도는 0보다 커야 합니다")
         if self.sensor_offset_mm is None:
             raise ValueError("set_sensor_offset으로 센서 오프셋을 먼저 넘겨야 합니다")
+        if self.ctl.locked_reason:  # 잠긴 팔(캘리브레이션 불일치·팔 파일 없음)에는 토크를 켜지도 계획하지도 않는다
+            self.last_path = MotionResult("locked", 0.0, ToolPose(0, 0, 0, 0))
+            self._log("follow_path", {"status": "locked", "reason": self.ctl.locked_reason})
+            return []
         if (gate := self._comm_gate()) is not None:
             self.last_path = gate
             return []
@@ -425,7 +429,7 @@ class ArmService:
         yaw = cur.yaw_deg if yaw_deg is None else float(yaw_deg)  # None이면 손목 회전은 지금 그대로
         tip = tip_vector(self.kin, -90.0, yaw, q0.gripper, "tip")  # 점마다 버스를 읽지 않게 시작에 읽은 그리퍼 값으로 한 번만
         poses = [self._path_pose(x, y, tool_z_mm, yaw, tip) for x, y in pts]
-        kw = {"v_mm_s": v, "a_mm_s2": self.cfg.tool_a_max_mm_s2, "profile": self.cfg.trajectory_profile, "j_mm_s3": self.cfg.tool_jerk_max_mm_s3}
+        a = self.cfg.tool_a_max_mm_s2
 
         def dedupe(ps):  # 같은 자리가 이어지면 하나로(길이 0인 구간은 꺾임 계산을 망친다)
             out = []
@@ -434,18 +438,21 @@ class ArmService:
                     out.append(p)
             return out
 
-        merged = polyline_l(self.kin, dedupe([cur, *poses]), q0, blend=True, **kw) if len(dedupe([cur, *poses])) > 1 else None
+        path = dedupe(poses)
+        if len(path) < 2:
+            raise ValueError("경로 점이 모두 같습니다(서로 다른 점이 2개 이상 있어야 합니다)")
+        full = dedupe([cur, *poses])
+        merged = smooth_l(self.kin, full, q0, v, a) if len(full) > 1 else None
         if merged is not None:
             pre, runs = [], [merged]
         else:
             pre = plan_goto(self.kin, self.cfg, q0, poses[0], self.speed)  # 직선으로 못 가면 위에서 수직으로 내려가는 안전 경로
             if pre is None:
                 return [], [], "ik_fail", None
-            path = dedupe(poses)
-            tr = polyline_l(self.kin, path, pre[-1].sample(pre[-1].duration_s), blend=True, **kw) if len(path) > 1 else None
-            if len(path) > 1 and tr is None:
+            tr = smooth_l(self.kin, path, pre[-1].sample(pre[-1].duration_s), v, a)
+            if tr is None:
                 return [], [], "ik_fail", None
-            runs = [tr] if tr is not None else []
+            runs = [tr]
         for tr in pre + runs:
             if why := self.safety.check_path(tr):
                 return [], [], "out_of_bounds", why

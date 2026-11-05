@@ -1,4 +1,5 @@
 """관절 공간 궤적 (arm-software-spec.md 6.3). 지금은 move_j(5차 다항식)와 정지용 감속만."""
+import bisect
 import itertools
 import math
 from dataclasses import astuple, dataclass
@@ -65,7 +66,8 @@ class LookaheadShape:
     앞뒤로 훑어 접선 가속이 a_max 이하가 되는 속도 곡선을 만든다. 점 사이는 등가속이다. 가속이 바뀌는 순간의 저크는 제한하지 않는다."""
 
     def __init__(self, length: float, vertices: list[tuple[float, float, float]], v_max: float, a_max: float, ds: float = 1.0):
-        s = sorted({*np.arange(0.0, length, ds).tolist(), length, *[p for p, _, _ in vertices]})
+        edges = [e for p, _, t in vertices if t > 1e-9 for e in (p - t, p + t)]  # 호의 양 끝도 점으로 둔다: 곡률이 끝나는 곳에서만 가속을 다시 시작하려고
+        s = sorted({*np.arange(0.0, length, ds).tolist(), length, *[p for p, _, _ in vertices], *edges})
         s = np.array(s)
         lim = np.full(len(s), float(v_max))
         lim[0] = lim[-1] = 0.0
@@ -97,24 +99,24 @@ class LookaheadShape:
         return min(float(pos) / self.length, 1.0), float(v) / self.length
 
 
-def junction_arcs(P: list[np.ndarray], a_max: float, tol_mm: float = 2.5) -> list[tuple[float, float]]:
-    """꺾은선 P의 안쪽 꼭짓점마다 (속도 mm/s, 호 길이 t mm). 꼭짓점을 반지름 R의 호로 감아 지난다고 보고 구심 가속 v²/R = a_max에서 v = sqrt(a_max·R), 호 길이는 꼭짓점 앞뒤로 t = R·tan(φ/2).
+def junction_arcs(P: list[np.ndarray], a_max: float, tol_mm: float = 2.5) -> list[tuple[float, float, float]]:
+    """꺾은선 P의 안쪽 꼭짓점마다 (속도 mm/s, 접선 길이 t mm, 호 반지름 R mm). 꼭짓점을 반지름 R의 호로 감아 지난다고 보고 구심 가속 v²/R = a_max에서 v = sqrt(a_max·R), 호 길이는 꼭짓점 앞뒤로 t = R·tan(φ/2).
     R은 모서리를 깎는 거리가 tol_mm 이하(R ≤ tol·cos(φ/2)/(1-cos(φ/2)))이고 t가 짧은 쪽 구간의 절반 이하(R ≤ l/(2·tan(φ/2)))가 되게 잡는다. φ = 꺾인 각.
-    φ가 작으면(원처럼 완만) 곡률 반지름 그대로, 180°로 되돌아가면 R=0이라 선다(속도 0, 호 없음). 거의 곧은 꼭짓점은 (inf, 0)."""
+    φ가 작으면(원처럼 완만) 곡률 반지름 그대로, 180°로 되돌아가면 R=0이라 선다(속도 0, 호 없음). 거의 곧은 꼭짓점은 (inf, 0, 0)."""
     out = []
     for k in range(1, len(P) - 1):
         u, w = P[k] - P[k - 1], P[k + 1] - P[k]
         lu, lw = float(np.linalg.norm(u)), float(np.linalg.norm(w))
         phi = math.acos(float(np.clip(u @ w / (lu * lw), -1.0, 1.0))) if lu > 1e-9 and lw > 1e-9 else 0.0
         if phi < 1e-6:
-            out.append((float("inf"), 0.0))
+            out.append((float("inf"), 0.0, 0.0))
             continue
         if phi > math.pi - 1e-6:
-            out.append((0.0, 0.0))
+            out.append((0.0, 0.0, 0.0))
             continue
         c = math.cos(phi / 2)
         r = min(tol_mm * c / (1 - c), min(lu, lw) / (2 * math.tan(phi / 2)))
-        out.append((math.sqrt(a_max * r), r * math.tan(phi / 2)))
+        out.append((math.sqrt(a_max * r), r * math.tan(phi / 2), r))
     return out
 
 
@@ -206,8 +208,8 @@ class LineTrajectory:
 
 
 def polyline_l(kin, poses, seed: JointState, v_mm_s: float, a_mm_s2: float = 500.0,
-               step_mm: float = 5.0, profile: str = "quintic", j_mm_s3: float = 3000.0, blend: bool = False) -> LineTrajectory | None:
-    """poses(ToolPose 목록)를 직선으로 이어 한 번에(꺾이는 점에서 서지 않고) 지나는 궤적. 점 하나라도 IK가 실패하거나 해가 튀면 전체를 거부(None)한다.
+               step_mm: float = 5.0, profile: str = "quintic", j_mm_s3: float = 3000.0) -> LineTrajectory | None:
+    """poses(ToolPose 목록)를 직선으로 이어 한 번에 지나는 궤적(꺾이는 점은 그대로 꺾인다. 꺾임을 호로 감아 서지 않고 지나려면 smooth_l). 점 하나라도 IK가 실패하거나 해가 튀면 전체를 거부(None)한다.
     경유점은 전체 길이를 step_mm 이하로 균일하게 나눈 곳(호 길이 기준)이라 속도가 고르다.
     shortcut: 꺾이는 점의 모서리를 최대 step_mm/2만큼 깎는다. 정확히 지나야 하는 점이 있으면 step_mm를 줄인다."""
     from dataclasses import replace
@@ -230,15 +232,98 @@ def polyline_l(kin, poses, seed: JointState, v_mm_s: float, a_mm_s2: float = 500
         if q is None or np.abs(_arr(q) - pts[-1]).max() > MAX_WAYPOINT_JUMP_DEG:
             return None
         pts.append(_arr(q))
-    if blend and len(P) > 2 and length > 1e-6:  # 꺾이는 점에서 서지 않고 가속 한도 안의 속도로 지난다(처음과 끝에서만 선다)
-        a_eff = a_mm_s2 / math.sqrt(2)  # 접선 가속(출발·정지)과 곡선의 구심 가속이 겹쳐도 합이 a_mm_s2를 넘지 않게 둘 다 a/√2로 잡는다
-        arcs = junction_arcs(P, a_eff)
-        shape = LookaheadShape(length, [(float(c), v, t) for c, (v, t) in zip(cum[1:-1], arcs)], v_mm_s, a_eff)
-    elif profile == "ruckig" and length > 1e-6:
+    if profile == "ruckig" and length > 1e-6:
         shape = RuckigShape(length, v_mm_s, a_mm_s2, j_mm_s3)
     else:
         shape = QuinticShape(max(1.875 * length / v_mm_s, math.sqrt(5.7735 * length / a_mm_s2), 0.2))
     return LineTrajectory(np.array(pts), shape)
+
+
+class SplineTrajectory:
+    """경유점(호 길이 s 기준)을 관절 공간 3차 스플라인(C2)으로 잇고, 시간 곡선(shape)이 호 길이를 따라 간다.
+    경유점 사이를 선형으로 이으면 방향이 경유점마다 한 틱에 꺾여 가속이 튀므로 매끈하게 잇는다. 되돌아가는 지점(cusp)에서는 스플라인을 나눠 출렁이지 않게 한다."""
+
+    def __init__(self, s: np.ndarray, waypoints: np.ndarray, shape, cusps: list[int] | None = None):
+        from scipy.interpolate import CubicSpline
+
+        self.shape, self.duration_s, self.length = shape, shape.duration_s, float(s[-1])
+        cut = [0, *sorted(c for c in (cusps or []) if 0 < c < len(s) - 1), len(s) - 1]
+        self._pieces = [(float(s[a]), float(s[b]), CubicSpline(s[a:b + 1], waypoints[a:b + 1], bc_type="natural")) for a, b in itertools.pairwise(cut)]
+        self._los = [p[0] for p in self._pieces]
+
+    def _at(self, pos: float, deriv: int = 0) -> np.ndarray:
+        i = max(bisect.bisect_right(self._los, pos) - 1, 0)
+        return self._pieces[min(i, len(self._pieces) - 1)][2](pos, deriv)
+
+    def sample(self, t: float) -> JointState:
+        return _joint_state(np.asarray(self._at(self.shape.frac(t)[0] * self.length)))
+
+    def velocity(self, t: float) -> np.ndarray:  # deg/s
+        frac, rate = self.shape.frac(t)
+        return np.asarray(self._at(frac * self.length, 1)) * rate * self.length
+
+
+def fillet_path(P: list[np.ndarray], a_eff: float, step_mm: float = 2.0, tol_mm: float = 2.5):
+    """꺾은선 P의 안쪽 꼭짓점을 호(junction_arcs의 R, t)로 감아 step_mm 이하 간격으로 나눈 경로.
+    반환: (점 N×3, 호 길이 s, 호 구간 [(가운데 s, 속도, 호 길이/2)], 원래 꼭짓점마다 s, 되돌아가는 점의 색인)."""
+    n = len(P)
+    unit = [(b - a) / max(float(np.linalg.norm(b - a)), 1e-12) for a, b in itertools.pairwise(P)]
+    arcs_in = junction_arcs(P, a_eff, tol_mm)
+    pts, arcs, vert_idx, cusps = [P[0].copy()], [], [0], []
+    for i in range(n - 1):
+        t0 = arcs_in[i - 1][1] if i >= 1 else 0.0  # 이 구간 시작 쪽 호의 접선 길이
+        t1 = arcs_in[i][1] if i < n - 2 else 0.0
+        a, b = P[i] + unit[i] * t0, P[i + 1] - unit[i] * t1
+        length = float(np.linalg.norm(b - a))
+        for k in range(1, math.ceil(length / step_mm) + 1) if length > 1e-9 else []:
+            pts.append(a + (b - a) * k / math.ceil(length / step_mm))
+        if i < n - 2:
+            v, t, r = arcs_in[i]
+            phi = math.acos(float(np.clip(unit[i] @ unit[i + 1], -1.0, 1.0)))
+            if t > 1e-9 and r > 1e-9:
+                nrm = unit[i + 1] - (unit[i + 1] @ unit[i]) * unit[i]
+                nrm /= np.linalg.norm(nrm)
+                center = b + nrm * r  # b = 꼭짓점 - u·t
+                m = max(math.ceil(r * phi / step_mm), math.ceil(phi / math.radians(8.0)), 2)  # 호는 8° 이하 간격으로(작은 반지름 호가 두세 점으로 거칠어지지 않게)
+                s_start = len(pts) - 1  # 호는 직전 점(곧은 구간의 끝)에서 시작한다
+                for k in range(1, m + 1):
+                    th = phi * k / m
+                    pts.append(center + r * (-nrm * math.cos(th) + unit[i] * math.sin(th)))
+                arcs.append((s_start, v, r * phi / 2))
+                vert_idx.append(s_start + m // 2)
+            else:  # 되돌아가는 꺾임: 그 점에서 선다
+                if not np.allclose(pts[-1], P[i + 1]):
+                    pts.append(P[i + 1].copy())
+                arcs.append((len(pts) - 1, 0.0, 0.0))
+                vert_idx.append(len(pts) - 1)
+                if phi > math.pi - 1e-6:
+                    cusps.append(len(pts) - 1)
+    vert_idx.append(len(pts) - 1)
+    pts = np.array(pts)
+    s = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(pts, axis=0), axis=1))])
+    arcs = [(float(s[a]) + (h if h > 0 else 0.0), v, h) for a, v, h in arcs]  # 호 시작 색인 -> 가운데 s
+    return pts, s, arcs, s[vert_idx], cusps
+
+
+def smooth_l(kin, poses, seed: JointState, v_mm_s: float, a_mm_s2: float, step_mm: float = 1.0) -> SplineTrajectory | None:
+    """poses(ToolPose 목록)를 한 번에 서지 않고 지나는 궤적: 꼭짓점을 호로 감은 경로 위 경유점(step_mm 이하 간격)을 IK로 풀어 관절 공간 스플라인으로 잇고,
+    속도는 처음과 끝에서만 서고 곡선에서는 구심 가속이 한도 안이 되게 줄인다(속도 v ≤ sqrt(a·R); 접선·구심 가속이 겹쳐도 합이 a_mm_s2를 넘지 않게 둘 다 a/√2).
+    점 하나라도 IK가 실패하거나 해가 튀면 None. 180° 되돌아가는 꼭짓점은 서서 돈다. 모서리는 2.5mm 안으로 깎는다."""
+    from dataclasses import replace
+
+    a_eff = a_mm_s2 / math.sqrt(2)
+    P = [np.array([p.x_mm, p.y_mm, p.z_mm]) for p in poses]
+    pts, s, arcs, vert_s, cusps = fillet_path(P, a_eff, step_mm)
+    yaw = np.interp(s, vert_s, [p.yaw_deg for p in poses]) if len(poses) > 1 else [poses[0].yaw_deg] * len(s)
+    pitch = np.interp(s, vert_s, [p.pitch_deg for p in poses])
+    wp, q = [_arr(seed)], seed
+    for xyz, yw, pt in zip(pts[1:], yaw[1:], pitch[1:]):
+        q = kin.ik(replace(poses[-1], x_mm=float(xyz[0]), y_mm=float(xyz[1]), z_mm=float(xyz[2]), yaw_deg=float(yw), pitch_deg=float(pt)), q)
+        if q is None or np.abs(_arr(q) - wp[-1]).max() > MAX_WAYPOINT_JUMP_DEG * step_mm / 5.0:
+            return None
+        wp.append(_arr(q))
+    shape = LookaheadShape(float(s[-1]), arcs, v_mm_s, a_eff)
+    return SplineTrajectory(s, np.array(wp), shape, cusps)
 
 
 def move_l(kin, start, goal, seed: JointState, v_mm_s: float, a_mm_s2: float = 500.0,
