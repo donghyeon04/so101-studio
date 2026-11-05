@@ -1,18 +1,21 @@
 # 세션 역할과 협업 방법
 
-상태: 확정 · 2026-11-02
+상태: 확정 · 갱신 2026-11-05
 
-근거: `decisions/0024`. 요청 기록은 `docs/planning/session-requests.md`에 남긴다.
+근거: `decisions/0024`, `0036`(로컬 세션 셋, GUI 세션 총괄). 요청 기록은 `docs/planning/session-requests.md`에 남긴다.
 
-## 1. 세션 세 개
+## 1. 세션 네 개 (기획 1 + 로컬 3)
 | 세션 | 위치 | 하는 일 | 고칠 수 있는 곳 | 기준 문서 |
 |---|---|---|---|---|
 | 기획 | 원격 (claude.ai) | 기획, 아키텍처, 레퍼런스 조사, 결정 기록, 설계서 | `docs/` | 전체 |
-| GUI | 로컬, 폴더 `so101-studio-gui` | GUI 앱과 시뮬레이션 화면 | `src/so101_studio/gui/`, `tests/gui/`, `pyproject.toml`의 `[project.optional-dependencies] gui` 줄 | `planning/gui-spec.md` |
-| 팔 | 로컬, 폴더 `so101-studio` | 팔, 서비스, 작업 실행, 인식, CLI | 그 밖의 `src/`, `config/`, `tests/`, `so101.cmd` | `planning/arm-software-spec.md`, `planning/system-architecture.md` |
+| 초음파 (Sonnet) | 로컬, 폴더 `so101-studio-us` | 초음파 인식 코드, 가상 ESP32, ESP32 펌웨어 | `src/so101_studio/perception/ultrasonic/`, `firmware/`, `tests/perception/`, `config/ultrasonic.yaml` | `planning/ultrasonic-spec.md` |
+| GUI (Opus, 로컬 총괄) | 로컬, 폴더 `so101-studio-gui` | GUI 앱과 시뮬레이션 화면. 총괄: 일 나누기, 요청 대장, Sonnet 세션 PR 검토, 기획 요청 모으기 | `src/so101_studio/gui/`, `tests/gui/`, `pyproject.toml`의 `[project.optional-dependencies] gui` 줄 | `planning/gui-spec.md` |
+| 팔 (Sonnet) | 로컬, 폴더 `so101-studio` | 팔, 서비스, 작업 실행, 인식, CLI | 그 밖의 `src/`, `config/`, `tests/`, `so101.cmd` | `planning/arm-software-spec.md`, `planning/system-architecture.md` |
 
 - 모든 세션은 `docs/planning/`의 확정 문서와 `docs/decisions/`를 근거로 일한다. 설계서는 기획 세션만 고친다.
-- 로컬 세션은 자기 인수인계 문서만 고친다. GUI 세션은 `planning/gui-dev-status.md`(GUI 세션이 처음 만든다), 팔 세션은 `planning/arm-dev-status.md`이다. 요청 대장 `planning/session-requests.md`에는 받은 요청만 기록한다.
+- 로컬 세션은 자기 인수인계 문서만 고친다. GUI 세션은 `planning/gui-dev-status.md`, 팔 세션은 `planning/arm-dev-status.md`, 초음파 세션은 `planning/us-dev-status.md`(초음파 세션이 처음 만든다)이다. 실물 시험 순서와 측정값은 `planning/measurements.md`에 모은다.
+- 요청 대장 `planning/session-requests.md`는 GUI 세션(총괄)이 관리한다. 어느 세션 사이의 요청이든 총괄이 번호를 매기고 상태를 갱신한다. 압축 뒤에는 대장과 현황 문서로 진행 상황을 되살린다.
+- 사용자는 주로 총괄과 이야기한다. 총괄은 지시를 쪼개 각 세션에 보내고(3절 방법), Sonnet 세션의 PR은 합치기 전에 검토한 뒤 사용자에게 합칠지 묻는다.
 
 ## 2. 폴더와 브랜치 (같은 PC에서 두 세션)
 두 세션이 한 폴더에서 브랜치를 바꾸면 서로의 작업이 엉킨다. git worktree로 폴더를 나눈다.
@@ -21,11 +24,12 @@
 cd C:/Users/c/Desktop/so101-studio
 git fetch origin
 git worktree add ../so101-studio-gui -b dev/gui-shell origin/main
+git worktree add ../so101-studio-us -b dev/us-sim origin/main
 ```
 
 - `pip install -e .`은 원래 폴더를 가리킨다. GUI 폴더에서 실행할 때는 그 폴더의 코드가 쓰이도록 `PYTHONPATH`를 GUI 폴더의 `src`로 지정한다. PowerShell: `$env:PYTHONPATH="C:/Users/c/Desktop/so101-studio-gui/src"`. 실행 전에 `python -c "import so101_studio; print(so101_studio.__file__)"`가 GUI 폴더를 가리키는지 확인한다. 테스트(`python -m pytest -q`)는 `pyproject.toml`의 `pythonpath = ["src"]` 덕분에 그대로 GUI 폴더 코드를 쓴다.
 
-- GUI 세션은 `../so101-studio-gui`에서, 팔 세션은 원래 폴더에서 실행한다.
+- GUI 세션은 `../so101-studio-gui`에서, 초음파 세션은 `../so101-studio-us`에서, 팔 세션은 원래 폴더에서 실행한다. 초음파 폴더에서 실행할 때도 `PYTHONPATH`를 그 폴더의 `src`로 지정한다.
 - conda 환경 `so101`은 같이 쓴다. GUI 의존성(viser, nicegui)은 GUI 세션이 설치하고, 팔 세션은 쓰지 않는다.
 - 각자 작업 단위마다 PR을 만들고, 사용자가 승인하면 `main`에 합친다. 상대 세션의 결과가 필요하면 `main`에 합쳐진 뒤 `git fetch origin && git merge origin/main`으로 받는다.
 
@@ -74,4 +78,5 @@ git worktree add ../so101-studio-gui -b dev/gui-shell origin/main
 
 ## 6. 하드웨어를 같이 쓸 때
 - 실제 팔(COM3)과 ESP32 포트는 한 번에 한 프로그램만 열 수 있다. 실제 팔을 쓰기 전에 다른 세션에 "COM3 사용 시작"을 알리고, 끝나면 "COM3 반납"을 알린다.
+- ESP32 포트는 초음파 세션이 주로 쓴다. 다른 세션이 쓰기 전과 뒤에 총괄에게 "ESP32 사용 시작/반납"을 알린다. 팔 확인(손목 센서) 실물 시험은 COM3과 ESP32를 같이 쓰므로 총괄이 순서를 정한다.
 - GUI 세션은 `--sim`으로 개발하는 것이 기본이다. 실제 팔은 화면이 시뮬레이션에서 다 동작한 뒤에만, 속도 30% 이하로, 사람이 전원 스위치 옆에 있을 때 연결한다.

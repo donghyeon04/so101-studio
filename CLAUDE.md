@@ -11,7 +11,7 @@ SO-101(SO-ARM101) 로봇 암 프로젝트. 문서 색인은 `docs/README.md`에 
 ## 세션 구분
 - 원격 레포 세션 = 기획: 기획, 아키텍처, 레퍼런스 조사, 문서 작성. 프로젝트 코드는 쓰지 않는다.
 - 로컬 세션 = 개발: 코드 작성, 시리얼 포트·ESP32·서보 테스트, 펌웨어 업로드. 하드웨어 작업은 로컬에서만 할 수 있다.
-- 로컬은 두 세션으로 나눈다 (`decisions/0024`). GUI 세션은 `src/so101_studio/gui/`, `tests/gui/`만 고치고 `planning/gui-spec.md`를 따른다. 팔 세션은 그 밖의 코드를 고치고 `planning/arm-software-spec.md`를 따른다. 상대 영역이 필요하면 직접 고치지 않고 요청서(REQ)를 보낸다. 역할, worktree, 요청 양식은 `docs/guides/session-workflow.md`, 요청 기록은 `docs/planning/session-requests.md`.
+- 로컬은 세 세션으로 나눈다 (`decisions/0024`, `0036`). GUI 세션(총괄)은 `src/so101_studio/gui/`, `tests/gui/`만 고치고 `planning/gui-spec.md`를 따르며, 일 나누기·요청 대장·PR 검토를 맡는다. 초음파 세션은 `perception/ultrasonic/`, `firmware/`, `tests/perception/`, `config/ultrasonic.yaml`만 고치고 `planning/ultrasonic-spec.md`를 따른다. 팔 세션은 그 밖의 코드를 고치고 `planning/arm-software-spec.md`를 따른다. 상대 영역이 필요하면 직접 고치지 않고 요청서(REQ)를 보낸다. 역할, worktree, 요청 양식은 `docs/guides/session-workflow.md`, 요청 기록은 `docs/planning/session-requests.md`.
 - 개발 세션은 `docs/planning/`의 확정 문서와 `docs/decisions/`를 근거로 작업한다.
 - 다른 계정에서 작업을 시작하면 `docs/guides/tooling-setup.md`의 설치 목록부터 맞춘다.
 
