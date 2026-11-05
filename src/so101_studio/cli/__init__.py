@@ -43,7 +43,7 @@ def run_task(svc: ArmService, a) -> str:
     st.bus.subscribe("task", lambda e: print(f"[{e.state}] {e.object_id or ''} {e.result or ''}".rstrip()))
     if a.step:
         st.task.wait_step = lambda: input("  (Enter: 다음 단계) ")
-    svc.driver.set_torque(True)
+    svc.enable_torque()  # 잠겼으면 켜지 않고, 작업은 첫 동작에서 locked로 끝난다
     res = st.start(step_mode=a.step, blocking=True)
     return f"끝: {res['end']}  옮긴 물체 {len(res['picked'])}개 {res['picked']}  실패 {res['failed']}  사이클 {res['cycles']}"
 
@@ -64,7 +64,8 @@ def run_jog(svc: ArmService, a) -> None:
         return msvcrt.getwch() if msvcrt.kbhit() else None
 
     mode = "cartesian" if a.cartesian else "joint"
-    svc.driver.set_torque(True)
+    if not svc.enable_torque():
+        raise RuntimeError(svc.locked_reason)  # 잠긴 팔은 읽기만 된다
     keyboard_loop(svc.ctl, mode, svc.ws.base.yaw_deg, 20.0 if mode == "joint" else 40.0, get_key)
 
 

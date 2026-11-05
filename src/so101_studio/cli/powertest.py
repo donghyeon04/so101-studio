@@ -32,7 +32,8 @@ class _Aborted(Exception):
 
 
 def run_powertest(svc, repeats: int = 3, speed_pct: float = 100.0, out=print, stop=lambda: False) -> dict:
-    svc.driver.set_torque(True)
+    if not svc.enable_torque():
+        raise RuntimeError(svc.locked_reason)  # 잠긴 팔은 읽기만 된다
     # 200°/s는 주기당 4°라 평소 한계(5°)에 여유가 없다. 이 시험 동안만 8°로 올리고, 작업대 가장자리 검사는 끈다
     with svc.safety.relaxed(check_xy=False, max_step_deg=8.0):
         return _powertest(svc, repeats, speed_pct, out, stop)

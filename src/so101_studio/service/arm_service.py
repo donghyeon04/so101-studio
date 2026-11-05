@@ -319,6 +319,14 @@ class ArmService:
             return MotionResult("fault", 0.0, ToolPose(0, 0, 0, 0))
         return None
 
+    def enable_torque(self) -> bool:
+        """움직이는 명령이 토크를 켜는 공통 입구. 잠긴 팔(캘리브레이션 불일치·팔 파일 없음, CLAUDE.md: 잠김이면 읽기만 된다)에는 켜지 않고 False를 돌려준다(REQ-027).
+        드라이버의 set_torque 잠금은 캘리브레이션 불일치만 알고 팔 파일 없음 잠금(ctl.locked_reason)은 모르므로 서비스에서 막는다. 직접 driver.set_torque(True)를 부르지 않는다."""
+        if self.ctl is None or self.ctl.locked_reason:
+            return False
+        self.driver.set_torque(True)
+        return True
+
     def set_speed(self, pct: float) -> None:
         self.speed = pct
         self.skills.speed = pct
@@ -336,7 +344,7 @@ class ArmService:
         if (gate := self._comm_gate()) is not None:
             return gate
         trajs = [cfg_move_j(self.cfg, self.driver.read_joints(), goal, speed_pct or self.speed)]
-        self.driver.set_torque(True)
+        self.enable_torque()
         return self._done("movej", self._run(trajs), goal=asdict(goal))
 
     def move_tool(self, pose: ToolPose, speed_pct: float | None = None) -> MotionResult:
@@ -345,7 +353,7 @@ class ArmService:
         trajs = plan_goto(self.kin, self.cfg, self.driver.read_joints(), pose, speed_pct or self.speed)
         if trajs is None:
             return self._done("goto", MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0)), goal=asdict(pose))
-        self.driver.set_torque(True)
+        self.enable_torque()
         return self._done("goto", self._run(trajs), goal=asdict(pose))
 
     def set_sensor_offset(self, offset_mm: dict) -> None:
@@ -546,7 +554,7 @@ class ArmService:
     def pick_and_place(self, obj: DetectedObject, zone: str | None = None) -> MotionResult:
         if (gate := self._comm_gate()) is not None:
             return gate
-        self.driver.set_torque(True)
+        self.enable_torque()
         r = self.skills.pick(obj)
         self._log("pick", {"object": asdict(obj), "status": r.status})
         if r.status == "ok" and zone:
@@ -557,7 +565,7 @@ class ArmService:
     def place(self, zone: str) -> MotionResult:
         if (gate := self._comm_gate()) is not None:
             return gate
-        self.driver.set_torque(True)
+        self.enable_torque()
         return self._done("place", self.skills.place(zone), zone=zone)
 
     def set_gripper(self, value: float, as_width: bool = False) -> MotionResult:
@@ -570,15 +578,15 @@ class ArmService:
         q = self.driver.read_joints()
         if min(max(v, lo), hi) > q.gripper + 0.5:  # 지금보다 여는 명령: 예압 고정을 풀고 조임 한계를 원래 값으로
             self.skills.release_grip_hold()
-        self.driver.set_torque(True)
+        self.enable_torque()
         return self._done("gripper", self._run([cfg_move_j(self.cfg, q, replace(q, gripper=min(max(v, lo), hi)), self.speed)]), value=v)
 
     def jog(self, mode: str, velocity) -> bool:
         """조그 한 걸음. 토크가 꺼져 있으면 먼저 켠다. 이미 켠 뒤에는 버스를 읽지 않으므로 10Hz로 불러도 된다 (REQ-012).
         밖에서 토크가 꺼진 경우(전원 끊김 등)는 알 수 없다: 그때는 connect를 다시 하거나 move_*를 한 번 부른다."""
-        if not self._torque_on:
+        if not self._torque_on and not self.ctl.locked_reason:
             if not self.driver.torque_enabled():
-                self.driver.set_torque(True)
+                self.enable_torque()
             self._torque_on = True
         return self.ctl.jog(mode, velocity)
 
@@ -598,7 +606,7 @@ class ArmService:
         return path
 
     def replay(self, name: str, speed: float = 1.0, until_limit: bool = False, segment_speeds: dict[int, float] | None = None) -> MotionResult:
-        self.driver.set_torque(True)
+        self.enable_torque()
         return self._done("replay", self.teach.replay(name, speed, until_limit, segment_speeds), name=name, speed=speed,
                           until_limit=until_limit, segment_speeds=segment_speeds)
 

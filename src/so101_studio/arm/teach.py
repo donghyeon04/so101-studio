@@ -129,7 +129,8 @@ class Teach:
         self._stop.set()
         self._thread.join(timeout=2.0)
         self._thread = None
-        self.ctl.driver.set_torque(True)
+        if not self.ctl.locked_reason:  # 기록은 잠기지 않았을 때만 시작하지만, 그 사이 잠겼다면 켜지 않는다(REQ-027)
+            self.ctl.driver.set_torque(True)
         self.ctl.sync()
         self.dir.mkdir(parents=True, exist_ok=True)
         path = self.dir / f"{name}.json"
