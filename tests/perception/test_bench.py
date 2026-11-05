@@ -6,3 +6,32 @@ def test_outlier_ratio():
     out = outlier_ratio(rows, 20)
     assert out["r"] == (300, 0.2)
     assert out["a"] == (100, 0.0)
+
+
+def test_bench_run_once_against_fake_esp32():
+    """bench.py가 7절 규약(gap 응답, once의 done)을 가상 ESP32와 맞게 주고받는다."""
+    from so101_studio.perception.ultrasonic.bench import run_once
+    from so101_studio.perception.ultrasonic.fake_esp32 import FakeESP32, SimClock
+    from so101_studio.perception.ultrasonic.model import Box, load_config
+
+    clk = SimClock()
+    esp = FakeESP32(clk, [Box(300, 330, 0)], load_config(), arm_sensor_fn=lambda t: (300, 330, 110), noise_mm=0, dropout=0)
+
+    class Ser:  # pyserial 흉내: 한 줄씩 읽고, 줄이 없으면 가상 시계를 조금 진행
+        def __init__(self):
+            self.q = []
+
+        def write(self, b):
+            esp.write(b.decode().strip())
+
+        def readline(self):
+            for _ in range(2000):
+                self.q += esp.readlines()
+                if self.q:
+                    return (self.q.pop(0) + "\n").encode()
+                clk.sleep(0.01)
+            return b""
+
+    rows = run_once(Ser(), "ra", 6, 40, 600)
+    assert len(rows) == 12 and {r[0] for r in rows} == {"r", "a"}
+    assert esp.gap_ns == 40_000_000
