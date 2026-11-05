@@ -43,8 +43,16 @@ class UltrasonicSource:
 
     # --- PerceptionSource ---
     def connect(self) -> None:
-        self.link.send(cmd="hello")
-        self.link.wait_for("hello")
+        """hello를 0.5초마다 다시 보내 최대 5초 기다린다: 포트를 열면 DTR로 ESP32가 리셋되어(보드마다 다름) 부팅 중 보낸 줄이 사라질 수 있다."""
+        for _ in range(10):
+            self.link.send(cmd="hello")
+            try:
+                self.link.wait_for("hello", 0.5)
+                break
+            except UltrasonicLinkError:
+                continue
+        else:
+            raise UltrasonicLinkError("hello 응답 없음(5초): 포트·케이블·펌웨어를 확인한다")
         self.link.sync()
 
     def calibrate(self) -> dict:

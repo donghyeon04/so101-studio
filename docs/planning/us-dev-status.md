@@ -7,14 +7,16 @@
 |---|---|---|
 | U0 | 실측용 펌웨어 `firmware/esp32_scanner`, `perception/ultrasonic/bench.py` | 코드 작성, 펌웨어 컴파일·실물 미확인(Arduino CLI 없음). 사용자와 B1~B3 대기 |
 | U2 | model, fake_esp32, radar, check, source, link, config | 코드·시험 완료(PR 대기). 가상 ESP32로 물체 3개 끝까지(팔 follow_path 비용 반영): 성공은 정확 3.0/3, 빠른 2.3/3이지만 시간은 정확 54.7초(기준 45), 빠른 T9 끔 47.4초(켬 73.9초, 기준 30)로 기준 초과 — 기획 요청 대기 |
-| U5 | 펌웨어 7절 전부 | 대기(서보 11/12 예정) |
+| U5 | 펌웨어 7절 전부 | 펌웨어 0.2 작성·컴파일 통과(경고 0). 서보 없는 부분까지(서보 신호는 GPIO 13에 나가지만 서보 동작은 실물 미확인). 업로드·실측 안 함 |
 | U6·U7·U9 | 총괄이 보냄 | - |
 
-## 규약 추가(실측용)
-- 메아리가 없으면 ECHO가 약 38ms HIGH로 남을 수 있어 B1·B2는 `--gap 60`으로 잰다. 펌웨어는 ECHO가 LOW가 될 때까지 기다린 뒤 트리거하고, gap은 트리거 시각부터 센다.
-- `sync`는 실측용 펌웨어에 없다(U5에서 ns 숫자를 문자열로 돌려주는 방식으로 넣는다). U5 메모: emit의 `us`는 측정이 끝난 뒤 시각이라, 팔 위치와 맞출 때 기준 시점을 정해 2ms 목표에 넣는다.
-- `{"cmd":"gap","ms":N}`: 측정 간격 변경 → `{"t":"gap","ms":N}`. 설계서 7절에 없어 정식 규약에 넣을지 기획 확인 필요.
-- `once`의 `k`는 `"r"`, `"a"`, `"ra"`(번갈아 n회씩), `max_mm` 선택. 끝나면 `{"t":"done"}`.
+## 펌웨어 (U5, 0.2)
+- 7절 전부: hello, sync, sweep(서보 MG90S, GPIO 13, LEDC PWM 50Hz, 펄스 500~2400µs), stream(팔 센서), stop, servo, once(k "r"|"a"|"ra", 끝에 `done`), gap(응답 `gap`). `gap`·`done`·`k:"ra"`는 7절 정식 규약이다.
+- `sync`의 `pc`는 64비트 ns라 숫자 문자열 그대로 돌려준다(정수로 바꾸지 않는다).
+- 측정 줄의 `us`는 그 측정의 **트리거 시각(µs)**이다. 팔 위치와 맞출 때 메아리 왕복의 절반(100mm에서 약 0.3ms)이 더 걸리는 것은 2ms 목표 안이라 보정하지 않는다. `end`의 `us`는 마지막 측정 뒤 시각이다.
+- 스케줄: 어느 센서든 앞 트리거와 `gap` 이상 띄운다. stream이 켜지면 레이더 회전은 멈춘다(팔 센서 우선). sweep은 측정 뒤 바로 다음 각도를 명령해 서보가 간격 동안 도착해 멈춰 있게 한다. 방향이 바뀔 때 끝 각도를 한 번 더 잰다(가상 ESP32와 같다).
+- 컴파일: arduino-cli 1.5.2, esp32:esp32 3.3.12, `esp32:esp32:esp32`, `--warnings all` 경고·오류 없음(플래시 285,747B 21%, RAM 22,416B 6%). 외부 라이브러리 없음. 서보·STREAM·SWEEP의 실제 타이밍은 ESP32에서 확인해야 한다(U5 완료 기준: 센서 2개 번갈아 30Hz, 시계 맞추기 오차 2ms 이하).
+- `bench.py`는 7절 규약(gap 응답, once의 done)을 가상 ESP32와 주고받는 시험이 있다.
 
 ## 실측 절차 (U0, 서보 없음) — 그대로 따라 한다
 실물 시험 전체 순서는 `measurements.md`의 "실물 시험 순서". ESP32 포트를 쓰기 전과 뒤에 총괄에게 "ESP32 사용 시작/반납"을 알린다. 사용자가 옆에 있어야 한다. COM3(팔)은 쓰지 않는다.
@@ -24,9 +26,10 @@
 **1. 포트 찾기**: `so101.cmd find-port`의 안내대로 ESP32 USB를 뽑아 사라진 포트가 ESP32 포트(예: COM5)다. 이 포트를 총괄에 알린다.
 
 **2. 펌웨어 올리기**(`firmware/esp32_scanner`, 컴파일은 통과 확인함). 둘 중 하나:
-- Arduino IDE 2: 보드 `ESP32 Dev Module`(esp32:esp32 패키지 3.3.12), 포트 선택, 업로드. 올리는 동안 시리얼 모니터는 닫는다.
+- Arduino IDE 2: 보드 `ESP32 Dev Module`(**ESP32 보드 패키지 3.x 필요**: 서보 PWM에 쓰는 `ledcAttach`는 3.x 전용이다, 확인한 버전 esp32:esp32 3.3.12), 포트 선택, 업로드. 올리는 동안 시리얼 모니터는 닫는다.
 - 명령(arduino-cli 1.5.2는 `C:\Users\c\tools\arduino-cli-dl\arduino-cli.exe`): `arduino-cli.exe upload -p COM5 --fqbn esp32:esp32:esp32 firmware/esp32_scanner`
 올린 뒤 ESP32의 EN(리셋) 버튼을 한 번 누른다.
+**서보를 달 때 주의**: 펌웨어는 부팅할 때마다(그리고 포트를 열어 ESP32가 리셋될 때마다) 서보를 90°(정면)로 움직인다. 서보나 브래킷에 손을 대지 않고, 전원을 켜기 전에 회전 범위(10~170°)에 아무것도 없는지 확인한다.
 
 **3. 연결 확인**: 레포 루트에서 `conda activate so101`, PowerShell은 `$env:PYTHONPATH="C:/Users/c/Desktop/so101-studio-us/src"`(session-workflow 2절). 그리고
 `python -m so101_studio.perception.ultrasonic.bench --port COM5 --k a --n 5 --label check`
@@ -37,6 +40,12 @@
 - **B2 옆에서 본 면 각도 한계**: 레이더 센서를 20mm 높이 수평, 200mm 앞에 상자를 놓고 5°씩 돌리며 자리마다 `bench --port COM5 --k r --n 10 --gap 60 --label B2-<각도>`. 응답 없음(null)이 늘어나는 각도를 기록 → 면 반사 허용각.
 - **B3 최소 측정 간격**: 고정 물체 앞에 두 센서를 서로 비스듬히 두고 `bench --port COM5 --k ra --n 200 --gaps 20,25,29,33,40 --label B3`. 출력의 간격별 엉뚱한 값 비율이 낮아지는 최소 간격 → `ping_gap_ms`.
 - 간격 60ms 이상은 메아리가 없을 때 ECHO가 약 38ms HIGH로 남는 영향을 피하려는 것이다.
+
+**결과 읽는 법**(`bench` 출력 줄: `gap 60ms sensor a: n=20 median=104 mm, outlier/none 0.0%`):
+- B1: 상자를 5mm 밀 때마다 한 번 재고, 그 자리의 `median` 값을 적는다. 상자가 빔 안으로 들어오면 median이 센서 높이(110mm)에서 70mm(110 − 40) 쪽으로 바뀐다. 바뀌기 시작한 자리까지의 수평 거리를 앞뒤·좌우로 적는다.
+- B2: 각도마다 `outlier/none`(응답 없음 비율)을 적는다. 0%에서 올라가기 시작하는 각도가 면 반사 허용각이다.
+- B3: 간격별로 `outlier/none`이 한 줄씩 나온다. 가장 작은 간격 중 0%에 가까운 값을 적는다.
+- 줄이 안 나오고 `경고: ... done 못 받음`이 나오면 케이블·포트·펌웨어를 확인하고, 그 간격 결과는 쓰지 않는다.
 
 **5. 총괄에 보낼 값**: 포트, 펌웨어 커밋, 위 B1·B2·B3 값(표), 이상한 점. 올린 뒤 "ESP32 반납"을 알린다.
 
