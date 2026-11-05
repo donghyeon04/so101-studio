@@ -90,31 +90,29 @@ def test_unsafe_clearance_rejected(tmp_path):
         src.start_check(src.scan().objects[0])
 
 
-def _cycles(tmp_path, mode, n=10, **kw):
+def _cycles(tmp_path, n=10, **kw):
     oks, times = [], []
     for seed in range(n):
         boxes = [Box(b.x, b.y, b.angle_deg) for b in THREE]
-        cfg, clk, esp, arm = build(boxes, mode=mode, seed=seed, **kw)
+        cfg, clk, esp, arm = build(boxes, seed=seed, **kw)
         src = make_source(cfg, clk, esp, arm, tmp_path)
         ok, secs, _ = run_cycle(src, arm, esp, rescan_home=False)
         oks.append(ok)
         times.append(secs)
-    print(f"{mode}: 성공 평균 {sum(oks) / n:.1f}/3, 인식 평균 {sum(times) / n:.1f}초, 최대 {max(times):.1f}초")
+    print(f"성공 평균 {sum(oks) / n:.1f}/3, 인식 평균 {sum(times) / n:.1f}초, 최대 {max(times):.1f}초")
     return sum(oks) / n, sum(times) / n
 
 
-@pytest.mark.parametrize("mode", ["accurate", "fast"])
-def test_three_objects_end_to_end_success(tmp_path, mode):
+def test_three_objects_end_to_end_success(tmp_path):
     """1절: 10회 평균 2개 이상 성공 (가상 ESP32 + 가상 팔)."""
-    ok, _ = _cycles(tmp_path, mode)
+    ok, _ = _cycles(tmp_path)
     assert ok >= 2.0
 
 
-@pytest.mark.parametrize("mode,limit_s", [("accurate", 70), ("fast", 60)])
-def test_three_objects_end_to_end_time(tmp_path, mode, limit_s):
-    """인식 시간 기준(PR #68 임시): 정확 70초, 빠른 60초 이하 (팔 100mm/s, 가속 120mm/s², 호출 사이 0.25초)."""
-    _, secs = _cycles(tmp_path, mode)
-    assert secs <= limit_s
+def test_three_objects_end_to_end_time(tmp_path):
+    """인식 시간 기준(1절 임시): 평균 70초 이하 (팔 100mm/s, 가속 120mm/s², 호출 사이 0.25초)."""
+    _, secs = _cycles(tmp_path)
+    assert secs <= 70
 
 
 def test_ring_is_one_follow_path_call(tmp_path):

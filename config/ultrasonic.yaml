@@ -1,5 +1,4 @@
-# 초음파 인식 설정 (docs/planning/ultrasonic-spec.md 8.3절). mode: fast면 check.approach_line=true로 덮어쓴다(4절 T8). T9(early_stop_cells)는 두 모드 모두 끈다.
-mode: accurate            # accurate | fast
+# 초음파 인식 설정 (docs/planning/ultrasonic-spec.md 8.3절). 확인 모드는 하나다(결정 0038). T8은 check.approach_line 옵션, T9(early_stop_cells)는 끈다.
 port: auto                # local.yaml이 우선
 baud: 921600
 ping_gap_ms: 33
@@ -34,6 +33,6 @@ check:
   approach_line: false    # fast 모드에서 true (T8)
   early_stop_cells: 0     # T9, 지금은 두 모드 모두 0
   fallback_grid_mm: 20
-  max_fail_per_run: 0     # 한 번의 작업 실행에서 확인 실패(물체 없음·못 감)가 이만큼이면 끝낸다. 0 = 끔
+  max_fail_per_run: 3     # 한 번의 작업 실행에서 확인·집기 실패가 이만큼이면 DONE. 0 = 끔
   tool_reach_mm: {min: 60, max: 255}   # 손끝 반경, 팔 원점 기준 (REQ-023 계산 50~265 + 여유)
 arm_sensor_offset_mm: {x: 0, y: 30, z: 55}   # 손끝 기준 도구 프레임(x = 턱이 벌어지는 축), A0 보정으로 고침
