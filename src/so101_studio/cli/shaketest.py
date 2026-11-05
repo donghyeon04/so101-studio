@@ -19,7 +19,8 @@ A_MAX_DEG_S2 = 1500.0
 def run_shaketest(svc, reps: int = 10, out=print, poll_mark=None, accels=None, speeds=None, stop=lambda: False) -> list[dict]:
     """poll_mark(): 호출할 때마다 떨림 표시 키가 눌렸는지(True/False)를 돌려주는 함수. 없으면 표시 기능을 쓰지 않는다."""
     accels, speeds = accels or ACCELS, speeds or SPEEDS
-    svc.driver.set_torque(True)
+    if not svc.enable_torque():
+        raise RuntimeError(svc.locked_reason)  # 잠긴 팔은 읽기만 된다
     start = svc.driver.read_joints()
     goal = replace(start, shoulder_pan=start.shoulder_pan + 50, shoulder_lift=start.shoulder_lift + 40,
                    elbow_flex=start.elbow_flex - 40, wrist_flex=start.wrist_flex + 30)
