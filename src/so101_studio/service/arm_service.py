@@ -1,4 +1,5 @@
 """ArmService: GUI·CLI가 팔을 부르는 유일한 입구 (arm-software-spec.md 6.9). 이름과 입출력은 GUI 기술이 정해져도 바뀌지 않는다."""
+import itertools
 import threading
 import time
 import traceback
@@ -385,7 +386,7 @@ class ArmService:
         approach = plan_goto(self.kin, self.cfg, q0, poses[0], self.speed)
         fail = None if approach is not None else "ik_fail"
         segs, q = [], approach[-1].sample(approach[-1].duration_s) if approach else None
-        for a, b in zip(poses, poses[1:]) if approach else []:
+        for a, b in itertools.pairwise(poses) if approach else []:
             tr = move_l(self.kin, a, b, q, v, self.cfg.tool_a_max_mm_s2, profile=self.cfg.trajectory_profile, j_mm_s3=self.cfg.tool_jerk_max_mm_s3)
             if tr is None:
                 fail = "ik_fail"
