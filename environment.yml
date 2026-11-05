@@ -6,6 +6,7 @@ channels:
 dependencies:
   - python=3.12
   - numpy=2.2.6
+  - scipy  # SplineTrajectory(follow_path)가 쓴다. numpy를 다시 설치하지 않도록 conda로
   - "libblas=*=*mkl"
   - placo=0.9.25
   - pyyaml
