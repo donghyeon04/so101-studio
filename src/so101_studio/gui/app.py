@@ -12,7 +12,18 @@ from ..core.ports import PortChoiceError, list_serial_ports, pick_port
 from ..doctor import doctor
 from . import scene3d, sensors, theme
 from .backend import Backend
-from .pages import arm, logs, manual, params, runs, safety, table, teach, workspace
+from .pages import (
+    arm,
+    esp32,
+    logs,
+    manual,
+    params,
+    runs,
+    safety,
+    table,
+    teach,
+    workspace,
+)
 from .state import EMPTY, component_states, page_state
 from .view_cube import VIEW_CUBE_JS
 from .watchdog_link import BROWSER_HB_JS, WatchdogLink
@@ -29,7 +40,7 @@ PAGES = (
     ("설정", (("/params", "파라미터·프리셋", "G7"), ("/safety", "안전", "G7"), ("/table", "작업대·좌표", "G7"))),
     ("시스템", (("/runs", "실행 기록", "G8"), ("/logs", "로그", "G8"))),
 )
-BUILDERS = {"/": workspace.build, "/manual": manual.build, "/teach": teach.build, "/params": params.build, "/safety": safety.build, "/table": table.build, "/arm": arm.build, "/runs": runs.build, "/logs": logs.build, **sensors.pages()}  # 만든 페이지. 나머지는 자리만 있다
+BUILDERS = {"/": workspace.build, "/manual": manual.build, "/teach": teach.build, "/params": params.build, "/safety": safety.build, "/table": table.build, "/arm": arm.build, "/esp32": esp32.build, "/runs": runs.build, "/logs": logs.build, **sensors.pages()}  # 만든 페이지. 나머지는 자리만 있다
 COMPONENTS = ("버스", "서보")  # 감시 칸과 센서 칸은 따로 있다 (decisions/0030)
 TOP_STATS = ("센서", "실행 방식", "전압", "최고 온도", "속도", "조작권")  # 감시 칸은 아이콘이 있어 따로 그린다
 BOTTOM_STATS = ("손끝 좌표", "닿는지·오차", "안전 모드", "토크", "기록 폴더")
