@@ -281,6 +281,9 @@ class Backend:
             return str(e)
         if result.reason == "workspace" and Backend._starts_outside(arm):
             return OUTSIDE_TEXT
+        if result.reason and "_out_of_reach:" in result.reason:  # REQ-031: 팔이 준 반경과 허용 범위를 그대로 보인다
+            kind, detail = result.reason.split(":", 1)
+            return f'{"집기" if kind.startswith("pick") else "놓기"} 점이 집기 범위 밖입니다:{detail}'
         return None if result.status == "ok" else MOTION_TEXT.get(result.status, result.status)
 
     @staticmethod
@@ -436,6 +439,20 @@ class Backend:
             return arm.move_joints(replace(arm.status().joints, **{name: float(target_deg)}))
 
         return self._dispatch(run, "관절 값 이동")
+
+    def pick_place(self, pick_xy: tuple[float, float], angle_deg: float, width_mm: float, length_mm: float,
+                   place_xy: tuple[float, float] | None) -> str | None:
+        """직접 조작 집어 옮기기(gui-spec 11절 B7, REQ-031). place_xy가 None이면 첫 배출 구역에 놓는다."""
+        obj = DetectedObject("manual-pick", float(pick_xy[0]), float(pick_xy[1]), float(angle_deg), float(width_mm), float(length_mm), 1.0, "manual")
+        zone = None if place_xy else next(iter(self.arm.ws.drop_zones))
+
+        def run(arm: ArmService):
+            r = arm.pick_and_place(obj)  # 집기만. 시뮬레이션 팔은 쥘 물체가 없어 no_object여도 놓기까지 보인다(작업 실행의 dry-run과 같음)
+            if r.status == "ok" or (arm is self.sim and r.status == "no_object"):
+                return arm.place(zone=zone, at=place_xy)
+            return r
+
+        return self._dispatch(run, "집어 옮기기")
 
     # ---- 작업
     def objects(self) -> list[DetectedObject]:
