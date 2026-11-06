@@ -491,10 +491,43 @@ class ArmService:
         """경로 점(손끝 xy, 작업대 면 위 높이)을 팔에 보낼 ToolPose로. 센서 경로 → 손끝 경로 변환은 여기서 하지 않는다(check.py 한 곳, ultrasonic-spec 8.2절)."""
         return point_to_pose(x, y, z_mm, yaw, "table", self.ws.base, self.cfg.table_z_mm, tip)
 
-    def point_pose(self, x: float, y: float, h: float, yaw: float = 90.0, frame: str = "table", tcp: str = "tip") -> ToolPose:
-        """frame 기준 (x, y, 작업대 면 위 높이 h)인 끝점(tcp)을 수직 하강으로 가져갈 ToolPose. GUI에서 점을 찍을 때 쓰고, preview_tool·move_tool에 넘긴다."""
-        tip = tip_vector(self.kin, -90.0, yaw, self.driver.read_joints().gripper, tcp)
-        return point_to_pose(x, y, h, yaw, frame, self.ws.base, self.cfg.table_z_mm, tip)
+    def point_pose(self, x: float, y: float, h: float, yaw: float = 90.0, frame: str = "table", tcp: str = "tip", pitch: float = -90.0) -> ToolPose:
+        """frame 기준 (x, y, 작업대 면 위 높이 h)인 끝점(tcp)을 pitch 자세로 가져갈 ToolPose. pitch: -90 수직 아래(기본), 0 수평(손끝이 팔이 뻗은 쪽을 향함).
+        GUI에서 점을 찍을 때 쓰고, preview_tool·move_tool에 넘긴다. 바닥·작업대·관절 검사는 그 자세의 실제 두 턱(메쉬)으로 한다."""
+        tip = tip_vector(self.kin, pitch, yaw, self.driver.read_joints().gripper, tcp)
+        return point_to_pose(x, y, h, yaw, frame, self.ws.base, self.cfg.table_z_mm, tip, pitch)
+
+    def reach_ranges(self, pitch_deg: float = -90.0, heights_mm=(0, 40, 80, 120, 160, 200, 260), step_mm: float = 10.0, max_r_mm: float = 420.0) -> dict:
+        """두 범위를 한 계산(--sim 기구학 IK + 안전 검사)으로 낸다 (REQ-037).
+        pick: 집기 범위 = workspace.yaml reach_mm (작업 실행·물체 판정에 쓰는 값, 수직 아래 집기).
+        motion: 움직임 범위 = 손끝을 pitch 자세(-90 아래 ~ 0 수평)로 높이별로 보낼 수 있는 팔 앞쪽 반경 구간. 직접 조작·조그·안전 상자 표시에 쓴다.
+        {"pitch_deg", "pick": {"min_mm", "max_mm"}, "motion": [{"height_mm", "segments": [[r0, r1], ...], "min_mm", "max_mm"}]}. 반경은 로봇 원점 기준 앞쪽(mm).
+        한 번에 수백 번 IK를 풀어 1~3초 걸리고 같은 인자는 캐시한다. 동작 중에는 풀이기를 같이 쓸 수 없어 캐시가 없으면 RuntimeError."""
+        key = (round(pitch_deg, 1), tuple(heights_mm), step_mm, max_r_mm, self.cfg.table_z_mm, tuple(sorted(self.ws.base.__dict__.items())))
+        cache = self.__dict__.setdefault("_reach_cache", {})
+        if key not in cache:
+            if self.ctl.busy:
+                raise RuntimeError("동작 중에는 움직임 범위를 새로 계산할 수 없다")
+            rows = []
+            for h in heights_mm:
+                segs, start = [], None
+                n = int(max_r_mm // step_mm) + 1
+                for i in range(n + 1):
+                    r = i * step_mm
+                    ok = False
+                    if i < n:
+                        x, y = frames.robot_to_table(r, 0.0, self.ws.base)
+                        pose = self.point_pose(x, y, float(h), self.ws.base.yaw_deg, "table", "tip", pitch_deg)
+                        q = self.skills._ik(pose)
+                        ok = q is not None and self.safety.check_goal(q) is None
+                    if ok and start is None:
+                        start = r
+                    elif not ok and start is not None:
+                        segs.append([start, r - step_mm])
+                        start = None
+                rows.append({"height_mm": h, "segments": segs, "min_mm": segs[0][0] if segs else None, "max_mm": segs[-1][1] if segs else None})
+            cache[key] = {"pitch_deg": pitch_deg, "motion": rows}
+        return {**cache[key], "pick": dict(self.ws.pick_reach_mm)}
 
     def get_safety(self) -> dict:
         """지금 안전 설정과 실제로 적용되는 값. GUI가 설정 화면을 그릴 때 쓴다."""
@@ -575,7 +608,7 @@ class ArmService:
     def _reach_reason(self, label: str, x_mm: float, y_mm: float) -> str | None:
         """작업대 점이 집기 범위(workspace.yaml reach_mm, 팔 원점 기준 반경) 안인지. 밖이면 이유 문장, 안이면 None."""
         xr, yr = frames.table_to_robot(x_mm, y_mm, self.ws.base)
-        r, lo, hi = math.hypot(xr, yr), self.ws.reach_mm["min"], self.ws.reach_mm["max"]
+        r, lo, hi = math.hypot(xr, yr), self.ws.pick_reach_mm["min"], self.ws.pick_reach_mm["max"]
         return None if lo <= r <= hi else f"{label}_out_of_reach: 반경 {r:.0f}mm (허용 {lo:.0f}~{hi:.0f}mm)"
 
     def _rejected(self, kind: str, reason: str, **info) -> MotionResult:

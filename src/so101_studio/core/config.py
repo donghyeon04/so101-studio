@@ -89,6 +89,12 @@ class WorkspaceConfig:
     def base(self) -> Pose2D:
         return Pose2D(**self.robot_base_in_table)
 
+    @property
+    def pick_reach_mm(self) -> dict:
+        """집기 범위: 로봇 원점에서 손끝을 수직 아래로 내려 집을 수 있는 반경 {min, max}. 작업 실행과 물체 판정(task/policy.reachable, pick_and_place의 범위 검사)이 쓴다.
+        손끝 방향이 자유로운 직접 조작·조그의 움직임 범위와는 다르다(ArmService.reach_ranges). 파일의 키 이름은 호환 때문에 reach_mm다."""
+        return self.reach_mm
+
 
 def _read_yaml(path: Path) -> dict:
     return (yaml.safe_load(path.read_text(encoding="utf-8")) or {}) if path.exists() else {}
