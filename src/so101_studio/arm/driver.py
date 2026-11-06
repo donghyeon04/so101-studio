@@ -167,9 +167,10 @@ class ArmDriver:
         """서보 설정 레지스터를 읽기만 한다(떨림 원인 후보 확인용): PID, 가속, 시동 힘, 데드존, 토크 한계 등."""
         bus = self._bus
         out = {m: {r.strip(): bus.read(r, m, normalize=False) for r in self.INFO_REGS} for m in bus.motors}
-        for m in bus.motors:  # LeRobot 표에 없는 입력 전압 한계(14·15번, 0.1V 단위, 읽기만)
+        ph = getattr(bus, "packet_handler", None)  # 가짜 버스에는 없다
+        for m in bus.motors if ph is not None else ():  # LeRobot 표에 없는 입력 전압 한계(14·15번, 0.1V 단위, 읽기만)
             for name, addr in self.RAW_REGS.items():
-                v, result, _ = bus.packet_handler.read1ByteTxRx(bus.port_handler, bus.motors[m].id, addr)
+                v, result, _ = ph.read1ByteTxRx(bus.port_handler, bus.motors[m].id, addr)
                 out[m][name] = v if result == 0 else None
         return out
 
