@@ -54,6 +54,7 @@ class MotionController:
         self.locked_reason: str | None = None  # 이 이유가 있으면 움직이는 명령을 모두 거부한다(status "locked"). ArmService.connect가 정한다 (decisions/0027)
         self.ring = RingBuffer()  # 50Hz 틱의 최근 10초(명령, 실제, 틱 간격, 버스 오류). 사고 묶음이 쓴다 (decisions/0030)
         self.on_event = None  # on_event(kind, level, code, data): fault·E-STOP 같은 이벤트를 기록하는 쪽(ArmService)이 연결한다
+        self.trace = None  # 틱마다 trace(perf_counter_ns, 보낸 관절값)을 받는 함수. 버스를 읽지 않는다(작업 실행이 팔 링크 위치 기록을 남길 때)
         self.tap = None  # 틱마다 tap(읽은 시각 perf_counter_ns, 실제 관절값, 읽는 데 걸린 ns)를 받는 함수(경로 따라가기가 센서 궤적을 모을 때). 설정했을 때만 틱에서 버스를 읽는다
         self.actual_hint = None  # 가장 최근에 읽은 실제 관절값(10Hz 상태 루프가 채운다). 틱 안에서는 버스를 읽지 않는다
         self._tick_ref = None  # (handle, 직전 틱의 궤적 시간)
@@ -331,6 +332,8 @@ class MotionController:
             return
         self._last = q  # 쓰기 실패도 시도한 위치로 센다(통신 끊김이 'step' fault로 오인되지 않게)
         self.driver.write_joints(q)
+        if self.trace is not None:
+            self.trace(time.perf_counter_ns(), q)
         if self.tap is not None:  # 실제 관절값을 읽어 넘긴다(읽는 데 걸린 시간도 함께, 틱 주기를 지키는지 보려고)
             r0 = time.perf_counter_ns()
             actual = self.driver.read_joints()  # 실패하면 예외: 통신 정상 표시(아래)를 건너뛰어 끊김 시계가 이어지고 0.5초 안에 comm_lost가 된다

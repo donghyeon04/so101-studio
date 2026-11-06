@@ -35,6 +35,9 @@ class RunSummary:
                     st[p.state] = st.get(p.state, 0.0) + dt
             self._prev = e
             if e.state == "DECIDE":
+                if e.detail.get("chosen") and e.detail.get("scan_s"):  # 레이더가 이 물체를 고르기까지 걸린 시간(초음파)
+                    row = self._row(e.detail["chosen"])
+                    row["radar_s"] = round(row.get("radar_s", 0.0) + e.detail["scan_s"], 3)
                 for r in e.detail.get("objects", []):
                     row = self._row(r["id"])
                     if row["result"] == "skipped" and not r.get("reachable", True):

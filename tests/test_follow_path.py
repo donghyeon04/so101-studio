@@ -399,3 +399,10 @@ def test_locked_arm_gets_no_torque_and_returns_locked(svc):
 def test_identical_points_are_an_argument_error(svc):
     with pytest.raises(ValueError):
         svc.follow_path([(260.0, 200.0), (260.0, 200.0), (260.0, 200.0)], Z, 60.0)
+
+
+def test_follow_path_starts_from_radar_clear_pose(svc):
+    """결정 0039의 대기 자세(손목을 접어 세운 자세)에서 출발해도 첫 점으로 가서 경로를 따라간다."""
+    assert svc.skills.radar_clear().status == "ok"
+    samples = svc.follow_path([(300.0, 200.0), (380.0, 200.0)], Z, 100.0, 90.0)
+    assert svc.last_path.status == "ok" and len(samples) > 20

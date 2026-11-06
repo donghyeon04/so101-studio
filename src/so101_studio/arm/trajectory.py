@@ -318,7 +318,7 @@ def smooth_l(kin, poses, seed: JointState, v_mm_s: float, a_mm_s2: float, step_m
     pitch = np.interp(s, vert_s, [p.pitch_deg for p in poses])
     wp, q = [_arr(seed)], seed
     for xyz, yw, pt in zip(pts[1:], yaw[1:], pitch[1:]):
-        q = kin.ik(replace(poses[-1], x_mm=float(xyz[0]), y_mm=float(xyz[1]), z_mm=float(xyz[2]), yaw_deg=float(yw), pitch_deg=float(pt)), q)
+        q = kin.ik(replace(poses[-1], x_mm=float(xyz[0]), y_mm=float(xyz[1]), z_mm=float(xyz[2]), yaw_deg=float(yw), pitch_deg=float(pt)), q, max_iter=100)  # 손목을 접은 자세(radar_clear)에서 출발하면 30번으로는 수렴하지 않는 점이 있다. 수렴하면 일찍 끝나서 느려지지 않는다
         if q is None or np.abs(_arr(q) - wp[-1]).max() > MAX_WAYPOINT_JUMP_DEG * step_mm / 5.0:
             return None
         wp.append(_arr(q))
