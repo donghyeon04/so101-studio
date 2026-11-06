@@ -11,6 +11,9 @@ from .policy import choose, explain
 from .trail import PoseTrail
 
 MAX_CYCLES = 20  # 사이클 상한
+# shortcut: RESCAN 대기 자세는 벤치마크처럼 팔 원점 바로 위 손끝 높이 150mm다. PREPARE 자세가 정해지면 바꾼다 (ultrasonic-spec 2절)
+RESCAN_Z_MM = 150.0
+RESCAN_YAW_DEG = 90.0
 MAX_CONSECUTIVE_FAILS = 3  # 같은 물체를 연속으로 이만큼 실패하면 끝낸다
 
 
@@ -124,8 +127,9 @@ class TaskRunner:
                         self._emit("RESCAN")
                         if self._stopped():
                             return self._end("STOPPED")
-                        if self.skills.park().status != "ok":  # 확인하러 갔던 팔이 레이더 시야를 가리지 않게 대기 자세로
-                            return self._fault("park")
+                        b = self.ws.base  # 확인하러 갔던 팔(과 PREPARE 자세의 팔)이 레이더 정면을 가리지 않게 원점 위로
+                        if self.arm.move_tool(self.arm.point_pose(b.x_mm, b.y_mm, RESCAN_Z_MM, RESCAN_YAW_DEG)).status != "ok":
+                            return self._fault("rescan_pose")
                         scan, dropped = self.source.rescan(), set()
                         continue
                     self._emit("DONE", result="no_objects")

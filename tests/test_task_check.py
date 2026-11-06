@@ -3,7 +3,6 @@ import threading
 import time
 import types
 
-import yaml
 from test_task import WS, StubSkills, run
 
 from so101_studio.arm.sim_driver import SimDriver
@@ -11,6 +10,7 @@ from so101_studio.core.config import load_robot
 from so101_studio.core.events import EventBus
 from so101_studio.core.types import DetectedObject, MotionResult, ScanResult, ToolPose
 from so101_studio.perception.base import PathSegment
+from so101_studio.perception.ultrasonic.model import Box
 from so101_studio.service.arm_service import ArmService
 from so101_studio.service.studio import Studio
 from so101_studio.service.ultrasonic import make_ultrasonic_source
@@ -69,11 +69,17 @@ class StubSource:
 class StubArm:
     def __init__(self, status="ok", on_follow=None):
         self.ctl, self.status, self.on_follow, self.offset, self.paths = types.SimpleNamespace(trace=None), status, on_follow, None, []
-        self.last_path = None
+        self.last_path, self.moves = None, []
 
     def set_sensor_offset(self, off): self.offset = off
 
     def arm_links(self, q=None): return [(1.0, 2.0)]
+
+    def point_pose(self, x, y, z, yaw): return (x, y, z, yaw)
+
+    def move_tool(self, pose):
+        self.moves.append(pose)
+        return MotionResult("ok", 0.0, ToolPose(0, 0, 0, 0))
 
     def follow_path(self, pts, z, v, yaw):
         self.paths.append((pts, z, v, yaw))
@@ -111,8 +117,9 @@ def test_empty_check_drops_candidate_and_redecides_without_rescan():
 
 
 def test_rescan_when_no_candidate_once_then_done():
-    src = StubSource([[]], rescans=[[]])
-    res, seen = run(runner(src))
+    src, arm = StubSource([[]], rescans=[[]]), StubArm()
+    res, seen = run(runner(src, arm))
+    assert arm.moves == [(WS.base.x_mm, WS.base.y_mm, 150.0, 90.0)]  # 대기 자세 = 팔 원점 위 150mm
     assert res["end"] == "no_objects" and src.calls.count("rescan") == 1
     assert [s[0] for s in states(seen)].count("RESCAN") == 1
 
@@ -193,12 +200,11 @@ class ReadFails(SimDriver):
         return super().read_joints()
 
 
-def sim_studio(tmp_path, driver=SimDriver):
-    f = tmp_path / "objects.yaml"
-    f.write_text(yaml.safe_dump({"objects": [{"x_mm": x, "y_mm": y, "angle_deg": a, "width_mm": 30, "length_mm": 100} for x, y, a in SPREAD]}))
+def sim_studio(tmp_path, driver=SimDriver, spread=SPREAD):
+    boxes = [Box(x, y, a, 30, 100) for x, y, a in spread]
     arm = ArmService(driver(CFG.poses["home"]), CFG, WS, speed_pct=100, log_root=str(tmp_path / "runs"))
     assert arm.connect()[0]
-    src = make_ultrasonic_source(arm, sim=True, objects_path=str(f))
+    src = make_ultrasonic_source(arm, sim=True, boxes=boxes)
     return Studio(arm, src, dry_run=True), src, arm
 
 
@@ -245,4 +251,15 @@ def test_sim_read_failure_during_check_faults_and_stops_esp32(tmp_path):
     st._thread.join(30)
     assert st.result["end"] == "FAULT" and src.esp._stream is None and not src._checking
     arm.driver.fail = False
+    arm.disconnect()
+
+
+def test_sim_rescan_finds_object_in_front_of_radar_that_parked_arm_hides(tmp_path):
+    """레이더 정면(방위 90°, 앞 200mm) 물체: PREPARE 자세의 팔 끝에 가려 첫 SCAN은 놓치고, RESCAN이 팔을 원점 위로 치운 뒤 찾는다."""
+    st, src, arm = sim_studio(tmp_path, spread=[(300, 200, 90)])
+    seen = []
+    st.bus.subscribe("task", seen.append)
+    res = st.start(blocking=True)
+    assert "RESCAN" in [e.state for e in seen] and res["picked"], res
+    assert not src.esp.boxes
     arm.disconnect()

@@ -1,15 +1,15 @@
 """초음파 인식 소스 만들기 (run --source ultrasonic, REQ-025). 인식 모듈은 팔을 모르므로 여기서 이어 준다.
---sim: 가상 ESP32(FakeESP32)가 config/manual_objects.yaml의 물체를 작업대에 놓고, 팔 링크·센서 위치는 SimDriver가 보낸 관절 기록(PoseTrail)에서 읽는다.
+--sim: 가상 ESP32(FakeESP32)가 벤치마크 배치(demo, 반경 120~220mm·간격 120mm 이상)의 물체를 작업대에 놓고, 팔 링크·센서 위치는 SimDriver가 보낸 관절 기록(PoseTrail)에서 읽는다.
 실제: 시리얼 포트의 ESP32."""
 import math
+import random
 import tempfile
 from pathlib import Path
 
-import yaml
-
+from ..perception.ultrasonic.benchmark import random_layout
 from ..perception.ultrasonic.fake_esp32 import FakeESP32
 from ..perception.ultrasonic.link import Link, SerialTransport
-from ..perception.ultrasonic.model import Box, RealClock, load_config
+from ..perception.ultrasonic.model import RealClock, load_config
 from ..perception.ultrasonic.source import UltrasonicSource
 from ..task.trail import PoseTrail
 
@@ -34,8 +34,7 @@ class SimUltrasonicSource(UltrasonicSource):
                 self.esp.boxes.remove(box)
 
 
-def make_ultrasonic_source(arm, *, sim: bool, port: str | None = None, radar: dict | None = None,
-                           objects_path: str = "config/manual_objects.yaml"):
+def make_ultrasonic_source(arm, *, sim: bool, port: str | None = None, radar: dict | None = None, boxes=None):
     """UltrasonicSource를 만든다. bus는 TaskRunner가 Studio.bus로 이어 준다. 센서 오프셋은 TaskRunner가 시작할 때 arm에 넘긴다."""
     cfg = load_config(radar=radar)
     if not sim:
@@ -43,8 +42,7 @@ def make_ultrasonic_source(arm, *, sim: bool, port: str | None = None, radar: di
         if port in (None, "auto"):
             raise SystemExit("초음파 포트를 모른다: --us-port COMx 로 지정한다")
         return UltrasonicSource(Link(SerialTransport(port, cfg.baud)), cfg)
-    rows = yaml.safe_load(Path(objects_path).read_text(encoding="utf-8"))["objects"]
-    boxes = [Box(r["x_mm"], r["y_mm"], r.get("angle_deg") or 0.0, r["width_mm"], r["length_mm"]) for r in rows]
+    boxes = boxes if boxes is not None else random_layout(random.Random("demo-None-0"), "demo")  # 벤치마크 demo 배치 그대로
     trail, clk = PoseTrail(arm), RealClock()
     arm.trail = trail  # TaskRunner가 이 기록에 팔 자세를 남긴다
     esp = FakeESP32(clk, boxes, cfg, arm_sensor_fn=trail.sensor_at, arm_links_fn=trail.links_at)
