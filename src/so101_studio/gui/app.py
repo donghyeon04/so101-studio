@@ -11,7 +11,7 @@ from ..core.config import ArmSelectionError, load_robot_ex
 from ..core.ports import PortChoiceError, list_serial_ports, pick_port
 from ..doctor import doctor
 from . import scene3d, sensors, theme
-from .backend import Backend
+from .backend import RUN_MODES, Backend
 from .pages import (
     arm,
     esp32,
@@ -152,6 +152,10 @@ def make_root(backend: Backend):
                 resume[0].visible = mine and text in ("정지", "오류") and not comm_lost
             if reconnect and not reconnect[0].is_deleted:
                 reconnect[0].visible = mine and comm_lost
+            if top_mode.value != backend.mode:
+                top_mode.set_value(backend.mode)
+            top_mode.enabled = mine and not backend.task_running()
+            top_reconnect.enabled = mine and backend.real is not None and not backend.task_running()
 
         async def resume_arm() -> None:
             if backend.owner == client.id:
@@ -187,6 +191,26 @@ def make_root(backend: Backend):
                 ui.button("실행", color="negative", on_click=run_pending).props("no-caps").mark("pending-confirm")
         pending_dialog.props("persistent")
 
+        def set_mode(mode: str) -> None:
+            if mode == backend.mode:
+                return
+            if backend.owner != client.id:
+                ui.notify("보기 전용입니다", type="warning")
+                return
+            reason = backend.set_run_mode(mode)
+            if reason:
+                ui.notify(reason, type="negative")
+
+        async def show_doctor() -> None:
+            report = await run.io_bound(backend.run_doctor)
+            marks = {"ok": "정상", "warn": "주의", "fail": "실패", "skip": "건너뜀"}
+            with ui.dialog() as dialog, ui.card().classes("gap-1").mark("doctor-dialog"):
+                ui.label("점검 (읽기 전용)").classes("card-title")
+                for c in report["checks"]:
+                    ui.label(f'[{marks.get(c["state"], c["state"])}] {c["name"]}: {c["text"]}').classes("page-body")
+                ui.button("닫기", on_click=dialog.close).props("outline no-caps")
+            dialog.open()
+
         async def estop() -> None:  # 보기 전용 브라우저도 누를 수 있다. 세우는 일은 조작권과 상관없다
             await run.io_bound(backend.estop)
             ui.notify("비상 정지했습니다", type="negative")
@@ -211,6 +235,12 @@ def make_root(backend: Backend):
             stats["조작권"].text = "보기 전용"
             take = ui.button("조작권 받기", on_click=lambda: backend.claim(client.id)).props("outline no-caps").mark("take")
             take.visible = False
+            ui.space()
+            # 자주 쓰는 것을 상단에서 바로 (gui-spec 11절 A2). 원래 페이지의 같은 기능과 같은 상태를 쓴다
+            top_mode = ui.select(RUN_MODES, value=backend.mode, on_change=lambda e: set_mode(e.value)).props(
+                'dense outlined options-dense aria-label="실행 방식"').classes("w-40").mark("top-run-mode")
+            top_reconnect = ui.button(icon="sync", on_click=reconnect_arm).props('flat round color=dark aria-label="다시 연결"').mark("top-reconnect")
+            ui.button(icon="fact_check", on_click=lambda: show_doctor()).props('flat round color=dark aria-label="점검"').mark("top-doctor")
 
         with drawer, ui.column().classes("w-full gap-0").mark("nav"):
             for group, pages in PAGES:
