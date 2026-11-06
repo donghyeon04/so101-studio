@@ -42,7 +42,8 @@ JOINT_TEXT = {
     "shoulder_pan": "어깨 회전", "shoulder_lift": "어깨 들기", "elbow_flex": "팔꿈치", "wrist_flex": "손목 굽힘", "wrist_roll": "손목 회전",
     "gripper": "그리퍼",
 }  # JointState 순서
-CART_AXES = ("x", "y", "z", "yaw")  # 작업대 좌표계
+CART_AXES = ("x", "y", "z", "yaw", "pitch")  # 작업대 좌표계. pitch 양수 = 손끝을 수평 쪽으로 든다 (REQ-037)
+ANGLE_AXES = {"yaw", "pitch"}
 DIAGNOSTICS = {"servoinfo": "서보 설정 읽기", "linkwatch": "연결 끊김 찾기", "powertest": "전원 시험", "shaketest": "떨림 시험"}
 RUN_POINTS = 600  # 실행 기록 그래프로 보내는 점의 상한
 SEQUENCE_POINTS = 300  # 화면에 보내는 기록 표본 수의 상한
@@ -356,10 +357,11 @@ class Backend:
         for arm in self._arms():
             arm.set_speed(pct)
 
-    def plan(self, x: float, y: float, h: float, yaw: float) -> Plan:
-        """움직이지 않고 (x, y, 높이)에 닿는지 본다. 3D에 점, 계산 자세, 손끝 경로를 그린다."""
+    def plan(self, x: float, y: float, h: float, yaw: float, pitch: float = -90.0) -> Plan:
+        """움직이지 않고 (x, y, 높이)에 손끝 각도 pitch로 닿는지 본다. 3D에 점, 계산 자세, 손끝 경로, 움직임 범위를 그린다."""
         arm = self._model_arm()
-        pose = arm.point_pose(x, y, h, yaw)
+        pitch = min(0.0, max(-90.0, pitch))  # 팔이 받는 범위(-90 아래 ~ 0 수평)
+        pose = arm.point_pose(x, y, h, yaw, pitch=pitch)
         reason, q = arm.preview_tool(pose)
         path = None
         duration = 0.0
@@ -373,6 +375,10 @@ class Backend:
         if self.scene:
             self.scene.set_preview(q if ok else None)
             self.scene.show_target(x, y, h, ok, path)
+            try:  # 같은 pitch는 팔이 캐시한다. 동작 중이고 캐시가 없으면 이번에는 그리지 않는다
+                self.scene.show_reach(arm.reach_ranges(pitch))
+            except RuntimeError:
+                pass
         return Plan(ok, text, reason)
 
     def clear_plan(self) -> None:
@@ -386,11 +392,11 @@ class Backend:
         if self.scene and (not self._planning or status.state != "idle"):
             self.scene.set_preview(status.joints)
 
-    def move_to(self, x: float, y: float, h: float, yaw: float) -> str | None:
+    def move_to(self, x: float, y: float, h: float, yaw: float, pitch: float = -90.0) -> str | None:
         results = []
 
         def run(arm: ArmService):
-            result = arm.move_tool(arm.point_pose(x, y, h, yaw))
+            result = arm.move_tool(arm.point_pose(x, y, h, yaw, pitch=min(0.0, max(-90.0, pitch))))
             results.append(result)
             return result
 
@@ -409,8 +415,8 @@ class Backend:
             velocity = [0.0] * 6
             velocity[index] = sign * self.arm.cfg.joint_v_max_deg_s * speed
         else:
-            velocity = [0.0] * 4
-            velocity[index] = sign * (JOG_YAW_DEG_S if CART_AXES[index] == "yaw" else JOG_TOOL_MM_S) * speed
+            velocity = [0.0] * len(CART_AXES)
+            velocity[index] = sign * (JOG_YAW_DEG_S if CART_AXES[index] in ANGLE_AXES else JOG_TOOL_MM_S) * speed
         moved = False
         for arm in self._targets():
             moved = arm.jog(mode, velocity) or moved
@@ -419,19 +425,19 @@ class Backend:
     def jog_release(self, mode: str) -> None:
         """손을 떼면 속도를 0으로 내려 부드럽게 멈춘다."""
         for arm in self._targets():
-            arm.jog(mode, [0.0] * (6 if mode == "joint" else 4))
+            arm.jog(mode, [0.0] * (6 if mode == "joint" else len(CART_AXES)))
 
     def jog_step(self, mode: str, index: int, amount: float) -> str | None:
-        """정해진 간격만큼 움직인다. 관절은 도, 직교는 mm(yaw는 도)."""
+        """정해진 간격만큼 움직인다. 관절은 도, 직교는 mm(yaw·pitch는 도)."""
 
         def run(arm: ArmService):
             q = arm.status().joints
             if mode == "joint":
                 name = JOG_JOINTS[index]
                 return arm.move_joints(replace(q, **{name: getattr(q, name) + amount}))
-            delta = [0.0] * 4
+            delta = [0.0] * len(CART_AXES)
             delta[index] = amount
-            goal = arm.kin.step(q, *delta)
+            goal = arm.kin.step(q, *delta[:4], dpitch_deg=delta[4])
             return arm.move_joints(goal) if goal else MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0))
 
         return self._dispatch(run, "조그 간격 이동")

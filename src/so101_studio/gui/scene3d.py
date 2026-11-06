@@ -306,6 +306,28 @@ class Scene3D:
             position=((x0 + x1) / 2000, (y0 + y1) / 2000, (z0 + z1) / 2000),
         )
 
+    def show_reach(self, ranges: dict | None) -> None:
+        """REQ-037 두 범위를 팔 앞쪽 반원 호로 그린다. 집기 범위(작업대 면, 초록)와 고른 손끝 각도의 높이별 움직임 범위(강조색).
+        ranges는 ArmService.reach_ranges 결과이고 None이면 지운다. 반경은 팔 원점(어깨 회전축) 기준이다."""
+        scene = self.server.scene
+        scene.remove_by_name("/marks/reach")
+        if ranges is None:
+            return
+        base = self._kin.base
+        angles = np.radians(np.linspace(-90.0, 90.0, 37))
+
+        def arc(r_mm: float, z_mm: float) -> np.ndarray:
+            pts = np.array([(*robot_to_table(r_mm * math.cos(a), r_mm * math.sin(a), base), z_mm) for a in angles]) / 1000
+            return np.stack([pts[:-1], pts[1:]], axis=1)
+
+        pick = ranges["pick"]
+        pick_arcs = np.concatenate([arc(pick["min"], 1.0), arc(pick["max"], 1.0)])  # reach_mm 키 {min, max}
+        motion = [arc(r, h["height_mm"]) for h in ranges["motion"] for seg in h["segments"] for r in seg]
+        with self.server.atomic():
+            scene.add_line_segments("/marks/reach/pick", pick_arcs, theme.rgb(theme.OK), thickness=2.0, thickness_units="screen")
+            if motion:
+                scene.add_line_segments("/marks/reach/motion", np.concatenate(motion), theme.rgb(theme.ACCENT), thickness=1.5, thickness_units="screen")
+
     def clear_target(self) -> None:
         scene = self.server.scene
         with self.server.atomic():
@@ -313,6 +335,7 @@ class Scene3D:
             scene.remove_by_name("/marks/path")
             scene.remove_by_name("/marks/trajectory")
             scene.remove_by_name("/allowed")
+            scene.remove_by_name("/marks/reach")
             self.set_preview(None)
 
     def _watch_camera(self, client) -> None:
