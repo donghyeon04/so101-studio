@@ -377,8 +377,9 @@ class Backend:
             self.scene.clear_target()
 
     def _on_twin_status(self, status) -> None:
-        """실제 팔이 있으면 계산 자세 팔은 시뮬레이션 쪽 자세를 보여 준다."""
-        if self.scene and not self._planning:
+        """실제 팔이 있으면 계산 자세 팔은 시뮬레이션 쪽 자세를 보여 준다.
+        시뮬레이션 팔이 움직이는 동안은 고른 목표 자세보다 이것이 먼저다("시뮬레이션 먼저"의 미리보기, gui-spec 11절 B8)."""
+        if self.scene and (not self._planning or status.state != "idle"):
             self.scene.set_preview(status.joints)
 
     def move_to(self, x: float, y: float, h: float, yaw: float) -> str | None:
