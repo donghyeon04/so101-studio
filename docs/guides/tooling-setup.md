@@ -46,7 +46,7 @@
 | C3 | LeRobot | 팔 제어, 기구학 (`decisions/0003`) | `pip install "lerobot[feetech,kinematics]"`. `kinematics`가 설치하는 placo는 Windows 휠이 없어 실패할 수 있다 → T1에서 확인 |
 | C4 | USB 시리얼 드라이버 (CH340 또는 CP210x) | 버스 서보 보드와 ESP32의 COM 포트 인식 | 장치 관리자에서 COM 번호 확인 |
 | C5 | ruff, pytest | 코드 형식 검사, `--sim` 단위 테스트 | |
-| C6 | Arduino IDE 2 또는 PlatformIO + ESP32 보드 패키지 | ESP32 스캔 펌웨어 (개발 3단계부터) | 지금은 불필요 |
+| C6 | Arduino IDE 2 또는 PlatformIO + ESP32 보드 패키지 3.x | ESP32 스캔 펌웨어 | Windows 사용자 폴더 이름이 한글이면 펌웨어 링크(xtensa ld)가 실패한다. core를 영문 경로에 설치한다: `ARDUINO_DIRECTORIES_DATA=C:\arduino15`, `ARDUINO_DIRECTORIES_USER=C:\arduino15\user`를 설정한 뒤 core 설치. 상세는 `us-dev-status.md` 알려진 함정 8번 |
 
 ### C-2. Claude Code 플러그인·MCP·스킬
 | # | 이름 | 용도 | 비고 |
