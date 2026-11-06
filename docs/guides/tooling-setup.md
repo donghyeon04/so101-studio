@@ -1,6 +1,6 @@
 # 툴링 셋업
 
-상태: 확정 · 갱신 2026-11-02
+상태: 확정 · 갱신 2026-11-06
 
 > 기획 계정과 개발 계정 모두 같은 도구를 갖추기 위한 체크리스트다.
 
@@ -91,6 +91,11 @@
 | `codebase-design`, `prototype`, `pr`, `writing-for-agents` | 자동(상황에 맞으면 에이전트가 부름) | 모듈 설계, 버리는 시안, PR 본문, CLAUDE.md·스킬 쓰기 |
 
 쓰지 않는 것: `setup-matt-pocock-skills`, `grill-with-docs`, `domain-modeling`, `research`, `tdd`, `diagnosing-bugs`, `code-review`, `implement`, `implement-spec`, `triage`, `to-tickets`, `to-spec`, `wayfinder`, `ask-matt`, `teach`, `wizard` (규칙 충돌 또는 Superpowers와 겹침).
+
+### C-6. 사용자 지정 추가 (2026-11-06)
+| # | 이름 | 종류 | 용도 | 설치 |
+|---|---|---|---|---|
+| C19 | **Stageshow** (Benji Taylor, `benjitaylor/skills`, MIT) | 스킬 | 제품 데모 화면을 만들고 영상으로 찍어 다듬는다(빽빽하거나 비거나 갇힌 화면을 고침). 시연 영상과 GUI 화면 다듬기에 쓴다 | Node.js 22.20 이상에서 `npx skills add benjitaylor/skills --skill stageshow`. 레포가 아니라 사용자 범위(`~/.claude/skills/`)에 설치한다. 설치 전에 레포의 `SKILL.md`·`LICENSE`를 읽고 확인한다(2차 자료로만 확인함) |
 
 ## D. 레퍼런스 평가 기준
 
