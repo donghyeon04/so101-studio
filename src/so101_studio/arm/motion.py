@@ -218,13 +218,12 @@ class MotionController:
         return self._job is not None or self._jog is not None
 
     def note_comm(self, ok: bool) -> None:
-        """제어 틱 밖(10Hz 상태 루프)에서 본 통신 성공·실패를 건강 감시에 알린다. 정지 중에도 끊김을 빨리 본다."""
+        """제어 틱 밖(10Hz 상태 루프)에서 본 읽기 성공·실패를 건강 감시에 알린다. 정지 중에도, 움직이는 중에도 읽기 시계를 따로 센다."""
         with self._lock:
             if ok:
-                if self._job is None:  # 움직이는 중에는 쓰기 성공만 통신 정상으로 본다
-                    self.health.comm_ok(time.perf_counter())
+                self.health.comm_ok(time.perf_counter(), "read")
             elif self.state != "fault":
-                self._fault(self.health.comm_failed(time.perf_counter()))
+                self._fault(self.health.comm_failed(time.perf_counter(), "read"))
 
     def _emit(self, kind: str, level: str, code: str, data: dict) -> None:
         cb = self.on_event
@@ -245,15 +244,17 @@ class MotionController:
             now = time.perf_counter()
             tick_dt, prev, err = now - prev, now, None
             with self._lock:
+                kind = "read"
                 try:
                     self._check_health()
+                    kind = "write"
                     if self._job is not None:
                         self._tick()
                     elif self._jog is not None:
                         self._tick_jog()
                 except Exception as e:  # noqa: BLE001 통신 오류 등 어떤 실패든 0.5초 넘게 이어지면 fault
                     err = repr(e)[:120]
-                    self._fault(self.health.comm_failed(time.perf_counter()))
+                    self._fault(self.health.comm_failed(time.perf_counter(), kind))
             self.ring.add(time.time_ns(), self._last, tick_dt, err, self.state, self.actual_hint)
             time.sleep(max(0.0, nxt - time.perf_counter()))
 
@@ -280,7 +281,7 @@ class MotionController:
         if self.state == "fault":
             return
         if self.health._comm_down_since is not None:  # 상태 루프가 끊김을 알렸다: 0.5초가 차는 틱에서 바로 fault
-            self._fault(self.health.comm_failed(now))
+            self._fault(self.health.comm_lost(now))
         if now < self._next_health or self.state == "fault":
             return
         self._next_health = now + HEALTH_PERIOD_S
@@ -288,8 +289,7 @@ class MotionController:
         why = self.health.update_health(h, now)
         self._fault(why, self._health_detail(why, h))
         self._check_grip(h, now)
-        if self._job is None:  # 움직이는 중에는 쓰기 성공만 통신 정상으로 본다
-            self.health.comm_ok(time.perf_counter())
+        self.health.comm_ok(time.perf_counter(), "read")  # 건강 읽기가 됐다(읽기 시계만 지운다)
 
     def _health_detail(self, reason: str | None, h: dict) -> dict | None:
         """과열·과부하·과전류 fault의 관절, 값, 한도 (사람이 읽을 문장에 쓰인다)."""
@@ -365,7 +365,8 @@ class MotionController:
             actual = self.driver.read_joints()  # 실패하면 예외: 통신 정상 표시(아래)를 건너뛰어 끊김 시계가 이어지고 0.5초 안에 comm_lost가 된다
             r1 = time.perf_counter_ns()
             self.tap((r0 + r1) // 2, actual, r1 - r0)
-        self.health.comm_ok(time.perf_counter())
+            self.health.comm_ok(time.perf_counter(), "read")
+        self.health.comm_ok(time.perf_counter(), "write")
         if t >= traj.duration_s:
             self._job = None
             if self.state == "moving":
@@ -416,7 +417,7 @@ class MotionController:
         self.jog_block = None
         self._last = q
         self.driver.write_joints(q)
-        self.health.comm_ok(time.perf_counter())
+        self.health.comm_ok(time.perf_counter(), "write")
 
     def close(self) -> None:
         self._quit.set()

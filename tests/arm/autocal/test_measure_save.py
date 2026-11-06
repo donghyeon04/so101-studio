@@ -165,10 +165,24 @@ def test_guard_forwards_everything_and_trips_once():
     guard = GuardedBus(arm, period_s=0, clock=arm.clock)
     assert guard.motors is arm.motors and guard.sync_read("Present_Position")
     arm.joints["gripper"].regs["Present_Voltage"] = 100
+    assert guard.sync_read("Present_Position") and not guard.tripped  # 한 번 넘은 값만으로는 중단하지 않는다(연속 2회)
     with pytest.raises(AutoCalibrationError):
         guard.sync_read("Present_Position")
     assert guard.tripped and guard.sync_read("Present_Position")  # 정리하는 읽기는 다시 던지지 않는다
     assert vitals_problem(arm) and "전압" in vitals_problem(arm)
+
+
+def test_guard_ignores_a_single_misread_temperature():
+    """실물에서 온도 80°C로 한 번 잘못 읽힌 값(실제 34~39°C)으로 측정이 중단됐다."""
+    arm = eeprom_arm()
+    guard = GuardedBus(arm, period_s=0, clock=arm.clock)
+    temp = arm.joints["gripper"].regs
+    for _ in range(3):
+        temp["Present_Temperature"] = 80
+        assert guard.sync_read("Present_Position")  # 한 번 튄 값
+        temp["Present_Temperature"] = 36
+        assert guard.sync_read("Present_Position")  # 곧 정상으로 돌아온다: 연속이 아니니 세지 않는다
+    assert not guard.tripped
 
 
 # ---- 저장
@@ -300,7 +314,7 @@ def test_cli_measure_only_asks_first_then_measures(reference, paths, monkeypatch
     monkeypatch.setattr(acli, "measure_only", lambda *a, **k: real(*a, **k, clock=arm.clock, sleep=arm.sleep))
     code = acli.run_calibrate(args(), CFG, input_fn=lambda p: prompts.append(p) or "", out=said.append, opener=opener_for(arm, paths.cache), now=lambda: datetime(2026, 11, 4, 9, 0), config_dir=paths.repo.parent.parent, runs_dir=paths.runs)
     text = "\n".join(said)
-    assert code == 0 and len(prompts) == 1 and all(w in text for w in ("클램프", "반경 50cm", "전원 스위치", "접힌 자세"))  # 안내를 띄우고 Enter를 받았다
+    assert code == 0 and len(prompts) == 1 and all(w in text for w in ("클램프", "반경 50cm", "전원 스위치", "홈 자세가 아니라", "아래로 늘어진 쉬는 자세"))  # 안내를 띄우고 Enter를 받았다
     assert (paths.runs / "20261104-090000-autocal" / "measure.json").is_file() and "합격" in text
     assert_untouched(arm)
 

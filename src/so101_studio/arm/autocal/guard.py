@@ -8,6 +8,7 @@ from .engine import AutoCalibrationError
 MIN_VOLT = 11.0
 MAX_TEMP = 60.0
 PERIOD_S = 0.25
+CONFIRM = 2  # 한 번 잘못 읽힌 값(온도 80°C, 실제 34~39°C)으로 중단하지 않는다: 연속 2회(약 0.5초) 넘을 때만
 
 
 def read_vitals(bus) -> tuple[float, float]:
@@ -27,9 +28,10 @@ def vitals_problem(bus, min_volt: float = MIN_VOLT, max_temp: float = MAX_TEMP) 
 
 
 class GuardedBus:
-    def __init__(self, bus, min_volt: float = MIN_VOLT, max_temp: float = MAX_TEMP, period_s: float = PERIOD_S, clock=time.monotonic):
-        self._bus, self.min_volt, self.max_temp, self.period_s, self._clock = bus, min_volt, max_temp, period_s, clock
+    def __init__(self, bus, min_volt: float = MIN_VOLT, max_temp: float = MAX_TEMP, period_s: float = PERIOD_S, clock=time.monotonic, confirm: int = CONFIRM):
+        self._bus, self.min_volt, self.max_temp, self.period_s, self._clock, self.confirm = bus, min_volt, max_temp, period_s, clock, confirm
         self._last = clock()
+        self._bad = 0  # 연속으로 기준을 넘은 횟수
         self.tripped: str | None = None
 
     def __getattr__(self, name):  # motors, write, read, sync_write, disable_torque 등은 그대로 넘긴다
@@ -45,6 +47,8 @@ class GuardedBus:
         if self.tripped or now - self._last < self.period_s:
             return
         self._last = now
-        if problem := vitals_problem(self._bus, self.min_volt, self.max_temp):
+        problem = vitals_problem(self._bus, self.min_volt, self.max_temp)
+        self._bad = self._bad + 1 if problem else 0
+        if problem and self._bad >= self.confirm:
             self.tripped = problem
             raise AutoCalibrationError(f"{problem} (자동 캘리브레이션 중단, 레지스터를 되돌린다)")

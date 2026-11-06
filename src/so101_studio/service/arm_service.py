@@ -216,6 +216,8 @@ class ArmService:
     def _probe(self, why: str) -> None:
         """과부하·읽기 오류 순간에 2Hz 주기를 기다리지 않고 토크·상태 비트·부하를 바로 한 번 더 읽어 ARM-LOAD-PROBE로 남긴다.
         (서보 보호로 출력이 끊겨도 Torque_Enable 값만으로는 안 보일 수 있어, 그 순간의 Status 비트가 필요하다.) PROBE_COOLDOWN_S에 한 번."""
+        if self.ctl is not None and self.ctl.state == "fault" and self.ctl.fault == "comm_lost":
+            return  # 통신이 끊긴 동안은 읽어 볼 수 없다: 끊김은 ARM-COMM-LOST 하나로 이미 남았다 (1초마다 경고가 쌓이던 것)
         now = time.monotonic()
         if now - self._probe_t < PROBE_COOLDOWN_S:
             return
@@ -328,6 +330,8 @@ class ArmService:
         드라이버의 set_torque 잠금은 캘리브레이션 불일치만 알고 팔 파일 없음 잠금(ctl.locked_reason)은 모르므로 서비스에서 막는다. 직접 driver.set_torque(True)를 부르지 않는다."""
         if self.ctl is None or self.ctl.locked_reason:
             return False
+        if getattr(self.driver, "expect_torque", None) is True and not self._torque_lost:
+            return True  # 이미 켜져 있다: 조그 keepalive마다 다시 쓰지 않는다(ARM-TORQUE-ON이 0.2초마다 쌓였다). 풀린 것을 읽었을 때(_torque_lost)만 다시 켠다
         self.driver.set_torque(True)
         return True
 
