@@ -42,6 +42,7 @@ MODELS = {
     "optimistic": {"wrist_beam_half_deg": 7.5, "max_incidence_deg": 12.0, "corner": (0.7, 450.0, 0.9), "servo_lag_deg": 3.0},
     "pessimistic": {"wrist_beam_half_deg": 15.0, "max_incidence_deg": 8.0, "corner": (0.7, 300.0, 0.5), "servo_lag_deg": 3.0},
 }
+DXL_LAG_DEG = 0.3  # XL330 가정: 4° 이동 약 7ms라 33ms 간격 안에 도착. 남는 지연(실측 전 가정)
 OBJECT_SIZES = ((30, 100), (40, 80), (50, 50))  # 폭 x 길이, 높이 40
 SCENARIOS = {  # 이름: (물체 수, 반경 mm, 방위 °, 중심 간격 mm 이상)
     "spread90": (3, (100, 240), (25, 155), 90),
@@ -425,6 +426,7 @@ def main(argv=None):
     ap.add_argument("--hover-mm", type=float, help="--reach kin의 접근 호버 높이(기본 robot.yaml approach_height_mm). (가)안")
     ap.add_argument("--tool-reach", help="MIN,MAX: check.tool_reach_mm를 이번만 바꾼다(기본 설정값 60,255). (나)안")
     ap.add_argument("--trim-start", action="store_true", help="--reach kin에서 첫 점이 안 닿으면 경로 안쪽으로 당긴다. (다)안")
+    ap.add_argument("--servo", choices=["pwm", "dxl"], default="pwm", help=f"가상 레이더 서보: pwm(기본, 지연 ±3°) | dxl(XL330: 지연 {DXL_LAG_DEG}° + 읽은 각도 ang 사용, 가정값이라 B4로 고친다)")
     ap.add_argument("--out", default="runs/bench")
     a = ap.parse_args(argv)
     names = list(SCENARIOS) if a.scenario == "all" else [a.scenario]
@@ -436,6 +438,8 @@ def main(argv=None):
         lo, hi = (float(v) for v in a.tool_reach.split(","))
         opts["tool_reach_mm"] = {"min": lo, "max": hi}
     arm_kw = {"kin": kin_reach(a.hover_mm), "trim_start": a.trim_start} if a.reach == "kin" else None
+    if a.servo == "dxl":
+        opts["esp_kw"] = {"servo": "dxl", "servo_lag_deg": DXL_LAG_DEG}
     if a.empty_extra is not None:
         opts["radar"] = {"empty_extra_sweeps": a.empty_extra}
     rescan = None if a.rescan_home is None else a.rescan_home == "on"

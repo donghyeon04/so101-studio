@@ -26,7 +26,8 @@ class FakeESP32:
                  seed: int = 0, noise_mm: float = 2.0, noise_pct: float = 0.003, dropout: float = 0.03,
                  boot_offset_us: int = 5_000_000, wrist_beam_half_deg: float | None = None,
                  max_incidence_deg: float | None = None, servo_lag_deg: float = 0.0, corner=None,
-                 ignore_first_writes: int = 0):
+                 ignore_first_writes: int = 0, servo: str = "pwm", ang_noise_deg: float = 0.1):
+        self.servo, self.ang_noise_deg = servo, ang_noise_deg  # "dxl"이면 샘플 r에 읽은 실제 각도 ang를 싣는다(7절)
         self._ignore_writes = ignore_first_writes  # 부팅 중이라 처음 몇 줄은 못 받는다(포트를 열면 ESP32가 리셋되는 경우)
         # 센서 모델(8.5절): 거리 잡음 = noise_mm + noise_pct x 거리, 응답 없음 dropout, 손목 센서 빔 반각, 레이더 면 반사 허용각,
         # 서보 지연(갈 때 -lag°, 올 때 +lag°), 모서리 반사 corner = (반각 배율, 거리 mm, 확률)
@@ -83,7 +84,7 @@ class FakeESP32:
         return not (self._once or self._sweep or self._stream)
 
     def _cmd_hello(self, m, now):
-        self._emit(t="hello", fw="0.1", servo="pwm", k=["r", "a"])
+        self._emit(t="hello", fw="0.1", servo=self.servo, k=["r", "a"])
 
     def _cmd_sync(self, m, now):
         self._emit(t="sync", pc=m["pc"], us=self._us(now))
@@ -167,7 +168,10 @@ class FakeESP32:
         else:
             d = round(d)
         if k == "r":
-            self._emit(t="r", a=angle, d=d, us=self._us(t))
+            extra = {}
+            if self.servo == "dxl":
+                extra["ang"] = round(angle - direction * self.servo_lag_deg + self.rng.gauss(0, self.ang_noise_deg), 2)
+            self._emit(t="r", a=angle, d=d, us=self._us(t), **extra)
         else:
             self._emit(t="a", d=d, us=self._us(t))
 

@@ -10,6 +10,7 @@ from pathlib import Path
 class Pass:
     dir: int  # 1 = 각도 증가
     meas: list  # (t_ns, 명령 각도, d_mm 또는 None)
+    shift: dict | None = None  # 명령 각도 -> (읽은 실제 각도 - 명령 각도). 서보가 각도를 읽어 줄 때만(7절 ang)
 
 
 @dataclass
@@ -61,7 +62,7 @@ def make_baseline(passes: list[Pass]) -> Baseline:
     return Baseline(base, unstable)
 
 
-def mask_arm(meas, links_fn, cfg) -> tuple[list, set]:
+def mask_arm(meas, links_fn, cfg, shift=None) -> tuple[list, set]:
     """그 측정 시각의 팔 링크 점 방위 ±(빔 반각+arm_mask_deg), 거리 차 arm_mask_mm 안이면 버린다."""
     if links_fn is None:
         return list(meas), set()
@@ -70,7 +71,7 @@ def mask_arm(meas, links_fn, cfg) -> tuple[list, set]:
     for t, a, d in meas:
         hide = False
         if d is not None:
-            az = azimuth_deg(cfg, a)
+            az = azimuth_deg(cfg, a + (shift or {}).get(a, 0.0))
             for x, y in links_fn(t):
                 bearing = math.degrees(math.atan2(y - st.y, x - st.x))
                 diff = (bearing - az + 180) % 360 - 180
@@ -89,7 +90,7 @@ def combine(passes: list[Pass], links_fn, cfg) -> tuple[dict, dict]:
     per: dict = {}
     masked_all: set = set()
     for p in passes:
-        kept, masked = mask_arm(p.meas, links_fn, cfg)
+        kept, masked = mask_arm(p.meas, links_fn, cfg, p.shift)
         masked_all |= masked
         for _, a, d in kept:
             per.setdefault(a, []).append(d)
@@ -99,14 +100,20 @@ def combine(passes: list[Pass], links_fn, cfg) -> tuple[dict, dict]:
     for a, v in per.items():
         found = [x for x in v if x is not None]
         out[a] = statistics.median(found) if found else None
-    return out, {"per_angle": {a: v for a, v in per.items()}, "masked": sorted(masked_all)}
+    offs: dict = {}
+    for p in passes:
+        for a, o in (p.shift or {}).items():
+            offs.setdefault(a, []).append(o)
+    shift = {a: statistics.median(v) for a, v in offs.items()}
+    return out, {"per_angle": {a: v for a, v in per.items()}, "masked": sorted(masked_all), "shift": shift}
 
 
-def find_candidates(vals: dict, base: Baseline, cfg) -> tuple[list[Candidate], list]:
+def find_candidates(vals: dict, base: Baseline, cfg, shift=None) -> tuple[list[Candidate], list]:
     """기준값보다 dip_mm 이상 가까운 이웃 각도 호 -> 붙어 있는 호 합침 -> 후보. 두 번째 값은 호 목록(raw용)."""
     r = cfg.radar
     step = r.sweep.step_deg
     angles = sorted(vals)
+    shift = shift or {}
 
     def is_dip(a):
         d = vals[a]
@@ -119,7 +126,8 @@ def find_candidates(vals: dict, base: Baseline, cfg) -> tuple[list[Candidate], l
 
     def close():
         if len(run) >= r.min_arc:
-            arcs.append({"first": run[0], "last": run[-1], "center": (run[0] + run[-1]) / 2,
+            arcs.append({"first": run[0], "last": run[-1],
+                             "center": (run[0] + run[-1]) / 2 + statistics.mean(shift.get(a, 0.0) for a in run),
                              "d": statistics.median(vals[a] for a in run)})
 
     for a in angles:
