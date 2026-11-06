@@ -95,12 +95,12 @@ PPT 흐름도(캘리브레이션 → 스캔 → 판단 → 실행 → 남은 물
 ```
 | 상태 | 하는 일 | 다음 상태 |
 |---|---|---|
-| `PREPARE` | 팔을 센서 시야 밖 대기 자세로. 기본 `park`, 초음파를 쓸 때는 `radar_clear`(결정 0039, 레이더 시야를 가리지 않는 접은 자세) | `SCAN` |
+| `PREPARE` | 팔을 센서 시야 밖 대기 자세로. 기본 `park`, 초음파를 쓸 때는 `radar_clear`(결정 0039·0041, 위로 세운 자세). 초음파는 첫 사이클과 집기 실패 뒤에만 거치고, `PLACE` 뒤에는 거치지 않는다(아래 `PLACE` 줄) | `SCAN` |
 | `SCAN` | `perception.scan()` | `DECIDE` |
 | `DECIDE` | 도달 범위 밖 물체 제외 → 우선순위(기본: 팔에서 가까운 순) → 1개 선택 | 있으면 `PICK`, 없으면 `DONE`. 미리 찾기(prefetch)를 쓰는 초음파는 없을 때 `RESCAN`을 한 번 거친다(`ultrasonic-spec.md` 2절) |
 | `CHECK` | 확인 기능이 있는 인식 방식만(`CheckableSource`, `ultrasonic-spec.md` 8.2절): 팔이 후보 위를 지나가며 손목 센서로 재서 물체를 확정. 물체가 없으면 그 후보를 지움 | 확정 `PICK`, 없음 `DECIDE` |
 | `PICK` | `arm.pick(obj)` | 성공 `PLACE`, 실패 시 재시도 1회 후 건너뛰고 `PREPARE` (재시도는 목표 층). 초음파는 건너뛸 때 `note_failure`로 알리고, `give_up`이면 `DONE`(`ultrasonic-spec.md` 8.2절) |
-| `PLACE` | `arm.place(zone)` | `PREPARE` (물체를 하나 옮길 때마다 다시 스캔) |
+| `PLACE` | `arm.place(zone)` | `PREPARE` (물체를 하나 옮길 때마다 다시 스캔). 초음파는 `PREPARE` 없이 바로 `SCAN`: 놓는 동안 미리 돌린 레이더 결과를 쓰고, 팔 자리는 그 측정 시각의 링크 점으로 지운다(`ultrasonic-spec.md` 2절, 4절 T5). 팔은 배출 구역에서 바로 다음 확인으로 간다 |
 
 - **단계별 실행 모드(D3):** 상태가 바뀔 때마다 멈추고 `step()`을 기다린다. 시연 때 한 단계씩 설명하는 용도다.
 - **사이클 상한:** 같은 물체를 3회 연속 실패하거나 사이클이 20회를 넘으면 `DONE`으로 끝낸다.

@@ -213,11 +213,13 @@ def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, resc
     rescan_home(RESCAN, 기획 #77): 후보가 없으면 팔을 대기 자세로 옮겨 src.rescan()(4바퀴)을 한 번 하고, 후보가 있으면 계속, 또 없으면 끝낸다.
     대기 자세는 robot.yaml의 poses.radar_clear(결정 0039)를 기구학으로 바꾼 손끝이고, 키가 없으면 팔 원점 위(arm.base, 높이 150mm)다. None이면 설정 radar.rescan_home을 따른다.
     check.max_fail_per_run: 확인 실패가 그만큼이면 끝낸다(src.give_up).
+    PREPARE(결정 0041, 기획 #107): radar_clear는 첫 scan 전과 집기 실패 뒤에만 간다. PLACE 뒤는 거치지 않고 미리 돌린 결과로 scan한다(올라가는 이동은 인식 시간에 안 넣고, 대기 자세에서 첫 확인 경로로 내려오는 이동은 do_check에 들어간다).
     prefetch는 PLACE 시작(집은 뒤 배출 구역으로 옮기기 시작할 때)에 건다(2절·T5)."""
     if rescan_home is None:
         rescan_home = src.cfg.radar.rescan_home
     clk, recog, log, ok, rescanned = arm.clk, 0.0, [], 0, False
     src.begin_cycle()
+    arm.move(*arm.wait_pose)  # PREPARE(결정 0039·0041): 첫 scan 전에 radar_clear로. 올라가는 이동은 인식 시간에 넣지 않는다
     for _ in range(max_iter):
         if src.give_up:
             break
@@ -258,6 +260,9 @@ def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, resc
             esp.boxes.remove(box)
         src.notify_picked(obj.id)
         arm.move((obj.x_mm, obj.y_mm), 55)
+        if not picked:  # 집기 실패 뒤 PREPARE: 놓지 않고 radar_clear로(인식 시간 밖)
+            arm.move(*arm.wait_pose)
+            continue
         src.prefetch(arm.links_at)
         arm.move(drop, 55)
         clk.sleep(max(place_s - math.dist((obj.x_mm, obj.y_mm), drop) / arm.travel, 0))
