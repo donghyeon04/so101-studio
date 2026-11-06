@@ -243,3 +243,17 @@ def test_pick_place_moves_object_to_the_place_point(backend):
     assert backend.pick_place((300, 200), 0, 30, 30, (330, 180)) is None
     assert backend.pick_place((300, 200), 0, 58, 58, (330, 180), height_mm=39) is None  # REQ-034 높이 칸
     assert "집기 점이 집기 범위 밖" in (backend.pick_place((300, 60), 0, 30, 30, None) or "")
+
+
+def test_joystick_vector_moves_then_stops(backend):
+    """G13: 조이스틱 비율을 이어 보내는 동안 움직이고, 끊기면 0.3초 데드맨으로 선다."""
+    assert _wait_for(lambda: backend.arm.ctl.state == "idle")  # 앞 시험의 동작이 끝나기를 기다린다
+    assert backend.move_to(*REACHABLE) is None
+    before = _tip(backend)
+    for _ in range(5):
+        assert backend.jog_vector([0.0, 0.5, 0.0])
+        time.sleep(0.1)
+    backend.jog_release("cartesian")
+    assert _wait_for(lambda: backend.arm.ctl.state == "idle")
+    moved = _tip(backend) - before
+    assert moved[1] > 5 and abs(moved[0]) < 3

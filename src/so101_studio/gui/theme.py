@@ -74,6 +74,8 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 .frame-top {{ border-bottom: 1px solid {LINE}; }}
 .frame-bottom {{ border-top: 1px solid {LINE}; }}
 .page-desc {{ color: {MUTED}; margin-top: -4px; }}
+.joystick {{ width: 120px; height: 120px; position: relative; border-radius: 50%; background: {BG}; border: 1px solid {CONTROL_BORDER}; }}
+.joystick::after {{ content: ""; position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: {ACCENT}; pointer-events: none; }}
 .top-stats {{ scrollbar-width: thin; }}
 .stat-label {{ color: {MUTED}; font-size: 13px; line-height: 16px; white-space: nowrap; }}
 .stat-value {{ font-family: 'IBM Plex Mono', 'IBM Plex Sans KR', Consolas, 'Malgun Gothic', monospace; font-weight: 600; line-height: 20px; white-space: pre; }}
