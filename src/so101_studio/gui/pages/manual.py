@@ -110,6 +110,34 @@ def build(backend, client_id: str, actions) -> None:
                         .props("outline no-caps").mark("grip-width")
                     )
 
+            with ui.card().classes("w-full gap-2").mark("pick-place"):
+                ui.label("집어 옮기기").classes("card-title")
+                points: dict = {"pick": None, "place": None}
+                pick_text = ui.label("집기 점: 없음").classes("page-body").mark("pp-pick")
+                place_text = ui.label("놓기 점: 배출 구역").classes("page-body").mark("pp-place")
+
+                def set_point(kind: str) -> None:
+                    points[kind] = (target["x"], target["y"])
+                    (pick_text if kind == "pick" else place_text).text = f'{"집기" if kind == "pick" else "놓기"} 점: x {target["x"]:.0f}, y {target["y"]:.0f}'
+
+                with ui.row().classes("w-full no-wrap gap-2"):
+                    control(ui.button("지금 좌표를 집기 점으로", on_click=lambda: set_point("pick")).props("outline no-caps dense").mark("pp-set-pick"))
+                    control(ui.button("놓기 점으로", on_click=lambda: set_point("place")).props("outline no-caps dense").mark("pp-set-place"))
+                with ui.row().classes("w-full no-wrap gap-2"):
+                    obj_w = control(ui.number("폭 (mm)", value=30, min=0, step=5).props("outlined dense").classes("flex-1"))
+                    obj_l = control(ui.number("길이 (mm)", value=30, min=0, step=5).props("outlined dense").classes("flex-1"))
+                    obj_a = control(ui.number("각도 (°)", value=0, step=15).props("outlined dense").classes("flex-1"))
+
+                async def pick_place() -> None:
+                    if points["pick"] is None:
+                        ui.notify("먼저 집기 점을 고르세요(3D를 클릭하거나 좌표를 넣고 [지금 좌표를 집기 점으로])", type="warning")
+                        return
+                    reason = await run.io_bound(backend.pick_place, points["pick"], float(obj_a.value or 0), float(obj_w.value or 0),
+                                                float(obj_l.value or 0), points["place"])
+                    ui.notify(reason or "집어 옮겼습니다", type="negative" if reason else "positive")
+
+                control(ui.button("집어 옮기기", on_click=guarded(pick_place)).props("no-caps").classes("w-full").mark("pp-run"))
+
             with ui.card().classes("w-full gap-2"):
                 ui.label("속도 (%)").classes("card-title")
                 speed = control(ui.slider(min=5, max=100, step=5, value=backend.arm.speed).props("label-always").classes("mt-6").mark("speed"))
