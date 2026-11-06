@@ -165,7 +165,7 @@ def build(backend, client_id: str, actions) -> None:
         with ui.card().classes("flex-1 gap-1"):
             ui.label("센서와 서보").classes("card-title")
             columns = [{"name": k, "label": label, "field": k, "align": "left"} for k, label in (("name", "장치"), ("value", "마지막 값"), ("age", "언제"))]
-            sensors = ui.table(rows=[], columns=columns, row_key="name").props("flat dense").classes("w-full").mark("esp-sensors")
+            sensors = ui.table(rows=[], columns=columns, row_key="name").props('flat dense no-data-label="연결하면 센서와 서보 값이 나옵니다"').classes("w-full").mark("esp-sensors")
     ui.label(f"최근 메시지 ({KEEP}줄, 새 것이 위)").classes("card-title")
     with ui.scroll_area().classes("w-full log-area").mark("esp-lines"):
         lines = ui.column().classes("w-full gap-0")
@@ -190,6 +190,8 @@ def build(backend, client_id: str, actions) -> None:
         seen[0] = key
         lines.clear()
         with lines:
+            if not recent:
+                ui.label("아직 없습니다. 포트를 고르고 [연결]을 누르면 주고받은 메시지가 여기에 나옵니다").classes("page-body")
             for t, way, text in reversed(recent):
                 ui.label(f'{time.strftime("%H:%M:%S", time.localtime(t))} {way} {text}').classes("log-line")
 

@@ -104,6 +104,8 @@ def build(backend, client_id: str, actions) -> None:
             last_events[0] = key
             events.clear()
             with events:
+                if not state.events:
+                    ui.label("아직 없습니다. [스캔]이나 [자동 실행]을 누르면 여기에 쌓입니다").classes("page-body")
                 for event in list(state.events)[-EVENTS_SHOWN:][::-1]:
                     ui.label(event_line(event)).classes("event-line")
         lines = [
