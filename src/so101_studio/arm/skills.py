@@ -280,6 +280,10 @@ class Skills:
             r = self._run([self._opening_path() or self._gripper(self.cfg.gripper_open)])  # 열리는 동안 손을 같이 보내 물체 위치를 지킨다
             if r.status != "ok":
                 return r
-            return self._run([down.reversed(self._q().gripper)])
+            # 열면서 손이 옆으로 옮겨졌으니 원래 하강 경로를 거꾸로 타면 낮은 높이에서 release 자리로 되돌아가며 물체를 민다: 지금 자리에서 수직으로 올린다.
+            # 그리퍼는 연 채로 둔다(닫기는 호출한 쪽이 호버 높이 이상 올라온 뒤에 한다)
+            here = self.kin.fk(self._q())
+            up = self._line(self._q(), replace(here, z_mm=here.z_mm + self.cfg.approach_height_mm))
+            return self._run([up]) if up is not None else MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0))
         finally:
             self._restore_grip_torque()  # 예외가 나도 조임 한계를 원래 값으로
