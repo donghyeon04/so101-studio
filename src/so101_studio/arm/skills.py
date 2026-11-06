@@ -18,6 +18,7 @@ class Skills:
     def __init__(self, ctl, kin, cfg, ws, speed_pct: float | None = None):
         self.ctl, self.kin, self.cfg, self.ws = ctl, kin, cfg, ws
         self.speed = speed_pct if speed_pct is not None else cfg.speed_pct_default
+        self.opening_fallback_reason: str | None = None  # 마지막 _opening_path가 None이었던 이유
         self.last_place_correction_mm: tuple[float, float] | None = None  # 마지막 place가 손 xy를 옮긴 양
         self._grip_orig: int | None = None  # 조임 한계를 바꾸기 전 값(놓은 뒤 되돌린다)
         ctl.grip_warn_pct, ctl.grip_load_s, ctl.grip_open = cfg.gripper_load_warn_pct, cfg.gripper_load_s, cfg.gripper_open  # 그리퍼 부하 감시 (결정 0033)
@@ -174,6 +175,18 @@ class Skills:
                            f"(집는 높이를 올려도 닿는 높이가 {self.cfg.grasp_min_contact_mm:.0f}mm 아래로 줄어든다). 벌림을 키우거나 물체를 바꾼다")
         return t, None
 
+    def _needed_gap(self, obj: DetectedObject, tilt_ok: bool) -> float:
+        """폭 W와 높이 H를 알 때 설정 집는 높이로 위 모서리를 안 치는 가장 작은 벌림 G(W + gripper_margin_mm부터 2mm씩). 그 안에 없으면 최대 벌림 (결정 0042와 같은 식)."""
+        hi = self.cfg.grasp_max_open_mm
+        g = min(obj.width_mm + self.cfg.gripper_margin_mm, hi)
+        t0 = min(self.cfg.grasp_height_mm, obj.height_mm - self.cfg.grasp_min_contact_mm)  # 낮은 물체는 설정 높이보다 내려 집는다
+        while g < hi:
+            t, why = self._grasp_height(obj, g, self.gripper_for_width(g), tilt_ok)
+            if why is None and t <= t0 + 1e-9:  # 집는 높이를 올리지 않고도 지난다
+                return g
+            g += 2.0
+        return hi
+
     def pick(self, obj: DetectedObject) -> MotionResult:
         """고정 턱 1개 + 가동 턱 1개. URDF 기하(결정 0009, 0010, 0011): 기준점(gripper_frame)은 고정 턱 안쪽 면 위에 있고 가동 턱은 +m 쪽이다.
         (1) 틈을 최대로 벌리고(기본), 두 턱 끝의 중간점이 물체에 오도록 손 위치를 정해 내려간다(NVIDIA 포럼의 grasp_center 방식),
@@ -185,10 +198,12 @@ class Skills:
         m = (math.cos(math.radians(yaw)), math.sin(math.radians(yaw)))
         known = obj.width_mm > 0
         gap_min = min(mm for _, mm in self.cfg.gripper_width_mm)
+        tilt_ok = self._tilt_ok(obj, yaw)
         gap0 = self.cfg.grasp_max_open_mm if self.cfg.grasp_open_policy == "max" or not known else obj.width_mm + self.cfg.gripper_margin_mm
+        if known and obj.height_mm > 0 and self.cfg.grasp_open_policy == "max":
+            gap0 = self._needed_gap(obj, tilt_ok)  # 폭과 높이를 알면 필요한 만큼만 벌린다(최대 벌림은 턱 끝이 책상에 가장 가깝게 내려간다, REQ-036)
         gap_end = max(obj.width_mm - 10.0, gap_min) if known else gap_min  # 알면 폭보다 10mm 더 조이는 지점까지(접촉 감지에 필요한 명령 차이), 모르면 끝까지
         v0, v_end = self.gripper_for_width(gap0), self.gripper_for_width(gap_end)
-        tilt_ok = self._tilt_ok(obj, yaw)
         ox, oy = obj.x_mm + self.cfg.grasp_bias_mm * m[0], obj.y_mm + self.cfg.grasp_bias_mm * m[1]
         t, why = self._grasp_height(obj, gap0, v0, tilt_ok)
         if why:
@@ -242,6 +257,7 @@ class Skills:
         """놓을 때: 집을 때의 닫는 경로를 반대로(지금 값 -> gripper_open) 써서 두 턱 끝의 중간점이 제자리에 머물게 손을 같이 보낸다. 못 풀면 None."""
         q = self._q()
         v0, v1 = q.gripper, self.cfg.gripper_open
+        self.opening_fallback_reason = "gripper_already_open"  # None을 돌려주는 이유(아래에서 IK가 실패하면 바뀐다)
         if abs(v1 - v0) < 1.0:
             return None
         p = self.kin.fk(q)
@@ -251,7 +267,10 @@ class Skills:
         tip_z = p.z_mm + float(min(f[2], m[2]))
         pts = sorted((mm, v) for v, mm in self.cfg.gripper_width_mm)
         gap = lambda v: float(np.interp(v, [p_[1] for p_ in pts], [p_[0] for p_ in pts]))
-        return self._closing_path(q, center, p.yaw_deg, False, v0, v1, gap(v0), gap(v1), tip_z)
+        path = self._closing_path(q, center, p.yaw_deg, False, v0, v1, gap(v0), gap(v1), tip_z)
+        if path is None:
+            self.opening_fallback_reason = "ik_failed_along_opening_path"
+        return path
 
     def place(self, zone: str) -> MotionResult:
         z = self.ws.drop_zones[zone]
@@ -277,7 +296,10 @@ class Skills:
             return r
         try:
             self._restore_grip_torque()  # 놓는다: 예압 고정을 풀고 조임 한계를 원래 값으로(이후 닫는 일이 없다)
-            r = self._run([self._opening_path() or self._gripper(self.cfg.gripper_open)])  # 열리는 동안 손을 같이 보내 물체 위치를 지킨다
+            path = self._opening_path()  # 열리는 동안 손을 같이 보내 물체 위치를 지킨다
+            if path is None:  # 못 풀면 제자리에서 그냥 연다: 조용히 넘어가지 않고 이유를 남긴다 (REQ-036)
+                self.ctl._emit("opening_path_fallback", "WARN", "ARM-OPENING-PATH-FALLBACK", {"reason": self.opening_fallback_reason, "gripper": float(self._q().gripper)})
+            r = self._run([path or self._gripper(self.cfg.gripper_open)])
             if r.status != "ok":
                 return r
             # 열면서 손이 옆으로 옮겨졌으니 원래 하강 경로를 거꾸로 타면 낮은 높이에서 release 자리로 되돌아가며 물체를 민다: 지금 자리에서 수직으로 올린다.
