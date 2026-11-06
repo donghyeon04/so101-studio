@@ -45,6 +45,8 @@ def test_no_motion_command_turns_torque_on_while_locked(svc):
     assert svc.set_gripper(20.0).status == "locked"
     assert svc.home().status == "locked" and svc.park().status == "locked"
     assert svc.jog("joint", [1.0, 0, 0, 0, 0, 0]) is False
+    svc.set_sensor_offset({"x": 0.0, "y": 30.0, "z": 55.0})
+    assert svc.follow_path([(260.0, 200.0), (320.0, 200.0)], 55.0, 60.0) == [] and svc.last_path.status == "locked"
     with pytest.raises(Exception):  # noqa: B017 파일이 없거나 잠겨서 실패해도 되지만 토크는 켜지 않는다
         svc.replay("없는-교시")
     assert svc.driver.on_calls == 0, "잠긴 팔에 토크를 켰다"

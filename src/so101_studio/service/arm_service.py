@@ -414,7 +414,7 @@ class ArmService:
             self.last_path = MotionResult(fail, 0.0, ToolPose(0, 0, 0, 0), reason=reason)
             self._log("follow_path", {**info, "status": fail, "reason": reason})
             return []
-        self.driver.set_torque(True)
+        self.enable_torque()
         raw: list[tuple[int, JointState, int]] = []
         r = self._run(pre) if pre else MotionResult("ok", 0.0, ToolPose(0, 0, 0, 0))
         if r.status == "ok" and runs:
