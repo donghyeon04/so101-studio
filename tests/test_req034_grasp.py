@@ -148,7 +148,7 @@ def test_fit_judges_the_real_playback_with_tick_catch_up(tmp_path):
         _write(tmp_path, "t", rows, [i * 0.05 for i in range(11)])
         assert svc.record_info("t")["fit"]["fits_1x"] is False
         assert svc.record_info("t", speed=0.3)["fit"]["fits_1x"] is True  # 느리게 하면 2틱 따라잡기에도 5° 안(다듬기로 양 끝 표본 간격이 조금 커진 몫 포함)
-        q, t = svc.teach.load("t")
+        _q, t = svc.teach.load("t")
         from so101_studio.arm.teach import fit_times
 
         t_fit = fit_times(np.array(rows, float), t, *svc.teach._limits())
