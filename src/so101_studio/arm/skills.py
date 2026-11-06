@@ -1,15 +1,14 @@
 """기능: home, park, pick, place (arm-software-spec.md 6.6). 동작 계획은 MoveJ(관절 보간)와 MoveL(직선)의 조합이다."""
 import math
 import time
-from dataclasses import astuple, replace
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
 
-from ..core import frames
 from ..core.types import DetectedObject, JointState, MotionResult, ToolPose
-from .kinematics import FIXED_TIP, JAW_Q_DEG, JAW_TIP_A, JAW_TIP_B, VALUE_TO_Q
-from .trajectory import LineTrajectory, QuinticShape, cfg_move_j, cfg_move_l
+from .gripper import SingleJawGripper
+from .trajectory import cfg_move_j, cfg_move_l
 
 SEEDS = [JointState(0, -30, 30, 60, 0, 0), JointState(0, -60, 60, 30, 0, 0), JointState(0, 0, 60, 30, 0, 0)]
 
@@ -17,6 +16,7 @@ SEEDS = [JointState(0, -30, 30, 60, 0, 0), JointState(0, -60, 60, 30, 0, 0), Joi
 class Skills:
     def __init__(self, ctl, kin, cfg, ws, speed_pct: float | None = None):
         self.ctl, self.kin, self.cfg, self.ws = ctl, kin, cfg, ws
+        self.gripper = kin.gripper = SingleJawGripper(kin, cfg)  # 그리퍼 종류별 기하·보정·경로 지식은 arm/gripper.py (work-queue 5-3)
         self.speed = speed_pct if speed_pct is not None else cfg.speed_pct_default
         self.opening_fallback_reason: str | None = None  # 마지막 _opening_path가 None이었던 이유
         self.last_place_correction_mm: tuple[float, float] | None = None  # 마지막 place가 손 xy를 옮긴 양
@@ -73,10 +73,8 @@ class Skills:
         return cfg_move_l(self.cfg, self.kin, self.kin.fk(start_q), goal, start_q, self.speed)
 
     def gripper_for_width(self, width_mm: float) -> float:
-        """벌어진 폭(mm) -> 그리퍼 값. 대응표는 robot.yaml의 gripper_width_mm (T7에서 측정, 지금은 자리표시)."""
-        pts = sorted((mm, v) for v, mm in self.cfg.gripper_width_mm)
-        lo, hi = self.cfg.joint_limits_deg["gripper"]
-        return float(np.clip(np.interp(width_mm, [p[0] for p in pts], [p[1] for p in pts]), lo, hi))
+        """벌어진 폭(mm) -> 그리퍼 값. 대응표는 robot.yaml의 gripper_width_mm (T7에서 측정)."""
+        return self.gripper.width_to_value(width_mm)
 
     def home(self) -> MotionResult:
         return self._run([self._joint_move(JointState(*self.cfg.poses["home"]))])
@@ -98,33 +96,15 @@ class Skills:
 
     def _tilt_ok(self, obj: DetectedObject, yaw_t: float) -> bool:
         """턱 축이 팔이 뻗은 방향(방사 방향)과 거의 나란할 때만 기울일 수 있다."""
-        if self.cfg.grasp_tilt_deg <= 0:
-            return False
-        xr, yr = frames.table_to_robot(obj.x_mm, obj.y_mm, self.ws.base)
-        radial = math.degrees(math.atan2(yr, xr))
-        diff = (yaw_t - self.ws.base.yaw_deg - radial + 90.0) % 180.0 - 90.0  # 턱 축은 180° 대칭
-        return abs(diff) <= self.cfg.grasp_tilt_tol_deg
+        return self.gripper.tilt_allowed(obj.x_mm, obj.y_mm, yaw_t)
 
     def _tilt(self, v: float) -> float:
-        """그리퍼 값 v에서의 손 기울기(°).
-        symmetric(기본): 가동 턱이 벌어진 각도 θ의 절반 -> 두 턱이 수직에서 ±θ/2로 벌어져 사용자가 보기에 대칭인 V자(닫을수록 같이 서서 닫힌다).
-          두 턱 끝 높이가 달라지고(θ=80°면 약 30mm), 손목 한계 때문에 grasp_tilt_deg까지만 기울인다.
-        equal_tips: 두 턱 끝 높이가 같아지는 각도(약 23°), 거의 닫히면 0으로 줄인다."""
-        theta = VALUE_TO_Q[1] * v
-        if self.cfg.grasp_tilt_mode == "symmetric":
-            return min(self.cfg.grasp_tilt_deg, theta / 2)
-        q = VALUE_TO_Q[0] + VALUE_TO_Q[1] * v
-        a_m = float(np.interp(q, JAW_Q_DEG, JAW_TIP_A))
-        b_m = float(np.interp(q, JAW_Q_DEG, JAW_TIP_B))
-        eq = math.degrees(math.atan2(FIXED_TIP[1] - b_m, a_m - FIXED_TIP[0])) if a_m - FIXED_TIP[0] > 1.0 else 0.0
-        return min(self.cfg.grasp_tilt_deg, max(0.0, eq)) * min(1.0, v / 25.0)
+        """그리퍼 값 v에서의 손 기울기(°). 구현은 그리퍼에 있다."""
+        return self.gripper.tilt(v)
 
     def _hand_pose(self, ox: float, oy: float, yaw_t: float, v: float, tilt_ok: bool, tip_z: float, tilt_scale: float = 1.0) -> ToolPose:
         """두 턱 끝의 중간점이 (ox, oy)에 오고 낮은 턱 끝이 tip_z에 오는 손 자세(기준점 gripper_frame의 위치)."""
-        pitch = -90.0 - (self._tilt(v) * tilt_scale if tilt_ok else 0.0)
-        f, m = self.kin.jaw_tip_offsets(pitch, yaw_t, v)
-        mid = (f[:2] + m[:2]) / 2
-        return ToolPose(ox - mid[0], oy - mid[1], tip_z - min(f[2], m[2]), yaw_t, pitch)
+        return self.gripper.hand_pose(ox, oy, yaw_t, v, tilt_ok, tip_z, tilt_scale)
 
     def _close_until_contact(self, traj) -> tuple[bool, MotionResult]:
         """경로를 실행하다가 그리퍼가 명령보다 앞서 멈추면(물체에 닿음) 그 자리에서 정지한다."""
@@ -143,17 +123,9 @@ class Skills:
         return contact, r
 
     def _closing_path(self, q_start: JointState, obj, yaw_t: float, tilt_ok: bool, v0: float, v_end: float, gap0: float, gap_end: float, tip_z: float | None = None):
-        """닫으면서 손의 자세와 위치를 매 단계 다시 계산한 한 개의 경로: 두 턱 끝의 중간점이 물체 중심에 계속 머물고,
-        기울기는 닫히는 정도에 맞춰 풀린다(고정 턱은 +m 쪽으로, 가동 턱은 -m 쪽으로 같이 다가온다)."""
-        n = max(2, math.ceil(abs(v0 - v_end) / 1.5))
-        q, pts = q_start, [np.array(astuple(replace(q_start, gripper=v0)), float)]
-        for i in range(1, n + 1):
-            v = v0 + (v_end - v0) * i / n
-            q = self.kin.ik(self._hand_pose(obj.x_mm, obj.y_mm, yaw_t, v, tilt_ok, (self.cfg.table_z_mm + self.cfg.grasp_height_mm) if tip_z is None else tip_z), q, tol_mm=3.0)
-            if q is None:
-                return None
-            pts.append(np.array(astuple(replace(q, gripper=v)), float))
-        return LineTrajectory(np.array(pts), QuinticShape(max(1.0, abs(gap0 - gap_end) / 16.0) / self._gripper_speed()))  # 틈 16mm/s로 천천히(gripper_speed_pct로 더 늦춘다)
+        """닫으면서 두 턱 끝의 중간점이 물체 중심에 머물게 손을 같이 보내는 경로(열 때도 같은 경로). 구현은 그리퍼에 있다."""
+        tip_z = (self.cfg.table_z_mm + self.cfg.grasp_height_mm) if tip_z is None else tip_z
+        return self.gripper.closing_path(q_start, obj, yaw_t, tilt_ok, v0, v_end, gap0, gap_end, tip_z, self._gripper_speed())
 
     def _grasp_height(self, obj: DetectedObject, gap0: float, v0: float, tilt_ok: bool) -> tuple[float, str | None]:
         """집을 때 낮은 턱 끝의 작업대 면 위 높이 t와 거부 이유. 물체 높이를 모르면(height_mm 0)나 폭을 모르면 설정값.
@@ -162,8 +134,7 @@ class Skills:
         t, H, W = self.cfg.grasp_height_mm, obj.height_mm, obj.width_mm
         if H <= 0 or W <= 0:
             return t, None
-        tau = self._tilt(v0) if tilt_ok else 0.0
-        s = math.tan(math.radians(tau)) + math.tan(math.radians(VALUE_TO_Q[1] * v0 - tau))
+        s = self.gripper.narrowing(v0, tilt_ok)
         t = min(t, H - self.cfg.grasp_min_contact_mm)  # 낮은 물체는 턱 끝을 그만큼 내려 물체에 닿게
         if t < self.cfg.tip_floor_mm:
             return t, f"object_too_low: 높이 {H:.0f}mm 물체는 턱이 {self.cfg.grasp_min_contact_mm:.0f}mm 이상 닿게 집을 수 없다(턱 끝 최소 높이 {self.cfg.tip_floor_mm:.0f}mm)"
