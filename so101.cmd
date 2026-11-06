@@ -4,7 +4,7 @@ rem Env name: SO101_ENV (default so101). Or give the env folder directly with SO
 setlocal
 if not defined SO101_ENV set "SO101_ENV=so101"
 if not defined SO101_ENV_DIR (
-  for %%R in ("%USERPROFILE%\miniforge3" "%USERPROFILE%\miniconda3" "%USERPROFILE%\anaconda3" "%LOCALAPPDATA%\miniforge3" "%ProgramData%\miniforge3" "%ProgramData%\miniconda3") do (
+  for %%R in ("C:\so101-tools\miniforge3" "C:\miniforge3" "%USERPROFILE%\miniforge3" "%USERPROFILE%\miniconda3" "%USERPROFILE%\anaconda3" "%LOCALAPPDATA%\miniforge3" "%ProgramData%\miniforge3" "%ProgramData%\miniconda3") do (
     if not defined SO101_ENV_DIR if exist "%%~R\envs\%SO101_ENV%\python.exe" set "SO101_ENV_DIR=%%~R\envs\%SO101_ENV%"
   )
 )
