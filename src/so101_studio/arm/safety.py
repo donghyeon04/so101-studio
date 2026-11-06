@@ -137,7 +137,13 @@ class HealthMonitor:
         self._over_current = 0
         self._hot: dict[str, int] = {}
         self._over_since: dict[str, float] = {}
-        self._comm_down_since: float | None = None
+        self._down: dict[str, float | None] = {"read": None, "write": None}  # 끊김 시계는 읽기와 쓰기를 따로 센다: 쓰기가 성공해도 읽기 실패 시계를 지우지 못한다
+        self._last_ok: dict[str, float | None] = {"read": None, "write": None}
+
+    @property
+    def _comm_down_since(self) -> float | None:
+        """가장 먼저 시작된 끊김 시각(없으면 None)."""
+        return min((v for v in self._down.values() if v is not None), default=None)
 
     def update_health(self, health: dict, now: float) -> str | None:
         for m, t in health["temperature_c"].items():
@@ -154,13 +160,21 @@ class HealthMonitor:
                 return f"overload:{m}"
         return None
 
-    def comm_ok(self, now: float | None = None) -> None:
-        self._comm_down_since = None
-        self._last_ok = now
+    def comm_ok(self, now: float | None = None, kind: str | None = None) -> None:
+        """통신이 됐다. kind가 "read"나 "write"면 그 시계만 지우고, 없으면 둘 다 지운다. 이동 중 제어 틱의 쓰기 성공은 "write"만 지운다:
+        서보가 쓰기는 받는데 읽기가 안 되는 상태를 놓치지 않으려는 것이다 (REQ-032)."""
+        for k in ((kind,) if kind else ("read", "write")):
+            self._down[k] = None
+            self._last_ok[k] = now
 
-    def comm_failed(self, now: float) -> str | None:
-        """끊김 시간은 마지막으로 통신이 된 시각부터 잰다(처음 실패를 본 시각이 아니라): 읽기가 드문 정지 중에도 끊긴 뒤 0.5초쯤에 fault가 난다."""
-        if self._comm_down_since is None:
-            lo = getattr(self, "_last_ok", None)
-            self._comm_down_since = lo if lo is not None and 0 <= now - lo < self.comm_s * 2 else now
-        return "comm_lost" if now - self._comm_down_since >= self.comm_s else None
+    def comm_failed(self, now: float, kind: str = "read") -> str | None:
+        """끊김 시간은 마지막으로 통신이 된 시각부터 잰다(처음 실패를 본 시각이 아니라): 읽기가 드문 정지 중에도 끊긴 뒤 0.5초쯤에 fault가 난다.
+        읽기와 쓰기 중 어느 쪽이든 comm_s 넘게 이어지면 comm_lost."""
+        if self._down[kind] is None:
+            lo = self._last_ok[kind]
+            self._down[kind] = lo if lo is not None and 0 <= now - lo < self.comm_s * 2 else now
+        return self.comm_lost(now)
+
+    def comm_lost(self, now: float) -> str | None:
+        """새 실패를 알리지 않고, 이미 시작된 끊김이 comm_s를 넘었는지만 본다."""
+        return "comm_lost" if any(now - v >= self.comm_s for v in self._down.values() if v is not None) else None
