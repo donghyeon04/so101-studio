@@ -295,6 +295,25 @@ def page(backend, client_id: str, actions) -> None:
     ui.timer(0.25, redraw)
 
 
+def mini_view(backend) -> None:
+    """작업 공간용 작은 화면: 레이더 부채꼴, 후보, 확인 경로, 결과(gui-spec 3절).
+    shortcut: 지금은 가상 실행(Demo)의 기록을 그린다, REQ-025가 합쳐지면 Studio.bus를 구독한 기록으로 바꾼다."""
+    log, cfg, ws = demo_of(backend).log, load_config(), backend.arm.ws
+    table = ws.table_mm
+    image = ui.interactive_image(size=(table["x"], table["y"]), sanitize=False).classes("w-full plane").mark("us-mini")
+    seen: list = [None]
+
+    def redraw() -> None:
+        snap = log.snapshot()
+        if snap["version"] == seen[0]:
+            return
+        seen[0] = snap["version"]
+        image.content = plane_svg(table, [], ws.drop_zones, ws.base, ws.reach_mm) + radar_overlay(cfg, snap, table["y"], cfg.check.hit_mm)
+
+    redraw()
+    ui.timer(0.5, redraw)
+
+
 from . import register
 
-register("ultrasonic", "초음파", "/ultrasonic", page)
+register("ultrasonic", "초음파", "/ultrasonic", page, mini_view)
