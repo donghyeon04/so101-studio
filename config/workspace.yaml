@@ -1,6 +1,6 @@
 table_mm: {x: 600, y: 400}
 robot_base_in_table: {x_mm: 300, y_mm: 50, yaw_deg: 90}   # 배치 확정 후 수정
 drop_zones:
-  right: {x_mm: 404, y_mm: 281}
+  right: {x_mm: 500, y_mm: 150}
 safety_margin_mm: 10
 reach_mm: {min: 90, max: 250}   # 로봇 원점에서 수직 하강으로 닿는 반경 (measurements.md T6 사전 조사). 도달 밖 물체는 작업에서 제외
