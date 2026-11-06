@@ -116,7 +116,7 @@ class ArmService:
             self._log("locked", {"reason": self.ctl.locked_reason})
         self._torque_on = False  # jog가 토크를 켠 뒤 true. 교시로 토크를 끄면 다시 false (REQ-012)
         self._stop_status.clear()
-        self._log("connect", {"port": port or self.cfg.port, **getattr(self.driver, "connect_info", {})})
+        self._log("connect", {"port": "sim" if getattr(self.driver, "simulated", False) else port or self.cfg.port, **getattr(self.driver, "connect_info", {})})  # 시뮬레이션이면 실제 포트처럼 보이지 않게
         self._write_status(self.status())  # 연결하자마자 첫 줄: 연결 뒤 상태가 비지 않게
         self._status_thread = threading.Thread(target=self._status_loop, daemon=True)
         self._status_thread.start()

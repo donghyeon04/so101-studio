@@ -178,3 +178,15 @@ def test_load_probe_is_silent_while_comm_is_lost(svc):
         svc._probe("status_loop_error")
         svc._probe_t = -1e9
     assert reads == []
+
+
+def test_connect_event_says_sim_for_the_simulator(tmp_path):
+    import json
+
+    s = ArmService(SimDriver(CFG.poses["home"]), CFG, WS, speed_pct=100, log_root=str(tmp_path))
+    assert s.connect()[0]
+    try:
+        rows = [json.loads(ln) for ln in (s.logger.dir / "events.jsonl").read_text(encoding="utf-8").splitlines() if ln.strip()]
+        assert next(r for r in rows if r["kind"] == "connect")["data"]["port"] == "sim"  # COM3처럼 실제 포트로 보이지 않는다
+    finally:
+        s.disconnect()
