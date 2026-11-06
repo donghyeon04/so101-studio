@@ -1,4 +1,5 @@
 import math
+from pathlib import Path
 
 import pytest
 
@@ -360,3 +361,29 @@ def test_connect_retries_hello_while_esp32_boots(tmp_path):
     with pytest.raises(UltrasonicLinkError, match="hello"):
         dead.connect()
     assert 4.5e9 <= clk2.t_ns <= 6e9  # 약 5초 시도
+
+
+def test_wait_pose_follows_radar_clear_in_robot_yaml(tmp_path):
+    """결정 0039: 벤치마크 대기 자세는 robot.yaml의 poses.radar_clear다. 값이 바뀌면 대기 자세도 바뀌고, 키가 없으면 팔 원점 위 150mm."""
+    import yaml
+
+    from so101_studio.perception.ultrasonic.benchmark import FakeArm, radar_clear_pose
+    from so101_studio.perception.ultrasonic.fake_esp32 import SimClock
+    from so101_studio.perception.ultrasonic.model import load_config
+
+    def robot_yaml(name, joints):
+        d = tmp_path / name
+        d.mkdir()
+        cfg = yaml.safe_load(Path("config/robot.yaml").read_text(encoding="utf-8"))
+        cfg["poses"] = {**cfg["poses"], **({"radar_clear": joints} if joints else {})}
+        (d / "robot.yaml").write_text(yaml.safe_dump(cfg), encoding="utf-8")
+        return str(d / "robot.yaml")
+
+    assert radar_clear_pose(robot_yaml("none", None)) is None
+    a = radar_clear_pose(robot_yaml("a", [0, -90, 93, 0, 0, 3]))
+    b = radar_clear_pose(robot_yaml("b", [30, -60, 60, 0, 0, 3]))
+    assert a != b
+    arm = FakeArm(SimClock(), load_config(), (300, 50), wait_pose=b)
+    assert arm.wait_pose == b
+    default = FakeArm(SimClock(), load_config(), (300, 50))
+    assert default.wait_pose == (radar_clear_pose() or ((300, 50), 150.0))
