@@ -9,7 +9,7 @@ import numpy as np
 
 from ..core.types import JointState, MotionResult, ToolPose
 from .driver import JOINTS
-from .motion import MAX_TICK_ADVANCE
+from .motion import STEP_MARGIN
 from .trajectory import SequenceTrajectory, cfg_move_j
 
 MAX_SPEED_DEG_S = 220.0  # 구간별 속도 배율을 적용한 뒤에도 이 속도를 넘으면 거부한다(한 주기 이동량 한계 5° = 250°/s 안)
@@ -164,9 +164,9 @@ class Teach:
         return analyze(q, t, self.cfg.seg_pause_deg_s, self.cfg.seg_fast_deg_s, self.cfg.seg_min_s)
 
     def _limits(self) -> tuple[float, float]:
-        """변환 재생의 속도(°/s)·가속(°/s²) 한도. 속도는 틱이 늦어 궤적 시간이 한 틱에 최대 MAX_TICK_ADVANCE 주기만큼 진행하는 경우(따라잡기)에도
-        한 주기 이동량 한계(안전 검사)의 95% 안이 되게 잡는다: 평소 틱 간격 기준(한계/주기)으로 잡으면 0.75배 213°/s 재생이 틱이 23ms만 늦어도 step fault였다 (실물 2026-11-06)."""
-        return 0.95 * self.ctl.safety.max_step_deg / (MAX_TICK_ADVANCE * self.ctl.dt), self.cfg.replay_a_max_deg_s2
+        """변환 재생의 속도(°/s)·가속(°/s²) 한도: 한 주기 이동량 한계(안전 검사)의 95%와 설정 replay_a_max_deg_s2.
+        틱이 늦어도 컨트롤러가 한 주기 이동량 한도 안으로만 따라잡으므로(step fault 대신 동작이 늦어짐) 평소 틱 기준으로 잡는다."""
+        return STEP_MARGIN * self.ctl.safety.max_step_deg / self.ctl.dt, self.cfg.replay_a_max_deg_s2
 
     def fit_report(self, q: np.ndarray, t: np.ndarray) -> dict:
         """이 시각(t)대로 재생하면 한도 안인지(fits_1x), 변환하면 몇 군데를 얼마나 늘리는지. q는 재생에 쓰는 다듬은 자세."""

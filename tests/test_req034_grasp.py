@@ -133,26 +133,17 @@ def test_reload_workspace_updates_skills_safety_kinematics_and_rejects_while_mov
     assert svc.ws is ws  # 못 읽으면 그대로
 
 
-def test_fit_judges_the_real_playback_with_tick_catch_up(tmp_path):
-    """표본 사이 213°/s는 한 주기 이동량(250°/s) 안이지만, 틱이 늦어 궤적 시간이 2틱 진행하면 5°를 넘는다(실물 step fault). 그 한도로 판정한다."""
-    import numpy as np
-
-    from so101_studio.arm.motion import MAX_TICK_ADVANCE
-
+def test_fit_limit_is_the_per_tick_step_limit(tmp_path):
+    """fit·fitted의 속도 한도는 한 주기 이동량 한계의 95% (약 237°/s). 틱이 늦어도 컨트롤러가 그 안으로만 따라잡는다(test_motion)."""
     svc = ArmService(SimDriver(CFG.poses["home"]), CFG, WS, speed_pct=100, log_root=str(tmp_path / "runs"))
     assert svc.connect()[0]
     try:
         svc.teach.dir = tmp_path
-        svc.cfg.replay_a_max_deg_s2 = 1e9  # 속도 한도만 본다(일정 속도로 시작하는 이 기록은 가속이 무한대)
-        rows = [[i * 10.65, -90, 93, 0, 0, 3] for i in range(11)]  # 20Hz, 표본마다 10.65° = 213°/s
-        _write(tmp_path, "t", rows, [i * 0.05 for i in range(11)])
-        assert svc.record_info("t")["fit"]["fits_1x"] is False
-        assert svc.record_info("t", speed=0.3)["fit"]["fits_1x"] is True  # 느리게 하면 2틱 따라잡기에도 5° 안(다듬기로 양 끝 표본 간격이 조금 커진 몫 포함)
-        _q, t = svc.teach.load("t")
-        from so101_studio.arm.teach import fit_times
-
-        t_fit = fit_times(np.array(rows, float), t, *svc.teach._limits())
-        worst = (np.abs(np.diff(np.array(rows, float)[:, 0])) / np.diff(t_fit)).max() * MAX_TICK_ADVANCE * svc.ctl.dt
-        assert worst <= svc.ctl.safety.max_step_deg  # 변환본은 따라잡기에도 한 주기 이동량 안
+        svc.cfg.replay_a_max_deg_s2 = 1e9  # 속도 한도만 본다(일정 속도로 시작하는 기록은 가속이 무한대)
+        for name, step in (("v213", 10.65), ("v300", 15.0)):  # 20Hz 표본마다 step도
+            _write(tmp_path, name, [[i * step, -90, 93, 0, 0, 3] for i in range(11)], [i * 0.05 for i in range(11)])
+        assert svc.teach._limits()[0] == pytest.approx(0.95 * 5.0 / svc.ctl.dt)
+        assert svc.record_info("v213", speed=0.5)["fit"]["fits_1x"] is True
+        assert svc.record_info("v300", speed=1.0)["fit"]["fits_1x"] is False
     finally:
         svc.disconnect()
