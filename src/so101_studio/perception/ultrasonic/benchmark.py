@@ -17,9 +17,10 @@ from bisect import bisect_right
 from pathlib import Path
 
 from ...core.config import load_workspace
+from ..base import PoseSample
 from .fake_esp32 import FakeESP32, SimClock
 from .link import Link
-from .model import Box, PoseSample, load_config
+from .model import Box, load_config
 from .source import UltrasonicSource
 
 DT = 0.02  # 팔 50Hz
