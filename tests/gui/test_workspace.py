@@ -81,7 +81,7 @@ def test_registry_has_manual_page_and_pending_sensors():
     assert [path for path, _, _ in sensors.menu()] == ["/ultrasonic", "/camera", "/input"]
     assert {"/input", "/ultrasonic"} <= set(sensors.pages())
     assert sensors.pending_titles() == ["카메라"]
-    assert [v.name for v in sensors.mini_views()] == ["manual"]
+    assert [v.name for v in sensors.mini_views()] == ["ultrasonic", "manual"]
 
 
 def test_plane_flips_y_and_marks_selection():

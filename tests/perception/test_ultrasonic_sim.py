@@ -387,3 +387,31 @@ def test_wait_pose_follows_radar_clear_in_robot_yaml(tmp_path):
     assert arm.wait_pose == b
     default = FakeArm(SimClock(), load_config(), (300, 50))
     assert default.wait_pose == (radar_clear_pose() or ((300, 50), 150.0))
+
+
+def test_run_cycle_goes_to_wait_pose_only_first_and_after_failed_pick(tmp_path, monkeypatch):
+    """결정 0041·기획 #107: radar_clear는 첫 사이클(첫 scan 전), RESCAN, 집기 실패 뒤에만 간다. PLACE 뒤에는 안 간다."""
+    from types import SimpleNamespace
+
+    from so101_studio.perception.ultrasonic import benchmark as bm
+
+    wait = ((300.0, 95.0), 320.0)
+
+    def waits(rescan_home, fail_pick):
+        cfg, clk, esp, arm = build([Box(300, 170, 0)], arm_kw={"wait_pose": wait})
+        src = make_source(cfg, clk, esp, arm, tmp_path)
+        moves, move = [], arm.move
+        arm.move = lambda to, z, speed=None: (moves.append(tuple(to)), move(to, z, speed))[1]
+        if fail_pick:  # 확인 결과가 실제 물체에서 100mm 벗어나 집기 실패(miss)
+            real = bm.do_check
+            monkeypatch.setattr(bm, "do_check", lambda s, a, c: (SimpleNamespace(x_mm=c.x_mm + 100, y_mm=c.y_mm, id="x", angle_deg=0), *real(s, a, c)[1:]))
+        bm.run_cycle(src, arm, esp, rescan_home=rescan_home)
+        monkeypatch.undo()
+        return moves.count(wait[0]), moves
+
+    n, _ = waits(False, False)
+    assert n == 1  # 첫 scan 전만. 집기 성공 뒤 PLACE에서는 안 간다
+    n, _ = waits(True, False)
+    assert n == 2  # 첫 scan 전 + 후보가 없을 때의 RESCAN
+    n, moves = waits(False, True)
+    assert n >= 2 and (500.0, 150.0) not in moves  # 첫 scan 전 + 집기 실패마다(같은 자리 두 번째 실패면 3), 놓으러 가지 않는다
