@@ -51,6 +51,7 @@ def test_check_position_and_angle(tmp_path, ang):
     assert angle_ok(obj.angle_deg, ang)
     assert abs(obj.length_mm - 100) < 15 and abs(obj.width_mm - 30) < 15
     assert probe.info["h_mm"] == pytest.approx(40, abs=5)
+    assert obj.height_mm == probe.info["h_mm"]  # REQ-035: 확인 결과가 실측 높이를 담는다
 
 
 def test_ghost_candidate_is_removed(tmp_path):
