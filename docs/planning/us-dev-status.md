@@ -35,9 +35,11 @@
 2. 전체 `pytest`는 약 17분, 초음파만 `python -m pytest -q tests/perception`은 약 6초. 벤치마크(`python -m so101_studio.perception.ultrasonic.benchmark --seeds 20`)는 한 번에 약 1~2분이고 결과 JSON은 `runs/bench/`(git 제외)라 새 PC에 안 온다. 공식 표는 PR #68 댓글에 있다.
 3. 벤치마크의 사이클은 작업 실행을 흉내 낸 것이다: 후보가 없으면 팔을 "원점 위 150mm"(PREPARE 자세 흉내)로 옮겨 RESCAN, 집은 뒤 PLACE 시작에 prefetch, 확인한 자리에 물체가 없으면 `note_failure`. 실제 작업 실행(REQ-025)과 다르면 고친다.
 4. `model.py`의 REQ-023 임시 타입(PathSegment, PoseSample, CheckProbe, CheckableSource)은 #73이 `perception/base.py`에 같은 타입을 넣었으니 지우고 거기서 가져오는 후속이 남아 있다(아직 안 함).
-5. 사람 몫 가정: 확인 직선 180mm, 도달 clip 60~255mm, 모서리 가정(위), PREPARE 자세, 시간 기준 평균 70초(임시). 실측(B1·B2·B4, A0, A1)이 나오면 벤치마크 모델 값(`MODELS`)을 실측으로 고친다(결정 0037).
+5. 사람 몫 가정: 확인 직선 180mm, 도달 clip 60~255mm, PREPARE 자세, 시간 기준 평균 70초(임시). 실측(B1·B2·B4, A0, A1)이 나오면 벤치마크 모델 값(`MODELS`)을 실측으로 고친다(결정 0037).
 6. git에 없는 것: `config/ultrasonic_baseline.json`(레이더 기준값, 지금은 없음, 첫 `calibrate()`가 만든다), `config/local.yaml`, arduino-cli(이 PC `C:\Users\c\tools\arduino-cli-dl\`, 새 PC는 Arduino IDE 2 + ESP32 보드 패키지 3.x를 쓴다).
 7. 서보는 부팅·포트 열기마다 90°로 움직인다. 서보를 달 때 손을 대지 않고 회전 범위를 비운다.
+8. 사용자 폴더 이름이 한글이면(`C:\Users\김동현`) 기본 Arduino15 경로에서 ESP32 링크가 `cannot find -lcxx`로 실패한다. `C:\arduino15`에 core를 새로 설치하고 `ARDUINO_DIRECTORIES_DATA=C:\arduino15`, `ARDUINO_DIRECTORIES_USER=C:\arduino15\user`를 준 뒤 `arduino-cli compile --fqbn esp32:esp32:esp32 --build-path C:\tmp\fw firmware/esp32_scanner`로 컴파일한다(2026-11-06 이 PC에서 성공).
+9. 벤치마크 가상 팔은 `arm/trajectory.py`의 `fillet_path`·`LookaheadShape`를 import해 쓴다(#73 규칙, 모서리 2.5mm). 벤치마크 도구만의 예외이고 source·check·radar는 팔을 import하지 않는다. 시험 `test_fake_arm_matches_real_arm_times`가 `--sim` 실측 시간(L1 2.98, 원 5.29, 90° 3.94, 135° 5.42, L3+L4 8.39, 180° 3.88초, ±0.05)에 고정한다.
 8. PR 열기: `gh`가 없어 내장 브라우저로 `compare/main...<브랜치>?quick_pull=1`을 열고, 제목·본문을 넣은 뒤 `form.requestSubmit()`으로 낸다(Comment·Create 버튼이 안 눌리면 입력 이벤트 뒤 1.5초 기다린 다음 누른다).
 9. 규칙: 질문·승인은 총괄에게 `SendMessage`로, 자기 `dev/` 브랜치 커밋·푸시·PR은 묻지 않고 한다(session-workflow 7절).
 

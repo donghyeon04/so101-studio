@@ -5,7 +5,8 @@ import math
 import statistics
 
 from ...core.types import DetectedObject
-from .model import PathSegment, beam_radius
+from ..base import PathSegment
+from .model import beam_radius
 
 UNREACHABLE = object()  # 제너레이터에 보내는 표시: 그 구간을 팔이 못 갔다
 
