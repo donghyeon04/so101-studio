@@ -212,3 +212,11 @@ def test_resume_button_appears_only_when_stopped(backend):
 def test_jog_joint_table_matches_jointstate_order(backend):
     names = [f.name for f in fields(backend.arm.status().joints)]
     assert list(JOG_JOINTS) == names[:5]
+
+
+def test_joint_to_moves_one_joint_to_the_typed_angle(backend):
+    """결정 0042 7번: 관절 하나를 입력한 각도로."""
+    backend.set_speed(100)
+    assert backend.joint_to(JOG_JOINTS.index("wrist_roll"), 20.0) is None
+    assert abs(backend.arm.status().joints.wrist_roll - 20.0) < 1.0
+    assert backend.joint_to(JOG_JOINTS.index("wrist_roll"), 0.0) is None

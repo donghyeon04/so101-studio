@@ -78,6 +78,19 @@ def build(backend, client_id: str, actions) -> None:
                     with ui.tab_panel(joint_tab).classes("p-0 gap-1"):
                         for i, name in enumerate(JOG_JOINTS):
                             _jog_row(backend, JOINT_TEXT[name], ("joint", i), "°", held, step, control, guarded)
+                        with ui.row().classes("w-full no-wrap items-center gap-1 mt-2"):
+                            target_joint = control(ui.select({i: JOINT_TEXT[n] for i, n in enumerate(JOG_JOINTS)}, value=0)
+                                                   .props("outlined dense").classes("flex-1").mark("joint-to-name"))
+                            target_deg = control(ui.number("각도 (°)", value=0, step=1, format="%.1f").props("outlined dense").classes("w-24").mark("joint-to-deg"))
+
+                            async def joint_to() -> None:
+                                if target_deg.value is None:
+                                    return
+                                reason = await run.io_bound(backend.joint_to, int(target_joint.value), float(target_deg.value))
+                                if reason:
+                                    ui.notify(reason, type="negative")
+
+                            control(ui.button("이동", on_click=guarded(joint_to)).props("outline no-caps").mark("joint-to"))
                     with ui.tab_panel(cart_tab).classes("p-0 gap-1"):
                         for i, name in enumerate(CART_AXES):
                             unit = "°" if name == "yaw" else "mm"
