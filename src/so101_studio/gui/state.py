@@ -11,10 +11,11 @@ PAGE_STATE = {"idle": "대기", "moving": "실행 중", "teleop": "실행 중", 
 SAFETY_TEXT = {"normal": "보통", "free": "자유", "off": "끔"}
 TASK_TEXT = {
     "IDLE": "대기", "PREPARE": "준비", "SCAN": "스캔", "DECIDE": "판단", "PICK": "집기", "PLACE": "놓기",
+    "CHECK": "확인", "RESCAN": "다시 스캔",
     "DONE": "완료", "STOPPED": "정지", "FAULT": "오류",
 }
 PROGRESS = ("준비", "스캔", "판단", "집기", "놓기", "다시 스캔")
-_PROGRESS_INDEX = {"PREPARE": 0, "SCAN": 1, "DECIDE": 2, "PICK": 3, "PLACE": 4}
+_PROGRESS_INDEX = {"PREPARE": 0, "SCAN": 1, "DECIDE": 2, "CHECK": 2, "PICK": 3, "PLACE": 4, "RESCAN": 5}  # 초음파 확인(CHECK)은 판단 칸에 둔다
 
 
 def progress_index(task_state: str, placed: int) -> int | None:

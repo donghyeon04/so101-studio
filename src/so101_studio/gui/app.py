@@ -174,7 +174,7 @@ def make_root(backend: Backend):
 
         with ui.header().classes("frame-bar frame-top items-center gap-6 px-3 py-1"):
             ui.button(icon="menu", on_click=drawer.toggle).props("flat round color=dark aria-label=메뉴").mark("menu")
-            ui.label("SO-101 Studio").classes("text-lg font-semibold")
+            ui.link("SO-101 Studio", "/").classes("text-lg font-semibold no-underline text-inherit").props('aria-label="첫 페이지로"').mark("brand")
             stats["팔"] = _stat("팔")
             with ui.row().classes("items-center gap-1 no-wrap"):
                 watch_icon = ui.icon("remove_circle_outline", size="20px").mark("watch-icon")

@@ -180,3 +180,14 @@ def test_main_binds_localhost_and_connects_the_real_arm_without_sim(monkeypatch)
     monkeypatch.setattr(gui_app, "list_serial_ports", lambda: [{**board, "serial": "OTHER"}])  # 다른 보드로 추측해 연결하지 않는다
     with pytest.raises(SystemExit, match="안 보인다"):
         gui_app.main(argparse.Namespace(sim=False))
+
+
+def test_brand_goes_to_first_page(backend):
+    async def go():
+        async with user_simulation(gui_app.make_root(backend)) as user:
+            await user.open("/logs")
+            await user.should_see(marker="page-title", content="로그")
+            user.find(marker="brand").click()
+            await user.should_see(marker="page-title", content="작업 공간")
+
+    asyncio.run(go())
