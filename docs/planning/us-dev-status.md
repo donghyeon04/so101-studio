@@ -1,65 +1,52 @@
 # 초음파 세션 현황
 
-상태: 초안 · 2026-11-06 (인수인계 포함)
+상태: 초안 · 2026-11-07 (인수인계 갱신)
 
-## 인수인계 (2026-11-06, 새 계정·새 PC로 옮기기 전)
-**이번 기간 마무리 (2026-11-06, 사용자 결정: 할당량 때문에 멈춤)**
-- 합친 것: #96(벤치마크 가상 팔 = 팔 코드 `fillet_path`·`LookaheadShape`, 시간 63→86초대), #97(`model.py` 임시 타입 정리), #101(벤치마크 대기 자세를 `poses.radar_clear`에서 읽기), #106(벤치마크 사이클 PREPARE: radar_clear는 첫 scan 전·RESCAN·집기 실패 뒤에만, PLACE 뒤는 안 감).
-- 다음 기간으로 넘김: ESP32·서보가 준비되지 않아 초음파 실물 시험(B1~B3, 업로드)과 GUI 연결은 안 했다.
-- **공식 표는 REQ-025가 합쳐진 뒤 main 값(`poses.radar_clear` 포함)으로 다시 낸다.** 지금 표(716a144)와 #106 비교는 `radar_clear` 키가 main에 없어 robot.yaml 복사본(`[0, -90, 85, -90, 0, 3]`)으로 돌린 값이다. 비교가 ±5%p 근처면 씨앗 60개로 다시 본다(#106 비관 72%는 60씨앗에서 84%였다).
-- 한글 사용자 폴더(`C:\Users\김동현`): 펌웨어 링크가 실패한다. 아래 "알려진 함정" 8번의 우회(`ARDUINO_DIRECTORIES_DATA/USER=C:\arduino15`)로 컴파일한다.
-- **열린 조사: 확인 경로가 `ik_fail`(unreachable)이 되는 곳** (코드 변경 없이 중간까지만 했다, 스크래치 스크립트는 레포에 없다)
-  - 팔 세션 재현(`--sim`, REQ-025 브랜치): 가상 물체 (161,148), 레이더 후보 (170,156)(팔 원점 (300,50) 기준 방위 약 145°). 확인 구간 L1 (110.4,156.3)→(290.4,156.3), L2 (200.4,66.3)→(200.4,246.3), GRID (150.4,106.3)→(150.4,206.3), yaw 90°가 모두 `follow_path` `ik_fail`. 오른쪽 같은 반경 물체는 ok. 팔 세션 추측: 왼쪽 먼 곳에서 yaw 90° 고정이 손목 한계에 걸림.
-  - 지금까지 나온 것(추측과 다르다, 팔 기구학 `Kinematics.ik`·`ArmService._plan_path`를 sim으로 직접 호출한 값, 점 하나 판정은 `ik` 성공+관절 한계):
-    1. 점 하나 도달은 방위 0~180°에서 거의 같은 반경 띠다(작업대 위 55mm, 손끝 수직): yaw 90 기준 반경 약 46~262mm(방위별 ±8mm), yaw 0·45·135·후보 방향(`yaw = 방위`)도 46~278mm 안에서 방위별로 조금씩 달라질 뿐 **왼쪽에 구멍은 없다**. yaw 0은 방위 180° 근처에서 안 풀린다. 위 재현 좌표 9곳(끝점·후보)은 yaw 90·0·45·135 모두 점 단위로는 풀린다.
-    2. **접근 호버가 경로 첫 점보다 40mm 높다**(`approach_height_mm` 40). `plan_goto`는 직선 접근이 안 되면 첫 점 위 z+40으로 간 뒤 내려오는데, 그 높이(작업대 위 95mm)의 도달 띠는 반경 약 76~238mm로 좁다(방위 20~160° 모두). 그래서 `check.tool_reach_mm`(60~255)로 자른 첫 점이 반경 약 236 넘거나 78 아래이면 `ik_fail`이다. 경로 방향이 바뀌면(시작 끝점) 같은 직선이 되기도 안 되기도 한다.
-    3. **radar_clear(손목을 위로 세운 자세, pitch 약 95°)에서 출발하면** `plan_goto`의 호버 IK가 시드를 현재 관절 하나만 써서 거의 다 실패한다: 방위 20~160°×반경 100~240 격자(120곳, L1+L2 둘 다 풀려야 ok, 반경 60~255로 자름)에서 home 출발 약 48곳, radar_clear 출발 약 8곳, radar_clear 출발에 `Skills._ik`처럼 시드 여러 개(홈 + `SEEDS`)로 호버를 풀게 하면 약 42곳. 왼쪽·오른쪽 모두 같다. 즉 재현의 원인 후보 1순위는 yaw·왼쪽이 아니라 **radar_clear 출발 + 단일 시드 호버 IK**다. 팔 세션 재현이 radar_clear에서 출발했는지 확인해야 한다.
-    4. 임시 코드로 벤치마크 `follow_path`가 첫 점 반경 78~236 밖이면 거부하게 하면(호버 띠 근사) demo 60씨앗 성공이 낙관 98→79%, 비관 87→67%, 시간 84→66초로 떨어진다(실패가 빨리 끝나서 시간이 준다). 레포에는 넣지 않았다.
-  - **남은 질문 3개** (총괄이 기획 결정으로 올릴 것)
-    1. 기구학 도달 영역: 위 2번(호버 띠)과 3번(출발 자세)을 팔 세션이 실제 `--sim`에서 확인하고, 고칠 곳을 정한다(`approach_height_mm` 낮춤, `plan_goto` 시드 다중화, 아니면 `check.tool_reach_mm`를 호버 띠 78~236으로 좁힘). `check.tool_reach_mm`는 초음파 영역(`config/ultrasonic.yaml`)이지만 `plan_goto`·`approach_height_mm`는 팔 영역이다.
-    2. 시나리오 영향: 벤치마크 `FakeArm.reachable`을 반경(50~265)만 보지 말고 첫 점 호버 띠(약 76~238)를 보게 바꾸고, 4개 시나리오(demo, spread90, spread120, single)에서 영역 밖 물체 비율과 성공 %를 다시 낸다. demo만 위 4번처럼 대략 쟀다.
-    3. yaw 고르기: 점 단위 도달 띠는 yaw를 바꿔도 ±16mm 안이라 yaw를 후보 방향(`yaw = 방위`)에 맞춰도 영역이 거의 안 넓어진다. 경로 단위(출발 자세·호버 포함)로 yaw 0·45·90·135·후보 방향을 비교한 값은 home 출발 120곳 중 46~56곳으로 서로 ±5곳 안이라 비슷했다. 결론을 내려면 질문 1을 고친 뒤 다시 잰다.
-- 비교 기준: 보고는 씨앗 20개로 먼저 하고 ±5%p 근처면 60개로 확인한다(총괄 요청).
+## 인수인계 (2026-11-07 main 기준)
+**지금 상태**: 코드로 할 일은 끝났다. 남은 일은 D4 결정(`work-queue.md`, 서보를 OpenRB-150 + XL330으로 바꾸는 안) 뒤의 OpenRB 펌웨어·`servo.driver`와 실물 시험(B1~B4, R1, A0, A1)이다. 결정 전에는 대기한다.
 
-**브랜치·PR**: 초음파 PR은 모두 합쳐졌다. #67(U0 실측용 펌웨어·bench), #72(U2 가상 ESP32·radar·check·source·benchmark), #79(레이더 수정: 빈 바퀴 추가·RESCAN·실패 상한·모드 하나·정확도 출력), #80(U5 펌웨어 0.2). 열린 초음파 PR은 이 인수인계 문서뿐(`dev/us-handoff`). 새 일은 `main`에서 새 `dev/us-*` 브랜치로 시작한다.
+**합친 PR 요약**
+- #96·#97·#101·#106: 벤치마크 가상 팔을 팔 코드(`fillet_path`, `LookaheadShape`, 모서리 2.5mm)에 맞춤, `model.py` 임시 타입 정리, 대기 자세를 `poses.radar_clear`에서 읽음, 사이클 PREPARE 규칙(radar_clear는 첫 scan 전·RESCAN·집기 실패 뒤에만).
+- #121: 호버 도달 띠 조사와 벤치마크 옵션 `--reach kin`, `--hover-mm`, `--tool-reach`, `--trim-start`. **결론(결정 0042): 호버 도달 띠는 그대로 두고 A1 실측에서 다시 본다**(IK 판정 비용 성공률 2~4%p, `tool_reach` 좁히기가 가장 나쁨, 첫 점 당기기가 대부분 회복). `ik_fail` 원인은 호버 띠와 단일 시드 IK이고, 시드 다중화는 팔 쪽 REQ-030이 고쳤다.
+- #130: REQ-035. 확인 결과가 실측 높이를 `height_mm`로 싣고(단계 높이 중앙값, 없으면 0.0), 벤치마크 정확도 표에 높이 오차 열 추가(가상 센서는 거의 무잡음이라 0.0·0.5mm).
+- #144: 서보 모델 옵션 `FakeESP32(servo="pwm"|"dxl")`(dxl이면 샘플 `r`에 읽은 각도 `ang`), `radar.Pass.shift`·`find_candidates(shift=)`로 방위 보정, 벤치마크 `--servo pwm|dxl`, ESP32 `servoWrite` 분리(동작 불변). 60씨앗 pwm→dxl 성공률은 ±5%p 안이라 교체 이유는 정확도가 아니라 해상도·피드백·B4 실측이다. dxl 지연 0.3°·읽기 잡음 0.1°는 가정값.
+- #146: B4 실측 절차·기록 양식 초안(이 문서 맨 아래).
+
+**공식 표**: 서보 결정 뒤 모델 값(`MODELS`, `DXL_LAG_DEG`)이 바뀔 때 main 값으로 다시 낸다. 비교가 ±5%p 근처면 씨앗 60개로 확인한다(#106 비관 72%는 60씨앗에서 84%였다).
+
+**OpenRB-150 + XL330 설계 메모(결정 대기)**: 추천은 ESP32 ↔ OpenRB UART 브리지(OpenRB가 Dynamixel2Arduino로 XL330 제어, 읽은 각도를 `ang`로 되돌림). XL330 전원은 5V(OpenRB VIN에 12V 금지), DXL 포트 전원은 핀 31로 켜야 하고, Serial2 헤더는 납땜이 필요할 수 있다. 본공사 범위: `esp32_scanner.ino` 서보 드라이버, `firmware/openrb_servo/`, `config/ultrasonic.yaml`의 `servo` 절, 가상 서보 값을 B4 실측으로 교체.
+
+**한글 사용자 폴더**(`C:\Users\김동현`): 펌웨어 링크가 실패한다. 아래 "알려진 함정" 8번의 우회로 컴파일한다.
+
+**막힌 것**: D4 결정, ESP32·서보(또는 OpenRB·XL330) 도착, 실물 시험을 시작하라는 사용자 지시. ESP32 포트는 사용자가 옆에 있을 때만 열고 열기 전에 총괄에게 알린다.
 
 **진행(U0~U9)**
 | # | 상태 |
 |---|---|
-| U0 실측 B1~B3 | 코드·절차 준비됨(`bench.py`, 아래 "실측 절차"). **실측은 아직 안 함**: 사용자가 시작한다고 하면 총괄이 알린다 |
-| U1 부품 주문 | 지원 담당 |
-| U2 인식 코드 | **완료·합쳐짐**(가상 ESP32 + 가상 팔, 벤치마크 8.5절) |
-| U3 REQ-023 | 팔 세션, #73 합쳐짐 |
-| U4 REQ-024 GUI 화면 | GUI 세션, 합쳐짐 |
-| U5 펌웨어 | 0.2 합쳐짐. **컴파일만 했고 업로드·실측 안 함** |
-| U6·U7 레이더 스테이션·손목 브래킷 | 하드웨어 담당 + 초음파 세션, 대기(서보 11/12 도착 예정) |
-| U8 REQ-025 작업 실행 CHECK | 팔 세션이 시작. source·check 변경 요청은 총괄을 거쳐 온다 |
+| U0 실측 B1~B3 | 코드·절차 준비됨(`bench.py`, 아래 "실측 절차"). 실측은 아직 안 함 |
+| U1 부품 주문 | 지원 담당. 서보 교체(D4)로 구매 목록 갱신 필요 |
+| U2 인식 코드 | 완료·합쳐짐 |
+| U3 REQ-023, U4 GUI 화면, U8 REQ-025 | 합쳐짐(팔·GUI 세션) |
+| U5 펌웨어 | 0.2 합쳐짐. 컴파일만 했고 업로드·실측 안 함 |
+| U6·U7 레이더 스테이션·손목 브래킷 | 하드웨어 담당 + 초음파 세션, 서보 결정 뒤 |
 | U9 시간 줄이기·실측 | 대기 |
 
-**펌웨어·포트**: 업로드한 적 없다(컴파일만: arduino-cli 1.5.2, esp32:esp32 3.3.12). 이 세션은 ESP32·서보 포트를 한 번도 연 적이 없어 반납할 포트가 없다.
+**펌웨어·포트**: 업로드한 적 없다(컴파일만: arduino-cli 1.5.2, esp32:esp32 3.3.12). 이 세션은 ESP32·서보 포트를 한 번도 연 적이 없다.
 
-**다음 한 걸음(사용자 지시, 시작 전에 멈춤)**: 벤치마크 가상 팔을 #73의 실제 꺾임 속도에 맞추고 공식 표를 다시 내 **PR #68에 직접 댓글로 올린다**(올린 뒤 총괄에 PR 번호·끝 커밋).
-- 기준 코드: `arm/trajectory.py`의 `junction_arcs`, `fillet_path`, `LookaheadShape`, `smooth_l`(접선·구심 가속 모두 a/√2, 모서리 허용 2.5mm, 180° 되돌아감은 정지). 값을 베끼지 말고 같은 규칙을 쓰거나 그 함수를 호출한다. 인식 모듈이 팔을 import하지 않는 규칙은 벤치마크 도구에서만 예외로 하고 source·check·radar에는 넣지 않는다.
-- `FakeArm`(`benchmark.py`)의 `corner_radius_mm` 10 가정을 없앤다.
-- 맞춰 볼 측정값(`--sim`, 100%, 접근 제외): L1 180mm 2.98초, 원 r45 5.29초, 90° 꺾임 3.94초, 135° 꺾임 5.42초, L3+L4 한 호출 8.39초, 180° 되돌아감 3.88초. home·park에서 오는 첫 호출은 접근이 약 3.5초 더 든다. 이어 부를 때 합쳐진 대각선(L1 끝 → L2 시작 127mm)은 5.42초. 이 값들을 시험으로 고정한다.
-- 표: 시나리오 4개(spread90, spread120, demo, single) × 낙관·비관, 20 씨앗, 평균·중앙값·90%·최대, 정확도 표, 기본 / `--max-fail 0` / `--approach-line`. PR을 올린 커밋에서 내고 커밋과 재현 명령을 함께 적는다. 인식 평균 70초(임시 기준)를 넘는 칸이 있으면 댓글 맨 위에 적는다.
-
-**막힌 것**: 없다. 기다리는 것: B1~B3 실측 시작(사용자), 서보·브래킷 도착(U6·U7), REQ-025(팔 세션).
-
-**B1~B3 실측 절차 위치**: 이 문서 아래 "실측 절차 (U0, 서보 없음)" 절(배선, find-port, 펌웨어 올리기, 연결 확인, B1~B3 명령, 결과 읽는 법, 보낼 값). 전체 실물 시험 순서는 `measurements.md`의 "실물 시험 순서".
+**브랜치**: 새 일은 `main`에서 새 `dev/us-*` 브랜치로 시작한다.
 
 **알려진 함정**
 1. pip 편집 설치가 원래 폴더를 가리킨다: 초음파 worktree(`../so101-studio-us`)에서 `python -m so101_studio...`는 `PYTHONPATH=src`가 필요하다(`pytest`는 설정으로 괜찮다).
 2. 전체 `pytest`는 약 17분, 초음파만 `python -m pytest -q tests/perception`은 약 6초. 벤치마크(`python -m so101_studio.perception.ultrasonic.benchmark --seeds 20`)는 한 번에 약 1~2분이고 결과 JSON은 `runs/bench/`(git 제외)라 새 PC에 안 온다. 공식 표는 PR #68 댓글에 있다.
-3. 벤치마크의 사이클은 작업 실행을 흉내 낸 것이다: 후보가 없으면 팔을 "원점 위 150mm"(PREPARE 자세 흉내)로 옮겨 RESCAN, 집은 뒤 PLACE 시작에 prefetch, 확인한 자리에 물체가 없으면 `note_failure`. 실제 작업 실행(REQ-025)과 다르면 고친다.
-4. `model.py`의 REQ-023 임시 타입(PathSegment, PoseSample, CheckProbe, CheckableSource)은 #73이 `perception/base.py`에 같은 타입을 넣었으니 지우고 거기서 가져오는 후속이 남아 있다(아직 안 함).
+3. 벤치마크의 사이클은 작업 실행을 흉내 낸 것이다: `poses.radar_clear`(없으면 원점 위 150mm)로 옮겨 RESCAN, 집은 뒤 PLACE 시작에 prefetch, 확인한 자리에 물체가 없으면 `note_failure`. 실제 작업 실행(REQ-025)과 다르면 고친다.
+4. (정리됨) `model.py`의 REQ-023 임시 타입은 #97에서 지웠다.
 5. 사람 몫 가정: 확인 직선 180mm, 도달 clip 60~255mm, PREPARE 자세, 시간 기준 평균 70초(임시). 실측(B1·B2·B4, A0, A1)이 나오면 벤치마크 모델 값(`MODELS`)을 실측으로 고친다(결정 0037).
 6. git에 없는 것: `config/ultrasonic_baseline.json`(레이더 기준값, 지금은 없음, 첫 `calibrate()`가 만든다), `config/local.yaml`, arduino-cli(이 PC `C:\Users\c\tools\arduino-cli-dl\`, 새 PC는 Arduino IDE 2 + ESP32 보드 패키지 3.x를 쓴다).
 7. 서보는 부팅·포트 열기마다 90°로 움직인다. 서보를 달 때 손을 대지 않고 회전 범위를 비운다.
 8. 사용자 폴더 이름이 한글이면(`C:\Users\김동현`) 기본 Arduino15 경로에서 ESP32 링크가 `cannot find -lcxx`로 실패한다. `C:\arduino15`에 core를 새로 설치하고 `ARDUINO_DIRECTORIES_DATA=C:\arduino15`, `ARDUINO_DIRECTORIES_USER=C:\arduino15\user`를 준 뒤 `arduino-cli compile --fqbn esp32:esp32:esp32 --build-path C:\tmp\fw firmware/esp32_scanner`로 컴파일한다(2026-11-06 이 PC에서 성공).
 9. 벤치마크 가상 팔은 `arm/trajectory.py`의 `fillet_path`·`LookaheadShape`를 import해 쓴다(#73 규칙, 모서리 2.5mm). 벤치마크 도구만의 예외이고 source·check·radar는 팔을 import하지 않는다. 시험 `test_fake_arm_matches_real_arm_times`가 `--sim` 실측 시간(L1 2.98, 원 5.29, 90° 3.94, 135° 5.42, L3+L4 8.39, 180° 3.88초, ±0.05)에 고정한다.
-8. PR 열기: `gh`가 없어 내장 브라우저로 `compare/main...<브랜치>?quick_pull=1`을 열고, 제목·본문을 넣은 뒤 `form.requestSubmit()`으로 낸다(Comment·Create 버튼이 안 눌리면 입력 이벤트 뒤 1.5초 기다린 다음 누른다).
-9. 규칙: 질문·승인은 총괄에게 `SendMessage`로, 자기 `dev/` 브랜치 커밋·푸시·PR은 묻지 않고 한다(session-workflow 7절).
+10. PR 열기: `gh`가 없어 내장 브라우저로 `compare/main...<브랜치>?quick_pull=1`을 열고, 제목·본문을 넣은 뒤 `form.requestSubmit()`으로 낸다(Comment·Create 버튼이 안 눌리면 입력 이벤트 뒤 1.5초 기다린 다음 누른다).
+11. 규칙: 질문·승인은 총괄에게 `SendMessage`로, 자기 `dev/` 브랜치 커밋·푸시·PR은 묻지 않고 한다(session-workflow 7절).
 
 ## 작업 진행
 | # | 작업 | 상태 |
