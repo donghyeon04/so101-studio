@@ -28,6 +28,7 @@ CARDS = (
         "place_height_mm": ("놓는 높이 (mm)", "놓을 때 그리퍼 끝 높이"),
         "gripper_margin_mm": ("그리퍼 여유 (mm)", "물체 폭에 더해 벌리는 여유"),
         "gripper_open": ("놓을 때 벌림 (0~100)", "놓을 때 여는 정도"),
+        "gripper_speed_pct": ("그리퍼 속도 (%)", "열고 닫는 속도. 상단 막대와 같은 값"),
         "gripper_acceleration": ("그리퍼 가속 한계", "접촉 감지를 이 값에서 맞췄다"),
         "gripper_squeeze_torque": ("조임 힘 (0~1000)", "얇은 물체가 미끄러지지 않게 낮춘 값"),
         "gripper_hold_torque": ("옮길 때 조임 힘 (0~1000)", "집은 뒤 놓을 때까지 쓰는 조임 한계"),

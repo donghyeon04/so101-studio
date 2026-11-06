@@ -156,6 +156,9 @@ def make_root(backend: Backend):
                 top_mode.set_value(backend.mode)
             top_mode.enabled = mine and not backend.task_running()
             top_reconnect.enabled = mine and backend.real is not None and not backend.task_running()
+            top_grip.enabled = mine
+            if top_grip.value != backend.arm.cfg.gripper_speed_pct:  # 파라미터 페이지에서 바꿔도 따라간다
+                top_grip.set_value(backend.arm.cfg.gripper_speed_pct)
 
         async def resume_arm() -> None:
             if backend.owner == client.id:
@@ -201,6 +204,13 @@ def make_root(backend: Backend):
             if reason:
                 ui.notify(reason, type="negative")
 
+        def set_grip_speed(pct: float) -> None:
+            if pct == backend.arm.cfg.gripper_speed_pct or backend.owner != client.id:
+                return
+            reason, _ = backend.set_params({"gripper_speed_pct": float(pct)})  # 바로 적용 (결정 0042)
+            if reason:
+                ui.notify(reason, type="negative")
+
         async def show_doctor() -> None:
             report = await run.io_bound(backend.run_doctor)
             marks = {"ok": "정상", "warn": "주의", "fail": "실패", "skip": "건너뜀"}
@@ -237,6 +247,10 @@ def make_root(backend: Backend):
             take.visible = False
             ui.space()
             # 자주 쓰는 것을 상단에서 바로 (gui-spec 11절 A2). 원래 페이지의 같은 기능과 같은 상태를 쓴다
+            with ui.row().classes("items-center gap-2 no-wrap"):
+                ui.label("그리퍼 속도").classes("stat-label")
+                top_grip = ui.slider(min=5, max=100, step=5, value=backend.arm.cfg.gripper_speed_pct,
+                                     on_change=lambda e: set_grip_speed(e.value)).props('dense label aria-label="그리퍼 속도"').classes("w-28").mark("top-grip-speed")
             top_mode = ui.select(RUN_MODES, value=backend.mode, on_change=lambda e: set_mode(e.value)).props(
                 'dense outlined options-dense aria-label="실행 방식"').classes("w-40").mark("top-run-mode")
             top_reconnect = ui.button(icon="sync", on_click=reconnect_arm).props('flat round color=dark aria-label="다시 연결"').mark("top-reconnect")

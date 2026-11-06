@@ -135,8 +135,14 @@ def test_save_workspace_writes_and_validates(clean, tmp_path, monkeypatch):
     path = tmp_path / "workspace.yaml"
     path.write_text(pathlib.Path("config/workspace.yaml").read_text(encoding="utf-8"), encoding="utf-8")
     monkeypatch.setattr(clean, "workspace_path", str(path))
-    assert clean.save_workspace(VALUES, "right") is None
-    assert load_workspace(path).table_mm["x"] == 700
+    try:
+        assert clean.save_workspace(VALUES, "right") is None
+        assert load_workspace(path).table_mm["x"] == 700
+        assert clean.arm.ws.table_mm["x"] == 700 and clean.studio.ws.table_mm["x"] == 700  # REQ-034: 바로 적용
+    finally:
+        for arm in clean._arms():
+            arm.reload_workspace("config/workspace.yaml")
+        clean.studio.ws = clean.studio.task.ws = clean.arm.ws
     before = path.read_text(encoding="utf-8")
     assert "밖" in clean.save_workspace({**VALUES, "base_x": 9999}, "right")
     assert "밖" in clean.save_workspace({**VALUES, "zone_y": -1}, "right")
@@ -158,7 +164,12 @@ def test_table_page_shows_values_and_saves(clean, tmp_path, monkeypatch):
         assert await _until(lambda: yaml.safe_load(path.read_text(encoding="utf-8"))["drop_zones"]["right"]["x_mm"] == 480)
         await user.should_see("저장했습니다")
 
-    in_app(clean, "/table", check)
+    try:
+        in_app(clean, "/table", check)
+    finally:
+        for arm in clean._arms():
+            arm.reload_workspace("config/workspace.yaml")
+        clean.studio.ws = clean.studio.task.ws = clean.arm.ws
     assert "x_mm: 500" in pathlib.Path("config/workspace.yaml").read_text(encoding="utf-8")  # 진짜 파일은 그대로다
 
 

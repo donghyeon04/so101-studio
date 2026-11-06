@@ -286,6 +286,8 @@ class Backend:
         if result.reason and "_out_of_reach:" in result.reason:  # REQ-031: 팔이 준 반경과 허용 범위를 그대로 보인다
             kind, detail = result.reason.split(":", 1)
             return f'{"집기" if kind.startswith("pick") else "놓기"} 점이 집기 범위 밖입니다:{detail}'
+        if result.status == "fault" and result.reason:  # 원인과 해결법 문장 (REQ-034)
+            return result.reason
         return None if result.status == "ok" else MOTION_TEXT.get(result.status, result.status)
 
     @staticmethod
@@ -444,9 +446,10 @@ class Backend:
         return self._dispatch(run, "관절 값 이동")
 
     def pick_place(self, pick_xy: tuple[float, float], angle_deg: float, width_mm: float, length_mm: float,
-                   place_xy: tuple[float, float] | None) -> str | None:
+                   place_xy: tuple[float, float] | None, height_mm: float = 0.0) -> str | None:
         """직접 조작 집어 옮기기(gui-spec 11절 B7, REQ-031). place_xy가 None이면 첫 배출 구역에 놓는다."""
-        obj = DetectedObject("manual-pick", float(pick_xy[0]), float(pick_xy[1]), float(angle_deg), float(width_mm), float(length_mm), 1.0, "manual")
+        obj = DetectedObject("manual-pick", float(pick_xy[0]), float(pick_xy[1]), float(angle_deg), float(width_mm), float(length_mm), 1.0, "manual",
+                             height_mm=float(height_mm))  # 0이면 팔이 설정 높이로 집는다 (REQ-034)
         zone = None if place_xy else next(iter(self.arm.ws.drop_zones))
 
         def run(arm: ArmService):
@@ -519,11 +522,11 @@ class Backend:
         if self.scene:
             self.scene.set_objects(self.objects(), self.state.chosen)
 
-    def add_object(self, x: float, y: float, angle: float = 0.0, width: float = 30.0, length: float = 100.0) -> str:
+    def add_object(self, x: float, y: float, angle: float = 0.0, width: float = 30.0, length: float = 100.0, height: float = 0.0) -> str:
         """클릭한 자리에 물체를 놓고 id를 돌려준다."""
         self._next_object += 1
         object_id = f"added-{self._next_object}"
-        self.source.add(DetectedObject(object_id, x, y, angle, width, length, 1.0, "manual"))
+        self.source.add(DetectedObject(object_id, x, y, angle, width, length, 1.0, "manual", height_mm=height))
         self._changed_objects()
         return object_id
 
@@ -606,7 +609,7 @@ class Backend:
         return None
 
     def save_workspace(self, values: dict, zone: str) -> str | None:
-        """작업대·좌표를 파일에 저장한다. 주석은 그대로 둔다. 다시 시작해야 적용된다."""
+        """작업대·좌표를 파일에 저장하고 팔·작업 실행에 바로 적용한다. 주석은 그대로 둔다."""
         if min(values["table_x"], values["table_y"]) <= 0:
             return "작업대 크기는 0보다 커야 합니다"
         if not (0 <= values["base_x"] <= values["table_x"] and 0 <= values["base_y"] <= values["table_y"]):
@@ -617,6 +620,14 @@ class Backend:
             return "가장자리 여유가 작업대보다 큽니다"
         path = Path(self.workspace_path)
         path.write_text(update_workspace_text(path.read_text(encoding="utf-8"), values, zone), encoding="utf-8")
+        try:  # 바로 적용한다 (REQ-034). 동작·작업 중이면 파일만 저장하고 다음 시작에 적용된다
+            if self.task_running():
+                raise RuntimeError("작업 실행 중")
+            for arm in self._arms():
+                arm.reload_workspace(path)
+            self.studio.ws = self.studio.task.ws = self.arm.ws
+        except RuntimeError as e:
+            return f"저장했지만 지금은 적용하지 못했습니다({e}). 동작이 끝난 뒤 다시 저장하거나 앱을 다시 시작하세요"
         return None
 
     # ---- 장치·시스템
@@ -803,14 +814,23 @@ class Backend:
         teach = self.real.teach
         return teach.max_s if teach.truncated else None
 
-    def replay(self, name: str, speed: float, until_limit: bool = False, segment_speeds: dict[int, float] | None = None) -> str | None:
-        reason = self._dispatch(lambda arm: arm.replay(name, speed, until_limit, segment_speeds), f"{name} 재생")
+    def replay(self, name: str, speed: float, until_limit: bool = False, segment_speeds: dict[int, float] | None = None,
+               mode: str = "original") -> str | None:
+        """mode: original(기록 그대로) | fitted(속도·가속 한도에 맞게 늦춘 변환본, REQ-034)."""
+        reason = self._dispatch(lambda arm: arm.replay(name, speed, until_limit, segment_speeds, mode), f"{name} 재생")
         advice = "기록에 허용 범위 밖 자세가 있어 재생하지 않았습니다(첫 자세까지는 이동합니다). 한계 앞까지만 재생을 켜 보세요"
         if reason == EDGE_TEXT and not until_limit:  # EDGE_TEXT로 시작하면 화면이 가장자리 검사를 끌지 묻는다
             return f"{EDGE_TEXT}. {advice}"
         if reason in (MOTION_TEXT["out_of_bounds"], OUTSIDE_TEXT) and not until_limit:
             return advice
         return reason
+
+    def replay_fit(self, name: str, speed: float, segment_speeds: dict[int, float] | None = None) -> dict | None:
+        """이 배속으로 원본 재생이 한도 안인지와 변환본이 늦추는 정도. 계산할 수 없으면 None."""
+        try:
+            return self.arm.record_info(name, speed, segment_speeds).get("fit")
+        except (ValueError, FileNotFoundError, KeyError):
+            return None
 
     def replay_cut(self) -> str | None:
         """한계 앞까지만 재생했을 때 어디서 잘렸는지."""

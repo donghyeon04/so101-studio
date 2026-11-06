@@ -12,6 +12,7 @@ from nicegui.testing import user_simulation
 
 from so101_studio.arm.sim_driver import SimDriver
 from so101_studio.core.config import load_robot
+from so101_studio.core.types import ArmStatus, JointState, MotionResult, ToolPose
 from so101_studio.gui import app as gui_app
 from so101_studio.gui import backend as backend_module
 from so101_studio.gui.backend import COMM_LOST_TEXT, OUTSIDE_TEXT, RUN_MODES, Backend
@@ -421,3 +422,15 @@ def test_table_edge_refusal_is_told_apart_and_can_be_switched_off(shared_twin):
         assert shared_twin.get_safety()["joint_margin_deg"] == before["joint_margin_deg"]
     finally:
         shared_twin.set_safety(before["mode"], before["joint_margin_deg"], before["box_mm"])
+
+
+def test_component_states_show_the_fault_sentence():
+    """REQ-034: 원인과 해결법 문장이 오면 상태줄이 그 문장을 보인다."""
+    status = ArmStatus(t=10.0, joints=JointState(0, 0, 0, 0, 0, 0), tool=ToolPose(0, 0, 0, 0), temperature_c={}, load_pct={},
+                       voltage_v=12.0, torque_enabled=True, state="fault", fault="step:elbow_flex", fault_text="elbow_flex가 한 제어 주기에 ...")
+    assert component_states(status, 10.0)["서보"] == ("error", "elbow_flex가 한 제어 주기에 ...")
+
+
+def test_fault_result_shows_the_cause_sentence():
+    result = MotionResult("fault", 0.0, ToolPose(0, 0, 0, 0), reason="서보와의 통신이 0.5초 넘게 끊겼습니다.")
+    assert Backend._run_on(None, lambda arm: result) == "서보와의 통신이 0.5초 넘게 끊겼습니다."

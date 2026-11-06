@@ -100,7 +100,10 @@ def test_add_move_remove_reset_objects(clean):
     count = len(clean.objects())
     object_id = clean.add_object(310, 180, 30, 40, 80)
     added = next(o for o in clean.objects() if o.id == object_id)
-    assert (added.x_mm, added.y_mm, added.angle_deg, added.width_mm, added.length_mm) == (310, 180, 30, 40, 80)
+    assert (added.x_mm, added.y_mm, added.angle_deg, added.width_mm, added.length_mm, added.height_mm) == (310, 180, 30, 40, 80, 0)
+    tall = clean.add_object(330, 200, 0, 58, 58, 39)  # REQ-034: 높이를 넘기면 팔이 그 높이에 맞춰 집는다
+    assert next(o for o in clean.objects() if o.id == tall).height_mm == 39
+    clean.remove_object(tall)
     clean.move_object(object_id, 320, 190)
     moved = next(o for o in clean.objects() if o.id == object_id)
     assert (moved.x_mm, moved.y_mm, moved.width_mm) == (320, 190, 40)
