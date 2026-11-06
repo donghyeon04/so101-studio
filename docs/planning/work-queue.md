@@ -24,7 +24,7 @@
 | 3 | 문서·PR·README 정리, 현황 유지 | GUI(총괄) | 대기 | 결정 기록은 고치지 않는다 |
 | 4 | 기능 제안 10+ (레퍼런스 조사) | GUI(총괄) | 완료 | 결정 모음 D2 |
 | 5-1 | 실물 절차서 | GUI(총괄) | 완료(초안) | `docs/guides/real-arm-runbook.md`, 실물 시험 때마다 갱신 |
-| 5-2 | 초음파 HW 변경(OpenRB-150 + XL330) 반영 | 초음파 | 진행 | 설계안 D4, 결정과 무관한 준비(서보 드라이버 분리) 진행 중 |
+| 5-2 | 초음파 HW 변경(OpenRB-150 + XL330) 반영 | 초음파 | 진행 | 설계안 D4, 준비(서보 드라이버 분리) #144 합침, 본공사는 D4 결정 뒤 |
 | 5-3 | 그리퍼 선택 확장성 | 팔, GUI | 진행 | 설계안 D3, 인터페이스·단동식 이사(동작 변경 0)는 REQ-037 뒤 |
 | 5-4 | STEP → URDF 조사·제안 | GUI(총괄) | 완료 | 결정 모음 D1 |
 
@@ -70,4 +70,5 @@
 - 연결 방식 후보: A UART 브리지(ESP32 ─UART 3.3V, TX/RX 교차, GND 공통─ OpenRB Serial2, OpenRB가 Dynamixel2Arduino로 XL330 제어하고 실제 각도를 돌려줌) 82점 / B OpenRB를 USB-TTL 중계로 쓰고 ESP32가 DXL 프로토콜 직접 58 / C ESP32 직접 구동(반이중 회로) 45 / D OpenRB를 PC USB에 따로 50. 추천 A. ESP32↔OpenRB 연결 사례는 공식 문서에 없어 A는 "공식 부품의 일반 UART 연결"로 설계한 것.
 - 효과: XL330은 12비트(0.088°) 엔코더로 측정 순간의 실제 각도를 읽어 샘플에 실을 수 있어, 지금 설계의 "서보 지연 ±3°"가 사실상 줄어든다(실측 B4로 확인). 통신 규약은 하위 호환 확장(`hello.servo = pwm|dxl`, 레이더 샘플에 선택 필드 `ang`). 손목 센서·PC 인식 코드는 거의 그대로.
 - 진행: 결정과 무관한 준비(가상 서보 모델 pwm/dxl 옵션, `ang` 처리, 벤치마크 `--servo`, ESP32 펌웨어 `servoWrite` 분리)는 초음파 세션이 먼저 한다. 본공사(OpenRB 펌웨어 `firmware/openrb_servo/`, 설정 `servo.driver`)는 결정 뒤.
+- 준비 결과(#144 합침, 60씨앗, pwm→dxl 성공률 %): demo 낙관 97→99, 비관 84→85 / single 낙관 91→93, 비관 78→78. 모두 ±5%p 안이라 "dxl이 성공률을 올린다"는 근거는 없다(dxl 지연 0.3°는 가정값). 교체 이유는 성공률이 아니라 해상도·실제 각도 피드백·떨림 확인(B4 실측)으로 본다. 레이더 중앙 오차 약 30mm는 서보가 아니라 빔 폭 때문.
 - 결정 필요: (a) 연결 방식 A 채택 (b) XL330 전원 5V 확정(12V를 OpenRB VIN에 넣지 않음) (c) 구매 목록(ultrasonic-spec 3.5의 MG90S)을 OpenRB·XL330·5V 전원으로 갱신, 결정 0035(MG90S)를 대체하는 새 결정 기록. 출처: emanual.robotis.com(XL330-M288, OpenRB-150), github.com/ROBOTIS-GIT/Dynamixel2Arduino.
