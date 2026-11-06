@@ -115,3 +115,27 @@ def test_pick_and_place_rejects_out_of_reach_points_without_moving(svc):
     assert svc.driver.read_joints() == before
     with pytest.raises(ValueError):
         svc.pick_and_place(ok_obj, zone="right", place_at=(350.0, 200.0))
+
+
+def test_place_lifts_straight_up_after_opening(svc):
+    """열면서 손이 옆으로 옮겨진 뒤에는 원래 하강 경로를 거꾸로 타지 않고 지금 자리에서 수직으로 올린다 (REQ-033). 연 채로 올린다."""
+    zone = next(iter(WS.drop_zones))
+    svc.skills._run([svc.skills._gripper(15.0)])
+    calls: list[list] = []
+    orig_run = svc.skills._run
+
+    def run(trajs):
+        calls.append([])
+        return orig_run(trajs)
+
+    svc.skills._run = run
+    svc.ctl.trace = lambda t, q: calls[-1].append(q) if calls else None
+    assert svc.place(zone).status == "ok"
+    svc.ctl.trace = None
+    opened, lift = calls[-2], calls[-1]  # 마지막 두 번의 실행: 열기, 올리기
+    x0, y0, z0 = svc.tool_position(opened[-1])
+    for q in lift:
+        x, y, _ = svc.tool_position(q)
+        assert math.hypot(x - x0, y - y0) < 1.0  # 올리는 동안 손 xy는 열기가 끝난 자리
+        assert q.gripper == pytest.approx(opened[-1].gripper, abs=0.5)  # 올라오는 동안 연 채
+    assert svc.tool_position(lift[-1])[2] - z0 > CFG.approach_height_mm - 2.0  # 호버 높이까지 올라왔다
