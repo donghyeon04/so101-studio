@@ -1,6 +1,8 @@
 import time
+from dataclasses import astuple
 
 import numpy as np
+import pytest
 
 from so101_studio.arm.motion import MotionController
 from so101_studio.arm.safety import Safety
@@ -169,3 +171,35 @@ def test_a_late_tick_slows_the_move_instead_of_faulting_on_step(monkeypatch):
     assert c.state == "moving" and c.fault is None and h.result is None
     assert 0 < after - before <= c.safety.max_step_deg and c.time_lost_s > 0.4
 
+
+
+def test_late_ticks_catch_up_only_within_the_step_limit_on_a_fast_replay(monkeypatch):
+    """213°/s 재생(한 주기 4.3°)을 틱이 23ms 넘게 늦는 가짜 시계로 돌려도 step fault 없이 끝까지 가고, 늦어진 시간이 쌓인다 (REQ-034)."""
+    import types
+
+    import numpy as np
+
+    from so101_studio.arm import motion
+    from so101_studio.arm.trajectory import SequenceTrajectory
+
+    d = SimDriver()
+    c = MotionController(d, safety=Safety(LIMITS))
+    c._quit.set()
+    c._thread.join(2)
+    now = [1000.0]
+    monkeypatch.setattr(motion, "time", types.SimpleNamespace(perf_counter=lambda: now[0], sleep=time.sleep))
+    t = np.arange(0, 0.5001, 0.05)
+    q = np.tile(np.array(astuple(A), float), (len(t), 1))
+    q[:, 0] = -50.0 + 213.0 * t  # 관절 한계 안(-50 -> 56.5)
+    h = c.execute(SequenceTrajectory(t, q))
+    delays = [0.02, 0.045, 0.02, 0.06, 0.03, 0.02, 0.04, 0.025]
+    for i in range(400):
+        if h.result is not None:
+            break
+        now[0] += delays[i % len(delays)]
+        with c._lock:
+            c._tick()
+    assert c.state != "fault" and c.fault is None  # 늦어도 step fault가 아니다
+    assert h.result is not None and h.result.status == "ok"
+    assert d.read_joints().shoulder_pan == pytest.approx(-50.0 + 213.0 * 0.5, abs=0.5)
+    assert c.time_lost_s > 0.05  # 늦어진 시간이 기록된다

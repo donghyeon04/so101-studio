@@ -1,6 +1,8 @@
 """페이지들이 같이 쓰는 조각: 조작권 게이트, 3D 칸."""
 
-from nicegui import ui
+import asyncio
+
+from nicegui import run, ui
 
 from ..scene3d import LAYERS
 from ..view_cube import view_cube
@@ -64,3 +66,25 @@ def scene_frame(backend, classes: str = "scene3d") -> None:
         ui.element("iframe").props(f'src={backend.scene.url} title="3D 보기"').classes(classes).mark("scene3d")
         view_cube(backend.scene)
         _layer_menu(backend.scene)
+
+
+def offer_free_edge(backend, retry) -> None:
+    """작업대 가장자리에 걸려 멈췄을 때 그 자리에서 묻는다: 가장자리 검사만 끄고(자유 모드) 다시 하기."""
+    with ui.dialog() as dialog, ui.card().classes("gap-2").mark("edge-dialog"):
+        ui.label("작업대 가장자리 밖이라 움직이지 않았습니다").classes("card-title")
+        ui.label("작업대 가장자리 검사만 끄고(자유 모드) 다시 할까요? 관절 한계와 바닥 검사는 그대로 켜져 있습니다. 안전 페이지에서 다시 켤 수 있습니다.").classes("page-body")
+
+        async def go() -> None:
+            dialog.close()
+            reason = await run.io_bound(backend.free_table_edge)
+            if reason:
+                ui.notify(reason, type="negative")
+                return
+            result = retry()  # 다시 할 동작(비동기 함수면 기다린다)
+            if asyncio.iscoroutine(result):
+                await result
+
+        with ui.row().classes("gap-2"):
+            ui.button("가장자리 검사 끄고 다시 하기", on_click=go).props("no-caps").mark("edge-free")
+            ui.button("취소", on_click=dialog.close).props("outline no-caps")
+    dialog.open()

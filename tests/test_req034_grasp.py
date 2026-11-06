@@ -131,3 +131,19 @@ def test_reload_workspace_updates_skills_safety_kinematics_and_rejects_while_mov
     with pytest.raises(FileNotFoundError):
         svc.reload_workspace(tmp_path / "none.yaml")
     assert svc.ws is ws  # 못 읽으면 그대로
+
+
+def test_fit_limit_is_the_per_tick_step_limit(tmp_path):
+    """fit·fitted의 속도 한도는 한 주기 이동량 한계의 95% (약 237°/s). 틱이 늦어도 컨트롤러가 그 안으로만 따라잡는다(test_motion)."""
+    svc = ArmService(SimDriver(CFG.poses["home"]), CFG, WS, speed_pct=100, log_root=str(tmp_path / "runs"))
+    assert svc.connect()[0]
+    try:
+        svc.teach.dir = tmp_path
+        svc.cfg.replay_a_max_deg_s2 = 1e9  # 속도 한도만 본다(일정 속도로 시작하는 기록은 가속이 무한대)
+        for name, step in (("v213", 10.65), ("v300", 15.0)):  # 20Hz 표본마다 step도
+            _write(tmp_path, name, [[i * step, -90, 93, 0, 0, 3] for i in range(11)], [i * 0.05 for i in range(11)])
+        assert svc.teach._limits()[0] == pytest.approx(0.95 * 5.0 / svc.ctl.dt)
+        assert svc.record_info("v213", speed=0.5)["fit"]["fits_1x"] is True
+        assert svc.record_info("v300", speed=1.0)["fit"]["fits_1x"] is False
+    finally:
+        svc.disconnect()

@@ -15,6 +15,7 @@ from .safety import HealthMonitor, Safety
 JOINTS = [f.name for f in fields(JointState)]
 HEALTH_PERIOD_S = 0.5  # 온도·부하는 2Hz로만 읽는다 (spec 6.1)
 DEADMAN_S = 0.3
+STEP_MARGIN = 0.95  # 따라잡기로 진행할 때 한 주기 이동량 한도의 이 비율을 넘지 않는다
 MAX_TICK_ADVANCE = 2.0  # 한 틱에 궤적 시간이 최대 이만큼(틱 주기의 배수) 진행. 틱이 크게 늦어도 위치가 한 번에 건너뛰어 'step' fault가 나지 않고, 늦은 시간만큼 동작이 늦어진다
 JOG_ACCEL_JOINT = 400.0  # °/s². 조그 속도를 이 가속도로 올리고 내려 시작·정지 충격(속도 계단)을 없앤다
 JOG_ACCEL_TOOL = 600.0  # mm/s², 회전은 같은 값을 °/s²로  # 원격 조종 입력이 이만큼 끊기면 정지 (spec 6.5)
@@ -337,6 +338,10 @@ class MotionController:
             self._emit("grip_overload", "ERROR", "ARM-GRIP-OVERLOAD", {"load_pct": load, "limit_pct": self.grip_warn_pct})
             self._fault("grip_overload", {"load_pct": load, "limit_pct": self.grip_warn_pct})
 
+    def _step_over(self, q: JointState) -> float:
+        """마지막 명령에서 q까지 관절 하나가 움직이는 최대 변화(°)."""
+        return max(abs(a - b) for a, b in zip(astuple(q), astuple(self._last), strict=True))
+
     def _tick(self) -> None:
         traj, handle, t0, kind = self._job
         t = time.perf_counter() - t0
@@ -349,10 +354,29 @@ class MotionController:
             self.time_lost_s += lost
             self._job = (traj, handle, t0, kind)
             t = prev + cap
-        self._tick_ref = (handle, t)
         q = traj.sample(t)
         if self.grip_hold is not None:
             q = replace(q, gripper=self.grip_hold)
+        adv = t - prev
+        if adv > self.dt * 1.001 and self._step_over(q) > STEP_MARGIN * self.safety.max_step_deg:
+            # 따라잡는 몫(한 주기 넘는 진행)이 한 주기 이동량 한도의 95%를 넘기게 한다면 그만큼만 진행한다: 루프가 늦어도 step fault 대신 동작이 늦어진다.
+            # 평소 한 주기(dt) 진행으로도 넘는 궤적은 그대로 두어 step 검사가 잡는다(안전망은 유지).
+            lo, hi = self.dt, adv
+            for _ in range(8):  # 이분 탐색: 한도 안인 가장 큰 진행
+                mid = (lo + hi) / 2
+                qm = traj.sample(prev + mid)
+                if self.grip_hold is not None:
+                    qm = replace(qm, gripper=self.grip_hold)
+                lo, hi = (mid, hi) if self._step_over(qm) <= STEP_MARGIN * self.safety.max_step_deg else (lo, mid)
+            lost = adv - lo
+            t0 += lost
+            self.time_lost_s += lost
+            self._job = (traj, handle, t0, kind)
+            t = prev + lo
+            q = traj.sample(t)
+            if self.grip_hold is not None:
+                q = replace(q, gripper=self.grip_hold)
+        self._tick_ref = (handle, t)
         if self.safety.check_step(self._last, q):
             self._fault("step", self.safety.step_detail(self._last, q))
             return
