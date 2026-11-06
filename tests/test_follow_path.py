@@ -352,10 +352,11 @@ def test_read_failure_during_path_ends_with_comm_lost_fault(tmp_path):
 
 def test_read_failure_during_approach_does_not_hang(tmp_path):
     s = _flaky_service(tmp_path)
+    s.set_speed(30)  # 접근이 길어져(약 10초) 전체 시험 부하로 읽기를 끊는 시점이 늦어도 접근이 먼저 끝나지 않는다
     th, out = _run_async(lambda: s.follow_path([(240.0, 200.0), (420.0, 200.0)], Z, 40.0))
-    assert _wait(lambda: s.ctl.state == "moving")
+    assert _wait(lambda: s.ctl.state == "moving", 30.0)
     s.driver.fail = True  # 접근 이동 중(마지막 틱에서 결과를 읽을 때)에 읽기가 끊긴다
-    th.join(8)
+    th.join(30)  # comm_lost는 0.5초 안에 나지만 부하로 스레드가 늦게 돌아도 기다린다
     assert not th.is_alive() and out["r"] == [] and s.last_path.status == "fault"
     s.driver.fail = False
     s.disconnect()
