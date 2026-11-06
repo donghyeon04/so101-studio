@@ -554,6 +554,15 @@ class Backend:
         self.source.add(replace(old, x_mm=x, y_mm=y))
         self._changed_objects()
 
+    def nudge_object(self, object_id: str, dx: float, dy: float, dangle: float = 0.0) -> None:
+        """고른 물체를 조금 옮기고 돌린다(G16). 각도는 0~180으로 감는다(물체는 180° 돌리면 같다)."""
+        old = next((o for o in self.objects() if o.id == object_id), None)
+        if old is None:
+            return
+        self.source.remove(object_id)
+        self.source.add(replace(old, x_mm=old.x_mm + dx, y_mm=old.y_mm + dy, angle_deg=((old.angle_deg or 0.0) + dangle) % 180))
+        self._changed_objects()
+
     def remove_object(self, object_id: str) -> None:
         self.source.remove(object_id)
         self._changed_objects()

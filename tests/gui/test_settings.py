@@ -230,3 +230,15 @@ def test_preset_round_trip(clean, tmp_path):
     assert clean.arm.cfg.grasp_height_mm == 33
     assert clean.save_preset("나쁜/이름")
     assert clean.load_preset("없음")
+
+
+def test_table_pad_moves_the_chosen_item(clean, tmp_path, monkeypatch):
+    """G16: 작업대 페이지 패드로 배출 구역을 5mm 옮긴다(저장 전이라 파일은 그대로)."""
+    async def check(user):
+        assert await _until(lambda: clean.owner is not None)
+        before = _one(user, "ws-zone_y").value
+        user.find(marker="nudge-위로").trigger("mousedown")
+        user.find(marker="nudge-위로").trigger("mouseup")
+        assert await _until(lambda: _one(user, "ws-zone_y").value == before + 5)
+
+    in_app(clean, "/table", check)
