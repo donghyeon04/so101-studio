@@ -145,3 +145,24 @@ def test_page_runs_the_demo_and_view_only_browser_cannot_start(backend):
             assert not demo.running
 
     asyncio.run(go())
+
+
+def test_workspace_mini_view_draws_the_radar_log(backend):
+    """작업 공간 작은 화면: 가상 실행 기록이 바뀌면 다시 그린다."""
+    demo = uv.demo_of(backend)
+    demo.log.clear()
+
+    async def go():
+        async with user_simulation(gui_app.make_root(backend)) as user:
+            await user.open("/")
+            mini = next(iter(user.find(marker="us-mini").elements))
+            assert "<polygon" in mini.content and "<polyline" not in mini.content
+            demo.log.on_event("us.check_path", {"id": "us-1", "stage": "L1", "phase": "end", "points_mm": [(250, 200), (350, 200)], "points": [], "unreachable": False})
+            for _ in range(20):
+                if "<polyline" in mini.content:
+                    break
+                await asyncio.sleep(0.1)
+            assert "<polyline" in mini.content
+
+    asyncio.run(go())
+    demo.log.clear()

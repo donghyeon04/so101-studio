@@ -4,22 +4,21 @@
 
 GUI 세션의 인수인계 문서다. 기준 문서는 `planning/gui-spec.md`, 절차는 `guides/session-workflow.md`이다.
 
-## 인수인계 (2026-11-06, 새 계정·노트북으로 옮기기 전)
-- **브랜치·PR:** GUI 일은 모두 `main`에 합쳐졌다(마지막 #83 초음파 화면, #86 문서). 이 문서는 `dev/gui-handoff`로 올린다. 푸시 안 된 커밋은 없다.
-- **열린 PR(세 세션):** #41(REQ-017, G10 실물 시험 뒤 합침), #88(초음파 인수인계 문서), #89(REQ-027 마무리 `follow_path`의 `enable_torque` + 팔 인수인계 문서), 이 PR. #68은 기획 요청함이라 합치지 않는다.
-- **하던 일:** 총괄 일만 남았다. REQ-028(ESP32 페이지)은 시작하지 않았다.
-- **다음 한 걸음(총괄):**
-  1. #88·#89를 사용자에게 묻고 합친다. #89는 전체 시험 1개가 이 PC에 USB 시리얼 포트가 없어 실패했다(`test_doctor_cli_json_in_sim`, 팔 세션 보고). 새 PC에서 보드를 꽂고 다시 돌린다.
-  2. 팔 세션에 REQ-025를 다시 시작시킨다(지시 전문은 `arm-dev-status.md` 인수인계 절). 합쳐지면 `sensors/ultrasonic_view.py`의 `Demo`를 지우고 `Studio.bus`를 구독, 작업 공간 작은 화면을 등록한다.
-  3. 초음파 세션: 벤치마크 가상 팔을 #73의 꺾임 규칙(`arm/trajectory.py`의 `junction_arcs`·`fillet_path`·`LookaheadShape`·`smooth_l`)에 맞추고 공식 표를 #68에 올린다(`us-dev-status.md` 인수인계 절). 사용자 지시이고 아직 안 했다.
-  4. GUI: REQ-028 ESP32 페이지(`gui-spec.md` 3절). B1~B3 실측 전에 있으면 좋다.
-- **막힌 것:** 실제 팔·ESP32 시험은 사용자가 시작한다고 할 때까지 하지 않는다. 순서는 `measurements.md` 실물 시험 순서. 사용자가 B1~B3 담당이다.
+## 인수인계 (2026-11-06, 노트북 GUI 세션)
+- **폴더·브랜치:** GUI 세션은 `so101-studio-gui` worktree에서 일한다(`so101-studio`는 팔 세션, `so101-studio-us`는 초음파 세션). conda는 `C:\miniforge3\envs\so101`이다. Git Bash에서는 `export PATH="/c/miniforge3/envs/so101/Library/bin:/c/miniforge3/envs/so101:$PATH"` 뒤 `PYTHONPATH=src python ...`로 돌린다(이 폴더의 소스를 쓰려고).
+- **운영(결정 0036 개정, #100):** PR 검토와 합치기는 총괄이 직접 다시 시험한 뒤 한다. 설계서·결정을 바꿀 일은 사용자에게 "기획 세션에 붙여 넣을 프롬프트"로 준다. 기획 승인 대기 브랜치(`claude/hopeful-hamilton-amqaac`)는 사용자 승인 뒤 총괄이 PR로 합친다.
+- **이번에 합친 GUI 일:** REQ-028 ESP32 센서 보드 페이지(#99), 작업 공간 초음파 작은 화면(`ultrasonic_view.mini_view`, 지금은 가상 실행 기록을 그림).
+- **다음 한 걸음:**
+  1. REQ-025(팔 세션, `dev/arm-req-025`)가 합쳐지면 `ultrasonic_view`의 `Demo`를 지우고 `Studio.bus`의 `us.*`를 구독한다. 작은 화면과 초음파 페이지가 같은 기록을 본다. 작업 공간에서 인식 방식(수동/초음파)을 고르게 한다.
+  2. ESP32 페이지 연결(`pages/esp32.py`의 `Board`)과 작업 실행이 같은 포트를 쓰지 않게 나눈다(코드의 shortcut 주석).
+  3. REQ-029(팔 세션) 설치 스크립트가 오면 깨끗한 PC 설치 시험을 사용자와 정한다(결정 0040).
+- **막힌 것:** 실제 팔·ESP32 시험은 사용자가 시작한다고 할 때까지 하지 않는다. 순서는 `measurements.md` 실물 시험 순서.
 - **알려진 함정:**
-  - PR 합치기는 내장 브라우저로 한다(`gh` 없음). JS로 Merge 버튼을 누르면 막히니 `find` → `computer` 클릭. `main`이 막 바뀌면 "Checking..."이 떠 잠시 뒤 다시 한다.
-  - #68 댓글은 textarea에 값을 넣고 `input` 이벤트 뒤 1.5초 기다렸다 Comment를 누른다.
-  - `main` 기록을 `grep '#77'`처럼 찾으면 커밋 메시지 글자에 걸린다. 합쳐졌는지는 `git merge-base --is-ancestor`로 본다.
-  - 시험이 겹치면 느려져 `timeout`에 걸린다. 전체 시험은 하나씩, 임시 worktree에서 돌린다(약 17~20분).
-  - Sonnet 세션의 숫자(시험 통과, 벤치마크)는 보고값이다. 합치기 전에 한 칸이라도 직접 다시 돌린다. 이번 작업에서 직접 다시 재 본 덕에 찾은 것: `follow_path` 실제 가속 초과, 읽기 실패 때 명령이 영원히 돌아오지 않던 문제(REQ-026), 시계 해상도 15.6ms.
+  - PR 합치기는 `gh pr merge N --merge`로 한다(이 노트북은 gh 로그인됨).
+  - 미리보기 도구는 세션의 원래 폴더(`so101-studio`)에서 `launch.json`을 찾는다. 팔 세션 폴더를 건드리지 않으려고 서버는 Bash로 띄우고(`PYTHONPATH=…\so101-studio-gui\src`, `python -m so101_studio.gui --sim --port 8080`) 내장 브라우저로 주소를 연다. cmd 파일의 경로는 한글 대신 `%USERPROFILE%`로 쓴다.
+  - 전체 GUI 시험은 약 11분(324개)이다. 시간 제한을 넉넉히 둔다. 겹치면 느려지므로 하나씩 돌린다.
+  - Sonnet 세션의 숫자(시험 통과, 벤치마크)는 보고값이다. 합치기 전에 한 칸이라도 직접 다시 돌린다.
+  - `main` 기록을 `grep '#77'`처럼 찾으면 커밋 메시지에 걸린다. 합쳐졌는지는 `git merge-base --is-ancestor`로 본다.
   - 앱을 `--sim`으로 띄워 볼 때 조작권은 처음 탭이 갖는다. 새 탭이면 [조작권 받기]를 누른다.
 
 ## G10 세부 (`measurements.md` 실물 시험 순서 2·3번)
