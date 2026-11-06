@@ -37,10 +37,10 @@ def test_unknown_height_uses_the_configured_grasp_height(svc):
 
 
 def test_wide_tall_object_raises_the_grasp_height(svc):
-    # 58x39 물체: 설정 t(=15 또는 20)로는 위 모서리를 친다 -> 더 높게 집는다
+    # 66x39 물체: 설정 t(20)로는 G100에서도 위 모서리를 친다 -> 더 높게 집는다
     sk = svc.skills
     v0 = sk.gripper_for_width(100.0)
-    t, why = sk._grasp_height(obj(58, 39), 100.0, v0, True)
+    t, why = sk._grasp_height(obj(66, 39), 100.0, v0, True)
     assert why is None and t > CFG.grasp_height_mm and 39 - t >= CFG.grasp_min_contact_mm
 
 
