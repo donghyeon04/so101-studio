@@ -57,3 +57,17 @@
 | 13 | 팀 공유용 읽기 전용 보기(조작권 없이 상태·3D만) | LeLab 웹 | 시연·원격 확인 | 소 |
 - 결정 필요: 다음 기간에 어떤 것을 할지(총괄 추천 순서: 8 → 3 → 6(D1 A와 함께) → 1 → 7).
 - 출처: github.com/huggingface/lelab, github.com/phospho-app/phosphobot, docs.foxglove.dev/docs/getting-started/robots/so-100, hexdocs.pm/bb_so101, pypi.org/project/gym-soarm, maniskill.readthedocs.io(so100).
+
+### D3. 그리퍼 두 종 선택 (5-3, 팔 세션 조사·설계 2026-11-07)
+- 조사: Robonine SO-ARM100/101/102 Parallel Gripper(github.com/roboninecom/SO-ARM100-101-Parallel-Gripper) = STS3215 1개(ID 6) → 기어·랙 2개 → 두 턱이 로드 위를 대칭 이동. 행정 84mm, 파지력 최대 120N, 최대 14mm/s, 반복도 0.5mm. 부품·조립 STL 공개(CERN-OHL-P-2.0 / 코드 Apache-2.0), 그리퍼 단독 URDF·폭↔서보값 표는 없음(직접 재야 함). LeRobot은 그리퍼도 캘리브레이션 범위로만 다룸.
+- 설계안: `Gripper` 인터페이스(폭↔값, 두 턱 끝·중간점, 보정 필요 여부, 기울기, 위로 좁아지는 비율, 닫기·열기 경로, 바닥 검사용 메쉬). 지금 단동식 전용 코드(kinematics·skills·safety·targets 곳곳)를 `SingleJawGripper`로 옮기고(동작 변경 0), `ParallelGripper`는 보정 0·기울기 0·높이 규칙 W ≤ G − 4. 설정 `config/arms/<팔>.yaml`의 `gripper: single_jaw | parallel`, 세부는 `config/grippers/<종류>.yaml`. 병렬 URDF는 gripper_link 아래만 바꾼 `assets/so101_parallel.urdf`(관절 이름 `gripper` 유지, 서보 ID 6 그대로).
+- 진행: 인터페이스 + 단동식 이사(동작 변경 0)는 결정과 무관해 먼저 한다. 병렬 구현·설정 선택·GUI 선택 화면은 결정 뒤.
+- 결정 필요 (팔 세션 추천): (a) 병렬의 TCP를 "두 턱 중앙"으로(추천, 보정이 필요 없어짐) (b) 병렬 URDF·메쉬를 D1(B)와 함께 만들기(추천) (c) 접촉 감지·조임 토크 기준은 그리퍼마다 따로 실측 (d) 단동식이 기본, 병렬은 설정으로만 켬(추천). 하드웨어 몫: 폭 게이지 5점으로 폭↔서보값 표, 캘리브레이션 범위.
+- 초음파 영향: 초음파 코드는 그리퍼 종류를 모르고 손목 센서→집게 끝 오프셋(`sensor_to_tip`)과 `check.tool_reach_mm`만 쓴다. 집게 끝 위치가 바뀌면 그 설정값만 바꾸면 된다(초음파 세션이 코드로 확인, 실제로 돌려 보지는 않음).
+
+### D4. 레이더 서보를 OpenRB-150 + XL330-M288-T로 (5-2, 초음파 세션 조사·설계 2026-11-07)
+- **전원 위험(꼭 확인)**: XL330 입력은 3.7~6.0V(권장 5V). OpenRB-150의 DXL 포트 전원은 VIN에서 나오고 VIN은 12.6V까지 받으므로, 팔 어댑터 12V를 OpenRB VIN에 그대로 넣으면 XL330이 망가질 수 있다. 5V(3A급 강압 모듈 또는 USB 5V)로 먹인다. 배선 담당(송민준)에게 "VIN에 12V가 들어가는지" 먼저 확인. DXL 포트 전원은 OpenRB 펌웨어가 켜야 한다(핀 31). Serial2 UART 단자는 핀 헤더 납땜이 필요할 수 있다.
+- 연결 방식 후보: A UART 브리지(ESP32 ─UART 3.3V, TX/RX 교차, GND 공통─ OpenRB Serial2, OpenRB가 Dynamixel2Arduino로 XL330 제어하고 실제 각도를 돌려줌) 82점 / B OpenRB를 USB-TTL 중계로 쓰고 ESP32가 DXL 프로토콜 직접 58 / C ESP32 직접 구동(반이중 회로) 45 / D OpenRB를 PC USB에 따로 50. 추천 A. ESP32↔OpenRB 연결 사례는 공식 문서에 없어 A는 "공식 부품의 일반 UART 연결"로 설계한 것.
+- 효과: XL330은 12비트(0.088°) 엔코더로 측정 순간의 실제 각도를 읽어 샘플에 실을 수 있어, 지금 설계의 "서보 지연 ±3°"가 사실상 줄어든다(실측 B4로 확인). 통신 규약은 하위 호환 확장(`hello.servo = pwm|dxl`, 레이더 샘플에 선택 필드 `ang`). 손목 센서·PC 인식 코드는 거의 그대로.
+- 진행: 결정과 무관한 준비(가상 서보 모델 pwm/dxl 옵션, `ang` 처리, 벤치마크 `--servo`, ESP32 펌웨어 `servoWrite` 분리)는 초음파 세션이 먼저 한다. 본공사(OpenRB 펌웨어 `firmware/openrb_servo/`, 설정 `servo.driver`)는 결정 뒤.
+- 결정 필요: (a) 연결 방식 A 채택 (b) XL330 전원 5V 확정(12V를 OpenRB VIN에 넣지 않음) (c) 구매 목록(ultrasonic-spec 3.5의 MG90S)을 OpenRB·XL330·5V 전원으로 갱신, 결정 0035(MG90S)를 대체하는 새 결정 기록. 출처: emanual.robotis.com(XL330-M288, OpenRB-150), github.com/ROBOTIS-GIT/Dynamixel2Arduino.
