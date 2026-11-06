@@ -87,7 +87,7 @@ def component_states(status: ArmStatus | None, now: float, comm_lost: bool = Fal
     fault = status.fault or ""
     bus = ("error", f"통신 오류: {fault}") if fault.startswith("comm") else ("ok", "상태 수신 중")
     if fault and not fault.startswith("comm"):
-        return {"버스": bus, "서보": ("error", f"오류: {FAULT_TEXT.get(fault, fault)}")}
+        return {"버스": bus, "서보": ("error", getattr(status, "fault_text", None) or f"오류: {FAULT_TEXT.get(fault, fault)}")}
     warned = [f"{name} {status.temperature_c[name]:.0f}°C" for name in status.temperature_c if status.temperature_c[name] >= SERVO_WARN_C]
     warned += [f"{name} 부하 {load:.0f}%" for name, load in status.load_pct.items() if load >= SERVO_WARN_LOAD_PCT]
     return {"버스": bus, "서보": ("warn", ", ".join(warned)) if warned else ("ok", f"서보 {len(status.temperature_c)}개 정상")}

@@ -134,13 +134,15 @@ def build(backend, client_id: str, actions) -> None:
                     obj_w = control(ui.number("폭 (mm)", value=30, min=0, step=5).props("outlined dense").classes("flex-1"))
                     obj_l = control(ui.number("길이 (mm)", value=30, min=0, step=5).props("outlined dense").classes("flex-1"))
                     obj_a = control(ui.number("각도 (°)", value=0, step=15).props("outlined dense").classes("flex-1"))
+                    obj_h = control(ui.number("높이 (mm)", value=0, min=0, step=5).props("outlined dense").classes("flex-1")
+                                    .tooltip("0이면 설정한 집는 높이로 집습니다").mark("pp-height"))
 
                 async def pick_place() -> None:
                     if points["pick"] is None:
                         ui.notify("먼저 집기 점을 고르세요(3D를 클릭하거나 좌표를 넣고 [지금 좌표를 집기 점으로])", type="warning")
                         return
                     reason = await run.io_bound(backend.pick_place, points["pick"], float(obj_a.value or 0), float(obj_w.value or 0),
-                                                float(obj_l.value or 0), points["place"])
+                                                float(obj_l.value or 0), points["place"], float(obj_h.value or 0))
                     if reason == EDGE_TEXT:
                         offer_free_edge(backend, pick_place)
                     else:

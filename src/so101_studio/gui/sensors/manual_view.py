@@ -71,13 +71,14 @@ def page(backend, client_id: str, actions) -> None:
         {"name": "angle", "label": "각도 (°)", "field": "angle"},
         {"name": "width", "label": "폭 (mm)", "field": "width"},
         {"name": "length", "label": "길이 (mm)", "field": "length"},
+        {"name": "height", "label": "높이 (mm)", "field": "height"},
         {"name": "reach", "label": "닿는지", "field": "reach", "align": "left"},
     ]
 
     def rows() -> list[dict]:
         return [
             {"id": o.id, "x": round(o.x_mm), "y": round(o.y_mm), "angle": round(o.angle_deg or 0), "width": round(o.width_mm),
-             "length": round(o.length_mm), "reach": reachable_text(backend, o)}
+             "length": round(o.length_mm), "height": round(o.height_mm) or "-", "reach": reachable_text(backend, o)}
             for o in backend.objects()
         ]
 
@@ -96,7 +97,7 @@ def page(backend, client_id: str, actions) -> None:
         if mode.value == "move" and state["selected"]:
             backend.move_object(state["selected"], x, y)
         else:
-            state["selected"] = backend.add_object(x, y, float(angle.value or 0), float(width.value or 30), float(length.value or 100))
+            state["selected"] = backend.add_object(x, y, float(angle.value or 0), float(width.value or 30), float(length.value or 100), float(height.value or 0))
         refresh_table()
 
     async def plane_clicked(e) -> None:  # guard는 이벤트 인자를 넘기지 않는다
@@ -131,6 +132,8 @@ def page(backend, client_id: str, actions) -> None:
                     angle = controls.add(ui.number("각도 (°)", value=0, min=0, max=180, step=15).props("outlined dense").classes("flex-1").mark("new-angle"))
                     width = controls.add(ui.number("폭 (mm)", value=30, min=5, max=110, step=5).props("outlined dense").classes("flex-1").mark("new-width"))
                     length = controls.add(ui.number("길이 (mm)", value=100, min=5, max=300, step=5).props("outlined dense").classes("flex-1").mark("new-length"))
+                    height = controls.add(ui.number("높이 (mm)", value=0, min=0, max=200, step=5).props("outlined dense").classes("flex-1")
+                                          .tooltip("0이면 설정한 집는 높이로 집습니다").mark("new-height"))
             if backend.task_running():
                 ui.label("작업 실행 중에는 다음 스캔부터 반영됩니다").classes("page-body")
 

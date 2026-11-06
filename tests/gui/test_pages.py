@@ -219,6 +219,30 @@ def test_start_page_shows_mode_steps_and_guide(backend):
     asyncio.run(go())
 
 
+def test_top_bar_gripper_speed_applies_now(backend):
+    """결정 0042: 상단 막대가 gripper_speed_pct를 바로 바꾼다."""
+    before = backend.arm.cfg.gripper_speed_pct
+
+    async def go():
+        async with user_simulation(gui_app.make_root(backend)) as user:
+            await user.open("/start")
+            for _ in range(160):
+                if backend.owner is not None:
+                    break
+                await asyncio.sleep(0.05)
+            next(iter(user.find(marker="top-grip-speed").elements)).value = 40
+            for _ in range(60):
+                if backend.arm.cfg.gripper_speed_pct == 40:
+                    break
+                await asyncio.sleep(0.05)
+
+    try:
+        asyncio.run(go())
+        assert backend.arm.cfg.gripper_speed_pct == 40
+    finally:
+        backend.set_params({"gripper_speed_pct": before})
+
+
 def test_top_bar_run_mode_and_doctor(backend):
     async def go():
         async with user_simulation(gui_app.make_root(backend)) as user:

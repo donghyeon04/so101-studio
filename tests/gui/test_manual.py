@@ -226,4 +226,5 @@ def test_pick_place_moves_object_to_the_place_point(backend):
     """gui-spec 11절 B7: 집기 점에서 집어 놓기 점에 놓는다. 범위 밖이면 이유를 돌려준다."""
     backend.set_speed(100)
     assert backend.pick_place((300, 200), 0, 30, 30, (330, 180)) is None
+    assert backend.pick_place((300, 200), 0, 58, 58, (330, 180), height_mm=39) is None  # REQ-034 높이 칸
     assert "집기 점이 집기 범위 밖" in (backend.pick_place((300, 60), 0, 30, 30, None) or "")

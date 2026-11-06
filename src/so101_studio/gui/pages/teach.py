@@ -39,6 +39,19 @@ def chart_options(data: dict) -> dict:
     }
 
 
+REPLAY_MODES = {"original": "원본 그대로", "fitted": "변환본(한도에 맞춤)"}
+
+
+def fit_text(fit: dict | None) -> str:
+    """변환 재생 미리보기 (REQ-034)."""
+    if not fit:
+        return ""
+    if fit["fits_1x"]:
+        return "이 배속이면 원본 그대로 재생해도 한도 안입니다"
+    return (f"원본은 이 배속에서 한도를 넘어 멈출 수 있습니다. "
+            f"변환본은 구간 {fit['slowed_segments']}곳을 늦추고 {fit['added_s']:.1f}초 늘어납니다")
+
+
 def build(backend, client_id: str, actions) -> None:
     controls = Controls(backend, client_id, moves=True)
     state: dict = {"data": None, "factors": {}, "counting": False}
@@ -48,7 +61,7 @@ def build(backend, client_id: str, actions) -> None:
         if data is None:
             return
         reason = await run.io_bound(
-            backend.replay, select.value, float(speed.value), bool(until_limit.value), dict(state["factors"]) or None
+            backend.replay, select.value, float(speed.value), bool(until_limit.value), dict(state["factors"]) or None, replay_mode.value
         )
         if reason and reason.startswith(EDGE_TEXT):
             offer_free_edge(backend, play)
@@ -62,6 +75,7 @@ def build(backend, client_id: str, actions) -> None:
     def update_expected() -> None:
         if state["data"]:
             expected.text = f"재생 시간 약 {expected_seconds(state['data']['info']['segments'], state['factors'], float(speed.value)):.1f}초"
+            fit_note.text = fit_text(backend.replay_fit(select.value, float(speed.value), dict(state["factors"]) or None))
 
     @ui.refreshable
     def segment_panel() -> None:
@@ -189,6 +203,8 @@ def build(backend, client_id: str, actions) -> None:
                 )
                 controls.add(ui.number("배속", min=0.05, max=3, step=0.05, format="%.2f").bind_value(speed)
                              .props("outlined dense").classes("w-28").mark("replay-speed-input"))
+                replay_mode = controls.add(ui.toggle(REPLAY_MODES, value="original").props("no-caps spread").classes("w-full").mark("replay-mode"))
+                fit_note = ui.label("").classes("page-body").mark("fit-note")
                 until_limit = controls.add(ui.checkbox("한계 앞까지만 재생").mark("until-limit"))
                 expected = ui.label("").classes("page-body").mark("expected")
             with ui.card().classes("w-full gap-2"):
