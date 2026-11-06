@@ -3,8 +3,8 @@
 from nicegui import run, ui
 
 from .. import theme
-from ..backend import CART_AXES, JOG_JOINTS, JOINT_TEXT
-from .common import Controls, scene_frame
+from ..backend import CART_AXES, EDGE_TEXT, JOG_JOINTS, JOINT_TEXT
+from .common import Controls, offer_free_edge, scene_frame
 
 STEPS = {0: "누르기", 1: "1", 5: "5", 10: "10"}
 DEFAULT_TARGET = {"x": 300.0, "y": 200.0, "h": 40.0, "yaw": 90.0}
@@ -19,7 +19,9 @@ def build(backend, client_id: str, actions) -> None:
 
     async def act(fn, *args) -> None:
         result = await run.io_bound(fn, *args)
-        if result:  # 실패 이유만 돌아온다
+        if result == EDGE_TEXT:
+            offer_free_edge(backend, lambda: act(fn, *args))
+        elif result:  # 실패 이유만 돌아온다
             ui.notify(result, type="negative")
 
     with actions:
@@ -46,7 +48,9 @@ def build(backend, client_id: str, actions) -> None:
             return
         move_button.disable()
         reason = await run.io_bound(backend.move_to, target["x"], target["y"], target["h"], target["yaw"])
-        if reason:
+        if reason == EDGE_TEXT:
+            offer_free_edge(backend, move)
+        elif reason:
             ui.notify(reason, type="negative")
         plan_state["dirty"] = True
 
@@ -65,6 +69,9 @@ def build(backend, client_id: str, actions) -> None:
                 with ui.row().classes("w-full items-center no-wrap gap-2"):
                     reach_icon = ui.icon("help", size="24px").mark("reach-icon")
                     reach = ui.label("계산 중").classes("flex-1").mark("reach")
+                edge_button = ui.button("작업대 가장자리 검사 끄기", on_click=lambda: offer_free_edge(backend, mark_dirty)).props(
+                    "outline no-caps dense color=warning").mark("edge-offer")
+                edge_button.visible = False
                 move_button = ui.button("이동", on_click=guarded(move)).props("no-caps").classes("w-full").mark("move")
 
             with ui.card().classes("w-full gap-2"):
@@ -134,7 +141,10 @@ def build(backend, client_id: str, actions) -> None:
                         return
                     reason = await run.io_bound(backend.pick_place, points["pick"], float(obj_a.value or 0), float(obj_w.value or 0),
                                                 float(obj_l.value or 0), points["place"])
-                    ui.notify(reason or "집어 옮겼습니다", type="negative" if reason else "positive")
+                    if reason == EDGE_TEXT:
+                        offer_free_edge(backend, pick_place)
+                    else:
+                        ui.notify(reason or "집어 옮겼습니다", type="negative" if reason else "positive")
 
                 control(ui.button("집어 옮기기", on_click=guarded(pick_place)).props("no-caps").classes("w-full").mark("pp-run"))
 
@@ -167,8 +177,10 @@ def build(backend, client_id: str, actions) -> None:
             icon, color = theme.REACH_STYLES[plan.ok]
             reach_icon.name = icon
             reach_icon.props(f"color={color}")
-            if not plan.ok:
+            if not plan.ok and plan.text != plan_state.get("warned"):  # 손잡이를 끄는 동안 같은 이유가 수십 번 쌓이지 않게 바뀔 때만 알린다
                 ui.notify(plan.text, type="warning")
+            plan_state["warned"] = None if plan.ok else plan.text
+            edge_button.visible = plan.reason == "workspace"  # 작업대 가장자리 때문에만 안 닿을 때 그 자리에서 끌 수 있게
         mine = gate.allowed
         gate.refresh()
         status = backend.state.status

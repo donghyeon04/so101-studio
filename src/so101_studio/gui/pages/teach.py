@@ -5,8 +5,8 @@ import asyncio
 from nicegui import run, ui
 
 from .. import theme
-from ..backend import JOINT_TEXT
-from .common import Controls, scene_frame
+from ..backend import EDGE_TEXT, JOINT_TEXT
+from .common import Controls, offer_free_edge, scene_frame
 
 SEGMENT_FACTORS = {0.5: "0.5", 1.0: "1", 2.0: "2"}
 RECORD_STEPS = ("홈으로 이동", "팔 잡기", "카운트다운", "기록")
@@ -50,6 +50,9 @@ def build(backend, client_id: str, actions) -> None:
         reason = await run.io_bound(
             backend.replay, select.value, float(speed.value), bool(until_limit.value), dict(state["factors"]) or None
         )
+        if reason and reason.startswith(EDGE_TEXT):
+            offer_free_edge(backend, play)
+            return
         ui.notify(reason or backend.replay_cut() or "재생을 마쳤습니다", type="negative" if reason else "positive")
 
     with actions:
@@ -181,9 +184,11 @@ def build(backend, client_id: str, actions) -> None:
             with ui.card().classes("w-full gap-2"):
                 ui.label("재생").classes("card-title")
                 speed = controls.add(
-                    ui.slider(min=0.25, max=3, step=0.25, value=1.0, on_change=lambda: update_expected())
+                    ui.slider(min=0.05, max=3, step=0.05, value=1.0, on_change=lambda: update_expected())
                     .props("label-always").classes("mt-6").mark("replay-speed")
                 )
+                controls.add(ui.number("배속", min=0.05, max=3, step=0.05, format="%.2f").bind_value(speed)
+                             .props("outlined dense").classes("w-28").mark("replay-speed-input"))
                 until_limit = controls.add(ui.checkbox("한계 앞까지만 재생").mark("until-limit"))
                 expected = ui.label("").classes("page-body").mark("expected")
             with ui.card().classes("w-full gap-2"):
