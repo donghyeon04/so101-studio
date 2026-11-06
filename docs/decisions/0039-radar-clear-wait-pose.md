@@ -1,6 +1,6 @@
 # 0039. 초음파를 쓸 때 대기 자세는 레이더 시야를 가리지 않는 `radar_clear`로 한다
 
-상태: 확정 · 2026-11-06 (`system-architecture.md` 5절 PREPARE와 `ultrasonic-spec.md` 2절 RESCAN 보완)
+상태: 확정 · 2026-11-06 (`system-architecture.md` 5절 PREPARE와 `ultrasonic-spec.md` 2절 RESCAN 보완, 기본 후보는 0041로 대체)
 
 ## 맥락
 작업 실행의 `PREPARE`는 "센서 시야 밖 대기 자세(`park`)"로 정해져 있었고, `RESCAN`은 "`PREPARE`와 같은 자세"였다. 팔 세션이 REQ-025를 `--sim` + 가상 ESP32로 시험해 보니 `park`(지금은 `home`과 같음)의 손끝이 작업대 (300, 269)로 레이더 정면에 있었다. 레이더는 앞 변 가운데 (300, 400)에서 팔 쪽(−y)을 보므로, 팔 링크 자리를 지우는 처리(5절 4) 때문에 정면 반경 150~200mm의 물체가 후보로 나오지 않았다. 벤치마크는 대기 자세를 "팔 원점 바로 위 손끝 150mm"로 흉내 내 왔고, 그 자세에서는 이 문제가 없었다. 총괄은 (a) 초음파일 때 PREPARE와 RESCAN을 같은 새 자세로, (b) `park` 자체를 옮김, (c) RESCAN만 다른 자세 중 (a)를 추천했다. 이 기록은 사용자 승인으로 main에 합쳐질 때 확정된다.
