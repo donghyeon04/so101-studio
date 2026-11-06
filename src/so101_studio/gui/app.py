@@ -48,7 +48,7 @@ DESCRIPTIONS = {
     "/manual": "팔을 관절이나 손끝 좌표로 직접 움직입니다.",
     "/teach": "손으로 움직인 동작을 기록하고 다시 재생합니다.",
     "/ultrasonic": "레이더와 손목 센서가 찾은 물체를 봅니다. 지금은 가상 실행만 됩니다.",
-    "/camera": "카메라로 물체를 찾는 화면입니다. 4단계에서 만듭니다.",
+    "/camera": "카메라로 물체를 찾는 화면입니다.",
     "/input": "센서 대신 사람이 물체 위치를 알려 주는 인식 방식입니다. 작업 공간 자동 실행이 이 물체들을 집습니다.",
     "/arm": "팔 연결 상태와 점검 결과, 팔 파일, 진단을 봅니다.",
     "/esp32": "초음파 센서 보드(ESP32)의 연결과 최근 메시지를 봅니다.",
@@ -61,12 +61,13 @@ DESCRIPTIONS = {
 }
 BUILDERS = {"/": workspace.build, "/manual": manual.build, "/teach": teach.build, "/params": params.build, "/safety": safety.build, "/table": table.build, "/arm": arm.build, "/esp32": esp32.build, "/runs": runs.build, "/logs": logs.build, "/start": lambda b, c, a: start.build(b, c, a, PAGES[1:], DESCRIPTIONS), **sensors.pages()}  # 만든 페이지. 나머지는 자리만 있다
 COMPONENTS = ("버스", "서보")  # 감시 칸과 센서 칸은 따로 있다 (decisions/0030)
-TOP_STATS = ("센서", "실행 방식", "전압", "최고 온도", "속도", "조작권")  # 감시 칸은 아이콘이 있어 따로 그린다
+TOP_STATS = ("센서", "전압", "최고 온도", "속도", "조작권")  # 감시 칸은 아이콘이 있어 따로 그린다. 실행 방식은 오른쪽 고르기 칸이 보인다
+WIDE_ONLY = {"센서", "최고 온도"}  # 1440px 아래에서는 숨긴다. 과열은 서보 칸이 경고로 보인다
 BOTTOM_STATS = ("손끝 좌표", "닿는지·오차", "안전 모드", "토크", "기록 폴더")
 
 
-def _stat(label: str, value: str = EMPTY) -> ui.label:
-    with ui.column().classes("gap-0"):
+def _stat(label: str, value: str = EMPTY, wide_only: bool = False) -> ui.label:
+    with ui.column().classes("gap-0 shrink-0" + (" gt-md" if wide_only else "")):
         ui.label(label).classes("stat-label")
         return ui.label(value).classes("stat-value")
 
@@ -113,11 +114,12 @@ def make_root(backend: Backend):
             if path in BUILDERS:
                 BUILDERS[path](backend, client.id, actions)
                 return
-            ui.label(f"{task}에서 만든다.").classes("page-body")
+            ui.label("아직 준비 중인 화면입니다. 지금은 초음파나 수동 입력으로 물체를 알려 주세요.").classes("page-body").mark("page-pending")
 
         def refresh() -> None:
             for name, value in backend.readout().items():
-                stats[name].text = value
+                if name in stats:
+                    stats[name].text = value
             stats["조작권"].text = "이 브라우저" if backend.owner == client.id else "보기 전용"
             take.visible = backend.owner is None
             if backend.pending and backend.owner == client.id and not pending_dialog.value:
@@ -227,25 +229,26 @@ def make_root(backend: Backend):
 
         drawer = ui.left_drawer(value=True, bordered=False).props(f"width={theme.DRAWER_W}").classes("p-0 gap-0")
 
-        with ui.header().classes("frame-bar frame-top items-center gap-6 px-3 py-1"):
+        with ui.header().classes("frame-bar frame-top items-center no-wrap gap-4 px-3 py-1"):
             ui.button(icon="menu", on_click=drawer.toggle).props("flat round color=dark aria-label=메뉴").mark("menu")
             ui.link("SO-101 Studio", "/start").classes("text-lg font-semibold no-underline text-inherit").props('aria-label="시작 화면으로"').mark("brand")
-            stats["팔"] = _stat("팔")
-            with ui.row().classes("items-center gap-1 no-wrap"):
-                watch_icon = ui.icon("remove_circle_outline", size="20px").mark("watch-icon")
-                stats["감시"] = _stat("감시")
-            for name in COMPONENTS:
+            # 상태 칸은 좁은 화면에서 줄바꿈 대신 가로로 스크롤한다. 오른쪽 조작(그리퍼 속도·실행 방식·다시 연결·점검)은 항상 보인다
+            with ui.row().classes("items-center gap-4 no-wrap min-w-0 flex-1 overflow-x-auto top-stats"):
+                stats["팔"] = _stat("팔")
                 with ui.row().classes("items-center gap-1 no-wrap"):
-                    icon = ui.icon("sync_problem", size="20px", color="grey-8").mark(f"component-{name}-icon")
-                    stats[name] = _stat(name)
-                    stats[name].mark(f"component-{name}")
-                    components[name] = (icon, ui.tooltip(""))
-            for label in TOP_STATS:
-                stats[label] = _stat(label)
-            stats["조작권"].text = "보기 전용"
-            take = ui.button("조작권 받기", on_click=lambda: backend.claim(client.id)).props("outline no-caps").mark("take")
-            take.visible = False
-            ui.space()
+                    watch_icon = ui.icon("remove_circle_outline", size="20px").mark("watch-icon")
+                    stats["감시"] = _stat("감시")
+                for name in COMPONENTS:
+                    with ui.row().classes("items-center gap-1 no-wrap"):
+                        icon = ui.icon("sync_problem", size="20px", color="grey-8").mark(f"component-{name}-icon")
+                        stats[name] = _stat(name)
+                        stats[name].mark(f"component-{name}")
+                        components[name] = (icon, ui.tooltip(""))
+                for label in TOP_STATS:
+                    stats[label] = _stat(label, wide_only=label in WIDE_ONLY)
+                stats["조작권"].text = "보기 전용"
+                take = ui.button("조작권 받기", on_click=lambda: backend.claim(client.id)).props("outline no-caps").mark("take")
+                take.visible = False
             # 자주 쓰는 것을 상단에서 바로 (gui-spec 11절 A2). 원래 페이지의 같은 기능과 같은 상태를 쓴다
             with ui.row().classes("items-center gap-2 no-wrap"):
                 ui.label("그리퍼 속도").classes("stat-label")

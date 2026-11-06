@@ -12,7 +12,7 @@ pytest.importorskip("nicegui")
 from nicegui.testing import user_simulation
 
 from so101_studio.gui import app as gui_app
-from so101_studio.gui.backend import JOG_JOINTS
+from so101_studio.gui.backend import CART_AXES, JOG_JOINTS
 from so101_studio.gui.scene3d import table_hit
 from so101_studio.service.targets import tip_vector
 
@@ -82,6 +82,21 @@ def test_plan_unreachable_point_gives_reason_and_no_preview(backend):
     assert backend.scene._preview_root.visible is False
     assert "/marks/path" not in backend.scene.server.scene._handle_from_node_name
     backend.scene.clear_target()
+
+
+def test_horizontal_tip_plans_moves_and_draws_reach_rings(backend):
+    """REQ-037: 손끝 각도 0(수평)으로 앞쪽 점에 닿고, 집기 범위와 움직임 범위 호를 3D에 그린다."""
+    nodes = backend.scene.server.scene._handle_from_node_name
+    plan = backend.plan(300, 350, 120, 90, 0)
+    assert plan.ok, plan.text
+    assert "/marks/reach/pick" in nodes and "/marks/reach/motion" in nodes
+    backend.scene.clear_target()
+    assert "/marks/reach/pick" not in nodes
+    assert backend.move_to(300, 350, 120, 90, 0) is None
+    assert backend.arm.status().tool.pitch_deg == pytest.approx(0, abs=5)
+    assert backend.jog_step("cartesian", CART_AXES.index("pitch"), -15) is None  # 아래로 15°
+    assert backend.arm.status().tool.pitch_deg == pytest.approx(-15, abs=5)
+    assert backend.home() is None
 
 
 def test_move_to_reaches_the_point(backend):

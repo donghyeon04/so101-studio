@@ -137,7 +137,7 @@ def page(backend, client_id: str, actions) -> None:
             if backend.task_running():
                 ui.label("작업 실행 중에는 다음 스캔부터 반영됩니다").classes("page-body")
 
-    table = ui.table(rows=rows(), columns=columns, row_key="id", selection="single", on_select=selected_changed).props("flat bordered dense").classes("w-full").mark("object-table")
+    table = ui.table(rows=rows(), columns=columns, row_key="id", selection="single", on_select=selected_changed).props('flat bordered dense no-data-label="물체가 없습니다. 위 작업대를 클릭해 놓으세요"').classes("w-full").mark("object-table")
 
     def tick() -> None:
         controls.refresh()

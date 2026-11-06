@@ -260,8 +260,8 @@ def page(backend, client_id: str, actions) -> None:
             start_button = controls.add(ui.button("가상으로 돌리기", on_click=controls.guard(start)).props("no-caps").mark("us-start"))
             stop_button = controls.add(ui.button("멈추기", on_click=controls.guard(stop)).props("outline no-caps").mark("us-stop"))
 
-    ui.label("가상 ESP32와 가상 팔의 값입니다. 실제 센서 연결은 작업 실행 CHECK(REQ-025) 뒤에 붙습니다." if backend.real is None
-             else "실제 ESP32 연결은 아직 없습니다. 작업 실행 CHECK(REQ-025) 뒤에 붙습니다.").classes("page-body").mark("us-note")
+    ui.label("가상 ESP32와 가상 팔의 값입니다. 실제 보드는 장치 > ESP32 센서 보드에서 연결합니다." if backend.real is None
+             else "이 화면은 아직 가상 실행만 그립니다. 실제 보드는 장치 > ESP32 센서 보드에서 연결합니다.").classes("page-body").mark("us-note")
     status = ui.label("").classes("page-body").mark("us-status")
 
     with ui.row().classes("w-full no-wrap items-start gap-4"):
@@ -274,7 +274,7 @@ def page(backend, client_id: str, actions) -> None:
 
     columns = [{"name": k, "label": label, "field": k, "align": "left"} for k, label in (
         ("id", "후보"), ("status", "결과"), ("x", "x (mm)"), ("y", "y (mm)"), ("angle", "방향 (°)"), ("size", "길이×폭 (mm)"), ("confidence", "신뢰도"), ("seconds", "확인 (초)"))]
-    results = ui.table(rows=[], columns=columns, row_key="key").props("flat bordered dense").classes("w-full").mark("us-results")
+    results = ui.table(rows=[], columns=columns, row_key="key").props('flat bordered dense no-data-label="아직 결과가 없습니다. [가상으로 돌리기]를 누르세요"').classes("w-full").mark("us-results")
 
     def redraw() -> None:
         controls.refresh()

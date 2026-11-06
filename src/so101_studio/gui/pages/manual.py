@@ -3,11 +3,11 @@
 from nicegui import run, ui
 
 from .. import theme
-from ..backend import CART_AXES, EDGE_TEXT, JOG_JOINTS, JOINT_TEXT
+from ..backend import ANGLE_AXES, CART_AXES, EDGE_TEXT, JOG_JOINTS, JOINT_TEXT
 from .common import Controls, offer_free_edge, scene_frame
 
 STEPS = {0: "누르기", 1: "1", 5: "5", 10: "10"}
-DEFAULT_TARGET = {"x": 300.0, "y": 200.0, "h": 40.0, "yaw": 90.0}
+DEFAULT_TARGET = {"x": 300.0, "y": 200.0, "h": 40.0, "yaw": 90.0, "pitch": -90.0}
 
 
 def build(backend, client_id: str, actions) -> None:
@@ -47,7 +47,7 @@ def build(backend, client_id: str, actions) -> None:
         if plan is None or not plan.ok:
             return
         move_button.disable()
-        reason = await run.io_bound(backend.move_to, target["x"], target["y"], target["h"], target["yaw"])
+        reason = await run.io_bound(backend.move_to, target["x"], target["y"], target["h"], target["yaw"], target["pitch"])
         if reason == EDGE_TEXT:
             offer_free_edge(backend, move)
         elif reason:
@@ -57,7 +57,7 @@ def build(backend, client_id: str, actions) -> None:
     with ui.row().classes("w-full no-wrap items-start gap-4"):
         with ui.column().classes("flex-1 min-w-0 gap-2 scene-column"):
             scene_frame(backend)
-            ui.label("작업대를 클릭하거나 손잡이를 끌어 점을 고릅니다").classes("page-body")
+            ui.label("작업대를 클릭하거나 손잡이를 끌어 점을 고릅니다. 초록 호 = 집기 범위, 파란 호 = 고른 손끝 각도로 갈 수 있는 높이별 범위").classes("page-body")
 
         with ui.column().classes("control-column gap-3"):
             with ui.card().classes("w-full gap-2"):
@@ -66,6 +66,9 @@ def build(backend, client_id: str, actions) -> None:
                     fields = {"x": number("x (mm)", "x", 5), "y": number("y (mm)", "y", 5)}
                 with ui.row().classes("w-full no-wrap gap-2"):
                     fields |= {"h": number("높이 (mm)", "h", 5), "yaw": number("yaw (°)", "yaw", 15)}
+                with ui.row().classes("w-full no-wrap gap-2 items-center"):
+                    fields["pitch"] = number("손끝 각도 (°)", "pitch", 15).props("min=-90 max=0").tooltip("-90 = 수직 아래(집기), 0 = 수평")
+                    ui.label("−90 아래 · 0 수평").classes("page-body")
                 with ui.row().classes("w-full items-center no-wrap gap-2"):
                     reach_icon = ui.icon("help", size="24px").mark("reach-icon")
                     reach = ui.label("계산 중").classes("flex-1").mark("reach")
@@ -100,7 +103,7 @@ def build(backend, client_id: str, actions) -> None:
                             control(ui.button("이동", on_click=guarded(joint_to)).props("outline no-caps").mark("joint-to"))
                     with ui.tab_panel(cart_tab).classes("p-0 gap-1"):
                         for i, name in enumerate(CART_AXES):
-                            unit = "°" if name == "yaw" else "mm"
+                            unit = "°" if name in ANGLE_AXES else "mm"
                             _jog_row(backend, name, ("cartesian", i), unit, held, step, control, guarded)
 
             with ui.card().classes("w-full gap-2"):
@@ -171,7 +174,7 @@ def build(backend, client_id: str, actions) -> None:
         if owner() and plan_state["dirty"] and not plan_state["busy"] and backend.state.status and backend.state.status.state == "idle":
             plan_state["dirty"], plan_state["busy"] = False, True
             try:
-                plan_state["plan"] = await run.io_bound(backend.plan, target["x"], target["y"], target["h"], target["yaw"])
+                plan_state["plan"] = await run.io_bound(backend.plan, target["x"], target["y"], target["h"], target["yaw"], target["pitch"])
             finally:
                 plan_state["busy"] = False
             plan = plan_state["plan"]
@@ -183,6 +186,8 @@ def build(backend, client_id: str, actions) -> None:
                 ui.notify(plan.text, type="warning")
             plan_state["warned"] = None if plan.ok else plan.text
             edge_button.visible = plan.reason == "workspace"  # 작업대 가장자리 때문에만 안 닿을 때 그 자리에서 끌 수 있게
+        elif not owner() and plan_state["plan"] is None:
+            reach.text = "보기 전용이라 계산하지 않습니다"
         mine = gate.allowed
         gate.refresh()
         status = backend.state.status

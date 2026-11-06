@@ -58,7 +58,7 @@ def _run_for(link, seconds):
 
 def test_server_heartbeat_and_status(fake_watchdog):
     link = _link(fake_watchdog)
-    _run_for(link, 0.7)
+    _run_for(link, 1.0)  # 0.2초 주기. 전체 시험 중 부하에서 0.7초는 3번에 못 미친 적이 있다
     assert fake_watchdog.calls.count("/hb?src=server") >= 3
     assert "/status" in fake_watchdog.calls
     assert link.alive and link.text() == "정상"
