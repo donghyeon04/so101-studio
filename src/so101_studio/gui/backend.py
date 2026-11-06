@@ -53,6 +53,7 @@ REASON_EXTRA = {"z_ceiling": "허용 상자보다 높습니다"}  # service.targ
 BUSY_TEXT = "팔이 아직 움직이고 있습니다"
 COMM_LOST_TEXT = "통신이 끊겼습니다. 케이블과 전원을 확인하고 [다시 연결]을 눌러 주세요"
 OUTSIDE_TEXT = "작업대 밖에서 출발했습니다. 안쪽으로만 움직일 수 있습니다"
+EDGE_TEXT = "작업대 가장자리 밖이라 움직이지 않았습니다"  # 이 문구면 화면이 "가장자리 검사를 끄고 다시 하기"를 묻는다
 LINKWATCH_TEXT = "linkwatch를 실행 중입니다. 끝나면 팔을 다시 연결합니다"
 LOG_LEVELS = {"DEBUG": "INFO", "INFO": "INFO", "WARN": "WARNING", "ERROR": "ERROR", "FATAL": "ERROR"}
 MOTION_TEXT = {
@@ -90,6 +91,7 @@ def update_workspace_text(text: str, values: dict, zone: str) -> str:
 class Plan:
     ok: bool
     text: str
+    reason: str | None = None  # 안 닿을 때의 이유 코드(예: workspace = 작업대 가장자리)
 
 
 def with_first_report(report: dict, first: dict | None) -> dict:
@@ -279,8 +281,8 @@ class Backend:
             return BUSY_TEXT
         except ValueError as e:  # 배율 때문에 속도 한계를 넘는 경우 등
             return str(e)
-        if result.reason == "workspace" and Backend._starts_outside(arm):
-            return OUTSIDE_TEXT
+        if result.reason == "workspace":
+            return OUTSIDE_TEXT if Backend._starts_outside(arm) else EDGE_TEXT
         if result.reason and "_out_of_reach:" in result.reason:  # REQ-031: 팔이 준 반경과 허용 범위를 그대로 보인다
             kind, detail = result.reason.split(":", 1)
             return f'{"집기" if kind.startswith("pick") else "놓기"} 점이 집기 범위 밖입니다:{detail}'
@@ -369,7 +371,7 @@ class Backend:
         if self.scene:
             self.scene.set_preview(q if ok else None)
             self.scene.show_target(x, y, h, ok, path)
-        return Plan(ok, text)
+        return Plan(ok, text, reason)
 
     def clear_plan(self) -> None:
         self._planning = False
@@ -549,6 +551,11 @@ class Backend:
     # ---- 설정
     def get_safety(self) -> dict:
         return self.arm.get_safety()
+
+    def free_table_edge(self) -> str | None:
+        """작업대 가장자리 검사만 끈다(자유 모드). 관절 한계·바닥·한 주기 이동량 검사는 그대로다 (decisions/0015)."""
+        cur = self.get_safety()
+        return self.set_safety("free", cur["joint_margin_deg"], cur["box_mm"])
 
     def set_safety(self, mode: str, margin: float, box: dict | None) -> str | None:
         """안전 설정을 바꾼다. 잘못된 값이면 이유를 돌려주고 아무것도 바꾸지 않는다."""
@@ -798,8 +805,11 @@ class Backend:
 
     def replay(self, name: str, speed: float, until_limit: bool = False, segment_speeds: dict[int, float] | None = None) -> str | None:
         reason = self._dispatch(lambda arm: arm.replay(name, speed, until_limit, segment_speeds), f"{name} 재생")
+        advice = "기록에 허용 범위 밖 자세가 있어 재생하지 않았습니다(첫 자세까지는 이동합니다). 한계 앞까지만 재생을 켜 보세요"
+        if reason == EDGE_TEXT and not until_limit:  # EDGE_TEXT로 시작하면 화면이 가장자리 검사를 끌지 묻는다
+            return f"{EDGE_TEXT}. {advice}"
         if reason in (MOTION_TEXT["out_of_bounds"], OUTSIDE_TEXT) and not until_limit:
-            return "기록에 허용 범위 밖 자세가 있어 재생하지 않았습니다(첫 자세까지는 이동합니다). 한계 앞까지만 재생을 켜 보세요"
+            return advice
         return reason
 
     def replay_cut(self) -> str | None:

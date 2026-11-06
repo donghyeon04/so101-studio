@@ -220,3 +220,14 @@ def test_record_flow_on_the_page(real_like):
 def test_path_kinematics_is_built_before_the_watchdog_starts(backend):
     # 처음 만들 때 파이썬이 1.7초 멈춘다. 기록을 고를 때 만들면 감시 프로세스가 실제 팔 앱을 강제 종료한다
     assert backend._path_kin is not None
+
+
+def test_replay_speed_can_be_typed(backend):
+    """사용자 요청: 막대 말고 배속을 숫자로 넣는다(0.6처럼 0.25 단위가 아닌 값)."""
+    async def go():
+        async with user_simulation(gui_app.make_root(backend)) as user:
+            await user.open("/teach")
+            _one(user, "replay-speed-input").value = 0.6
+            assert await _until(lambda: abs(_one(user, "replay-speed").value - 0.6) < 1e-9)
+
+    asyncio.run(go())

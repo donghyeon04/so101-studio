@@ -349,7 +349,7 @@ def test_failed_read_after_reconnect_still_offers_reconnect(twin, monkeypatch):
 
 def test_out_of_bounds_explains_when_starting_outside_the_table(twin, monkeypatch):
     result = SimpleNamespace(status="out_of_bounds", reason="workspace")
-    assert twin._run_on(twin.real, lambda _arm: result) == backend_module.MOTION_TEXT["out_of_bounds"]
+    assert twin._run_on(twin.real, lambda _arm: result) == backend_module.EDGE_TEXT  # 가장자리 거부는 따로 알린다(그 자리에서 끌지 묻는다)
     monkeypatch.setattr(twin.real.safety, "box", lambda: {"x": [0, 1], "y": [0, 1], "z": [0, None]})
     assert twin._run_on(twin.real, lambda _arm: result) == OUTSIDE_TEXT
     floor = SimpleNamespace(status="out_of_bounds", reason="z_floor")  # 밖에서 출발해도 바닥에 걸린 것은 이 문장이 아니다
@@ -405,3 +405,19 @@ def test_sim_first_preview_follows_the_moving_sim_arm_even_after_planning(shared
         assert shown == ["step"]  # 멈춰 있을 때는 고른 목표 자세를 지킨다
     finally:
         shared_twin.scene, shared_twin._planning = None, False
+
+
+def test_table_edge_refusal_is_told_apart_and_can_be_switched_off(shared_twin):
+    """작업대 가장자리(workspace) 거부는 따로 알리고, 그 자리에서 가장자리 검사만 끌 수 있다(자유 모드)."""
+    from so101_studio.core.types import MotionResult, ToolPose
+
+    arm = shared_twin.sim
+    edge = MotionResult("out_of_bounds", 0.0, ToolPose(0, 0, 0, 0), reason="workspace")
+    assert Backend._run_on(arm, lambda a: edge) in (backend_module.EDGE_TEXT, OUTSIDE_TEXT)
+    before = shared_twin.get_safety()
+    try:
+        assert shared_twin.free_table_edge() is None
+        assert shared_twin.get_safety()["mode"] == "free"
+        assert shared_twin.get_safety()["joint_margin_deg"] == before["joint_margin_deg"]
+    finally:
+        shared_twin.set_safety(before["mode"], before["joint_margin_deg"], before["box_mm"])
