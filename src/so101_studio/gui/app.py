@@ -11,7 +11,7 @@ from ..core.config import ArmSelectionError, load_robot_ex
 from ..core.ports import PortChoiceError, list_serial_ports, pick_port
 from ..doctor import doctor
 from . import scene3d, sensors, theme
-from .backend import Backend
+from .backend import RUN_MODES, Backend
 from .pages import (
     arm,
     esp32,
@@ -20,6 +20,7 @@ from .pages import (
     params,
     runs,
     safety,
+    start,
     table,
     teach,
     workspace,
@@ -34,13 +35,31 @@ REFRESH_S = 0.1
 
 # (그룹, 페이지들). 페이지는 (경로, 제목, 채우는 작업). gui-spec 3절
 PAGES = (
+    ("안내", (("/start", "시작", "G12"),)),
     ("작업", (("/", "작업 공간", "G6"), ("/manual", "직접 조작", "G4"), ("/teach", "교시", "G5"))),
     ("인식", sensors.menu()),
     ("장치", (("/arm", "팔", "G8"), ("/esp32", "ESP32 센서 보드", "3단계"))),
     ("설정", (("/params", "파라미터·프리셋", "G7"), ("/safety", "안전", "G7"), ("/table", "작업대·좌표", "G7"))),
     ("시스템", (("/runs", "실행 기록", "G8"), ("/logs", "로그", "G8"))),
 )
-BUILDERS = {"/": workspace.build, "/manual": manual.build, "/teach": teach.build, "/params": params.build, "/safety": safety.build, "/table": table.build, "/arm": arm.build, "/esp32": esp32.build, "/runs": runs.build, "/logs": logs.build, **sensors.pages()}  # 만든 페이지. 나머지는 자리만 있다
+# 페이지 제목 아래 한 줄 설명. 시작 화면 페이지 안내도 같은 문구를 쓴다 (gui-spec 11절 D11)
+DESCRIPTIONS = {
+    "/": "인식한 물체를 차례로 집어 배출 구역으로 옮기는 자동 작업을 실행하고 지켜봅니다.",
+    "/manual": "팔을 관절이나 손끝 좌표로 직접 움직입니다.",
+    "/teach": "손으로 움직인 동작을 기록하고 다시 재생합니다.",
+    "/ultrasonic": "레이더와 손목 센서가 찾은 물체를 봅니다. 지금은 가상 실행만 됩니다.",
+    "/camera": "카메라로 물체를 찾는 화면입니다. 4단계에서 만듭니다.",
+    "/input": "센서 대신 사람이 물체 위치를 알려 주는 인식 방식입니다. 작업 공간 자동 실행이 이 물체들을 집습니다.",
+    "/arm": "팔 연결 상태와 점검 결과, 팔 파일, 진단을 봅니다.",
+    "/esp32": "초음파 센서 보드(ESP32)의 연결과 최근 메시지를 봅니다.",
+    "/params": "움직임·집기·교시·실행 방식 값을 바꾸고 프리셋으로 저장합니다.",
+    "/safety": "안전 모드, 관절 여유, 허용 상자를 정합니다.",
+    "/table": "팔 받침, 배출 구역, 센서가 작업대 어디에 있는지 정합니다.",
+    "/runs": "지난 실행의 이벤트와 전압·온도 그래프를 봅니다.",
+    "/logs": "앱과 감시 프로세스의 기록을 한 시간축으로 봅니다.",
+    "/start": "지금 모드와 처음 할 순서, 페이지 안내를 봅니다.",
+}
+BUILDERS = {"/": workspace.build, "/manual": manual.build, "/teach": teach.build, "/params": params.build, "/safety": safety.build, "/table": table.build, "/arm": arm.build, "/esp32": esp32.build, "/runs": runs.build, "/logs": logs.build, "/start": lambda b, c, a: start.build(b, c, a, PAGES[1:], DESCRIPTIONS), **sensors.pages()}  # 만든 페이지. 나머지는 자리만 있다
 COMPONENTS = ("버스", "서보")  # 감시 칸과 센서 칸은 따로 있다 (decisions/0030)
 TOP_STATS = ("센서", "실행 방식", "전압", "최고 온도", "속도", "조작권")  # 감시 칸은 아이콘이 있어 따로 그린다
 BOTTOM_STATS = ("손끝 좌표", "닿는지·오차", "안전 모드", "토크", "기록 폴더")
@@ -84,6 +103,8 @@ def make_root(backend: Backend):
                 reconnect[0].visible = False
                 ui.space()
                 actions = ui.row().classes("items-center gap-2")
+            if path in DESCRIPTIONS:
+                ui.label(DESCRIPTIONS[path]).classes("page-body page-desc").mark("page-desc")
             with ui.row().classes("w-full items-center gap-1 no-wrap").mark("lock-banner") as row:
                 ui.icon("lock", color="negative")
                 label = ui.label(f"움직이는 버튼이 꺼져 있습니다: {backend.move_lock()}").classes("page-body")
@@ -131,6 +152,10 @@ def make_root(backend: Backend):
                 resume[0].visible = mine and text in ("정지", "오류") and not comm_lost
             if reconnect and not reconnect[0].is_deleted:
                 reconnect[0].visible = mine and comm_lost
+            if top_mode.value != backend.mode:
+                top_mode.set_value(backend.mode)
+            top_mode.enabled = mine and not backend.task_running()
+            top_reconnect.enabled = mine and backend.real is not None and not backend.task_running()
 
         async def resume_arm() -> None:
             if backend.owner == client.id:
@@ -166,6 +191,26 @@ def make_root(backend: Backend):
                 ui.button("실행", color="negative", on_click=run_pending).props("no-caps").mark("pending-confirm")
         pending_dialog.props("persistent")
 
+        def set_mode(mode: str) -> None:
+            if mode == backend.mode:
+                return
+            if backend.owner != client.id:
+                ui.notify("보기 전용입니다", type="warning")
+                return
+            reason = backend.set_run_mode(mode)
+            if reason:
+                ui.notify(reason, type="negative")
+
+        async def show_doctor() -> None:
+            report = await run.io_bound(backend.run_doctor)
+            marks = {"ok": "정상", "warn": "주의", "fail": "실패", "skip": "건너뜀"}
+            with ui.dialog() as dialog, ui.card().classes("gap-1").mark("doctor-dialog"):
+                ui.label("점검 (읽기 전용)").classes("card-title")
+                for c in report["checks"]:
+                    ui.label(f'[{marks.get(c["state"], c["state"])}] {c["name"]}: {c["text"]}').classes("page-body")
+                ui.button("닫기", on_click=dialog.close).props("outline no-caps")
+            dialog.open()
+
         async def estop() -> None:  # 보기 전용 브라우저도 누를 수 있다. 세우는 일은 조작권과 상관없다
             await run.io_bound(backend.estop)
             ui.notify("비상 정지했습니다", type="negative")
@@ -174,7 +219,7 @@ def make_root(backend: Backend):
 
         with ui.header().classes("frame-bar frame-top items-center gap-6 px-3 py-1"):
             ui.button(icon="menu", on_click=drawer.toggle).props("flat round color=dark aria-label=메뉴").mark("menu")
-            ui.label("SO-101 Studio").classes("text-lg font-semibold")
+            ui.link("SO-101 Studio", "/start").classes("text-lg font-semibold no-underline text-inherit").props('aria-label="시작 화면으로"').mark("brand")
             stats["팔"] = _stat("팔")
             with ui.row().classes("items-center gap-1 no-wrap"):
                 watch_icon = ui.icon("remove_circle_outline", size="20px").mark("watch-icon")
@@ -190,6 +235,12 @@ def make_root(backend: Backend):
             stats["조작권"].text = "보기 전용"
             take = ui.button("조작권 받기", on_click=lambda: backend.claim(client.id)).props("outline no-caps").mark("take")
             take.visible = False
+            ui.space()
+            # 자주 쓰는 것을 상단에서 바로 (gui-spec 11절 A2). 원래 페이지의 같은 기능과 같은 상태를 쓴다
+            top_mode = ui.select(RUN_MODES, value=backend.mode, on_change=lambda e: set_mode(e.value)).props(
+                'dense outlined options-dense aria-label="실행 방식"').classes("w-40").mark("top-run-mode")
+            top_reconnect = ui.button(icon="sync", on_click=reconnect_arm).props('flat round color=dark aria-label="다시 연결"').mark("top-reconnect")
+            ui.button(icon="fact_check", on_click=lambda: show_doctor()).props('flat round color=dark aria-label="점검"').mark("top-doctor")
 
         with drawer, ui.column().classes("w-full gap-0").mark("nav"):
             for group, pages in PAGES:
@@ -254,5 +305,5 @@ def main(args) -> None:
     app.on_shutdown(backend.close)
     ui.run(
         make_root(backend), host=HOST, port=getattr(args, "port", DEFAULT_PORT), title="SO-101 Studio",
-        language="ko-KR", reload=False,
+        language="ko-KR", reload=False, show="/start",
     )

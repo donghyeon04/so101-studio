@@ -15,7 +15,7 @@ from so101_studio.gui import app as gui_app
 from so101_studio.gui import sensors
 from so101_studio.gui.backend import Backend
 from so101_studio.gui.sensors.manual_view import plane_svg
-from so101_studio.gui.state import PROGRESS, State, progress_index
+from so101_studio.gui.state import PROGRESS, TASK_TEXT, State, progress_index
 
 
 @pytest.fixture
@@ -64,6 +64,9 @@ def test_progress_index_follows_states():
     assert PROGRESS[progress_index("PLACE", 1)] == "놓기"
     assert PROGRESS[progress_index("SCAN", 1)] == "다시 스캔"
     assert progress_index("DONE", 2) is None
+    assert PROGRESS[progress_index("CHECK", 0)] == "판단"  # 초음파 확인 (REQ-025)
+    assert PROGRESS[progress_index("RESCAN", 0)] == "다시 스캔"
+    assert TASK_TEXT["CHECK"] == "확인"
 
 
 def test_state_tracks_chosen_and_placed():

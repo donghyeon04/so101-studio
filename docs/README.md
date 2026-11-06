@@ -71,3 +71,4 @@
 | `docs/decisions/0039-radar-clear-wait-pose.md` | 결정 | 확정(기본 후보 → 0041) | 초음파를 쓸 때 PREPARE·RESCAN 대기 자세는 `radar_clear`(링크 점 작업대 y 120mm 이하, 손끝 150mm 이상, 기본 팔 원점 위 150mm). 다른 흐름의 `park`는 그대로 |
 | `docs/decisions/0040-team-local-install.md` | 결정 | 확정 | 팀원 배포는 Miniforge 무인 설치 + 배치 스크립트(`설치.cmd`, 시뮬레이션·실물 실행 `.cmd`)로 로컬 설치. 서버(웹 링크) 배포는 안 함 |
 | `docs/decisions/0041-radar-clear-upright-pose.md` | 결정 | 확정 | `radar_clear` 기본 자세는 위로 세운 `[0, -90, 85, -90, 0, 3]`(0039의 원점 위 150mm 접은 자세는 기구학상 없음). 벤치마크도 이 값을 읽음 |
+| `docs/decisions/0042-after-real-test-batch.md` | 결정 | 확정 | 실물 시험 뒤 묶음: 물체 높이 전달(`DetectedObject.height_mm`), 그리퍼 속도 설정, 호버 도달 띠 유지, 교시 재생 변환본, 원인별 오류 문구, 작업대 설정 바로 적용, 조그 값 입력 (사용자가 로컬 총괄과 정함) |
