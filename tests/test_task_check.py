@@ -1,4 +1,5 @@
 """REQ-025: 작업 실행의 CHECK·RESCAN·prefetch·note_failure·give_up (스텁으로 논리를, 마지막 시험은 --sim 팔과 FakeESP32로 끝까지)."""
+import math
 import threading
 import time
 import types
@@ -291,3 +292,15 @@ def test_manual_source_still_parks_every_cycle():
     sk = StubSkills()
     run(TaskRunner(sk, ListSource([obj(1, 300, 190), obj(2, 250, 210)]), WS, EventBus()))
     assert sk.calls.count("park") == 3  # 물체 2개 + 마지막 빈 스캔 앞
+
+
+def test_sim_left_far_object_check_goes_through_from_radar_clear(tmp_path):
+    """방위 약 145°·반경 170mm 물체: radar_clear에서 출발하는 첫 CHECK의 접근 IK가 풀려 확인이 끝까지 간다 (REQ-030, plan_goto 여러 시드)."""
+    st, _src, arm = sim_studio(tmp_path, spread=[(161, 148, 0)])
+    res = []
+    st.bus.subscribe("us.check_result", res.append)
+    out = st.start(blocking=True)
+    ok = [r for r in res if r["status"] == "ok"]  # 레이더가 유령 후보를 함께 낼 수 있어 확인 결과 중 성공이 있는지 본다
+    assert ok and out["picked"], (res, out)
+    assert math.dist((ok[0]["object"]["x_mm"], ok[0]["object"]["y_mm"]), (161, 148)) < 30
+    arm.disconnect()

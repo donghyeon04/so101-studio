@@ -18,6 +18,7 @@ class Skills:
     def __init__(self, ctl, kin, cfg, ws, speed_pct: float | None = None):
         self.ctl, self.kin, self.cfg, self.ws = ctl, kin, cfg, ws
         self.speed = speed_pct if speed_pct is not None else cfg.speed_pct_default
+        self.last_place_correction_mm: tuple[float, float] | None = None  # 마지막 place가 손 xy를 옮긴 양
         self._grip_orig: int | None = None  # 조임 한계를 바꾸기 전 값(놓은 뒤 되돌린다)
         ctl.grip_warn_pct, ctl.grip_load_s, ctl.grip_open = cfg.gripper_load_warn_pct, cfg.gripper_load_s, cfg.gripper_open  # 그리퍼 부하 감시 (결정 0033)
 
@@ -226,7 +227,15 @@ class Skills:
 
     def place(self, zone: str) -> MotionResult:
         z = self.ws.drop_zones[zone]
-        release = ToolPose(z["x_mm"], z["y_mm"], self.cfg.table_z_mm + self.cfg.place_height_mm, 0.0)
+        return self.place_at(z["x_mm"], z["y_mm"])
+
+    def place_at(self, x_mm: float, y_mm: float) -> MotionResult:
+        """작업대 점(x_mm, y_mm)에 놓는다. 배출 구역(place)도 이것을 거친다."""
+        z = {"x_mm": x_mm, "y_mm": y_mm}
+        # 한쪽만 열리는 그리퍼라 손끝(기준점)을 구역 점에 내리면 쥔 물체가 한쪽으로 치우쳐 놓인다: 놓는 순간(지금 쥔 그리퍼 값)의 두 턱 끝 중간점이 구역 점에 오도록 손 xy를 보정한다 (pick과 같은 계산, 결정 0033)
+        hand = self._hand_pose(z["x_mm"], z["y_mm"], 0.0, self._q().gripper, False, 0.0)
+        self.last_place_correction_mm = (float(hand.x_mm - z["x_mm"]), float(hand.y_mm - z["y_mm"]))
+        release = ToolPose(hand.x_mm, hand.y_mm, self.cfg.table_z_mm + self.cfg.place_height_mm, 0.0)
         hover = replace(release, z_mm=release.z_mm + self.cfg.approach_height_mm)
         q_hover = self._ik(hover)
         if q_hover is None:
