@@ -2,7 +2,7 @@
 성능 숫자는 이 도구로만 낸다. 새 아이디어(확인선 길이, 모드, 속도 등)는 옵션으로 붙인다.
 
 python -m so101_studio.perception.ultrasonic.benchmark [--scenario spread90|spread120|demo|single|all] [--seeds N] [--approach-line]
-                                                       [--model optimistic|pessimistic|both] [--line-mm N] [--speed N] [--rescan-home on|off] [--max-fail N] [--empty-extra N] [--no-note-failure]
+                                                       [--model optimistic|pessimistic|both] [--reach radius|kin] [--hover-mm N] [--tool-reach MIN,MAX] [--trim-start] [--line-mm N] [--speed N] [--rescan-home on|off] [--max-fail N] [--empty-extra N] [--no-note-failure]
 """
 import argparse
 import itertools
@@ -14,6 +14,7 @@ import subprocess
 import tempfile
 import time
 from bisect import bisect_right
+from dataclasses import replace
 from functools import cache
 from pathlib import Path
 
@@ -21,9 +22,11 @@ import numpy as np
 import yaml
 
 from ...arm.kinematics import Kinematics
+from ...arm.skills import SEEDS
 from ...arm.trajectory import LookaheadShape, fillet_path
-from ...core.config import load_workspace
+from ...core.config import load_robot, load_workspace
 from ...core.types import JointState
+from ...service.targets import point_to_pose, tip_vector
 from ..base import PoseSample
 from .fake_esp32 import FakeESP32, SimClock
 from .link import Link
@@ -65,15 +68,51 @@ def radar_clear_pose(robot_yaml="config/robot.yaml"):
     return (t.x_mm, t.y_mm), t.z_mm
 
 
+class KinReach:
+    """실제 팔 기구학으로 하는 도달 판정(--reach kin): 점에서 손끝을 수직 아래로 둔 IK가 풀리는지(관절 한계 포함, 시드는 plan_goto와 같이 홈 + SEEDS).
+    hover_mm는 접근 호버(첫 점 위 높이, 기본 robot.yaml approach_height_mm). 같은 점은 1mm 격자로 모아 한 번만 푼다."""
+
+    def __init__(self, hover_mm=None):
+        self.cfg, self.ws = load_robot(), load_workspace()
+        self.kin = Kinematics(self.cfg.urdf, self.ws.base, self.cfg.joint_limits_deg)
+        self.hover = self.cfg.approach_height_mm if hover_mm is None else hover_mm
+        home = JointState(*self.cfg.poses["home"])
+        self.seeds = [home, *(replace(sd, gripper=home.gripper) for sd in SEEDS)]
+        self.cache = {}
+
+    def ok(self, xy, z, yaw=90.0):
+        key = (round(xy[0]), round(xy[1]), round(z), round(yaw))
+        if key not in self.cache:
+            tip = tip_vector(self.kin, -90.0, yaw, self.seeds[0].gripper, "tip")
+            pose = point_to_pose(key[0], key[1], key[2], yaw, "table", self.ws.base, self.cfg.table_z_mm, tip)
+            self.cache[key] = any(self.kin.ik(pose, sd) is not None for sd in self.seeds)
+        return self.cache[key]
+
+    def start_ok(self, xy, z, yaw=90.0):
+        """경로 첫 점: 점 자체와 그 위 호버(z + hover_mm) 모두 풀려야 plan_goto의 접근이 된다."""
+        return self.ok(xy, z, yaw) and self.ok(xy, z + self.hover, yaw)
+
+
+_KIN = {}
+
+
+def kin_reach(hover_mm=None):
+    if hover_mm not in _KIN:
+        _KIN[hover_mm] = KinReach(hover_mm)
+    return _KIN[hover_mm]
+
+
 class FakeArm:
     """가상 팔: 손끝 위치 기록, 센서 위치(손끝 + yaw로 돌린 오프셋), follow_path(REQ-023 모양).
     시간 모델(8.5절, #77): 호출마다 정지에서 출발·정지로 끝, 가속·감속 accel, 호출 사이 gap_s, 한 호출 안에서는 서지 않되
     꺾임·원에서 가속 한도를 넘지 않게 속도를 줄인다(팔 코드의 fillet_path·LookaheadShape를 그대로 쓴다, #73. 원은 v²/r <= accel/√2). 못 가는 경로는 움직이지 않고 []."""
 
-    def __init__(self, clk, cfg, base, travel_mm_s=400.0, reach=REACH, accel=120.0, gap_s=0.25, motion_scale=1.0, wait_pose=None):
+    def __init__(self, clk, cfg, base, travel_mm_s=400.0, reach=REACH, accel=120.0, gap_s=0.25, motion_scale=1.0, wait_pose=None, kin=None, trim_start=False):
         self.clk, self.base, self.reach = clk, base, reach
         self.travel, self.accel, self.gap_s, self.motion_scale = travel_mm_s, accel, gap_s, motion_scale
         self.wait_pose = wait_pose or radar_clear_pose() or (base, 150.0)  # 대기 자세 손끝. 설정에 radar_clear가 없으면 팔 원점 위 150mm
+        self.kin, self.trim_start = kin, trim_start  # kin: KinReach면 반경 대신 기구학으로 도달 판정. trim_start: 첫 점이 안 닿으면 경로 안쪽으로 당긴다
+        self._hover_needed = True  # 직전 동작이 follow_path가 아니면 접근에 호버가 든다(follow_path끼리 이어 부르면 합쳐진 직선 접근)
         self.off0 = (cfg.arm_sensor_offset_mm.x, cfg.arm_sensor_offset_mm.y, cfg.arm_sensor_offset_mm.z)
         self.yaw = 90.0  # 평소 손목 자세
         self.tip = base
@@ -113,6 +152,7 @@ class FakeArm:
 
     def move(self, to, z, speed=None):
         """접근·복귀 이동(일정 속도). follow_path 바깥."""
+        self._hover_needed = True
         L = math.dist(self.tip, to)
         n = max(1, round(L / (speed or self.travel) / DT))
         a = self.tip
@@ -135,8 +175,26 @@ class FakeArm:
             out.append(self._tick((float(np.interp(d, s, path[:, 0])), float(np.interp(d, s, path[:, 1]))), z))
         return out
 
+    def _trim(self, pts, start_ok):
+        """(다) 첫 점이 안 닿으면 첫 구간 위를 1mm씩 안쪽으로 가며 닿는 첫 점을 찾는다. 구간 안에 없으면 None(경로 거부)."""
+        a, b = pts[0], pts[1]
+        n = max(1, math.ceil(math.dist(a, b)))
+        for k in range(1, n):
+            p = (a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n)
+            if start_ok(p):
+                return p
+        return None
+
     def follow_path(self, pts, z, speed, yaw=None):
-        bad = [p for p in pts if not self.reachable(p)]
+        need_hover, pts = self._hover_needed, list(pts)
+        if self.kin is None:
+            bad = [p for p in pts if not self.reachable(p)]
+        else:  # 기구학 판정: 호버가 필요한 호출은 첫 점에 호버까지, 나머지 점은 작업 높이에서
+            yw = self.yaw if yaw is None else yaw
+            start_ok = (lambda p: self.kin.start_ok(p, z, yw)) if need_hover else (lambda p: self.kin.ok(p, z, yw))
+            if self.trim_start and not start_ok(pts[0]):
+                pts[0] = self._trim(pts, start_ok)
+            bad = [p for p in pts[1:] if not self.kin.ok(p, z, yw)] + ([] if pts[0] is not None and start_ok(pts[0]) else [pts[0]])
         if bad:
             self.last_path = {"reason": "unreachable", "points": bad}
             return []
@@ -149,6 +207,7 @@ class FakeArm:
         t0 = self.clk.now_ns()
         first = PoseSample(self.clk.now_ns(), (*pts[0], z), self._sensor(pts[0], z))
         poses = [first, *self._profile_walk(pts, z, speed)]
+        self._hover_needed = False
         self.calls.append((sum(math.dist(a, b) for a, b in itertools.pairwise(pts)), (self.clk.now_ns() - t0) / 1e9))
         return poses
 
@@ -269,7 +328,7 @@ def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, resc
     return ok, recog, log
 
 
-def run_scenario(name, model, seeds, rescan_home=None, report_failures=True, **opts):
+def run_scenario(name, model, seeds, rescan_home=None, report_failures=True, arm_kw=None, **opts):
     """시나리오 하나: 씨앗값 0..seeds-1마다 배치를 만들어 사이클을 돈다. single은 반경 구간(SINGLE_RADII)마다 seeds번."""
     rows = []
     cells = [(r, s) for r in SINGLE_RADII for s in range(seeds)] if name == "single" else [(None, s) for s in range(seeds)]
@@ -283,7 +342,7 @@ def run_scenario(name, model, seeds, rescan_home=None, report_failures=True, **o
         else:
             boxes = random_layout(rng, name)
         n = len(boxes)
-        cfg, clk, esp, arm = build(boxes, seed=seed, model=model, **opts)
+        cfg, clk, esp, arm = build(boxes, seed=seed, model=model, arm_kw=arm_kw, **opts)
         src = make_source(cfg, clk, esp, arm)
         ok, secs, log = run_cycle(src, arm, esp, rescan_home=rescan_home, report_failures=report_failures)
         rows.append({"radius": radius, "seed": seed, "n": n, "ok": ok, "recog_s": secs, "left": len(esp.boxes), "log": log,
@@ -356,6 +415,10 @@ def main(argv=None):
     ap.add_argument("--no-note-failure", action="store_true", help="집기 실패를 source.note_failure로 알리지 않는다(효과 비교용)")
     ap.add_argument("--max-fail", type=int, help="check.max_fail_per_run(실패가 이만큼이면 끝냄, 기본: 설정값 3)")
     ap.add_argument("--empty-extra", type=int, help="radar.empty_extra_sweeps(기본: 설정값 3)")
+    ap.add_argument("--reach", choices=["radius", "kin"], default="radius", help="가상 팔 도달 판정: 반경(기본, REACH) | 실제 기구학 IK(첫 점은 호버 포함)")
+    ap.add_argument("--hover-mm", type=float, help="--reach kin의 접근 호버 높이(기본 robot.yaml approach_height_mm). (가)안")
+    ap.add_argument("--tool-reach", help="MIN,MAX: check.tool_reach_mm를 이번만 바꾼다(기본 설정값 60,255). (나)안")
+    ap.add_argument("--trim-start", action="store_true", help="--reach kin에서 첫 점이 안 닿으면 경로 안쪽으로 당긴다. (다)안")
     ap.add_argument("--out", default="runs/bench")
     a = ap.parse_args(argv)
     names = list(SCENARIOS) if a.scenario == "all" else [a.scenario]
@@ -363,14 +426,18 @@ def main(argv=None):
     opts = {k: v for k, v in (("line_mm", a.line_mm), ("speed_mm_s", a.speed), ("max_fail_per_run", a.max_fail)) if v is not None}
     if a.approach_line:
         opts["approach_line"] = True
+    if a.tool_reach:
+        lo, hi = (float(v) for v in a.tool_reach.split(","))
+        opts["tool_reach_mm"] = {"min": lo, "max": hi}
+    arm_kw = {"kin": kin_reach(a.hover_mm), "trim_start": a.trim_start} if a.reach == "kin" else None
     if a.empty_extra is not None:
         opts["radar"] = {"empty_extra_sweeps": a.empty_extra}
     rescan = None if a.rescan_home is None else a.rescan_home == "on"
     results, sha = [], commit()
     cmd = "python -m so101_studio.perception.ultrasonic.benchmark " + " ".join(argv if argv is not None else __import__("sys").argv[1:])
     for name, model in itertools.product(names, models):
-        rows = run_scenario(name, model, a.seeds, rescan_home=rescan, report_failures=not a.no_note_failure, **opts)
-        results.append({"commit": sha, "command": cmd, "scenario": name, "model": model, "options": {**opts, "rescan_home": rescan, "note_failure": not a.no_note_failure}, "summary": summarize(rows),
+        rows = run_scenario(name, model, a.seeds, rescan_home=rescan, report_failures=not a.no_note_failure, arm_kw=arm_kw, **opts)
+        results.append({"commit": sha, "command": cmd, "scenario": name, "model": model, "options": {**opts, "reach": a.reach, "hover_mm": a.hover_mm, "trim_start": a.trim_start, "rescan_home": rescan, "note_failure": not a.no_note_failure}, "summary": summarize(rows),
                         "rows": [{k: v for k, v in r.items() if k != "log"} for r in rows]})
         print(f"  {name} {model}: 성공 {results[-1]['summary']['success_mean']:.2f}/{results[-1]['summary']['objects']}", flush=True)
     out = Path(a.out)
