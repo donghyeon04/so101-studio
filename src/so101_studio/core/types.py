@@ -54,6 +54,7 @@ class DetectedObject:  # 모든 인식 방식의 공통 출력 (decisions/0004)
     length_mm: float
     confidence: float  # 0~1
     source: str  # "manual" | "ultrasonic" | "camera"
+    height_mm: float = 0.0  # 물체 높이(작업대 면 위). 0 = 모른다. 맨 끝 필드(위치 인자로 만드는 쪽이 깨지지 않게). pick이 알면 집는 높이를 정한다 (결정 0042)
 
 
 @dataclass
