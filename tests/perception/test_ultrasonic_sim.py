@@ -285,23 +285,31 @@ def test_inside_path_is_sent_whole(tmp_path):
     assert probe._clip([(300, 200), (300, 240)]) == [[(300, 200), (300, 240)]]
 
 
-def test_fake_arm_slows_on_circle_and_corners():
-    """#77: 한 호출 안에서는 서지 않지만 원(v²/r <= 가속 한도, 반지름 45mm면 약 73mm/s)과 꺾임에서는 속도를 줄인다."""
+def test_fake_arm_matches_real_arm_times():
+    """#73: 가상 팔은 팔 코드(fillet_path·LookaheadShape)로 움직여 --sim 실측(measurements.md, 속도 100%, 접근 제외)과 시간이 같다."""
     from so101_studio.perception.ultrasonic.benchmark import FakeArm
     from so101_studio.perception.ultrasonic.fake_esp32 import SimClock
     from so101_studio.perception.ultrasonic.model import load_config
 
-    cfg, clk = load_config(), SimClock()
-    arm = FakeArm(clk, cfg, (300, 50))
+    cfg = load_config()
+
+    def secs(path):
+        arm = FakeArm(SimClock(), cfg, (300, 50), reach=None)
+        arm.follow_path(path, 55, 100)
+        return arm.calls[-1][1]
+
     ring = [(300 + 45 * math.cos(2 * math.pi * k / 36), 150 + 45 * math.sin(2 * math.pi * k / 36)) for k in range(37)]
-    arm.follow_path(ring, 55, 100)
-    circle_s = arm.calls[-1][1]
-    arm.follow_path([(300, 100), (480, 100), (390, 190), (390, 10)], 55, 100)
-    cross_s = arm.calls[-1][1]
-    # 등속 100mm/s + 가속·감속(약 0.83초)이면 원은 약 3.7초. 감속이 있으면 그보다 느리다
-    assert circle_s > 4.0
-    # L3+L4(총 길이 약 487mm): 꺾임 두 곳에서 줄이므로 직선 3번 값(약 5.7초)보다 길다
-    assert cross_s > 6.0
+    c, s = math.cos(math.radians(135)), math.sin(math.radians(135))
+    cases = [
+        ([(300, 100), (480, 100)], 2.98),  # L1
+        (ring, 5.29),  # 원 r45
+        ([(300, 100), (390, 100), (390, 190)], 3.94),  # 90° 꺾임
+        ([(300, 100), (480, 100), (480 + 127 * c, 100 + 127 * s)], 5.42),  # 135° 꺾임
+        ([(300, 100), (480, 100), (390, 190), (390, 10)], 8.39),  # L3+L4 (모서리 2.5mm로 깎아 서지 않고 지난다)
+        ([(300, 100), (380, 100), (300, 100)], 3.88),  # 180° 되돌아감: 서서 돈다
+    ]
+    for path, want in cases:
+        assert secs(path) == pytest.approx(want, abs=0.05)
 
 
 def test_empty_scan_adds_extra_sweeps_and_rescan_runs_four(tmp_path):
