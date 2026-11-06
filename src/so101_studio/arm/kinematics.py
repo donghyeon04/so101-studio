@@ -5,7 +5,10 @@ pitch는 도구 축(gripper z축)의 수평면 기준 각도(-90 = 수직 하강
 (URDF 기하로 확인: 고정 턱 안쪽 면이 gripper_frame 점이고, 턱은 도구 프레임 x축을 따라 벌어지며 가동 턱은 -x 쪽이다 → moving_jaw_dir = (cos yaw, sin yaw)).
 shortcut: wrist_roll을 yaw로 읽으므로 yaw는 pitch가 -90에 가까울 때만 의미가 있다. 기울여 집기가 필요하면 확장.
 """
+import functools
 import math
+import struct
+from pathlib import Path
 
 import numpy as np
 from lerobot.model.kinematics import RobotKinematics
@@ -24,6 +27,35 @@ FIXED_TIP = (-7.9, 105.4)
 FRAME_B = 98.1
 VALUE_TO_Q = (-10.0, 1.214)  # 그리퍼 값 v -> 관절각 q = -10 + 1.214 v (카드 시험 2점에 맞춘 가정)
 ARM_JOINTS = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll"]
+
+
+def _rpy(r: float, p: float, y: float) -> np.ndarray:
+    cr, sr, cp, sp, cy, sy = math.cos(r), math.sin(r), math.cos(p), math.sin(p), math.cos(y), math.sin(y)
+    return np.array([[cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr], [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr], [-sp, cp * sr, cp * cr]])
+
+
+def _stl_vertices(path: Path) -> np.ndarray:
+    b = path.read_bytes()
+    n = struct.unpack("<I", b[80:84])[0]
+    tri = np.frombuffer(b[84:84 + 50 * n], dtype=np.dtype([("n", "<3f4"), ("v", "<9f4"), ("a", "<u2")]))
+    return np.unique(tri["v"].reshape(-1, 3).astype(float).round(6), axis=0)
+
+
+# 턱 메쉬(URDF 단위 m): (링크 이름, STL 파일, visual origin xyz, rpy). 고정 턱은 손 링크(gripper_link)의 wrist_roll_follower 메쉬에 있다
+_JAW_VISUALS = (
+    ("gripper_link", "wrist_roll_follower_so101_v1", (8.32667e-17, -0.000218214, 0.000949706), (-3.14159, -5.55112e-17, 0.0)),
+    ("moving_jaw_so101_v1_link", "moving_jaw_so101_v1", (-5.55112e-17, -5.55112e-17, 0.0189), (9.53145e-17, 6.93889e-18, 1.24077e-24)),
+)
+
+
+@functools.lru_cache(maxsize=1)
+def _jaw_meshes() -> tuple:
+    root = Path(__file__).resolve().parents[3] / "assets" / "assets"
+    out = []
+    for link, stl, xyz, rpy in _JAW_VISUALS:
+        v = _stl_vertices(root / f"{stl}.stl")
+        out.append((link, v @ _rpy(*rpy).T + np.array(xyz)))
+    return tuple(out)
 
 
 def _rotation(pitch_deg: float, yaw_deg: float) -> np.ndarray:
@@ -52,6 +84,24 @@ class Kinematics:
         h = R[0, 2] * math.cos(math.radians(yaw)) + R[1, 2] * math.sin(math.radians(yaw))  # 도구 축의 수평 성분(진행 방향 기준)
         pitch = math.degrees(math.atan2(R[2, 2], h))  # 부호를 살린다: -90 수직, -115는 가동 턱 반대쪽으로 25° 기울임  # 도구 y축에서 구한 값. 수직 하강이면 턱 축(-x)의 방향각과 같다
         return frames.tool_robot_to_table(ToolPose(x, y, z, yaw, pitch), self.base)
+
+    def jaw_lowest_z(self, q: JointState) -> float:
+        """고정 턱(손 메쉬)과 움직이는 턱 메쉬의 가장 낮은 꼭짓점 높이(모델 z, mm; fk의 z_mm와 같은 기준). 기울기와 벌림을 반영한 실제 턱 몸체 아래 모서리까지 본다 (REQ-036).
+        끝점 근사(jaw_tip_offsets)는 턱 끝 두 점만 보지만, 이것은 URDF 메쉬 전체를 쓴다."""
+        meshes = _jaw_meshes()  # 메쉬를 먼저 읽는다(관절을 맞춘 뒤 처음 읽을 때 첫 결과가 틀리게 나온 일이 있었다)
+        robot = self._k.robot
+        deg = min(max(VALUE_TO_Q[0] + VALUE_TO_Q[1] * q.gripper, -10.0), 100.0)  # URDF gripper 관절 범위
+        arm = np.array([getattr(q, j) for j in ARM_JOINTS], float)
+        for _ in range(1 if getattr(self, "_jaw_ready", False) else 2):  # placo는 gripper 관절이 처음 들어간 첫 갱신에서 링크 변환이 낡은 채 나온다: 처음에는 두 번 맞춘다
+            self._k.forward_kinematics(arm)
+            robot.set_joint("gripper", math.radians(deg))
+            robot.update_kinematics()
+        self._jaw_ready = True
+        low = []
+        for link, verts in meshes:
+            T = robot.get_T_world_frame(link)
+            low.append(float((verts @ T[2, :3] + T[2, 3]).min()) * 1000.0)
+        return min(low)
 
     def jaw_tip_offsets(self, pitch_deg: float, yaw_table_deg: float, gripper_value: float):
         """기준점(gripper_frame, 고정 턱 면)에서 본 두 턱 끝의 위치 벡터(작업대 좌표계, mm). 자세(pitch, yaw)와 그리퍼 값으로 정해진다."""
