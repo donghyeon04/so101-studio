@@ -37,3 +37,4 @@
 | REQ-028 | ESP32 센서 보드 페이지: 포트와 연결 상태, 펌웨어 버전, 센서 2개와 서보 상태, 시계 맞추기 오차, 최근 JSON 메시지 | 기획 → GUI | 추가 | 완료(가상 ESP32로 확인, 실제 보드는 B1 때) | #99 합쳐짐
 | REQ-025 | 작업 실행 `CHECK` 상태(`CheckableSource`면 실행), 놓는 동안 레이더 미리 돌리기(`prefetch`), `run --source ultrasonic` | 기획 → 팔 | 기존 동작 변경(상태 추가, 결정 0034 승인) | 완료(radar_clear 결정 0039·0041, #107 흐름 포함) | #109 합쳐짐
 | REQ-029 | 팀원 배포: `설치.cmd`(conda 없으면 Miniforge를 영문 경로에 무인 설치, git도 conda로, `environment.yml`로 환경 만들기·갱신), `시뮬레이션 실행.cmd`·`실물 팔 실행.cmd`(켤 때마다 `git pull` 뒤 `so101.cmd [--sim] gui`), `so101.cmd`가 `C:\miniforge3` 등 설치 위치를 찾게 수정, README 설치 안내 | GUI → 팔(사용자 승인) | 추가 | 완료(새 PC 무인 설치는 사용자가 시험) | #110 합쳐짐
+| REQ-030 | `plan_goto` 호버·목표 IK 여러 시드(radar_clear 출발 실패), Place 턱 가운데 보정(사용자 요청, 결정 0033 범위), 끊길 때 부하 확인 스레드 예외 처리 | GUI → 팔 | 버그 수정 + 기존 동작 보완 | 요청(2026-11-07) | | 초음파 조사(#108), 실물 확인(2026-11-06), `gui-dev-status.md` 인수인계 |
