@@ -37,7 +37,7 @@ class Recorder(SimDriver):
 
 @pytest.fixture(scope="module")
 def kin():
-    return Kinematics(CFG.urdf, WS.base)
+    return Kinematics(CFG.urdf, WS.base, CFG.joint_limits_deg)  # 실제 ArmService처럼 풀이기가 관절 한계 안에서 푼다
 
 
 def rig(kin, block=None, **cfg_kw):
