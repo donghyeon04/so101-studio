@@ -10,18 +10,20 @@ from .perception import PerceptionManager
 
 class Studio:
     """이벤트 구독: studio.bus.subscribe("task", cb) -> cb(TaskEvent). 콜백은 작업 스레드에서 불리므로 GUI는 큐에 넣어 UI 스레드에서 처리한다.
-    TaskEvent.state = PREPARE|SCAN|DECIDE|PICK|PLACE|DONE|STOPPED|FAULT, detail(상태별):
+    TaskEvent.state = PREPARE|SCAN|DECIDE|CHECK|RESCAN|PICK|PLACE|DONE|STOPPED|FAULT, detail(상태별; CHECK·RESCAN은 초음파처럼 확인 기능이 있는 인식 방식에서만):
       DECIDE: detail_n(스캔된 수), scan_s(스캔 시간), objects(행: id, x_mm, y_mm, angle_deg, width_mm, radial_mm, reachable), chosen(id|None), reason(문장)
+      CHECK의 result가 있는 이벤트: result = ok|empty|unreachable, duration_s(확인 시간). 인식 모듈의 us.sweep·us.candidates·us.check_path·us.check_result도 같은 bus로 나간다.
       PICK/PLACE의 result가 있는 이벤트: duration_s(마지막으로 실행한 동작 시간, 초). FAULT: detail_state."""
 
     def __init__(self, arm: ArmService, source, dry_run: bool = False):
         self.arm, self.source, self.bus = arm, source, EventBus()
         self.ctl, self.kin, self.cfg, self.ws = arm.ctl, arm.kin, arm.cfg, arm.ws
         self.skills = arm.skills
-        self.task = TaskRunner(arm.skills, source, arm.ws, self.bus, accept_no_object=dry_run)
+        self.task = TaskRunner(arm.skills, source, arm.ws, self.bus, accept_no_object=dry_run, arm=arm)
         self.bus.subscribe("task", lambda e: arm._log("task", e))
         self.summary = RunSummary(getattr(source, "name", type(source).__name__))
         self.bus.subscribe("task", self._record_summary)
+        self.bus.subscribe("us.check_result", self._record_check)
         self._thread: threading.Thread | None = None
         self.perception = PerceptionManager(self, source)
         self._step = threading.Event()
@@ -56,6 +58,14 @@ class Studio:
         """기록 실패가 작업을 멈추면 안 된다: 요약을 모으다 난 예외는 남기기만 한다."""
         try:
             self.summary.on_event(e)
+        except Exception as ex:  # noqa: BLE001
+            self._summary_failed(ex)
+
+    def _record_check(self, e: dict) -> None:
+        """물체별 확인 결과·시간을 summary.json의 per_object에 더한다. 레이더 시간은 DECIDE에서 고른 물체에 붙는다."""
+        try:
+            extra = {} if e.get("status") == "ok" else {"reason": f"check_{e.get('status')}"}  # 확인에서 빠진 후보는 skipped + 이유
+            self.summary.note(e["id"], check=e.get("status"), check_s=round((e.get("info") or {}).get("check_s", 0.0), 3), **extra)
         except Exception as ex:  # noqa: BLE001
             self._summary_failed(ex)
 

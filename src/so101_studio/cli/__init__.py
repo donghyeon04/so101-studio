@@ -39,7 +39,13 @@ def run_task(svc: ArmService, a) -> str:
     from ..perception.manual import ManualSource
     from ..service.studio import Studio
 
-    st = Studio(svc, ManualSource(), dry_run=a.dry_run)
+    if getattr(a, "source", "manual") == "ultrasonic":
+        from ..service.ultrasonic import make_ultrasonic_source
+
+        source = make_ultrasonic_source(svc, sim=getattr(a, "sim", False), port=getattr(a, "us_port", None))
+    else:
+        source = ManualSource()
+    st = Studio(svc, source, dry_run=a.dry_run)
     st.bus.subscribe("task", lambda e: print(f"[{e.state}] {e.object_id or ''} {e.result or ''}".rstrip()))
     if a.step:
         st.task.wait_step = lambda: input("  (Enter: 다음 단계) ")
@@ -80,7 +86,8 @@ def main(argv=None) -> None:
     ap.add_argument("--tilt", type=float, help="pick: 최대 기울기(°)를 이번만 바꿔 시험 (0이면 기울이지 않음)")
     ap.add_argument("--max-open", type=float, help="pick: 최대로 벌릴 틈(mm)을 이번만 바꿔 시험")
     ap.add_argument("--bias", type=float, help="pick: grasp_bias_mm를 이번만 바꿔 시험 (가동 턱 쪽이 +)")
-    ap.add_argument("--source", default="manual", help="run: 인식 방식 (지금은 manual)")
+    ap.add_argument("--source", default="manual", choices=["manual", "ultrasonic"], help="run: 인식 방식")
+    ap.add_argument("--us-port", help="run --source ultrasonic: ESP32 시리얼 포트 (기본: config/ultrasonic.yaml의 port)")
     ap.add_argument("--dry-run", action="store_true", help="run: 물체 없이 동작만 (접촉이 없어도 성공으로 보고 이어간다)")
     ap.add_argument("--step", action="store_true", help="run: 상태가 바뀔 때마다 Enter를 기다린다")
     ap.add_argument("--cartesian", action="store_true", help="jog: 직교 모드(앞뒤·좌우·위아래)")
