@@ -1,14 +1,53 @@
 # 초음파 세션 현황
 
-상태: 초안 · 2026-11-05
+상태: 초안 · 2026-11-06 (인수인계 포함)
+
+## 인수인계 (2026-11-06, 새 계정·새 PC로 옮기기 전)
+**브랜치·PR**: 초음파 PR은 모두 합쳐졌다. #67(U0 실측용 펌웨어·bench), #72(U2 가상 ESP32·radar·check·source·benchmark), #79(레이더 수정: 빈 바퀴 추가·RESCAN·실패 상한·모드 하나·정확도 출력), #80(U5 펌웨어 0.2). 열린 초음파 PR은 이 인수인계 문서뿐(`dev/us-handoff`). 새 일은 `main`에서 새 `dev/us-*` 브랜치로 시작한다.
+
+**진행(U0~U9)**
+| # | 상태 |
+|---|---|
+| U0 실측 B1~B3 | 코드·절차 준비됨(`bench.py`, 아래 "실측 절차"). **실측은 아직 안 함**: 사용자가 시작한다고 하면 총괄이 알린다 |
+| U1 부품 주문 | 지원 담당 |
+| U2 인식 코드 | **완료·합쳐짐**(가상 ESP32 + 가상 팔, 벤치마크 8.5절) |
+| U3 REQ-023 | 팔 세션, #73 합쳐짐 |
+| U4 REQ-024 GUI 화면 | GUI 세션, 합쳐짐 |
+| U5 펌웨어 | 0.2 합쳐짐. **컴파일만 했고 업로드·실측 안 함** |
+| U6·U7 레이더 스테이션·손목 브래킷 | 하드웨어 담당 + 초음파 세션, 대기(서보 11/12 도착 예정) |
+| U8 REQ-025 작업 실행 CHECK | 팔 세션이 시작. source·check 변경 요청은 총괄을 거쳐 온다 |
+| U9 시간 줄이기·실측 | 대기 |
+
+**펌웨어·포트**: 업로드한 적 없다(컴파일만: arduino-cli 1.5.2, esp32:esp32 3.3.12). 이 세션은 ESP32·서보 포트를 한 번도 연 적이 없어 반납할 포트가 없다.
+
+**다음 한 걸음(사용자 지시, 시작 전에 멈춤)**: 벤치마크 가상 팔을 #73의 실제 꺾임 속도에 맞추고 공식 표를 다시 내 **PR #68에 직접 댓글로 올린다**(올린 뒤 총괄에 PR 번호·끝 커밋).
+- 기준 코드: `arm/trajectory.py`의 `junction_arcs`, `fillet_path`, `LookaheadShape`, `smooth_l`(접선·구심 가속 모두 a/√2, 모서리 허용 2.5mm, 180° 되돌아감은 정지). 값을 베끼지 말고 같은 규칙을 쓰거나 그 함수를 호출한다. 인식 모듈이 팔을 import하지 않는 규칙은 벤치마크 도구에서만 예외로 하고 source·check·radar에는 넣지 않는다.
+- `FakeArm`(`benchmark.py`)의 `corner_radius_mm` 10 가정을 없앤다.
+- 맞춰 볼 측정값(`--sim`, 100%, 접근 제외): L1 180mm 2.98초, 원 r45 5.29초, 90° 꺾임 3.94초, 135° 꺾임 5.42초, L3+L4 한 호출 8.39초, 180° 되돌아감 3.88초. home·park에서 오는 첫 호출은 접근이 약 3.5초 더 든다. 이어 부를 때 합쳐진 대각선(L1 끝 → L2 시작 127mm)은 5.42초. 이 값들을 시험으로 고정한다.
+- 표: 시나리오 4개(spread90, spread120, demo, single) × 낙관·비관, 20 씨앗, 평균·중앙값·90%·최대, 정확도 표, 기본 / `--max-fail 0` / `--approach-line`. PR을 올린 커밋에서 내고 커밋과 재현 명령을 함께 적는다. 인식 평균 70초(임시 기준)를 넘는 칸이 있으면 댓글 맨 위에 적는다.
+
+**막힌 것**: 없다. 기다리는 것: B1~B3 실측 시작(사용자), 서보·브래킷 도착(U6·U7), REQ-025(팔 세션).
+
+**B1~B3 실측 절차 위치**: 이 문서 아래 "실측 절차 (U0, 서보 없음)" 절(배선, find-port, 펌웨어 올리기, 연결 확인, B1~B3 명령, 결과 읽는 법, 보낼 값). 전체 실물 시험 순서는 `measurements.md`의 "실물 시험 순서".
+
+**알려진 함정**
+1. pip 편집 설치가 원래 폴더를 가리킨다: 초음파 worktree(`../so101-studio-us`)에서 `python -m so101_studio...`는 `PYTHONPATH=src`가 필요하다(`pytest`는 설정으로 괜찮다).
+2. 전체 `pytest`는 약 17분, 초음파만 `python -m pytest -q tests/perception`은 약 6초. 벤치마크(`python -m so101_studio.perception.ultrasonic.benchmark --seeds 20`)는 한 번에 약 1~2분이고 결과 JSON은 `runs/bench/`(git 제외)라 새 PC에 안 온다. 공식 표는 PR #68 댓글에 있다.
+3. 벤치마크의 사이클은 작업 실행을 흉내 낸 것이다: 후보가 없으면 팔을 "원점 위 150mm"(PREPARE 자세 흉내)로 옮겨 RESCAN, 집은 뒤 PLACE 시작에 prefetch, 확인한 자리에 물체가 없으면 `note_failure`. 실제 작업 실행(REQ-025)과 다르면 고친다.
+4. `model.py`의 REQ-023 임시 타입(PathSegment, PoseSample, CheckProbe, CheckableSource)은 #73이 `perception/base.py`에 같은 타입을 넣었으니 지우고 거기서 가져오는 후속이 남아 있다(아직 안 함).
+5. 사람 몫 가정: 확인 직선 180mm, 도달 clip 60~255mm, 모서리 가정(위), PREPARE 자세, 시간 기준 평균 70초(임시). 실측(B1·B2·B4, A0, A1)이 나오면 벤치마크 모델 값(`MODELS`)을 실측으로 고친다(결정 0037).
+6. git에 없는 것: `config/ultrasonic_baseline.json`(레이더 기준값, 지금은 없음, 첫 `calibrate()`가 만든다), `config/local.yaml`, arduino-cli(이 PC `C:\Users\c\tools\arduino-cli-dl\`, 새 PC는 Arduino IDE 2 + ESP32 보드 패키지 3.x를 쓴다).
+7. 서보는 부팅·포트 열기마다 90°로 움직인다. 서보를 달 때 손을 대지 않고 회전 범위를 비운다.
+8. PR 열기: `gh`가 없어 내장 브라우저로 `compare/main...<브랜치>?quick_pull=1`을 열고, 제목·본문을 넣은 뒤 `form.requestSubmit()`으로 낸다(Comment·Create 버튼이 안 눌리면 입력 이벤트 뒤 1.5초 기다린 다음 누른다).
+9. 규칙: 질문·승인은 총괄에게 `SendMessage`로, 자기 `dev/` 브랜치 커밋·푸시·PR은 묻지 않고 한다(session-workflow 7절).
 
 ## 작업 진행
 | # | 작업 | 상태 |
 |---|---|---|
-| U0 | 실측용 펌웨어 `firmware/esp32_scanner`, `perception/ultrasonic/bench.py` | 코드 작성, 펌웨어 컴파일·실물 미확인(Arduino CLI 없음). 사용자와 B1~B3 대기 |
-| U2 | model, fake_esp32, radar, check, source, link, config | 코드·시험 완료(PR 대기). 가상 ESP32로 물체 3개 끝까지(팔 follow_path 비용 반영): 성공은 정확 3.0/3, 빠른 2.3/3이지만 시간은 정확 54.7초(기준 45), 빠른 T9 끔 47.4초(켬 73.9초, 기준 30)로 기준 초과 — 기획 요청 대기 |
-| U5 | 펌웨어 7절 전부 | 펌웨어 0.2 작성·컴파일 통과(경고 0). 서보 없는 부분까지(서보 신호는 GPIO 13에 나가지만 서보 동작은 실물 미확인). 업로드·실측 안 함 |
-| U6·U7·U9 | 총괄이 보냄 | - |
+| U0 | 실측용 펌웨어 `firmware/esp32_scanner`, `perception/ultrasonic/bench.py` | 코드·절차 합쳐짐. 실측 대기 |
+| U2 | model, fake_esp32, radar, check, source, link, config, benchmark | 합쳐짐(#72, #79) |
+| U5 | 펌웨어 7절 전부 | 0.2 합쳐짐(#80). 컴파일만, 업로드·실물 미확인 |
+| U6·U7·U9 | 총괄이 일정에 맞춰 보냄 | 대기 |
 
 ## 펌웨어 (U5, 0.2)
 - 7절 전부: hello, sync, sweep(서보 MG90S, GPIO 13, LEDC PWM 50Hz, 펄스 500~2400µs), stream(팔 센서), stop, servo, once(k "r"|"a"|"ra", 끝에 `done`), gap(응답 `gap`). `gap`·`done`·`k:"ra"`는 7절 정식 규약이다.
