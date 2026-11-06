@@ -417,3 +417,26 @@ def test_run_cycle_goes_to_wait_pose_only_first_and_after_failed_pick(tmp_path, 
     assert n == 2  # 첫 scan 전 + 후보가 없을 때의 RESCAN
     n, moves = waits(False, True)
     assert n >= 2 and (500.0, 150.0) not in moves  # 첫 scan 전 + 집기 실패마다(같은 자리 두 번째 실패면 3), 놓으러 가지 않는다
+
+
+def test_kin_reach_hover_band_and_trim_start():
+    """--reach kin: 첫 점은 호버(z+40mm)까지 풀려야 한다. 반경 250mm 점은 작업 높이로는 닿아도 호버가 안 닿아 거부, --trim-start면 안쪽으로 당겨 간다. 기본(반경 판정)은 그대로 받는다."""
+    from so101_studio.perception.ultrasonic.benchmark import FakeArm, kin_reach
+    from so101_studio.perception.ultrasonic.fake_esp32 import SimClock
+    from so101_studio.perception.ultrasonic.model import load_config
+
+    far, path = (300, 300), [(300, 300), (300, 150)]  # 팔 원점 (300, 50)에서 반경 250
+    k = kin_reach()
+    assert k.ok(far, 55) and not k.start_ok(far, 55)
+    cfg = load_config()
+
+    def run(**kw):
+        arm = FakeArm(SimClock(), cfg, (300, 50), **kw)
+        return arm, arm.follow_path(path, 55, 100)
+
+    _, poses = run()
+    assert poses  # 반경 판정(50~265)은 받는다
+    arm, poses = run(kin=k)
+    assert poses == [] and arm.last_path["reason"] == "unreachable"
+    arm, poses = run(kin=k, trim_start=True)
+    assert poses and math.hypot(poses[0].tool_mm[0] - 300, poses[0].tool_mm[1] - 50) < 250
