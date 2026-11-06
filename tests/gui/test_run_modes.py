@@ -393,3 +393,15 @@ def test_page_confirm_dialog_runs_pending_on_real(twin):
             assert _pan(twin.real) == pytest.approx(real + 10, abs=0.5)
 
     asyncio.run(go())
+
+
+def test_sim_first_preview_follows_the_moving_sim_arm_even_after_planning(shared_twin):
+    """gui-spec 11절 B8: 목표를 고른 뒤(계획 중)에도 시뮬레이션 팔이 움직이는 동안은 계산 자세가 그것을 따라간다."""
+    shown = []
+    shared_twin.scene, shared_twin._planning = SimpleNamespace(set_preview=shown.append), True
+    try:
+        shared_twin._on_twin_status(SimpleNamespace(state="idle", joints="goal"))
+        shared_twin._on_twin_status(SimpleNamespace(state="moving", joints="step"))
+        assert shown == ["step"]  # 멈춰 있을 때는 고른 목표 자세를 지킨다
+    finally:
+        shared_twin.scene, shared_twin._planning = None, False

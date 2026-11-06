@@ -281,6 +281,9 @@ class Backend:
             return str(e)
         if result.reason == "workspace" and Backend._starts_outside(arm):
             return OUTSIDE_TEXT
+        if result.reason and "_out_of_reach:" in result.reason:  # REQ-031: 팔이 준 반경과 허용 범위를 그대로 보인다
+            kind, detail = result.reason.split(":", 1)
+            return f'{"집기" if kind.startswith("pick") else "놓기"} 점이 집기 범위 밖입니다:{detail}'
         return None if result.status == "ok" else MOTION_TEXT.get(result.status, result.status)
 
     @staticmethod
@@ -374,8 +377,9 @@ class Backend:
             self.scene.clear_target()
 
     def _on_twin_status(self, status) -> None:
-        """실제 팔이 있으면 계산 자세 팔은 시뮬레이션 쪽 자세를 보여 준다."""
-        if self.scene and not self._planning:
+        """실제 팔이 있으면 계산 자세 팔은 시뮬레이션 쪽 자세를 보여 준다.
+        시뮬레이션 팔이 움직이는 동안은 고른 목표 자세보다 이것이 먼저다("시뮬레이션 먼저"의 미리보기, gui-spec 11절 B8)."""
+        if self.scene and (not self._planning or status.state != "idle"):
             self.scene.set_preview(status.joints)
 
     def move_to(self, x: float, y: float, h: float, yaw: float) -> str | None:
@@ -427,6 +431,29 @@ class Backend:
             return arm.move_joints(goal) if goal else MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0))
 
         return self._dispatch(run, "조그 간격 이동")
+
+    def joint_to(self, index: int, target_deg: float) -> str | None:
+        """관절 하나를 입력한 각도로 옮긴다(결정 0042 7번). 관절 이동과 같은 안전 검사를 거친다."""
+
+        def run(arm: ArmService):
+            name = JOG_JOINTS[index]
+            return arm.move_joints(replace(arm.status().joints, **{name: float(target_deg)}))
+
+        return self._dispatch(run, "관절 값 이동")
+
+    def pick_place(self, pick_xy: tuple[float, float], angle_deg: float, width_mm: float, length_mm: float,
+                   place_xy: tuple[float, float] | None) -> str | None:
+        """직접 조작 집어 옮기기(gui-spec 11절 B7, REQ-031). place_xy가 None이면 첫 배출 구역에 놓는다."""
+        obj = DetectedObject("manual-pick", float(pick_xy[0]), float(pick_xy[1]), float(angle_deg), float(width_mm), float(length_mm), 1.0, "manual")
+        zone = None if place_xy else next(iter(self.arm.ws.drop_zones))
+
+        def run(arm: ArmService):
+            r = arm.pick_and_place(obj)  # 집기만. 시뮬레이션 팔은 쥘 물체가 없어 no_object여도 놓기까지 보인다(작업 실행의 dry-run과 같음)
+            if r.status == "ok" or (arm is self.sim and r.status == "no_object"):
+                return arm.place(zone=zone, at=place_xy)
+            return r
+
+        return self._dispatch(run, "집어 옮기기")
 
     # ---- 작업
     def objects(self) -> list[DetectedObject]:

@@ -323,4 +323,5 @@ class Probe:
             conf -= 0.2  # 못 간 구간이 있어 덜 믿는다
         self.info.update(R=R, h_mm=statistics.median(h["h"] for h in hs) if hs else 0.0, stages=len(hs))
         return DetectedObject(id=self.cand.id, x_mm=c4[0], y_mm=c4[1], angle_deg=math.degrees(phi) if R > 0.3 else None,
-                              width_mm=size(h4), length_mm=size(h3), confidence=conf, source="ultrasonic")
+                              width_mm=size(h4), length_mm=size(h3), confidence=conf, source="ultrasonic",
+                              height_mm=self.info["h_mm"])

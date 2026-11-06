@@ -78,6 +78,19 @@ def build(backend, client_id: str, actions) -> None:
                     with ui.tab_panel(joint_tab).classes("p-0 gap-1"):
                         for i, name in enumerate(JOG_JOINTS):
                             _jog_row(backend, JOINT_TEXT[name], ("joint", i), "°", held, step, control, guarded)
+                        with ui.row().classes("w-full no-wrap items-center gap-1 mt-2"):
+                            target_joint = control(ui.select({i: JOINT_TEXT[n] for i, n in enumerate(JOG_JOINTS)}, value=0)
+                                                   .props("outlined dense").classes("flex-1").mark("joint-to-name"))
+                            target_deg = control(ui.number("각도 (°)", value=0, step=1, format="%.1f").props("outlined dense").classes("w-24").mark("joint-to-deg"))
+
+                            async def joint_to() -> None:
+                                if target_deg.value is None:
+                                    return
+                                reason = await run.io_bound(backend.joint_to, int(target_joint.value), float(target_deg.value))
+                                if reason:
+                                    ui.notify(reason, type="negative")
+
+                            control(ui.button("이동", on_click=guarded(joint_to)).props("outline no-caps").mark("joint-to"))
                     with ui.tab_panel(cart_tab).classes("p-0 gap-1"):
                         for i, name in enumerate(CART_AXES):
                             unit = "°" if name == "yaw" else "mm"
@@ -96,6 +109,34 @@ def build(backend, client_id: str, actions) -> None:
                         ui.button("폭으로", on_click=guarded(lambda: act(backend.gripper_width, float(width.value or 0))))
                         .props("outline no-caps").mark("grip-width")
                     )
+
+            with ui.card().classes("w-full gap-2").mark("pick-place"):
+                ui.label("집어 옮기기").classes("card-title")
+                points: dict = {"pick": None, "place": None}
+                pick_text = ui.label("집기 점: 없음").classes("page-body").mark("pp-pick")
+                place_text = ui.label("놓기 점: 배출 구역").classes("page-body").mark("pp-place")
+
+                def set_point(kind: str) -> None:
+                    points[kind] = (target["x"], target["y"])
+                    (pick_text if kind == "pick" else place_text).text = f'{"집기" if kind == "pick" else "놓기"} 점: x {target["x"]:.0f}, y {target["y"]:.0f}'
+
+                with ui.row().classes("w-full no-wrap gap-2"):
+                    control(ui.button("지금 좌표를 집기 점으로", on_click=lambda: set_point("pick")).props("outline no-caps dense").mark("pp-set-pick"))
+                    control(ui.button("놓기 점으로", on_click=lambda: set_point("place")).props("outline no-caps dense").mark("pp-set-place"))
+                with ui.row().classes("w-full no-wrap gap-2"):
+                    obj_w = control(ui.number("폭 (mm)", value=30, min=0, step=5).props("outlined dense").classes("flex-1"))
+                    obj_l = control(ui.number("길이 (mm)", value=30, min=0, step=5).props("outlined dense").classes("flex-1"))
+                    obj_a = control(ui.number("각도 (°)", value=0, step=15).props("outlined dense").classes("flex-1"))
+
+                async def pick_place() -> None:
+                    if points["pick"] is None:
+                        ui.notify("먼저 집기 점을 고르세요(3D를 클릭하거나 좌표를 넣고 [지금 좌표를 집기 점으로])", type="warning")
+                        return
+                    reason = await run.io_bound(backend.pick_place, points["pick"], float(obj_a.value or 0), float(obj_w.value or 0),
+                                                float(obj_l.value or 0), points["place"])
+                    ui.notify(reason or "집어 옮겼습니다", type="negative" if reason else "positive")
+
+                control(ui.button("집어 옮기기", on_click=guarded(pick_place)).props("no-caps").classes("w-full").mark("pp-run"))
 
             with ui.card().classes("w-full gap-2"):
                 ui.label("속도 (%)").classes("card-title")
