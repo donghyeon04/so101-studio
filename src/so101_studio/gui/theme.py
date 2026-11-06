@@ -73,6 +73,7 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 .frame-bar {{ background: {CARD}; color: {TEXT}; }}
 .frame-top {{ border-bottom: 1px solid {LINE}; }}
 .frame-bottom {{ border-top: 1px solid {LINE}; }}
+.page-desc {{ color: {MUTED}; margin-top: -4px; }}
 .stat-label {{ color: {MUTED}; font-size: 13px; line-height: 16px; }}
 .stat-value {{ font-family: 'IBM Plex Mono', 'IBM Plex Sans KR', Consolas, 'Malgun Gothic', monospace; font-weight: 600; line-height: 20px; white-space: pre; }}
 .page-state {{ font-size: {BODY_PX}px; padding: 4px 10px; }}
