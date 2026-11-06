@@ -113,7 +113,7 @@ class MotionController:
             self._last = self.driver.read_joints()
 
     def jog(self, mode: str, velocity) -> bool:
-        """원격 조종 한 걸음 (spec 6.7). mode: "joint"(관절 6개 deg/s) 또는 "cartesian"(작업대 x, y, z mm/s, yaw deg/s).
+        """원격 조종 한 걸음 (spec 6.7). mode: "joint"(관절 6개 deg/s) 또는 "cartesian"(작업대 x, y, z mm/s, yaw deg/s, 선택으로 pitch deg/s: 양수 = 손끝을 수평 쪽으로 든다).
         입력이 DEADMAN_S 넘게 끊기면 멈춘다. 동작 중이거나 정지·fault 상태면 무시한다."""
         with self._lock:
             if self.locked_reason or self.state in ("stopped", "fault") or self._job is not None:
@@ -424,10 +424,10 @@ class MotionController:
                     nxt[i] = min(max(nxt[i], lo), hi)  # 한계에서 멈춘다
             q = JointState(*nxt.tolist())
         else:
-            vx, vy, vz, vyaw = (list(v) + [0.0] * 4)[:4]
+            vx, vy, vz, vyaw, vpitch = (list(v) + [0.0] * 5)[:5]
             speed = math.hypot(vx, vy, vz)
             k = min(1.0, self.jog_tool_max / speed) if speed else 1.0
-            q = self.kin.step(last, vx * k * dt, vy * k * dt, vz * k * dt, vyaw * dt)
+            q = self.kin.step(last, vx * k * dt, vy * k * dt, vz * k * dt, vyaw * dt, dpitch_deg=vpitch * dt)
             if q is None:
                 self.jog_block = "ik_fail"
                 return

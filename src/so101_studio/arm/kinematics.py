@@ -142,7 +142,7 @@ class Kinematics:
         n = math.hypot(x, y)
         return x / n, y / n
 
-    def step(self, q: JointState, dx_mm: float, dy_mm: float, dz_mm: float, dyaw_deg: float = 0.0, tol_mm: float = 0.5) -> JointState | None:
+    def step(self, q: JointState, dx_mm: float, dy_mm: float, dz_mm: float, dyaw_deg: float = 0.0, tol_mm: float = 0.5, dpitch_deg: float = 0.0) -> JointState | None:
         """지금 자세의 방향을 유지한 채 끝을 (dx, dy, dz)(작업대 좌표계 mm)만큼 옮기고 수직축으로 dyaw만큼 돌린다(원격 조종용).
         pitch·yaw로 방향을 다시 만들지 않으므로 손목이 돌아가 있어도(wrist_roll) 동작한다."""
         arm = np.array([getattr(q, j) for j in ARM_JOINTS], float)
@@ -154,6 +154,13 @@ class Kinematics:
             a = math.radians(dyaw_deg)
             Rz = np.array([[math.cos(a), -math.sin(a), 0], [math.sin(a), math.cos(a), 0], [0, 0, 1]])
             T[:3, :3] = Rz @ T[:3, :3]
+        if dpitch_deg:  # 턱이 벌어지는 수평축을 기준으로 도구 앞(손끝 방향)을 위·아래로 기울인다. 양수 = 수평 쪽으로 든다(-90 아래 -> 0 수평)
+            jaw = (T[:3, :3] @ self._C.T)[:, 1]  # 도구 y축 = 항상 수평인 턱 축(fk의 yaw가 이 축에서 나온다)
+            jaw = np.array([jaw[0], jaw[1], 0.0]) / (math.hypot(jaw[0], jaw[1]) or 1.0)
+            a = -math.radians(dpitch_deg)  # 축 방향 때문에 부호를 뒤집는다: 양수 dpitch가 fk의 pitch를 늘린다
+            K = np.array([[0, -jaw[2], jaw[1]], [jaw[2], 0, -jaw[0]], [-jaw[1], jaw[0], 0]])
+            Rp = np.eye(3) + math.sin(a) * K + (1 - math.cos(a)) * (K @ K)
+            T[:3, :3] = Rp @ T[:3, :3]
         # 5축이라 도구가 수평일 때는 방향을 그대로 둔 채 옆으로 옮길 수 없다. 방향 가중치를 점점 낮춰(위치 우선) 풀리는 첫 해를 쓴다
         for w in (0.1, 0.01, 0.0):
             cur = arm
