@@ -118,7 +118,7 @@ def test_empty_check_drops_candidate_and_redecides_without_rescan():
 def test_rescan_when_no_candidate_once_then_done():
     src, sk = StubSource([[]], rescans=[[]]), UsSkills()
     res, seen = run(runner(src, skills=sk))
-    assert sk.calls == ["radar_clear", "radar_clear"] and "park" not in sk.calls  # PREPARE와 RESCAN 모두 radar_clear (결정 0039)
+    assert sk.calls == ["radar_clear", "radar_clear"] and "park" not in sk.calls  # 첫 사이클 PREPARE와 RESCAN 모두 radar_clear (결정 0039)
     assert res["end"] == "no_objects" and src.calls.count("rescan") == 1
     assert [s[0] for s in states(seen)].count("RESCAN") == 1
 
@@ -187,7 +187,7 @@ def test_source_without_check_runs_as_before():
 
 # ---- --sim 팔 + FakeESP32 (실제 시간으로 돈다: 레이더 회전과 팔 이동)
 CFG = load_robot("config/robot.yaml")
-SPREAD = [(439, 148, 0), (385, 231, 90), (161, 148, 0)]  # 팔 원점(300, 50) 기준. 대기 자세 팔 끝(300, 269)이 레이더 정면을 가려서 가운데(방위 90°) 물체는 못 찾는다: 비켜 둔다
+SPREAD = [(420, 190, 0), (330, 250, 90), (330, 150, 0)]  # 팔 원점(300, 50) 기준. 대기 자세 팔 끝(300, 269)이 레이더 정면을 가려서 가운데(방위 90°) 물체는 못 찾는다: 비켜 둔다
 
 
 class ReadFails(SimDriver):
@@ -217,10 +217,11 @@ def test_sim_three_objects_end_to_end(tmp_path):
     assert res["end"] in ("no_objects", "give_up") and len(res["picked"]) == 3, res
     kinds = {e.state for e in seen}
     assert {"CHECK", "PICK", "PLACE", "DONE"} <= kinds
+    assert [e.state for e in seen].count("PREPARE") == 1  # radar_clear 이동은 첫 사이클 한 번뿐(끝의 RESCAN은 따로)
     assert {"us.candidates", "us.check_path", "us.check_result"} <= set(us)  # source에 bus가 이어졌다
     assert not src.esp.boxes  # 집어 간 물체는 가상 작업대에서도 사라졌다
-    row = st.summary.to_dict(res)["per_object"][0]
-    assert row["check"] == "ok" and row["check_s"] > 0 and row["radar_s"] > 0
+    rows = [r for r in st.summary.to_dict(res)["per_object"] if r.get("check") == "ok"]  # 확인에 실패한 후보 행도 있을 수 있다
+    assert len(rows) == 3 and all(r["check_s"] > 0 and r["radar_s"] > 0 for r in rows)
     arm.disconnect()
 
 
@@ -264,3 +265,29 @@ def test_sim_front_object_is_found_by_first_scan_with_radar_clear(tmp_path):
     assert len(first[0]["objects"]) == 1 and res["picked"], res
     assert not src.esp.boxes
     arm.disconnect()
+
+
+def test_radar_clear_only_on_first_cycle_rescan_and_after_pick_failure():
+    # 물체 3개: PLACE 뒤에는 PREPARE 없이 바로 SCAN. radar_clear는 첫 사이클과 끝의 RESCAN 두 번뿐
+    sk = UsSkills()
+    src = StubSource([[cand(1)], [cand(2)], [cand(3)], []], rescans=[[]])
+    res, seen = run(runner(src, skills=sk))
+    assert res["picked"] == ["us-1", "us-2", "us-3"] and sk.calls.count("radar_clear") == 2
+    assert [e.state for e in seen].count("PREPARE") == 1
+    first_place = sk.calls.index("place")
+    assert "radar_clear" not in sk.calls[first_place:sk.calls.index("pick:us-3")]  # 놓은 뒤 다음 후보로 바로 간다
+
+
+def test_pick_failure_returns_to_radar_clear_before_next_scan():
+    sk = UsSkills(pick_status="no_object")
+    src = StubSource([[cand(1)], [cand(2)]], give_up_after=1)
+    run(runner(src, skills=sk))
+    assert sk.calls.count("radar_clear") == 2 and sk.calls.index("radar_clear", 1) > sk.calls.index("pick:us-1")
+
+
+def test_manual_source_still_parks_every_cycle():
+    from test_task import ListSource, obj
+
+    sk = StubSkills()
+    run(TaskRunner(sk, ListSource([obj(1, 300, 190), obj(2, 250, 210)]), WS, EventBus()))
+    assert sk.calls.count("park") == 3  # 물체 2개 + 마지막 빈 스캔 앞

@@ -103,15 +103,18 @@ class TaskRunner:
 
     def _loop(self, chk: bool) -> dict:
         fails = {}
+        prepare = True  # 초음파는 radar_clear로 가는 PREPARE를 첫 사이클·RESCAN·집기 실패 뒤에만 한다. PLACE 뒤에는 바로 SCAN (system-architecture 5절)
         while True:
             if self.cycles >= MAX_CYCLES:
                 self._emit("DONE", result="cycle_limit")
                 return self._end("cycle_limit")
-            self._emit("PREPARE")
-            if self._stopped():
-                return self._end("STOPPED")
-            if self._wait_pose(chk).status != "ok":
-                return self._fault("radar_clear" if chk else "park")
+            if prepare or not chk:
+                self._emit("PREPARE")
+                if self._stopped():
+                    return self._end("STOPPED")
+                if self._wait_pose(chk).status != "ok":
+                    return self._fault("radar_clear" if chk else "park")
+                prepare = False
             self._emit("SCAN")
             scan = self.source.scan()
             dropped, rescanned = set(), False  # dropped: 이번 스캔에서 확인에 실패해 뺀 후보
@@ -166,6 +169,7 @@ class TaskRunner:
                 self.failed.append(obj.id)
                 if chk:
                     self.source.note_failure(obj.x_mm, obj.y_mm)
+                    prepare = True  # 집기 실패 뒤에는 대기 자세로 돌아가 다시 본다
                 self._emit("PICK", obj.id, result=r.status, duration_s=r.duration_s)
                 if fails[obj.id] >= MAX_CONSECUTIVE_FAILS:
                     self._emit("DONE", obj.id, result="repeated_failure")
