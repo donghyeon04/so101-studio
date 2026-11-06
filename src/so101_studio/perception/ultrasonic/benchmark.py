@@ -14,12 +14,16 @@ import subprocess
 import tempfile
 import time
 from bisect import bisect_right
+from functools import cache
 from pathlib import Path
 
 import numpy as np
+import yaml
 
+from ...arm.kinematics import Kinematics
 from ...arm.trajectory import LookaheadShape, fillet_path
 from ...core.config import load_workspace
+from ...core.types import JointState
 from ..base import PoseSample
 from .fake_esp32 import FakeESP32, SimClock
 from .link import Link
@@ -50,14 +54,26 @@ def arm_base() -> tuple[float, float]:
     return b.x_mm, b.y_mm
 
 
+@cache
+def radar_clear_pose(robot_yaml="config/robot.yaml"):
+    """대기 자세(결정 0039)의 손끝 ((x, y), 작업대 위 높이 mm). robot.yaml의 poses.radar_clear 관절값을 팔 기구학으로 바꾼다. 키가 없으면 None."""
+    cfg = yaml.safe_load(Path(robot_yaml).read_text(encoding="utf-8"))
+    joints = cfg.get("poses", {}).get("radar_clear")
+    if joints is None:
+        return None
+    t = Kinematics(cfg["urdf"], load_workspace().base).fk(JointState(*joints))  # fk는 관절 한계를 쓰지 않는다
+    return (t.x_mm, t.y_mm), t.z_mm
+
+
 class FakeArm:
     """가상 팔: 손끝 위치 기록, 센서 위치(손끝 + yaw로 돌린 오프셋), follow_path(REQ-023 모양).
     시간 모델(8.5절, #77): 호출마다 정지에서 출발·정지로 끝, 가속·감속 accel, 호출 사이 gap_s, 한 호출 안에서는 서지 않되
     꺾임·원에서 가속 한도를 넘지 않게 속도를 줄인다(팔 코드의 fillet_path·LookaheadShape를 그대로 쓴다, #73. 원은 v²/r <= accel/√2). 못 가는 경로는 움직이지 않고 []."""
 
-    def __init__(self, clk, cfg, base, travel_mm_s=400.0, reach=REACH, accel=120.0, gap_s=0.25, motion_scale=1.0):
+    def __init__(self, clk, cfg, base, travel_mm_s=400.0, reach=REACH, accel=120.0, gap_s=0.25, motion_scale=1.0, wait_pose=None):
         self.clk, self.base, self.reach = clk, base, reach
         self.travel, self.accel, self.gap_s, self.motion_scale = travel_mm_s, accel, gap_s, motion_scale
+        self.wait_pose = wait_pose or radar_clear_pose() or (base, 150.0)  # 대기 자세 손끝. 설정에 radar_clear가 없으면 팔 원점 위 150mm
         self.off0 = (cfg.arm_sensor_offset_mm.x, cfg.arm_sensor_offset_mm.y, cfg.arm_sensor_offset_mm.z)
         self.yaw = 90.0  # 평소 손목 자세
         self.tip = base
@@ -195,7 +211,7 @@ def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, resc
     """처음 scan()부터 물체가 다 없어질 때까지(작업 실행 흉내). 인식 시간 = 레이더 + 확인, 집기·놓기는 뺀다.
     판정(8.5절): 확인 결과 자리에 가장 가까운 실제 물체가 30mm 안이면 그 물체를 집은 것. 위치 오차 15mm 이하이고 방향까지 맞으면 성공(정사각형은 위치만).
     rescan_home(RESCAN, 기획 #77): 후보가 없으면 팔을 대기 자세로 옮겨 src.rescan()(4바퀴)을 한 번 하고, 후보가 있으면 계속, 또 없으면 끝낸다.
-    대기 자세(PREPARE 자세)는 아직 정해지지 않아 팔 원점 위(arm.base, 높이 150mm)로 흉내 낸다. None이면 설정 radar.rescan_home을 따른다.
+    대기 자세는 robot.yaml의 poses.radar_clear(결정 0039)를 기구학으로 바꾼 손끝이고, 키가 없으면 팔 원점 위(arm.base, 높이 150mm)다. None이면 설정 radar.rescan_home을 따른다.
     check.max_fail_per_run: 확인 실패가 그만큼이면 끝낸다(src.give_up).
     prefetch는 PLACE 시작(집은 뒤 배출 구역으로 옮기기 시작할 때)에 건다(2절·T5)."""
     if rescan_home is None:
@@ -218,7 +234,7 @@ def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, resc
         if not near:
             if rescan_home and not rescanned:
                 rescanned = True
-                arm.move(arm.base, 150)  # 레이더 시야 밖 대기 자세(흉내)
+                arm.move(*arm.wait_pose)  # 레이더 시야 밖 대기 자세(poses.radar_clear)
                 continue
             break
         rescanned = False  # 후보가 나왔으니 다음에 또 없으면 다시 RESCAN할 수 있다(연달아 두 번만 안 함)
