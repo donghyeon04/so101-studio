@@ -29,6 +29,7 @@
 | `docs/planning/comparison-experiment.md` | 기획 | 초안 | 초음파·카메라 인식 비교 실험의 통제 변인, 평가 기준, 환경 조건 가설 |
 | `docs/planning/ultrasonic-spec.md` | 기획 | 확정 | 초음파 인식 설계서: 레이더 + 팔 확인, 합격 기준, 하드웨어 치수·배선·서보 전원(A 충전기/B 12V 공유)·구매 목록·브래킷 레퍼런스, 스캔 서보 추천, 시간 줄이기 기법 T1~T11, 레이더·확인 처리, ESP32 통신 규약, PC 구조, 작업 순서 U0~U9, 시험 |
 | `docs/guides/arm-hardware-setup.md` | 가이드 | 확정 | 팔 하드웨어 구성, COM 포트, 서보 ID 1~6, 캘리브레이션 파일 복사, 다른 PC에서 처음 연결하는 순서, 문제 해결 |
+| `docs/guides/real-arm-runbook.md` | 가이드 | 초안 | 실물 팔 절차서: 매번 시작할 때, GUI 실물 켜기, 남은 실물 확인(턱 높이·집기·교시 변환본·AC4·table_z 등), 초음파 실물 순서, 문제가 나면 |
 | `docs/guides/tooling-setup.md` | 가이드 | 확정 | 계정마다 설치할 플러그인, MCP, 스킬 |
 | `docs/guides/session-workflow.md` | 가이드 | 확정 | 세션 역할(로컬 셋, GUI 세션 총괄), worktree와 브랜치, REQ 요청·완료 양식, 기획 요청, 포트 같이 쓰기, 질문과 승인은 총괄로, 새 계정·새 PC로 옮길 때 |
 | `docs/decisions/0001-claude-md-authoring.md` | 결정 | 확정 | CLAUDE.md는 짧게, 절차는 skill로 |
