@@ -268,3 +268,12 @@ def test_backend_without_scene_still_runs_objects():
         backend.add_object(300, 200)
     finally:
         backend.close()
+
+
+def test_nudge_object_moves_and_turns(clean):
+    """G16: 고른 물체를 5mm·5°씩 옮기고 돌린다. 각도는 0~180으로 감는다."""
+    object_id = clean.add_object(310, 180, 178, 40, 80)
+    clean.nudge_object(object_id, 5, -5, 5)
+    o = next(o for o in clean.objects() if o.id == object_id)
+    assert (o.x_mm, o.y_mm, o.angle_deg) == (315, 175, 3)
+    clean.remove_object(object_id)

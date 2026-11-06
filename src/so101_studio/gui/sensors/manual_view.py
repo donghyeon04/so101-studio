@@ -5,7 +5,7 @@ import html
 from nicegui import run, ui
 
 from .. import theme
-from ..pages.common import Controls
+from ..pages.common import Controls, nudge_pad
 
 
 def plane_svg(table_mm: dict, objects, zones: dict, base, reach_mm: dict, selected: str | None = None) -> str:
@@ -134,6 +134,16 @@ def page(backend, client_id: str, actions) -> None:
                     length = controls.add(ui.number("길이 (mm)", value=100, min=5, max=300, step=5).props("outlined dense").classes("flex-1").mark("new-length"))
                     height = controls.add(ui.number("높이 (mm)", value=0, min=0, max=200, step=5).props("outlined dense").classes("flex-1")
                                           .tooltip("0이면 설정한 집는 높이로 집습니다").mark("new-height"))
+            with ui.card().classes("w-full gap-2"):
+                ui.label("고른 물체 조금씩").classes("card-title")
+
+                def nudge(dx: float, dy: float, dangle: float) -> None:
+                    if state["selected"] and controls.allowed:
+                        backend.nudge_object(state["selected"], dx, dy, dangle)
+                        refresh_table()
+
+                nudge_pad(nudge, add=controls.add)
+                ui.label("표에서 물체를 고르고 누르세요. 누르고 있으면 계속 움직입니다").classes("page-body")
             if backend.task_running():
                 ui.label("작업 실행 중에는 다음 스캔부터 반영됩니다").classes("page-body")
 

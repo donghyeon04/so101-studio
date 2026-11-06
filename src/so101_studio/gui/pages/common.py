@@ -88,3 +88,41 @@ def offer_free_edge(backend, retry) -> None:
             ui.button("가장자리 검사 끄고 다시 하기", on_click=go).props("no-caps").mark("edge-free")
             ui.button("취소", on_click=dialog.close).props("outline no-caps")
     dialog.open()
+
+
+NUDGE_MM, NUDGE_DEG, NUDGE_REPEAT_S = 5.0, 5.0, 0.15
+
+
+def nudge_pad(on_step, add=lambda e: e, rotate: bool = True) -> None:
+    """고른 것을 옮기고 돌리는 패드 (gui-spec 11절 D11, G16). 누를 때마다 5mm·5°, 누르고 있으면 계속. on_step(dx, dy, dangle).
+    위 = 작업대 +y(평면 그림의 위쪽). add는 조작권에 따라 켜고 끄는 Controls.add."""
+    repeat = {"timer": None}
+
+    def start(step) -> None:
+        stop()
+        on_step(*step)
+        repeat["timer"] = ui.timer(NUDGE_REPEAT_S, lambda: on_step(*step))
+
+    def stop() -> None:
+        if repeat["timer"] is not None:
+            repeat["timer"].cancel()
+            repeat["timer"] = None
+
+    def button(icon: str, label: str, step) -> None:
+        b = add(ui.button(icon=icon).props(f'outline dense aria-label="{label}"').classes("nudge-button").mark(f"nudge-{label}"))
+        b.on("mousedown", lambda: start(step))
+        b.on("touchstart", lambda: start(step))
+        for event in ("mouseup", "mouseleave", "touchend"):
+            b.on(event, stop)
+
+    m, d = NUDGE_MM, NUDGE_DEG
+    with ui.grid(columns=3).classes("gap-1 nudge-pad").mark("nudge-pad"):
+        button("rotate_left", "왼쪽으로 돌리기", (0, 0, d)) if rotate else ui.element()
+        button("arrow_upward", "위로", (0, m, 0))
+        button("rotate_right", "오른쪽으로 돌리기", (0, 0, -d)) if rotate else ui.element()
+        button("arrow_back", "왼쪽으로", (-m, 0, 0))
+        ui.label(f"{m:.0f}mm").classes("stat-label self-center text-center")
+        button("arrow_forward", "오른쪽으로", (m, 0, 0))
+        ui.element()
+        button("arrow_downward", "아래로", (0, -m, 0))
+        ui.element()
