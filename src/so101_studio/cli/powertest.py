@@ -56,7 +56,11 @@ def _powertest(svc, repeats: int, speed_pct: float, out, stop_req) -> dict:
 
     def sample() -> None:
         while not stop.is_set():
-            v, cur, load = svc.driver.read_power()
+            try:
+                v, cur, load = svc.driver.read_power()
+            except Exception as e:  # noqa: BLE001  통신이 끊기면 표본 수집만 멈춘다: comm_lost 처리는 제어 스레드 몫이다 (결정 0031)
+                out(f"경고: 부하 표본을 읽지 못해 수집을 멈춘다: {e!r}")
+                return
             m = max(cur, key=cur.get)
             lm = max(load, key=load.get)
             rows.append((time.perf_counter(), v, sum(cur.values()), m, cur[m], lm, load[lm]))

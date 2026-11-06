@@ -10,7 +10,7 @@ import numpy as np
 from ..arm.kinematics import Kinematics
 from ..arm.motion import MotionController
 from ..arm.safety import MODES, Safety, SafetySettings
-from ..arm.skills import Skills
+from ..arm.skills import SEEDS, Skills
 from ..arm.teach import Teach
 from ..arm.trajectory import cfg_move_j, cfg_move_l, smooth_l
 from ..core.blackbox import install_excepthooks
@@ -38,13 +38,15 @@ def plan_goto(kin, cfg, q0: JointState, goal: ToolPose, speed_pct: float):
     if traj is not None:
         return [traj]
     hover = replace(goal, z_mm=goal.z_mm + cfg.approach_height_mm)
-    q_hover = kin.ik(hover, q0)
-    if q_hover is None:
-        return None
-    down = cfg_move_l(cfg, kin, hover, goal, q_hover, speed_pct)
-    if down is None:
-        return None
-    return [cfg_move_j(cfg, q0, q_hover, speed_pct), down]
+    # 현재 관절로 풀리면 그 답을 쓰고(기존 동작), 못 풀면 Skills._ik처럼 대표 자세들을 씨앗으로 쓴다: 손목을 접은 자세(radar_clear)에서 출발하면 현재 관절만으로는 대부분 실패한다 (REQ-030)
+    for seed in [q0, *(replace(sd, gripper=q0.gripper) for sd in SEEDS)]:
+        q_hover = kin.ik(hover, seed)
+        if q_hover is None:
+            continue
+        down = cfg_move_l(cfg, kin, hover, goal, q_hover, speed_pct)
+        if down is not None:
+            return [cfg_move_j(cfg, q0, q_hover, speed_pct), down]
+    return None
 
 
 class ArmService:
@@ -559,14 +561,20 @@ class ArmService:
         self._log("pick", {"object": asdict(obj), "status": r.status})
         if r.status == "ok" and zone:
             r = self.skills.place(zone)
-            self._log("place", {"zone": zone, "status": r.status})
+            self._log("place", {"zone": zone, "status": r.status, "correction_mm": self._place_correction()})
         return r
 
     def place(self, zone: str) -> MotionResult:
         if (gate := self._comm_gate()) is not None:
             return gate
         self.enable_torque()
-        return self._done("place", self.skills.place(zone), zone=zone)
+        r = self.skills.place(zone)
+        return self._done("place", r, zone=zone, correction_mm=self._place_correction())
+
+    def _place_correction(self) -> list[float] | None:
+        """마지막 place가 두 턱 끝 중간점을 구역 점에 맞추려고 손 위치를 옮긴 양(mm, x·y). 기록용."""
+        c = getattr(self.skills, "last_place_correction_mm", None)
+        return None if c is None else [round(c[0], 1), round(c[1], 1)]
 
     def set_gripper(self, value: float, as_width: bool = False) -> MotionResult:
         """그리퍼만 움직인다. as_width면 벌림 폭(mm)으로 해석한다(예: 카드 폭 54mm)."""

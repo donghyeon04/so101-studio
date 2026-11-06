@@ -291,3 +291,13 @@ def test_manual_source_still_parks_every_cycle():
     sk = StubSkills()
     run(TaskRunner(sk, ListSource([obj(1, 300, 190), obj(2, 250, 210)]), WS, EventBus()))
     assert sk.calls.count("park") == 3  # 물체 2개 + 마지막 빈 스캔 앞
+
+
+def test_sim_left_far_object_check_goes_through_from_radar_clear(tmp_path):
+    """방위 약 145°·반경 170mm 물체: radar_clear에서 출발하는 첫 CHECK의 접근 IK가 풀려 확인이 끝까지 간다 (REQ-030, plan_goto 여러 시드)."""
+    st, _src, arm = sim_studio(tmp_path, spread=[(161, 148, 0)])
+    res = []
+    st.bus.subscribe("us.check_result", res.append)
+    out = st.start(blocking=True)
+    assert res and res[0]["status"] == "ok" and out["picked"], (res, out)
+    arm.disconnect()

@@ -406,3 +406,17 @@ def test_follow_path_starts_from_radar_clear_pose(svc):
     assert svc.skills.radar_clear().status == "ok"
     samples = svc.follow_path([(300.0, 200.0), (380.0, 200.0)], Z, 100.0, 90.0)
     assert svc.last_path.status == "ok" and len(samples) > 20
+
+
+def test_plan_goto_tries_several_ik_seeds_from_radar_clear(svc):
+    """현재 관절(손목을 접은 radar_clear)만 씨앗으로 쓰면 호버 IK가 실패하는 곳도 대표 자세 씨앗으로 푼다 (REQ-030)."""
+    from dataclasses import replace
+
+    from so101_studio.service.arm_service import plan_goto
+
+    assert svc.skills.radar_clear().status == "ok"
+    q0 = svc.driver.read_joints()
+    goal = svc.point_pose(161.0, 58.0, Z, 90.0)
+    hover = replace(goal, z_mm=goal.z_mm + CFG.approach_height_mm)
+    assert svc.kin.ik(hover, q0) is None  # 현재 관절만으로는 못 푼다(이 시험의 전제)
+    assert plan_goto(svc.kin, CFG, q0, goal, 100) is not None
