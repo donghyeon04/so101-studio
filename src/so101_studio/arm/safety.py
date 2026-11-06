@@ -125,6 +125,12 @@ class Safety:
         safe = ensure_safe_goal_position({j: (goal[j], present[j]) for j in goal}, float(self.max_step_deg))
         return "step" if any(abs(safe[j] - goal[j]) > 1e-6 for j in goal) else None
 
+    def step_detail(self, prev: JointState, nxt: JointState) -> dict:
+        """check_step이 거부한 한 주기에서 가장 많이 움직이려 한 관절과 이동량·한계(fault 상세용)."""
+        goal, present = asdict(nxt), asdict(prev)
+        joint = max(goal, key=lambda j: abs(goal[j] - present[j]))
+        return {"joint": joint, "delta_deg": round(abs(goal[joint] - present[joint]), 2), "limit_deg": float(self.max_step_deg)}
+
 
 class HealthMonitor:
     """과열·과부하·통신 끊김 감시. 온도 읽기는 가끔 튀므로(T2) 연속 temp_count번 넘을 때만 fault로 본다."""

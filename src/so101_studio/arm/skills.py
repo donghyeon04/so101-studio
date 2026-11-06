@@ -53,8 +53,12 @@ class Skills:
     def _joint_move(self, goal: JointState):
         return cfg_move_j(self.cfg, self._q(), goal, self.speed)
 
+    def _gripper_speed(self) -> float:
+        """그리퍼만 움직이는 동작의 속도 배율(0.01~1). 설정 gripper_speed_pct를 그때그때 읽어 바로 적용한다."""
+        return min(max(self.cfg.gripper_speed_pct, 1.0), 100.0) / 100.0
+
     def _gripper(self, value: float):
-        return self._joint_move(replace(self._q(), gripper=value))
+        return cfg_move_j(self.cfg, self._q(), replace(self._q(), gripper=value), self.speed * self._gripper_speed())
 
     def _ik(self, pose: ToolPose) -> JointState | None:
         cur = self._q()
@@ -148,7 +152,27 @@ class Skills:
             if q is None:
                 return None
             pts.append(np.array(astuple(replace(q, gripper=v)), float))
-        return LineTrajectory(np.array(pts), QuinticShape(max(1.0, abs(gap0 - gap_end) / 16.0)))  # 틈 16mm/s로 천천히
+        return LineTrajectory(np.array(pts), QuinticShape(max(1.0, abs(gap0 - gap_end) / 16.0) / self._gripper_speed()))  # 틈 16mm/s로 천천히(gripper_speed_pct로 더 늦춘다)
+
+    def _grasp_height(self, obj: DetectedObject, gap0: float, v0: float, tilt_ok: bool) -> tuple[float, str | None]:
+        """집을 때 낮은 턱 끝의 작업대 면 위 높이 t와 거부 이유. 물체 높이를 모르면(height_mm 0)나 폭을 모르면 설정값.
+        벌어진 턱 사이 간격은 턱 끝에서 dz 위에서 G - dz*s (s = tan(기울기) + tan(벌림각 - 기울기))로 좁아진다. 물체 위 모서리를 안 치려면 W <= G - (H - t)*s - 4 이고,
+        턱이 물체에 닿는 높이 H - t는 grasp_min_contact_mm 이상이어야 한다 (결정 0042)."""
+        t, H, W = self.cfg.grasp_height_mm, obj.height_mm, obj.width_mm
+        if H <= 0 or W <= 0:
+            return t, None
+        tau = self._tilt(v0) if tilt_ok else 0.0
+        s = math.tan(math.radians(tau)) + math.tan(math.radians(VALUE_TO_Q[1] * v0 - tau))
+        t = min(t, H - self.cfg.grasp_min_contact_mm)  # 낮은 물체는 턱 끝을 그만큼 내려 물체에 닿게
+        if t < self.cfg.tip_floor_mm:
+            return t, f"object_too_low: 높이 {H:.0f}mm 물체는 턱이 {self.cfg.grasp_min_contact_mm:.0f}mm 이상 닿게 집을 수 없다(턱 끝 최소 높이 {self.cfg.tip_floor_mm:.0f}mm)"
+        room = gap0 - W - 4.0  # 위 모서리 높이에서 남겨야 하는 틈
+        if room < 0 or (H - t) * s > room:
+            t = H - room / s if room >= 0 else H
+            if room < 0 or H - t < self.cfg.grasp_min_contact_mm:
+                return t, (f"grasp_blocked: 폭 {W:.0f}mm·높이 {H:.0f}mm 물체는 최대 벌림 {gap0:.0f}mm에서 턱이 위 모서리를 친다 "
+                           f"(집는 높이를 올려도 닿는 높이가 {self.cfg.grasp_min_contact_mm:.0f}mm 아래로 줄어든다). 벌림을 키우거나 물체를 바꾼다")
+        return t, None
 
     def pick(self, obj: DetectedObject) -> MotionResult:
         """고정 턱 1개 + 가동 턱 1개. URDF 기하(결정 0009, 0010, 0011): 기준점(gripper_frame)은 고정 턱 안쪽 면 위에 있고 가동 턱은 +m 쪽이다.
@@ -166,9 +190,13 @@ class Skills:
         v0, v_end = self.gripper_for_width(gap0), self.gripper_for_width(gap_end)
         tilt_ok = self._tilt_ok(obj, yaw)
         ox, oy = obj.x_mm + self.cfg.grasp_bias_mm * m[0], obj.y_mm + self.cfg.grasp_bias_mm * m[1]
-        grasp = self._hand_pose(ox, oy, yaw, v0, tilt_ok, (self.cfg.table_z_mm + self.cfg.grasp_height_mm))
+        t, why = self._grasp_height(obj, gap0, v0, tilt_ok)
+        if why:
+            return MotionResult("out_of_bounds", 0.0, ToolPose(0, 0, 0, 0), reason=why)
+        tip_z = self.cfg.table_z_mm + t
+        grasp = self._hand_pose(ox, oy, yaw, v0, tilt_ok, tip_z)
         # 접근 높이에서는 기울기를 절반만 준다(전부 기울이면 손목 한계로 닿지 않는다). 내려가며 직선 경로가 pitch를 보간해 전부 기울인다.
-        hover = self._hand_pose(ox, oy, yaw, v0, tilt_ok, (self.cfg.table_z_mm + self.cfg.grasp_height_mm) + self.cfg.approach_height_mm, 0.5)
+        hover = self._hand_pose(ox, oy, yaw, v0, tilt_ok, tip_z + self.cfg.approach_height_mm, 0.5)
         fail = MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0))
         q_hover = self._ik(hover)
         if q_hover is None:
@@ -177,7 +205,7 @@ class Skills:
         down = self._line(q_open, grasp) if self.kin.ik(grasp, q_open) is not None else None
         if down is None:
             return fail
-        closing = self._closing_path(JointState(*down.pts[-1]), replace(obj, x_mm=ox, y_mm=oy), yaw, tilt_ok, v0, v_end, gap0, gap_end)
+        closing = self._closing_path(JointState(*down.pts[-1]), replace(obj, x_mm=ox, y_mm=oy), yaw, tilt_ok, v0, v_end, gap0, gap_end, tip_z)
         if closing is None:
             return fail
         r = self._run([self._joint_move(q_hover)])  # 1. 접근 위치로

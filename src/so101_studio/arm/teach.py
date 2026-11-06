@@ -65,6 +65,26 @@ def retime(t: np.ndarray, segments: list[dict], factors: dict[int, float], speed
     return np.concatenate([[0.0], np.cumsum(dt / scale)])
 
 
+def fit_times(q: np.ndarray, t: np.ndarray, v_max: float, a_max: float) -> np.ndarray:
+    """기록을 속도(°/s, 한 주기 이동량 한계에서 나온 값)와 가속(°/s²) 한도 안으로 맞춘 새 시각. 한도를 넘는 표본 간격만 늘리고 나머지는 그대로 둔다."""
+    if len(q) < 2:
+        return t.copy()
+    d = np.abs(np.diff(q, axis=0))
+    dt = np.maximum(np.diff(t), 1e-3)
+    dt = np.maximum(dt, d.max(axis=1) / v_max)
+    for _ in range(300):  # 이웃한 두 구간의 속도 차가 가속 한도를 넘으면 그 둘을 늘린다
+        if len(dt) < 2:
+            break
+        v = d / dt[:, None]
+        acc = np.abs(np.diff(v, axis=0)) / (0.5 * (dt[:-1] + dt[1:]))[:, None]
+        bad = np.flatnonzero(acc.max(axis=1) > a_max)
+        if not bad.size:
+            break
+        dt[bad] *= 1.1
+        dt[bad + 1] *= 1.1
+    return np.concatenate([[0.0], np.cumsum(dt)]) + t[0]
+
+
 def smooth(q: np.ndarray, window: int = SMOOTH) -> np.ndarray:
     """이동평균. 처음과 끝 자세는 그대로 둔다."""
     if window < 2 or len(q) < window:
@@ -142,11 +162,27 @@ class Teach:
     def _analyze(self, q: np.ndarray, t: np.ndarray) -> dict:
         return analyze(q, t, self.cfg.seg_pause_deg_s, self.cfg.seg_fast_deg_s, self.cfg.seg_min_s)
 
-    def info(self, name: str) -> dict:
-        """기록의 길이·속도 요약과 구간 목록. 요약이 없는 옛 파일은 지금 계산한다."""
+    def _limits(self) -> tuple[float, float]:
+        """변환 재생의 속도(°/s)·가속(°/s²) 한도: 한 주기 이동량 한계(안전 검사)의 95%와 설정 replay_a_max_deg_s2."""
+        return 0.95 * self.ctl.safety.max_step_deg / self.ctl.dt, self.cfg.replay_a_max_deg_s2
+
+    def fit_report(self, q: np.ndarray, t: np.ndarray) -> dict:
+        """이 시각(t)대로 재생하면 한도 안인지(fits_1x), 변환하면 몇 군데를 얼마나 늘리는지. q는 재생에 쓰는 다듬은 자세."""
+        t_fit = fit_times(q, t, *self._limits())
+        slowed = np.diff(t_fit) > np.maximum(np.diff(t), 1e-3) * 1.001
+        runs = int(np.count_nonzero(np.diff(np.concatenate([[False], slowed]).astype(int)) == 1))
+        return {"fits_1x": not slowed.any(), "slowed_segments": runs, "slowed_samples": int(slowed.sum()),
+                "added_s": round(float(t_fit[-1] - t_fit[0] - (t[-1] - t[0])), 3) if len(t) > 1 else 0.0}
+
+    def info(self, name: str, speed: float = 1.0, segment_speeds: dict[int, float] | None = None) -> dict:
+        """기록의 길이·속도 요약과 구간 목록. 요약이 없는 옛 파일은 지금 계산한다. fit: 이 배율로 재생할 때 한 주기 이동량·가속 한도 안에 드는지와
+        변환 재생(mode="fitted")이 늦추는 구간 수·늘어나는 시간(GUI가 미리 보여 준다)."""
         data = json.loads((self.dir / f"{name}.json").read_text(encoding="utf-8"))
         q, t = self.load(name)
-        return {**self._analyze(q, t), **({"recorded_at": data["meta"]["recorded_at"]} if "meta" in data and "recorded_at" in data["meta"] else {})}
+        info = {**self._analyze(q, t), **({"recorded_at": data["meta"]["recorded_at"]} if "meta" in data and "recorded_at" in data["meta"] else {})}
+        t_play = retime(t, info["segments"], segment_speeds or {}, speed)
+        info["fit"] = self.fit_report(self._clamp(smooth(q)), t_play)
+        return info
 
     def load(self, name: str) -> tuple[np.ndarray, np.ndarray]:
         """(관절 자세 목록, 표본 시각[초]). 시각이 없는 옛 파일은 hz로 일정하다고 본다."""
@@ -163,10 +199,14 @@ class Teach:
                 q[:, i] = np.clip(q[:, i], lo, hi)
         return q
 
-    def replay(self, name: str, speed: float = 1.0, until_limit: bool = False, segment_speeds: dict[int, float] | None = None) -> MotionResult:
+    def replay(self, name: str, speed: float = 1.0, until_limit: bool = False, segment_speeds: dict[int, float] | None = None,
+               mode: str = "original") -> MotionResult:
         """기록을 다듬어 재생한다. 시작 전에 첫 자세로 MoveJ(저속)로 간 뒤 시간에 맞춰 따라간다.
         한계·작업 영역 밖이면 움직이지 않고 거부한다(execute의 안전 검사).
+        mode="fitted"면 한 주기 이동량·가속 한도를 넘는 구간만 늦춘 시각으로 재생한다(info의 fit이 미리 보여 준다). "original"(기본)은 기록 시각 그대로이고, 한 주기 이동량 검사는 두 방식 모두 그대로 있다.
         segment_speeds={구간 번호: 배율}이면 그 구간만 빠르게/느리게 한다(구간은 info로 본다). 배율은 0.1~5, 적용 뒤 속도가 220°/s를 넘으면 ValueError."""
+        if mode not in ("original", "fitted"):
+            raise ValueError(f"mode는 original 또는 fitted: {mode!r}")
         q, t = self.load(name)
         factors = segment_speeds or {}
         segs = self._analyze(q, t)["segments"]
@@ -176,10 +216,12 @@ class Teach:
         step = np.abs(np.diff(q, axis=0)) if len(q) > 1 else np.zeros((1, 6))
         peak = float((step / np.maximum(np.diff(t_new), 1e-6)[:, None]).max()) if len(q) > 1 else 0.0
         orig = float((step / np.maximum(np.diff(t), 1e-6)[:, None]).max()) if len(q) > 1 else 0.0
-        if peak > MAX_SPEED_DEG_S and peak > orig * 1.001:  # 배율 때문에 한계를 넘는 경우만 거부한다(원래부터 빠른 기록은 안전 검사가 판단)
+        if mode == "original" and peak > MAX_SPEED_DEG_S and peak > orig * 1.001:  # 배율 때문에 한계를 넘는 경우만 거부한다(원래부터 빠른 기록은 안전 검사가 판단)
             raise ValueError(f"이 배율이면 최대 속도가 {peak:.0f}°/s로 한계 {MAX_SPEED_DEG_S:.0f}°/s를 넘습니다")
         t = t_new
         q = self._clamp(smooth(q))
+        if mode == "fitted":
+            t = fit_times(q, t, *self._limits())
         first = JointState(*q[0].tolist())
         self.last_cut = None
         if until_limit:  # 한계·바닥을 처음 넘는 자세 앞까지만 재생한다

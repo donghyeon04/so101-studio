@@ -9,6 +9,7 @@ import numpy as np
 
 from ..core.blackbox import RingBuffer
 from ..core.types import JointState, MotionResult, ToolPose
+from .fault_text import describe
 from .safety import HealthMonitor, Safety
 
 JOINTS = [f.name for f in fields(JointState)]
@@ -41,6 +42,8 @@ class MotionController:
         self.state = "idle"  # "idle" | "moving" | "teleop" | "stopped" | "fault"
         self.jog_joint_max, self.jog_tool_max = 40.0, 60.0  # 원격 조종 최대 속도 (deg/s, mm/s)
         self._jog = None  # (mode, 속도 벡터, 마지막 입력 시각)
+        self.fault_text: str | None = None  # 마지막 fault의 사람이 읽을 문장(원인과 해결법)
+        self.fault_detail: dict = {}  # 마지막 fault의 상세(관절, 값, 한도)
         self._jog_v = np.zeros(6)  # 가속도 제한을 거친 지금 조그 속도
         self._jog_t = 0.0  # 직전 조그 틱 시각
         self.jog_block = None  # 조그가 막힌 이유(풀리지 않음 'ik_fail' 또는 안전 검사 이유). 움직이면 None
@@ -89,12 +92,13 @@ class MotionController:
         handle, now = MotionHandle(), time.perf_counter()
         with self._lock:
             if self.locked_reason:
-                handle._finish(MotionResult("locked", 0.0, ToolPose(0, 0, 0, 0)))
+                handle._finish(MotionResult("locked", 0.0, ToolPose(0, 0, 0, 0), reason=describe("locked", {"locked_reason": self.locked_reason})))
             elif self.state == "stopped" or self.state == "fault":
-                handle._finish(MotionResult(self.state, 0.0, ToolPose(0, 0, 0, 0)))
+                handle._finish(MotionResult(self.state, 0.0, ToolPose(0, 0, 0, 0), reason=self.fault_text if self.state == "fault" else None))
             elif self._job is not None:
                 raise RuntimeError("이미 동작 중")
             elif (why := self.safety.check_path(traj)):
+                self._emit("out_of_bounds", "WARN", "ARM-OUT-OF-BOUNDS", {"reason": why, "text": describe(why)})  # 사람이 읽을 문장도 같이 남긴다
                 handle._finish(replace(self._result("out_of_bounds", now), reason=why))
             else:
                 self._jog = None
@@ -204,9 +208,14 @@ class MotionController:
             if self.state == "fault" and self.fault == "comm_lost":
                 return False
             if self.state in ("stopped", "fault"):
-                self.state, self.fault = "idle", None
+                self.state, self.fault, self.fault_text, self.fault_detail = "idle", None, None, {}
                 self.health = HealthMonitor()
             return True
+
+    @property
+    def busy(self) -> bool:
+        """동작이나 조그가 진행 중인가(작업대 설정을 다시 읽어도 되는지 볼 때)."""
+        return self._job is not None or self._jog is not None
 
     def note_comm(self, ok: bool) -> None:
         """제어 틱 밖(10Hz 상태 루프)에서 본 통신 성공·실패를 건강 감시에 알린다. 정지 중에도 끊김을 빨리 본다."""
@@ -248,16 +257,18 @@ class MotionController:
             self.ring.add(time.time_ns(), self._last, tick_dt, err, self.state, self.actual_hint)
             time.sleep(max(0.0, nxt - time.perf_counter()))
 
-    def _fault(self, reason: str | None) -> None:
+    def _fault(self, reason: str | None, detail: dict | None = None) -> None:
+        """fault로 들어간다. detail(관절·값·한도 등)과 사람이 읽을 문장(text, 해결법 포함)을 이벤트·진행 중이던 동작의 MotionResult.reason·fault_text에 담는다 (REQ-034)."""
         if reason is None or self.state == "fault":
             return
         self.state = "fault"
+        text = describe(reason, detail)
         job, self._job = self._job, None
         if job is not None:
-            job[1]._finish(MotionResult("fault", time.perf_counter() - job[2], ToolPose(0, 0, 0, 0)))
-        self.fault = reason
+            job[1]._finish(MotionResult("fault", time.perf_counter() - job[2], ToolPose(0, 0, 0, 0), reason=text))
+        self.fault, self.fault_text, self.fault_detail = reason, text, detail or {}
         self._jog = None  # 조그 중이던 입력이 fault 뒤에도 명령을 보내지 않게
-        self._emit("fault", "ERROR", "ARM-FAULT", {"reason": reason, "job": job is not None})
+        self._emit("fault", "ERROR", "ARM-FAULT", {"reason": reason, "job": job is not None, "detail": detail or {}, "text": text})
         if reason == "comm_lost":  # 통신이 끊겼다: 다시 연결하기 전까지 아무 명령도 보내지 않는다 (decisions/0031)
             self._emit("comm_lost", "ERROR", "ARM-COMM-LOST", {"job": job is not None})
             return
@@ -274,10 +285,25 @@ class MotionController:
             return
         self._next_health = now + HEALTH_PERIOD_S
         h = self.driver.read_health()
-        self._fault(self.health.update_health(h, now))
+        why = self.health.update_health(h, now)
+        self._fault(why, self._health_detail(why, h))
         self._check_grip(h, now)
         if self._job is None:  # 움직이는 중에는 쓰기 성공만 통신 정상으로 본다
             self.health.comm_ok(time.perf_counter())
+
+    def _health_detail(self, reason: str | None, h: dict) -> dict | None:
+        """과열·과부하·과전류 fault의 관절, 값, 한도 (사람이 읽을 문장에 쓰인다)."""
+        if reason is None:
+            return None
+        name, _, joint = reason.partition(":")
+        m = self.health
+        if name == "overheat":
+            return {"joint": joint, "temp_c": h["temperature_c"].get(joint), "limit_c": m.temp_limit_c}
+        if name == "overload":
+            return {"joint": joint, "load_pct": h["load_pct"].get(joint), "limit_pct": m.load_limit_pct, "seconds": m.load_s}
+        if name == "overcurrent":
+            return {"current_ma": h.get("current_ma"), "limit_ma": m.current_limit_ma}
+        return None
 
     def hold_gripper(self, value: float | None) -> None:
         """그리퍼 목표를 value로 고정한다(None이면 풀어 궤적을 따른다). 지금 바로 한 번 쓴다."""
@@ -309,7 +335,7 @@ class MotionController:
             self.grip_hold = None
             self._last = replace(self._last, gripper=self.grip_open)  # fault가 이 값을 써서 연다
             self._emit("grip_overload", "ERROR", "ARM-GRIP-OVERLOAD", {"load_pct": load, "limit_pct": self.grip_warn_pct})
-            self._fault("grip_overload")
+            self._fault("grip_overload", {"load_pct": load, "limit_pct": self.grip_warn_pct})
 
     def _tick(self) -> None:
         traj, handle, t0, kind = self._job
@@ -328,7 +354,7 @@ class MotionController:
         if self.grip_hold is not None:
             q = replace(q, gripper=self.grip_hold)
         if self.safety.check_step(self._last, q):
-            self._fault("step")
+            self._fault("step", self.safety.step_detail(self._last, q))
             return
         self._last = q  # 쓰기 실패도 시도한 위치로 센다(통신 끊김이 'step' fault로 오인되지 않게)
         self.driver.write_joints(q)
@@ -385,7 +411,7 @@ class MotionController:
             self.jog_block = why or self.jog_block
             return
         if self.safety.check_step(last, q):
-            self._fault("step")
+            self._fault("step", self.safety.step_detail(last, q))
             return
         self.jog_block = None
         self._last = q

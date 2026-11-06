@@ -14,6 +14,7 @@ CHOICES = {
 # 연결할 때 복사해 가는 값은 reconnect, 나머지는 Skills·궤적이 cfg를 그때그때 읽으므로 next_motion
 RECONNECT_KEYS = {"control_hz", "servo_acceleration", "gripper_acceleration", "table_z_mm", "tip_floor_mm"}
 SPEED = "speed_pct"  # cfg가 아니라 ArmService.speed. 바로 적용된다
+NOW_KEYS = {SPEED, "gripper_speed_pct"}  # 그리퍼 속도도 Skills가 그때그때 읽어 바로 적용된다
 
 
 def _scalars(cfg) -> dict:
@@ -22,7 +23,7 @@ def _scalars(cfg) -> dict:
 
 
 def timing(name: str) -> str:
-    return NOW if name == SPEED else RECONNECT if name in RECONNECT_KEYS else NEXT
+    return NOW if name in NOW_KEYS else RECONNECT if name in RECONNECT_KEYS else NEXT
 
 
 def get_params(svc) -> dict:
@@ -48,6 +49,8 @@ def _check(svc, changes: dict) -> dict:
             raise ValueError(f"{k}는 {CHOICES[k]} 중 하나")
         if k == SPEED and not 1 <= v <= 100:
             raise ValueError("speed_pct는 1~100")
+        if k == "gripper_speed_pct" and not 1 <= v <= 100:
+            raise ValueError("gripper_speed_pct는 1~100")
         new[k] = v
     return new
 
