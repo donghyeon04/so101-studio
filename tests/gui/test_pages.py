@@ -23,10 +23,10 @@ def in_app(backend, check) -> None:
     asyncio.run(go())
 
 
-def test_thirteen_pages_in_five_groups():
-    assert len(gui_app.PAGES) == 5
-    assert len(ALL_PAGES) == 13
-    assert len({path for path, _, _ in ALL_PAGES}) == 13
+def test_fourteen_pages_in_six_groups():
+    assert len(gui_app.PAGES) == 6  # 맨 위 "시작" + 다섯 그룹 (gui-spec 11절)
+    assert len(ALL_PAGES) == 14
+    assert len({path for path, _, _ in ALL_PAGES}) == 14
 
 
 @pytest.mark.parametrize("path,title,task", ALL_PAGES)
@@ -182,12 +182,38 @@ def test_main_binds_localhost_and_connects_the_real_arm_without_sim(monkeypatch)
         gui_app.main(argparse.Namespace(sim=False))
 
 
-def test_brand_goes_to_first_page(backend):
+def test_brand_goes_to_start_page(backend):
     async def go():
         async with user_simulation(gui_app.make_root(backend)) as user:
             await user.open("/logs")
             await user.should_see(marker="page-title", content="로그")
             user.find(marker="brand").click()
-            await user.should_see(marker="page-title", content="작업 공간")
+            await user.should_see(marker="page-title", content="시작")
+
+    asyncio.run(go())
+
+
+def test_every_page_has_a_one_line_description():
+    assert {path for path, _, _ in ALL_PAGES} <= set(gui_app.DESCRIPTIONS)
+
+
+def test_page_shows_its_description(backend):
+    async def go():
+        async with user_simulation(gui_app.make_root(backend)) as user:
+            await user.open("/input")
+            await user.should_see(marker="page-desc", content="센서 대신 사람이")
+
+    asyncio.run(go())
+
+
+def test_start_page_shows_mode_steps_and_guide(backend):
+    async def go():
+        async with user_simulation(gui_app.make_root(backend)) as user:
+            await user.open("/start")
+            await user.should_see(marker="start-mode-title", content="시뮬레이션")
+            await user.should_see("직접 조작에서 팔 움직여 보기")
+            await user.should_see("센서 대신 사람이")  # 페이지 안내도 같은 설명 문구
+            user.find(marker="start-step-/manual").click()
+            await user.should_see(marker="page-title", content="직접 조작")
 
     asyncio.run(go())
