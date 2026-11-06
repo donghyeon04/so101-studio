@@ -501,7 +501,7 @@ class ArmService:
         """두 범위를 한 계산(--sim 기구학 IK + 안전 검사)으로 낸다 (REQ-037).
         pick: 집기 범위 = workspace.yaml reach_mm (작업 실행·물체 판정에 쓰는 값, 수직 아래 집기).
         motion: 움직임 범위 = 손끝을 pitch 자세(-90 아래 ~ 0 수평)로 높이별로 보낼 수 있는 팔 앞쪽 반경 구간. 직접 조작·조그·안전 상자 표시에 쓴다.
-        {"pitch_deg", "pick": {"min_mm", "max_mm"}, "motion": [{"height_mm", "segments": [[r0, r1], ...], "min_mm", "max_mm"}]}. 반경은 로봇 원점 기준 앞쪽(mm).
+        {"pitch_deg", "pick": {"min", "max"} (= ws.pick_reach_mm, 키 이름은 min/max), "motion": [{"height_mm", "segments": [[r0, r1], ...], "min_mm", "max_mm"}]}. 반경은 로봇 원점 기준 앞쪽(mm).
         한 번에 수백 번 IK를 풀어 1~3초 걸리고 같은 인자는 캐시한다. 동작 중에는 풀이기를 같이 쓸 수 없어 캐시가 없으면 RuntimeError."""
         key = (round(pitch_deg, 1), tuple(heights_mm), step_mm, max_r_mm, self.cfg.table_z_mm, tuple(sorted(self.ws.base.__dict__.items())))
         cache = self.__dict__.setdefault("_reach_cache", {})
