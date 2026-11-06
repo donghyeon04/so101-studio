@@ -69,3 +69,4 @@
 | `docs/decisions/0037-single-shared-calculator.md` | 결정 | 확정 | 검증용 계산기는 주제마다 하나만, 레포 안 실제 코드 위에(초음파는 8.5절 벤치마크, 도달은 팔 세션 계산), 아이디어는 옵션으로, 기획은 가정을 정하고 검토, 설계서 숫자는 고정 시나리오 결과만 |
 | `docs/decisions/0038-single-check-mode.md` | 결정 | 확정 | 초음파 확인 모드는 하나(빠른 모드 없앰, 벤치마크에서 시간 -3~+4%), T8은 옵션 `check.approach_line` |
 | `docs/decisions/0039-radar-clear-wait-pose.md` | 결정 | 확정 | 초음파를 쓸 때 PREPARE·RESCAN 대기 자세는 `radar_clear`(링크 점 작업대 y 120mm 이하, 손끝 150mm 이상, 기본 팔 원점 위 150mm). 다른 흐름의 `park`는 그대로 |
+| `docs/decisions/0040-team-local-install.md` | 결정 | 확정 | 팀원 배포는 Miniforge 무인 설치 + 배치 스크립트(`설치.cmd`, 시뮬레이션·실물 실행 `.cmd`)로 로컬 설치. 서버(웹 링크) 배포는 안 함 |
