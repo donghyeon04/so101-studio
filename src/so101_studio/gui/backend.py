@@ -428,6 +428,15 @@ class Backend:
 
         return self._dispatch(run, "조그 간격 이동")
 
+    def joint_to(self, index: int, target_deg: float) -> str | None:
+        """관절 하나를 입력한 각도로 옮긴다(결정 0042 7번). 관절 이동과 같은 안전 검사를 거친다."""
+
+        def run(arm: ArmService):
+            name = JOG_JOINTS[index]
+            return arm.move_joints(replace(arm.status().joints, **{name: float(target_deg)}))
+
+        return self._dispatch(run, "관절 값 이동")
+
     # ---- 작업
     def objects(self) -> list[DetectedObject]:
         return self.source.scan().objects
