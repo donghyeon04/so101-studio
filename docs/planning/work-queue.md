@@ -30,3 +30,30 @@
 
 ## 결정 모음 (사용자가 일어나서 한 번에)
 (단계를 진행하며 여기에 쌓는다. 항목마다 추천안과 이유.)
+
+### D1. STEP·직접 설계 부품을 시뮬레이션·3D에 넣는 방법 (5-4, 조사 2026-11-07)
+- 문제: 지금 3D(Viser)와 기구학은 SO-101 URDF(메쉬 포함)만 안다. 바닥 초음파 스테이션, 손목 브래킷, 바꾼 그리퍼 같은 직접 설계·소량 수정 부품은 보이지도 충돌 검사에 들어가지도 않는다.
+- 후보: (A) CAD에서 부품마다 STL/OBJ로 내보내 "장면 부품 목록"(파일, 붙는 곳 = 작업대 또는 팔 링크, 위치·자세)으로 3D와 충돌 검사에 올리기. (B) 관절이 있는 부품(Parallel Gripper)은 URDF를 다시 만들기: Onshape이면 onshape-to-robot, Fusion이면 ExportURDF/FusionSDF, FreeCAD면 CROSS(freecad.cross)·RobotCAD, STEP 하나뿐이면 urdf-from-step. (C) 파이썬 자동화: cadquery(OCP)로 STEP→STL, trimesh로 단순화, CoACD로 충돌용 볼록 분해.
+- 총괄 추천: (A)를 먼저(코드 작음, GUI·팔 공통 "장면 부품" 설정 하나), 그리퍼 두 종은 (B)로 URDF 변형 두 개(단동식·Parallel)를 두고 설정으로 고르기, (C)는 부품이 많아질 때. SO-ARM URDF가 어떤 도구로 만들어졌는지(Onshape 원본 여부)는 확인 필요.
+- 출처: onshape-to-robot(github.com/Rhoban/onshape-to-robot), ExportURDF(github.com/daviddorf2023/ExportURDF), FusionSDF(discourse.openrobotics.org/t/fusionsdf…/39430), freecad.cross(github.com/galou/freecad.cross), RobotCAD(github.com/drfenixion/freecad.overcross), urdf-from-step(wiki.ros.org/urdf_from_step), CoACD(github.com/SarahWeiii/CoACD).
+- 결정 필요: A부터 할지, 부품 CAD 원본이 어떤 도구(Onshape/Fusion/FreeCAD/SolidWorks)인지.
+
+### D2. 더하면 좋은 기능 후보 (4단계, 조사 2026-11-07)
+같은 SO-100/101로 프로그램을 만드는 프로젝트들: Hugging Face LeLab(브라우저에서 캘리브레이션·원격 조작·기록·학습·추론·재생·Hub 업로드), phosphobot(키보드·게임패드·리더 팔·Meta Quest 원격 조작, 데이터 기록, ACT·smolVLA 등 학습·추론, pybullet 시뮬), Beam Bots SO-101(시뮬레이션 대시보드, 3D와 관절 막대), Neuracore 예제(리더-팔로워, 웹에서 기록 시작·정지), LeRobot→Foxglove 실시간 보기, gym-soarm(MuJoCo 환경), ManiSkill SO-100.
+| # | 기능 | 근거(누가 하나) | 우리에게 맞는 이유 | 크기 |
+|---|---|---|---|---|
+| 1 | 교시·작업 기록을 LeRobot 데이터셋 형식으로 저장, Hub 업로드 | LeLab, phosphobot | 4단계 학습 정책(ACT) 준비. 지금 교시 기록을 그대로 활용 | 중 |
+| 2 | 리더 팔(두 번째 SO-101) 원격 조작 | LeLab, Neuracore, LeRobot | 사람 시연 데이터를 빠르게 모음 | 중(리더 팔 필요) |
+| 3 | 게임패드 조작(브라우저 Gamepad API) | phosphobot | G13 조이스틱과 같은 입구, 시연 때 직관적 | 소 |
+| 4 | 학습한 정책 실행 버튼(추론) | LeLab, phosphobot | 1·2 뒤 같은 화면에서 실행 | 중 |
+| 5 | 물리 시뮬레이션(MuJoCo) 백엔드 | gym-soarm, ManiSkill | 지금 SimDriver는 기구학뿐이라 접촉·집기 실패를 못 봄(오늘 턱-책상 간섭 같은 것) | 대 |
+| 6 | 장면 충돌 검사(작업대·물체·부품 메쉬) | MoveIt 방식, trossen sim | 턱 끝 간섭을 계획 단계에서 막음. D1의 장면 부품과 같이 | 중 |
+| 7 | 웨이포인트·블록 프로그래밍(집기→이동→놓기 순서를 끌어 놓기로) | 교시형 로봇 HMI(lead-through 프로그래밍) | 직접 조작 집어 옮기기를 여러 단계 프로그램으로 확장 | 중 |
+| 8 | 서보 건강 대시보드와 경고(전압·온도·통신 끊김·리셋 횟수 추이) | LeRobot 기록, 실물 경험 | 오늘 1번 서보 리셋 같은 문제를 일찍 알림 | 소 |
+| 9 | 캘리브레이션 마법사(그림 안내, 측정 비교표) | LeLab 안내형 설정 | AC4·`--verify-zero`를 화면에서 | 중 |
+| 10 | 실험 실행기(초음파 vs 카메라 비교 실험 자동 반복·지표·보고서) | 비교 실험 설계서 | 프로젝트 목표(비교)를 반복 가능하게 | 중 |
+| 11 | 실시간 기록을 Foxglove/Rerun으로 내보내기 | LeRobot→Foxglove | 긴 실험 분석을 외부 도구로 | 소 |
+| 12 | 장면 부품 편집기(STL 불러와 작업대에 배치) | D1 | 브래킷·스테이션을 화면에서 맞춤 | 중 |
+| 13 | 팀 공유용 읽기 전용 보기(조작권 없이 상태·3D만) | LeLab 웹 | 시연·원격 확인 | 소 |
+- 결정 필요: 다음 기간에 어떤 것을 할지(총괄 추천 순서: 8 → 3 → 6(D1 A와 함께) → 1 → 7).
+- 출처: github.com/huggingface/lelab, github.com/phospho-app/phosphobot, docs.foxglove.dev/docs/getting-started/robots/so-100, hexdocs.pm/bb_so101, pypi.org/project/gym-soarm, maniskill.readthedocs.io(so100).
