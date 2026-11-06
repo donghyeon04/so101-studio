@@ -441,3 +441,23 @@ def test_kin_reach_hover_band_and_trim_start():
     assert poses == [] and arm.last_path["reason"] == "unreachable"
     arm, poses = run(kin=k, trim_start=True)
     assert poses and math.hypot(poses[0].tool_mm[0] - 300, poses[0].tool_mm[1] - 50) < 250
+
+
+def test_dxl_servo_reports_actual_angle_and_source_uses_it():
+    # dxl 서보는 샘플 r에 읽은 각도 ang를 싣는다(갈 때 -lag). radar는 ang - a를 shift로 받아 후보 방위를 고친다
+    import json
+
+    from so101_studio.perception.ultrasonic import radar
+    cfg, clk, esp, _ = _build([], model=None, esp_kw={"servo": "dxl", "servo_lag_deg": 3.0, "ang_noise_deg": 0.0})
+    esp.write('{"cmd":"hello"}')
+    esp.write('{"cmd":"sweep","from":10,"to":30,"step":4,"bounce":true,"sweeps":2,"max_mm":600}')
+    clk.sleep(1.0)
+    msgs = [json.loads(x) for x in esp.readlines()]
+    assert next(m for m in msgs if m.get("t") == "hello")["servo"] == "dxl"
+    r = [m for m in msgs if m.get("t") == "r" and m["a"] is not None]
+    assert r and r[0]["ang"] == r[0]["a"] - 3.0
+    base = radar.Baseline({a: 400.0 for a in range(10, 31, 4)}, set())
+    vals = {a: (300.0 if a in (18, 22) else 400.0) for a in range(10, 31, 4)}
+    plain, _ = radar.find_candidates(vals, base, cfg)
+    shifted, _ = radar.find_candidates(vals, base, cfg, {a: -3.0 for a in vals})
+    assert shifted[0].servo_deg == plain[0].servo_deg - 3.0

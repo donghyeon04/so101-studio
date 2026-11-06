@@ -32,11 +32,13 @@ uint32_t swMax = 600;
 // stream
 uint32_t strPeriodMs = 33, strMax = 300, strLast = 0;
 
-void servoWrite(int deg) {
+// 서보 구동은 이 두 함수뿐이다. XL330(OpenRB UART)로 바꾸면 servoWrite만 다시 쓴다(설계: 7절 ang, hello servo:"dxl").
+void servoWritePwm(int deg) {
   deg = constrain(deg, 0, 180);
   uint32_t us = SERVO_MIN_US + (uint32_t)deg * (SERVO_MAX_US - SERVO_MIN_US) / 180;
   ledcWrite(SERVO_PIN, us * ((1u << 14) - 1) / 20000);
 }
+void servoWrite(int deg) { servoWritePwm(deg); }
 
 // 한 번 재서 mm를 돌려준다. 응답 없음(또는 ECHO가 LOW로 안 돌아옴) -1. trigUs = 트리거 시각.
 // 메아리가 없으면 ECHO가 약 38ms HIGH로 남을 수 있어 LOW를 먼저 기다린다.

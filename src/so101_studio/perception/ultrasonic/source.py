@@ -32,6 +32,7 @@ class UltrasonicSource:
         self.ignore_zones = list(ignore_zones)  # (x, y, 반경): 배출 구역처럼 후보에서 뺄 곳
         self._passes: list[radar.Pass] = []
         self._cur: list = []
+        self._cur_shift: dict = {}
         self._arm_buf: list = []  # (t_ns, d)
         self._last_pose: PoseSample | None = None
         self._prefetching = False
@@ -110,7 +111,7 @@ class UltrasonicSource:
 
     def _candidates(self):
         vals, raw = radar.combine(self._passes, self._links_fn, self.cfg)
-        cands, arcs = radar.find_candidates(vals, self.baseline, self.cfg)
+        cands, arcs = radar.find_candidates(vals, self.baseline, self.cfg, raw.get("shift"))
         objs = []
         for c in cands:
             if any(math.hypot(c.x - x, c.y - y) <= self.cfg.radar.merge_mm / 2 for x, y in self._rejected):
@@ -211,13 +212,15 @@ class UltrasonicSource:
             t = m.get("t")
             if t == "r":
                 self._cur.append((m["t_ns"], m["a"], m["d"]))
+                if "ang" in m:
+                    self._cur_shift.setdefault(m["a"], []).append(m["ang"] - m["a"])
             elif t == "end":
-                self._passes.append(radar.Pass(m["dir"], self._cur))
+                self._passes.append(radar.Pass(m["dir"], self._cur, {a: sum(v) / len(v) for a, v in self._cur_shift.items()} or None))
                 if self.bus:
                     self.bus.publish("us.sweep", {"pass": len(self._passes), "dir": m["dir"], "t_ns": m["t_ns"],
                                                   "angles": [a for _, a, _ in self._cur],
                                                   "d": [d for _, _, d in self._cur]})
-                self._cur = []
+                self._cur, self._cur_shift = [], {}
             elif t == "a":
                 self._arm_buf.append((m["t_ns"], m["d"]))
             elif t == "err":
@@ -235,7 +238,7 @@ class UltrasonicSource:
 
     def _start_sweep(self, n: int) -> None:
         self._service()
-        self._passes, self._cur = [], []
+        self._passes, self._cur, self._cur_shift = [], [], {}
         s = self.cfg.radar.sweep
         self.link.send(cmd="sweep", sweeps=n, max_mm=self.cfg.radar.max_mm, bounce=s.bounce,
                        **{"from": s.from_deg, "to": s.to_deg, "step": s.step_deg})
