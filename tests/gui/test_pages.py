@@ -217,3 +217,19 @@ def test_start_page_shows_mode_steps_and_guide(backend):
             await user.should_see(marker="page-title", content="직접 조작")
 
     asyncio.run(go())
+
+
+def test_top_bar_run_mode_and_doctor(backend):
+    async def go():
+        async with user_simulation(gui_app.make_root(backend)) as user:
+            await user.open("/start")
+            select = next(iter(user.find(marker="top-run-mode").elements))
+            assert select.value == backend.mode == "sim"
+            select.set_value("real")  # 시뮬레이션 앱에는 실제 팔이 없어 바뀌지 않는다
+            await asyncio.sleep(0.3)
+            assert backend.mode == "sim"
+            user.find(marker="top-doctor").click()
+            await user.should_see(marker="doctor-dialog")
+            await user.should_see("점검 (읽기 전용)")
+
+    asyncio.run(go())
