@@ -1,4 +1,5 @@
 """REQ-025: 작업 실행의 CHECK·RESCAN·prefetch·note_failure·give_up (스텁으로 논리를, 마지막 시험은 --sim 팔과 FakeESP32로 끝까지)."""
+import math
 import threading
 import time
 import types
@@ -299,5 +300,7 @@ def test_sim_left_far_object_check_goes_through_from_radar_clear(tmp_path):
     res = []
     st.bus.subscribe("us.check_result", res.append)
     out = st.start(blocking=True)
-    assert res and res[0]["status"] == "ok" and out["picked"], (res, out)
+    ok = [r for r in res if r["status"] == "ok"]  # 레이더가 유령 후보를 함께 낼 수 있어 확인 결과 중 성공이 있는지 본다
+    assert ok and out["picked"], (res, out)
+    assert math.dist((ok[0]["object"]["x_mm"], ok[0]["object"]["y_mm"]), (161, 148)) < 30
     arm.disconnect()

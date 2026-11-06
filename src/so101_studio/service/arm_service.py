@@ -1,4 +1,5 @@
 """ArmService: GUI·CLI가 팔을 부르는 유일한 입구 (arm-software-spec.md 6.9). 이름과 입출력은 GUI 기술이 정해져도 바뀌지 않는다."""
+import math
 import threading
 import time
 import traceback
@@ -13,6 +14,7 @@ from ..arm.safety import MODES, Safety, SafetySettings
 from ..arm.skills import SEEDS, Skills
 from ..arm.teach import Teach
 from ..arm.trajectory import cfg_move_j, cfg_move_l, smooth_l
+from ..core import frames
 from ..core.blackbox import install_excepthooks
 from ..core.config import RobotConfig, WorkspaceConfig, load_workspace
 from ..core.incident import Incident, create_incident
@@ -553,23 +555,46 @@ class ArmService:
             t0 += tr.duration_s
         return {"ok": reason is None, "reason": reason, "duration_s": t0, "joints": joints, "tool": tool}
 
-    def pick_and_place(self, obj: DetectedObject, zone: str | None = None) -> MotionResult:
+    def _reach_reason(self, label: str, x_mm: float, y_mm: float) -> str | None:
+        """작업대 점이 집기 범위(workspace.yaml reach_mm, 팔 원점 기준 반경) 안인지. 밖이면 이유 문장, 안이면 None."""
+        xr, yr = frames.table_to_robot(x_mm, y_mm, self.ws.base)
+        r, lo, hi = math.hypot(xr, yr), self.ws.reach_mm["min"], self.ws.reach_mm["max"]
+        return None if lo <= r <= hi else f"{label}_out_of_reach: 반경 {r:.0f}mm (허용 {lo:.0f}~{hi:.0f}mm)"
+
+    def _rejected(self, kind: str, reason: str, **info) -> MotionResult:
+        """움직이지 않고 거부한다. 이유는 MotionResult.reason."""
+        return self._done(kind, MotionResult("out_of_bounds", 0.0, ToolPose(0, 0, 0, 0), reason=reason), **info)
+
+    def pick_and_place(self, obj: DetectedObject, zone: str | None = None, place_at: tuple[float, float] | None = None) -> MotionResult:
+        """집은 물체를 배출 구역(zone) 또는 작업대 점(place_at = (x_mm, y_mm))에 놓는다. 둘 다 없으면 집기만.
+        집기 점과 놓을 점이 집기 범위 밖이면 아무것도 움직이지 않고 out_of_bounds + reason으로 돌려준다 (REQ-031)."""
+        if zone and place_at:
+            raise ValueError("zone과 place_at 중 하나만 준다")
         if (gate := self._comm_gate()) is not None:
             return gate
+        target = place_at or (None if zone is None else (self.ws.drop_zones[zone]["x_mm"], self.ws.drop_zones[zone]["y_mm"]))
+        why = self._reach_reason("pick", obj.x_mm, obj.y_mm) or (target and place_at and self._reach_reason("place", *target))
+        if why:
+            return self._rejected("pick_and_place", why, object=asdict(obj), place_at=place_at)
         self.enable_torque()
         r = self.skills.pick(obj)
         self._log("pick", {"object": asdict(obj), "status": r.status})
-        if r.status == "ok" and zone:
-            r = self.skills.place(zone)
-            self._log("place", {"zone": zone, "status": r.status, "correction_mm": self._place_correction()})
+        if r.status == "ok" and target:
+            r = self.skills.place_at(*target) if place_at else self.skills.place(zone)
+            self._log("place", {"zone": zone, "at": place_at, "status": r.status, "correction_mm": self._place_correction()})
         return r
 
-    def place(self, zone: str) -> MotionResult:
+    def place(self, zone: str | None = None, at: tuple[float, float] | None = None) -> MotionResult:
+        """배출 구역 이름(zone) 또는 작업대 점(at = (x_mm, y_mm))에 놓는다. 점이 집기 범위 밖이면 움직이지 않고 out_of_bounds + reason (REQ-031)."""
+        if (zone is None) == (at is None):
+            raise ValueError("zone과 at 중 하나만 준다")
         if (gate := self._comm_gate()) is not None:
             return gate
+        if at is not None and (why := self._reach_reason("place", *at)):
+            return self._rejected("place", why, at=at)
         self.enable_torque()
-        r = self.skills.place(zone)
-        return self._done("place", r, zone=zone, correction_mm=self._place_correction())
+        r = self.skills.place_at(*at) if at is not None else self.skills.place(zone)
+        return self._done("place", r, zone=zone, at=at, correction_mm=self._place_correction())
 
     def _place_correction(self) -> list[float] | None:
         """마지막 place가 두 턱 끝 중간점을 구역 점에 맞추려고 손 위치를 옮긴 양(mm, x·y). 기록용."""

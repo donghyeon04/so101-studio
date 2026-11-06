@@ -70,3 +70,48 @@ def test_powertest_sample_thread_survives_read_failure(tmp_path):
         assert any("부하 표본" in ln for ln in lines)
     finally:
         s.disconnect()
+
+
+def test_place_at_arbitrary_point_puts_jaw_midpoint_on_it(svc):
+    """REQ-031: 배출 구역이 아닌 작업대 점에도 같은 보정을 적용한다."""
+    svc.skills._run([svc.skills._gripper(15.0)])
+    seen = {}
+    orig = svc.skills._closing_path
+
+    def spy(q_start, center, *a, **k):
+        seen["center"] = (center.x_mm, center.y_mm)
+        return orig(q_start, center, *a, **k)
+
+    svc.skills._closing_path = spy
+    target = (360.0, 170.0)
+    assert svc.place(at=target).status == "ok"
+    assert math.dist(seen["center"], target) < 1.0
+
+
+def test_place_at_out_of_reach_is_rejected_without_moving(svc):
+    before = svc.driver.read_joints()
+    r = svc.place(at=(300.0, 560.0))  # 팔 원점 (300, 50)에서 510mm
+    assert r.status == "out_of_bounds" and "place_out_of_reach" in r.reason
+    assert svc.driver.read_joints() == before
+
+
+def test_place_needs_exactly_one_of_zone_and_point(svc):
+    with pytest.raises(ValueError):
+        svc.place()
+    with pytest.raises(ValueError):
+        svc.place("right", at=(300.0, 200.0))
+
+
+def test_pick_and_place_rejects_out_of_reach_points_without_moving(svc):
+    from so101_studio.core.types import DetectedObject
+
+    before = svc.driver.read_joints()
+    ok_obj = DetectedObject("o", 300.0, 200.0, 0.0, 30.0, 100.0, 1.0, "manual")
+    far_obj = DetectedObject("f", 300.0, 560.0, 0.0, 30.0, 100.0, 1.0, "manual")
+    r = svc.pick_and_place(far_obj, place_at=(350.0, 200.0))
+    assert r.status == "out_of_bounds" and r.reason.startswith("pick_out_of_reach")
+    r = svc.pick_and_place(ok_obj, place_at=(300.0, 560.0))
+    assert r.status == "out_of_bounds" and r.reason.startswith("place_out_of_reach")
+    assert svc.driver.read_joints() == before
+    with pytest.raises(ValueError):
+        svc.pick_and_place(ok_obj, zone="right", place_at=(350.0, 200.0))

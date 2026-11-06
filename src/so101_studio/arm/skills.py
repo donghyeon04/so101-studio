@@ -227,6 +227,11 @@ class Skills:
 
     def place(self, zone: str) -> MotionResult:
         z = self.ws.drop_zones[zone]
+        return self.place_at(z["x_mm"], z["y_mm"])
+
+    def place_at(self, x_mm: float, y_mm: float) -> MotionResult:
+        """작업대 점(x_mm, y_mm)에 놓는다. 배출 구역(place)도 이것을 거친다."""
+        z = {"x_mm": x_mm, "y_mm": y_mm}
         # 한쪽만 열리는 그리퍼라 손끝(기준점)을 구역 점에 내리면 쥔 물체가 한쪽으로 치우쳐 놓인다: 놓는 순간(지금 쥔 그리퍼 값)의 두 턱 끝 중간점이 구역 점에 오도록 손 xy를 보정한다 (pick과 같은 계산, 결정 0033)
         hand = self._hand_pose(z["x_mm"], z["y_mm"], 0.0, self._q().gripper, False, 0.0)
         self.last_place_correction_mm = (float(hand.x_mm - z["x_mm"]), float(hand.y_mm - z["y_mm"]))
