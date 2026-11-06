@@ -24,7 +24,7 @@ def in_app(backend, check) -> None:
 
 
 def test_fourteen_pages_in_six_groups():
-    assert len(gui_app.PAGES) == 6  # 맨 위 "시작" + 다섯 그룹 (gui-spec 11절)
+    assert len(gui_app.PAGES) == 6  # 맨 위 "안내"(시작 화면) + 다섯 그룹 (gui-spec 11절)
     assert len(ALL_PAGES) == 14
     assert len({path for path, _, _ in ALL_PAGES}) == 14
 
