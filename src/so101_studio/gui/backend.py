@@ -422,6 +422,18 @@ class Backend:
             moved = arm.jog(mode, velocity) or moved
         return moved
 
+    def jog_vector(self, fractions) -> bool:
+        """조이스틱(G13): 직교 축별 -1~1 비율을 한꺼번에. 순서는 CART_AXES. 0.3초 넘게 다시 부르지 않으면 팔이 스스로 멈춘다."""
+        if self.mode != "sim" and self._real_blocked():
+            return False
+        speed = self.arm.speed / 100
+        velocity = [max(-1.0, min(1.0, f)) * (JOG_YAW_DEG_S if axis in ANGLE_AXES else JOG_TOOL_MM_S) * speed
+                    for axis, f in zip(CART_AXES, list(fractions) + [0.0] * len(CART_AXES), strict=False)]
+        moved = False
+        for arm in self._targets():
+            moved = arm.jog("cartesian", velocity) or moved
+        return moved
+
     def jog_release(self, mode: str) -> None:
         """손을 떼면 속도를 0으로 내려 부드럽게 멈춘다."""
         for arm in self._targets():
