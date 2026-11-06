@@ -375,7 +375,9 @@ def test_wait_pose_follows_radar_clear_in_robot_yaml(tmp_path):
         d = tmp_path / name
         d.mkdir()
         cfg = yaml.safe_load(Path("config/robot.yaml").read_text(encoding="utf-8"))
-        cfg["poses"] = {**cfg["poses"], **({"radar_clear": joints} if joints else {})}
+        cfg["poses"].pop("radar_clear", None)  # 실제 robot.yaml에 키가 있어도 복사본은 시험이 정한 값만
+        if joints:
+            cfg["poses"]["radar_clear"] = joints
         (d / "robot.yaml").write_text(yaml.safe_dump(cfg), encoding="utf-8")
         return str(d / "robot.yaml")
 
