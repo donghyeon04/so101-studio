@@ -41,3 +41,5 @@
 | REQ-031 | 직접 조작 집어 옮기기(gui-spec 11절 B7, G14): `ArmService.pick_and_place`가 놓는 곳으로 배출 구역 이름 대신 작업대 점(x, y)도 받게(REQ-030의 Place 턱 가운데 보정 적용), 집기 범위 밖 점은 이유와 함께 거부 | GUI → 팔(기획 #116) | 추가 | 요청(2026-11-07, REQ-030 다음) | | `gui-spec.md` 11절 B7 |
 | REQ-032 | 실물 시험 결과 통신 고침: Write timeout 뒤 is_using이 남아 영구 "Port is in use"(scservo_sdk), 조그 중 enable_torque 반복, 동작 중 comm_lost 판정 지연(1.01초), 끊긴 동안 LOAD-PROBE 반복, AC4 guard 1회 잘못 읽은 값으로 중단, AC4 시작 자세 안내, table_z_mm 실측 반영, servoinfo 14·15·19·65번 | GUI → 팔(실물 시험 2026-11-06) | 버그 수정 | 진행 | | `measurements.md` 2026-11-06 절들 |
 | REQ-033 | Place 들어 올리기 버그(연 뒤 원래 하강 경로를 거꾸로 가며 옆으로 되돌아가 물체를 밂), 집기 간섭 대응 시험값 grasp_height_mm 20·grasp_max_open_mm 90 | GUI → 팔(사용자 실물 확인) | 버그 수정 + 설정 | 요청(REQ-032 다음) | | 58×58×39mm 물체 집기 5회 중 2회 실패, 팔 세션 간격 계산 |
+| REQ-034 | 결정 0042 팔 몫: `DetectedObject.height_mm`와 높이에 맞춘 집는 높이, `gripper_speed_pct`(바로 적용), 교시 재생 변환본·원본 선택, fault 상세(관절·값·한도·이유 문장), 작업대 설정 다시 읽기 API | GUI → 팔(결정 0042) | 추가 | 요청(REQ-033 다음) | | |
+| REQ-035 | 결정 0042 초음파 몫: 확인 결과 실측 높이(h_mm)를 `DetectedObject.height_mm`에 | GUI → 초음파(결정 0042) | 추가 | 요청(REQ-034의 타입 추가 뒤) | | |
