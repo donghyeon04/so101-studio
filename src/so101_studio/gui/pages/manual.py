@@ -183,6 +183,8 @@ def build(backend, client_id: str, actions) -> None:
                 ui.notify(plan.text, type="warning")
             plan_state["warned"] = None if plan.ok else plan.text
             edge_button.visible = plan.reason == "workspace"  # 작업대 가장자리 때문에만 안 닿을 때 그 자리에서 끌 수 있게
+        elif not owner() and plan_state["plan"] is None:
+            reach.text = "보기 전용이라 계산하지 않습니다"
         mine = gate.allowed
         gate.refresh()
         status = backend.state.status

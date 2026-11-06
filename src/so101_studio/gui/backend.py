@@ -634,9 +634,15 @@ class Backend:
     def run_doctor(self) -> dict:
         """읽기 전용 점검. 블로킹이므로 스레드에서 부른다."""
         try:  # 연결 중에는 포트를 열 수 없다. 서보 응답·전압은 연결 전에 읽은 값으로 채운다
-            return with_first_report(doctor(probe=False, arm=self._arm_option), self._first_report)
+            report = with_first_report(doctor(probe=False, arm=self._arm_option), self._first_report)
         except Exception as e:  # noqa: BLE001  점검이 실패해도 페이지는 살아 있어야 한다
             return {"ok": False, "checks": [{"name": "점검", "state": "fail", "text": f"점검하지 못했습니다: {e}", "fix": ""}], "ports": [], "arm": None, "esp32": None}
+        if self.real is None:  # 시뮬레이션은 포트를 쓰지 않으니 포트가 없어도 실패가 아니다
+            for c in report["checks"]:
+                if c["name"] == "포트 목록" and c["state"] == "fail":
+                    c.update(state="skip", text=f"시뮬레이션이라 포트를 쓰지 않습니다. {c['text']}", fix="")
+            report["ok"] = all(c["state"] != "fail" for c in report["checks"])
+        return report
 
     def arm_names(self) -> list[str]:
         return list(arm_files(Path(self.arms_path)))

@@ -91,7 +91,7 @@ def test_doctor_card_shows_result_without_opening_ports(backend, monkeypatch):
         calls.append(kw)
         return {"ok": False, "ports": [], "arm": None, "esp32": None, "checks": [
             {"name": "numpy", "state": "ok", "text": "numpy 2.2.6", "fix": ""},
-            {"name": "포트 목록", "state": "fail", "text": "포트 0개", "fix": "USB 케이블을 확인한다"},
+            {"name": "팔 파일", "state": "fail", "text": "팔 파일 없음", "fix": "USB 케이블을 확인한다"},
             {"name": "서보 응답", "state": "skip", "text": "탐침하지 않았다", "fix": ""},
         ]}
 
@@ -496,3 +496,11 @@ def test_gripper_settings_have_their_own_labels(backend):
     listed = {key for _, group in params_page.CARDS for key in group}
     assert {"grip_preload_units", "gripper_hold_torque", "gripper_load_warn_pct", "gripper_load_s"} <= listed
     assert {"grip_preload_units", "gripper_hold_torque", "gripper_load_warn_pct", "gripper_load_s"} <= set(backend.arm.get_params())
+
+
+def test_simulation_doctor_does_not_fail_on_missing_port(backend, monkeypatch):
+    """시뮬레이션은 포트를 쓰지 않으니 포트가 없어도 실패로 보이지 않는다."""
+    monkeypatch.setattr(backend_module, "doctor", lambda **kw: {"ok": False, "ports": [], "arm": None, "esp32": None, "checks": [
+        {"name": "포트 목록", "state": "fail", "text": "포트 0개", "fix": "USB 케이블을 확인한다"}]})
+    report = backend.run_doctor()
+    assert report["ok"] and report["checks"][0]["state"] == "skip" and "시뮬레이션" in report["checks"][0]["text"]

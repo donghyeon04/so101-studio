@@ -42,6 +42,7 @@ CARDS = (
         "grasp_tilt_mode": ("기울임 방식", "symmetric 또는 equal_tips"),
         "grasp_tilt_deg": ("기울임 한계 (°)", "손목 한계 때문에 이 각도까지만 기울인다"),
         "grasp_tilt_tol_deg": ("기울임 허용 각 (°)", "턱 축이 앞뒤 방향에서 이만큼 안쪽일 때만 기울인다"),
+        "grasp_min_contact_mm": ("최소 접촉 높이 (mm)", "물체 높이로 집을 때 턱이 이만큼은 물체에 닿아야 한다"),
     }),
     ("교시", {
         "record_hz": ("기록 주기 (Hz)", "손으로 움직인 자세를 읽는 주기"),
@@ -49,9 +50,10 @@ CARDS = (
         "seg_pause_deg_s": ("멈춤 기준 (°/s)", "이 속도 미만이면 멈춤 구간"),
         "seg_fast_deg_s": ("빠름 기준 (°/s)", "이 속도 이상이면 빠른 구간"),
         "seg_min_s": ("최소 구간 (초)", "이보다 짧은 구간은 이웃에 합친다"),
+        "replay_a_max_deg_s2": ("변환본 가속 한도 (°/s²)", "변환본 재생이 맞추는 관절 가속"),
     }),
 )
-HIDDEN = {"speed_pct_default", "watchdog_hotkey"}
+HIDDEN = {"speed_pct_default", "watchdog_hotkey", "arm_name", "board_serial", "measured_on"}  # 팔 파일의 신원 값은 여기서 바꾸지 않는다
 
 
 def build(backend, client_id: str, actions) -> None:

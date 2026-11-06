@@ -173,6 +173,8 @@ def build(backend, client_id: str, actions) -> None:
             with ui.card().classes("w-full gap-1"):
                 ui.label("진단 출력").classes("card-title")
                 output = ui.column().classes("w-full gap-0 diag-output").mark("diag-output")
+                with output:
+                    ui.label("오른쪽 진단 버튼을 누르면 결과가 여기에 나옵니다").classes("page-body")
         with ui.column().classes("control-column gap-3"):
             with ui.card().classes("w-full gap-1"):
                 ui.label("전원").classes("card-title")
