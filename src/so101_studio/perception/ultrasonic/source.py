@@ -7,10 +7,10 @@ from pathlib import Path
 
 from ...core.config import load_workspace
 from ...core.types import DetectedObject, ScanResult
+from ..base import PoseSample
 from . import radar
 from .check import Probe
 from .link import UltrasonicLinkError
-from .model import PoseSample
 
 
 def _arm_origin_from_workspace() -> tuple[float, float]:
