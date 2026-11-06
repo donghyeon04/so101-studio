@@ -5,7 +5,7 @@
 근거 결정: `decisions/0034`(레이더 + 팔 확인), `0035`(MG90S, 서보 전원, 브래킷), `0036`(로컬 세션 셋), `0004`(인식 공통 출력), `0006`(ESP32 1개 + HC-SR04 2개), `0013`(작업대 좌표계, 높이는 작업대 면 기준), `0015`(안전 설정), `0026`(E-STOP). 비교 근거는 기획 세션의 가상 센서 시뮬레이션이다(조사 원문은 커밋하지 않는다). 숫자는 실측 전 값이라 10절 B1·B2 실측 뒤 다시 계산한다.
 
 ## 1. 목표와 합격 기준
-작업대 위 물체 2~3개의 위치와 방향을 초음파만으로 구해 `DetectedObject`(x, y, 각도, 폭, 길이, 신뢰도)로 넘긴다. 집기·GUI·비교 실험은 지금 형식 그대로 쓴다.
+작업대 위 물체 2~3개의 위치와 방향을 초음파만으로 구해 `DetectedObject`(x, y, 각도, 폭, 길이, 신뢰도, 높이)로 넘긴다. 높이(`height_mm`)는 팔 확인 결과의 실측값이고 레이더 후보는 0(모름)이다(결정 0042). 집기·GUI·비교 실험은 지금 형식 그대로 쓴다.
 
 | 항목 | 가상 값 (8.5절 벤치마크 커밋 716a144, 가상 팔 = 실제 팔 궤적 코드, 씨앗 20, 비관~낙관) | 실물 합격 기준 |
 |---|---|---|
@@ -271,7 +271,7 @@ class PoseSample:                  # 팔 50Hz 루프의 실제 관절값으로 �
 class CheckProbe(Protocol):
     def next_segment(self) -> PathSegment | None: ...
     def feed(self, poses: list[PoseSample]) -> None: ...
-    def result(self) -> DetectedObject | None: ...   # None = 물체 없음
+    def result(self) -> DetectedObject | None: ...   # None = 물체 없음. height_mm = 확인한 실측 높이(결정 0042, 0 = 모름)
 
 class CheckableSource(PerceptionSource, Protocol):
     def start_check(self, candidate: DetectedObject) -> CheckProbe: ...
