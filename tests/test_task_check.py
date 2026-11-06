@@ -3,7 +3,7 @@ import threading
 import time
 import types
 
-from test_task import WS, StubSkills, run
+from test_task import OK, WS, StubSkills, run
 
 from so101_studio.arm.sim_driver import SimDriver
 from so101_studio.core.config import load_robot
@@ -69,17 +69,12 @@ class StubSource:
 class StubArm:
     def __init__(self, status="ok", on_follow=None):
         self.ctl, self.status, self.on_follow, self.offset, self.paths = types.SimpleNamespace(trace=None), status, on_follow, None, []
-        self.last_path, self.moves = None, []
+        self.last_path = None
 
     def set_sensor_offset(self, off): self.offset = off
 
     def arm_links(self, q=None): return [(1.0, 2.0)]
 
-    def point_pose(self, x, y, z, yaw): return (x, y, z, yaw)
-
-    def move_tool(self, pose):
-        self.moves.append(pose)
-        return MotionResult("ok", 0.0, ToolPose(0, 0, 0, 0))
 
     def follow_path(self, pts, z, v, yaw):
         self.paths.append((pts, z, v, yaw))
@@ -89,16 +84,20 @@ class StubArm:
         return [] if self.status != "ok" else [object()]
 
 
+class UsSkills(StubSkills):
+    def radar_clear(self): self.calls.append("radar_clear"); return OK
+
+
 def runner(src, arm=None, skills=None, **kw):
-    return TaskRunner(skills or StubSkills(), src, WS, EventBus(), arm=arm or StubArm(), **kw)
+    return TaskRunner(skills or UsSkills(), src, WS, EventBus(), arm=arm or StubArm(), **kw)
 
 
 def states(seen): return [(e.state, e.object_id, e.result) for e in seen]
 
 
 def test_check_confirms_then_picks_with_prefetch_and_offset():
-    src, arm, sk = StubSource([[cand(1)], []]), StubArm(), StubSkills()
-    res, seen = run(runner(src, arm, sk))
+    src, arm = StubSource([[cand(1)], []]), StubArm()
+    res, seen = run(runner(src, arm, UsSkills()))
     assert arm.offset == OFFSET and src.calls[0] == "begin_cycle"
     assert [s for s in states(seen) if s[0] in ("CHECK", "PICK", "PLACE")] == [
         ("CHECK", "us-1", None), ("CHECK", "us-1", "ok"), ("PICK", "us-1", None), ("PLACE", "us-1", None), ("PLACE", "us-1", "ok")]
@@ -117,9 +116,9 @@ def test_empty_check_drops_candidate_and_redecides_without_rescan():
 
 
 def test_rescan_when_no_candidate_once_then_done():
-    src, arm = StubSource([[]], rescans=[[]]), StubArm()
-    res, seen = run(runner(src, arm))
-    assert arm.moves == [(WS.base.x_mm, WS.base.y_mm, 150.0, 90.0)]  # 대기 자세 = 팔 원점 위 150mm
+    src, sk = StubSource([[]], rescans=[[]]), UsSkills()
+    res, seen = run(runner(src, skills=sk))
+    assert sk.calls == ["radar_clear", "radar_clear"] and "park" not in sk.calls  # PREPARE와 RESCAN 모두 radar_clear (결정 0039)
     assert res["end"] == "no_objects" and src.calls.count("rescan") == 1
     assert [s[0] for s in states(seen)].count("RESCAN") == 1
 
@@ -139,7 +138,7 @@ def test_rescan_off_goes_straight_to_done():
 
 def test_pick_failure_calls_note_failure_and_give_up_ends_run():
     src = StubSource([[cand(1)], [cand(2)], [cand(3)], [cand(4)]], give_up_after=2)
-    res, seen = run(runner(src, skills=StubSkills(pick_status="no_object")))
+    res, seen = run(runner(src, skills=UsSkills(pick_status="no_object")))
     assert res["end"] == "give_up" and len(src.failures) == 2 and src.failures[0] == (300.0, 200.0)
     assert seen[-1].state == "DONE" and seen[-1].result == "give_up"
 
@@ -254,12 +253,14 @@ def test_sim_read_failure_during_check_faults_and_stops_esp32(tmp_path):
     arm.disconnect()
 
 
-def test_sim_rescan_finds_object_in_front_of_radar_that_parked_arm_hides(tmp_path):
-    """레이더 정면(방위 90°, 앞 200mm) 물체: PREPARE 자세의 팔 끝에 가려 첫 SCAN은 놓치고, RESCAN이 팔을 원점 위로 치운 뒤 찾는다."""
+def test_sim_front_object_is_found_by_first_scan_with_radar_clear(tmp_path):
+    """레이더 정면(방위 90°, 앞 200mm) 물체: park 자세의 팔 끝(300,269)에는 가려지지만 radar_clear에서는 첫 SCAN에서 후보로 나온다 (결정 0039)."""
     st, src, arm = sim_studio(tmp_path, spread=[(300, 200, 90)])
     seen = []
     st.bus.subscribe("task", seen.append)
+    first = []
+    st.bus.subscribe("us.candidates", lambda e: first.append(e) if not first else None)
     res = st.start(blocking=True)
-    assert "RESCAN" in [e.state for e in seen] and res["picked"], res
+    assert len(first[0]["objects"]) == 1 and res["picked"], res
     assert not src.esp.boxes
     arm.disconnect()

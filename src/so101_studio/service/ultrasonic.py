@@ -48,6 +48,7 @@ def make_ultrasonic_source(arm, *, sim: bool, port: str | None = None, radar: di
     esp = FakeESP32(clk, boxes, cfg, arm_sensor_fn=trail.sensor_at, arm_links_fn=trail.links_at)
     src = SimUltrasonicSource(Link(esp, clk), cfg, esp=esp, baseline_path=Path(tempfile.mkdtemp()) / "baseline.json")
     src.connect()
+    arm.skills.radar_clear()  # 기준값에 팔이 찍히지 않게 대기 자세에서 잰다(실제도 같은 자세에서 재야 한다)
     esp.boxes = []  # 빈 작업대로 기준값
     src.calibrate()
     esp.boxes = boxes

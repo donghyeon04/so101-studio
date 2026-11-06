@@ -78,6 +78,10 @@ class Skills:
     def park(self) -> MotionResult:
         return self._run([self._joint_move(JointState(*self.cfg.poses["park"]))])
 
+    def radar_clear(self) -> MotionResult:
+        """초음파의 대기 자세: 팔이 레이더 정면을 가리지 않게 접어 올린다 (결정 0039)."""
+        return self._run([self._joint_move(JointState(*self.cfg.poses["radar_clear"]))])
+
     def _jaw_yaw(self, yaw_t: float) -> float:
         """턱 축은 180° 돌려도 같은 파지다(고정·가동 턱 쪽만 바뀐다). 손목이 덜 돌도록 로봇 기준 ±90° 안의 쪽을 고른다."""
         base = self.ws.base.yaw_deg
