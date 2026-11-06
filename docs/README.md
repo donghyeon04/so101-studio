@@ -15,6 +15,7 @@
 |---|---|---|---|
 | `docs/planning/overview.md` | 기획 | 초안 | 기획서: 한 줄 정의, 일정·평가, 산출물, 역할, 기획 진행 순서, 범위, 주간 일정 |
 | `docs/planning/project-status.md` | 기획 | 초안 | 프로젝트 현황 한 장(팀 공유·인수인계): 부분별 된 것과 남은 것, 가상 성능, 팀과 논의할 것, 일정 |
+| `docs/planning/work-queue.md` | 기획 | 초안 | 작업 대기열: 사용자 큰 지시(2026-11-07)의 단계, 진행 상황, 사용자 결정 모음. 압축·세션 교체 뒤 여기부터 읽는다 |
 | `docs/planning/features.md` | 기획 | 초안 | 기능명세서와 메뉴트리, 시연 시나리오, 기능별 범위 층 |
 | `docs/planning/system-architecture.md` | 기획 | 확정 | 시스템 구성, 모듈 경계, 공통 타입, 인식 규격, 작업 실행 상태 머신, ESP32 통신 틀, 폴더 구조, 0~2단계 작업 순서 |
 | `docs/planning/arm-software-spec.md` | 기획 | 확정 | 팔 모듈 계층 구조, 데이터 타입, 모듈 API, 설정·출력 형식, 구현 작업 순서(T1~T11) |
