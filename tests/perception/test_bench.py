@@ -15,11 +15,12 @@ def test_benchmark_summary_has_accuracy_metrics():
     from so101_studio.perception.ultrasonic.benchmark import summarize
 
     rows = [{"radius": None, "n": 3, "ok": 2, "recog_s": 50.0, "left": 0, "radar_errs": [10, 20, 100], "check_errs": [2.0, 4.0],
-             "angles": [True, False]},
-            {"radius": None, "n": 3, "ok": 3, "recog_s": 60.0, "left": 0, "radar_errs": [30], "check_errs": [6.0], "angles": [True]}]
+             "angles": [True, False], "h_errs": [1.0, 3.0]},
+            {"radius": None, "n": 3, "ok": 3, "recog_s": 60.0, "left": 0, "radar_errs": [30], "check_errs": [6.0], "angles": [True], "h_errs": [2.0]}]
     s = summarize(rows)
     assert s["radar_n"] == 4 and s["radar_within90_pct"] == 75 and s["radar_err_median_mm"] == 25
     assert s["check_n"] == 3 and s["check_err_median_mm"] == 4.0 and s["angle_pct"] == pytest.approx(200 / 3)
+    assert s["h_err_median_mm"] == 2.0 and s["h_err_p90_mm"] == 3.0  # REQ-035 높이 오차
 
 
 def test_bench_run_once_against_fake_esp32():

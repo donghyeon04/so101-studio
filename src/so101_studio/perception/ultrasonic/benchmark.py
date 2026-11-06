@@ -311,7 +311,8 @@ def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, resc
         square = picked and box.width == box.length
         good = picked and err <= 15 and (square or angle_ok(obj.angle_deg, box.angle_deg % 180))
         log.append({"result": "ok" if good else "bad" if picked else "miss", "err": err,
-                    "angle": (None if square else angle_ok(obj.angle_deg, box.angle_deg % 180)) if picked else None})
+                    "angle": (None if square else angle_ok(obj.angle_deg, box.angle_deg % 180)) if picked else None,
+                    "h_err": abs(obj.height_mm - box.height) if picked else None})
         if not picked and report_failures:  # 확인한 자리에 물체가 없어 집기 실패: 작업 실행이 실패를 알린다(note_failure)
             src.note_failure(cand.x_mm, cand.y_mm)
         ok += good
@@ -348,7 +349,8 @@ def run_scenario(name, model, seeds, rescan_home=None, report_failures=True, arm
         rows.append({"radius": radius, "seed": seed, "n": n, "ok": ok, "recog_s": secs, "left": len(esp.boxes), "log": log,
                      "radar_errs": [x["err"] for x in log if x["result"] == "radar"],
                      "check_errs": [x["err"] for x in log if x["result"] in ("ok", "bad")],
-                     "angles": [x["angle"] for x in log if x["result"] in ("ok", "bad") and x["angle"] is not None]})
+                     "angles": [x["angle"] for x in log if x["result"] in ("ok", "bad") and x["angle"] is not None],
+                     "h_errs": [x["h_err"] for x in log if x["result"] in ("ok", "bad")]})
     return rows
 
 
@@ -364,6 +366,7 @@ def summarize(rows) -> dict:
     radar = sorted(e for r in rows for e in r["radar_errs"])
     check = sorted(e for r in rows for e in r["check_errs"])
     angles = [a for r in rows for a in r["angles"]]
+    heights = sorted(e for r in rows for e in r["h_errs"])
     out["radar_n"], out["check_n"], out["angle_n"] = len(radar), len(check), len(angles)
     if radar:
         out.update(radar_err_median_mm=statistics.median(radar), radar_err_p90_mm=radar[math.ceil(0.9 * len(radar)) - 1],
@@ -372,6 +375,8 @@ def summarize(rows) -> dict:
         out.update(check_err_median_mm=statistics.median(check), check_err_p90_mm=check[math.ceil(0.9 * len(check)) - 1])
     if angles:
         out["angle_pct"] = 100 * sum(angles) / len(angles)
+    if heights:
+        out.update(h_err_median_mm=statistics.median(heights), h_err_p90_mm=heights[math.ceil(0.9 * len(heights)) - 1])
     if rows[0]["radius"] is not None:
         out["by_radius_pct"] = {r: 100 * statistics.mean(x["ok"] for x in rows if x["radius"] == r) for r in SINGLE_RADII}
     return out
@@ -393,13 +398,14 @@ def format_table(results: list[dict]) -> str:
                      f"{s['left_mean']:.2f} | {s['recog_mean_s']:.0f} | {s['recog_median_s']:.0f} | {s['recog_p90_s']:.0f} | {s['recog_max_s']:.0f} |")
         if "by_radius_pct" in s:
             lines.append("|  | 반경별 성공 % | " + " ".join(f"{k}:{v:.0f}" for k, v in s["by_radius_pct"].items()) + " | | | | | | |")
-    lines += ["", "| 시나리오 | 모델 | 레이더 후보 오차 중앙·90%(mm) | 90mm 안 % | 확인 위치 오차 중앙·90%(mm) | 방향 정답률 % |", "|---|---|---|---|---|---|"]
+    lines += ["", "| 시나리오 | 모델 | 레이더 후보 오차 중앙·90%(mm) | 90mm 안 % | 확인 위치 오차 중앙·90%(mm) | 방향 정답률 % | 높이 오차 중앙·90%(mm) |", "|---|---|---|---|---|---|---|"]
     for r in results:
         s = r["summary"]
         lines.append(f"| {r['scenario']} | {r['model']} | {s.get('radar_err_median_mm', float('nan')):.0f}·{s.get('radar_err_p90_mm', float('nan')):.0f} "
                      f"(n={s['radar_n']}) | {s.get('radar_within90_pct', float('nan')):.0f} | "
                      f"{s.get('check_err_median_mm', float('nan')):.1f}·{s.get('check_err_p90_mm', float('nan')):.1f} (n={s['check_n']}) | "
-                     f"{s.get('angle_pct', float('nan')):.0f} (n={s['angle_n']}) |")
+                     f"{s.get('angle_pct', float('nan')):.0f} (n={s['angle_n']}) | "
+                     f"{s.get('h_err_median_mm', float('nan')):.1f}·{s.get('h_err_p90_mm', float('nan')):.1f} |")
     return "\n".join(lines)
 
 
