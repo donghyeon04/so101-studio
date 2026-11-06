@@ -3,6 +3,7 @@ import functools
 import threading
 import time
 from dataclasses import asdict, fields
+from typing import ClassVar
 
 from lerobot.robots.so_follower import SO101Follower, SO101FollowerConfig
 
@@ -16,7 +17,11 @@ def _locked(fn):
     @functools.wraps(fn)
     def wrapper(self, *a, **k):
         with self._lock:
-            return fn(self, *a, **k)
+            try:
+                return fn(self, *a, **k)
+            except Exception as e:
+                self._after_bus_error(e)  # 잠금을 쥔 채로: 아무도 이 포트를 쓰고 있지 않다
+                raise
 
     return wrapper
 
@@ -36,6 +41,26 @@ class ArmDriver:
         self._logged: LoggedBus | None = None
         self.locked_reason: str | None = None  # 캘리브레이션이 서보와 다르면 연결은 하되 쓰기를 막는다(읽기만) (decisions/0027)
         self._lock = threading.RLock()  # 시리얼 포트는 한 번에 한 스레드만 쓴다 (동작 스레드와 상태 읽기가 겹칠 수 있다)
+
+    def _after_bus_error(self, e: Exception) -> None:
+        """버스 호출이 예외로 끝나면 scservo_sdk의 port_handler.is_using을 되돌린다. SDK는 txPacket이 켠 is_using을 쓰기 예외(pyserial Write timeout 등)
+        로 빠져나올 때 끄지 않아, 그 뒤 모든 읽기가 영구히 'Port is in use'로 실패했다(runs/20261106-161306). 잠금 안이라 다른 스레드가 쓰는 중일 수 없다."""
+        try:
+            self._robot.bus.port_handler.is_using = False
+        except AttributeError:
+            pass  # 연결 전이거나 시뮬레이션
+        cause = e
+        while cause is not None:
+            if type(cause).__name__ == "SerialTimeoutException":
+                if self.event_sink:
+                    try:
+                        self.event_sink("write_timeout", "ERROR", "ARM-WRITE-TIMEOUT", {"error": repr(cause)[:120]})
+                    except Exception:  # noqa: BLE001, S110 기록 실패가 팔 제어를 막지 않는다
+                        pass
+                break
+            cause = cause.__cause__ or cause.__context__
+            if cause is e:
+                break
 
     def connect(self, port: str, calibration_id: str) -> None:
         robot = SO101Follower(SO101FollowerConfig(port=port, id=calibration_id))
@@ -131,15 +156,23 @@ class ArmDriver:
         v = bus.read("Present_Voltage", "shoulder_lift", normalize=False) / 10
         return v, {m: (x & 0x7FFF) * 6.5 for m, x in cur.items()}, {m: abs(x) / 10 for m, x in load.items()}
 
-    INFO_REGS = ("P_Coefficient", "I_Coefficient", "D_Coefficient", "Acceleration", "Minimum_Startup_Force", "CW_Dead_Zone",
+    INFO_REGS = ("Unloading_Condition", "Status", "P_Coefficient", "I_Coefficient", "D_Coefficient", "Acceleration", "Minimum_Startup_Force", "CW_Dead_Zone",
                  "CCW_Dead_Zone", "Max_Torque_Limit", "Torque_Limit", "Protection_Current", "Maximum_Acceleration", "Acceleration_Multiplier ",
                  "Angular_Resolution", "Phase", "Return_Delay_Time")
+
+    RAW_REGS: ClassVar[dict[str, int]] = {"Max_Input_Voltage(14)": 14, "Min_Input_Voltage(15)": 15}
 
     @_locked
     def read_servo_info(self) -> dict:
         """서보 설정 레지스터를 읽기만 한다(떨림 원인 후보 확인용): PID, 가속, 시동 힘, 데드존, 토크 한계 등."""
         bus = self._bus
-        return {m: {r.strip(): bus.read(r, m, normalize=False) for r in self.INFO_REGS} for m in bus.motors}
+        out = {m: {r.strip(): bus.read(r, m, normalize=False) for r in self.INFO_REGS} for m in bus.motors}
+        ph = getattr(bus, "packet_handler", None)  # 가짜 버스에는 없다
+        for m in bus.motors if ph is not None else ():  # LeRobot 표에 없는 입력 전압 한계(14·15번, 0.1V 단위, 읽기만)
+            for name, addr in self.RAW_REGS.items():
+                v, result, _ = ph.read1ByteTxRx(bus.port_handler, bus.motors[m].id, addr)
+                out[m][name] = v if result == 0 else None
+        return out
 
     @_locked
     def set_acceleration(self, value: int) -> None:
