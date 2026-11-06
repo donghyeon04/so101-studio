@@ -165,7 +165,7 @@ class ArmService:
             t=time.time(), joints=q, tool=self.kin.fk(q),
             temperature_c=self._health["temperature_c"], load_pct=self._health["load_pct"], voltage_v=self._health["voltage_v"], current_ma=self._health.get("current_ma", 0.0),
             torque_enabled=self.driver.torque_enabled(),
-            state="teach" if self.teach.recording else self.ctl.state, fault=self.ctl.fault,
+            state="teach" if self.teach.recording else self.ctl.state, fault=self.ctl.fault, fault_text=self.ctl.fault_text,
         )
 
     def status_stream(self, callback) -> None:
@@ -322,7 +322,7 @@ class ArmService:
     def _comm_gate(self) -> MotionResult | None:
         """통신 끊김 fault에서는 버스를 읽거나 쓰는 일도 하지 않고 fault를 돌려준다(다시 연결하기 전까지 아무 명령도 안 보낸다, decisions/0031)."""
         if self.ctl.state == "fault" and self.ctl.fault == "comm_lost":
-            return MotionResult("fault", 0.0, ToolPose(0, 0, 0, 0))
+            return MotionResult("fault", 0.0, ToolPose(0, 0, 0, 0), reason=self.ctl.fault_text)
         return None
 
     def enable_torque(self) -> bool:
@@ -363,6 +363,19 @@ class ArmService:
             return self._done("goto", MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0)), goal=asdict(pose))
         self.enable_torque()
         return self._done("goto", self._run(trajs), goal=asdict(pose))
+
+    def reload_workspace(self, path: str | Path = "config/workspace.yaml") -> WorkspaceConfig:
+        """작업대 설정(workspace.yaml: 작업대 크기, 팔 원점, 배출 구역, 도달 반경)을 다시 읽어 Skills·안전 검사·기구학이 새 값을 쓰게 한다 (REQ-034).
+        동작이나 조그가 진행 중이면 거부한다(RuntimeError). 파일을 못 읽으면 아무것도 바뀌지 않는다. 작업 실행(Studio)의 스레드는 Studio.reload_workspace가 막는다."""
+        if self.ctl is None:
+            raise RuntimeError("연결되지 않음")
+        if self.ctl.busy:
+            raise RuntimeError("동작 중에는 작업대 설정을 다시 읽을 수 없다")
+        ws = load_workspace(path)
+        self.ws = self.skills.ws = self.safety.ws = ws
+        self.kin.base = ws.base
+        self._log("workspace_reloaded", {"base": asdict(ws.base), "table_mm": ws.table_mm, "drop_zones": list(ws.drop_zones)})
+        return ws
 
     def set_sensor_offset(self, offset_mm: dict) -> None:
         """손목 초음파 센서가 고정 턱 끝에서 떨어진 위치({x, y, z}, config/ultrasonic.yaml의 arm_sensor_offset_mm). 값은 이 서비스에 두지 않고 호출하는 쪽이 넘긴다.
@@ -616,7 +629,7 @@ class ArmService:
         if min(max(v, lo), hi) > q.gripper + 0.5:  # 지금보다 여는 명령: 예압 고정을 풀고 조임 한계를 원래 값으로
             self.skills.release_grip_hold()
         self.enable_torque()
-        return self._done("gripper", self._run([cfg_move_j(self.cfg, q, replace(q, gripper=min(max(v, lo), hi)), self.speed)]), value=v)
+        return self._done("gripper", self._run([cfg_move_j(self.cfg, q, replace(q, gripper=min(max(v, lo), hi)), self.speed * self.skills._gripper_speed())]), value=v)
 
     def jog(self, mode: str, velocity) -> bool:
         """조그 한 걸음. 토크가 꺼져 있으면 먼저 켠다. 이미 켠 뒤에는 버스를 읽지 않으므로 10Hz로 불러도 된다 (REQ-012).
@@ -633,19 +646,21 @@ class ArmService:
         self._torque_on = False  # 기록 중 토크가 꺼진다
         self.teach.record_start(hz, max_s)
 
-    def record_info(self, name: str) -> dict:
-        """기록의 길이, 평균·최대 속도, 속도 구간(멈춤/느림/빠름) 목록. GUI가 구간별 속도 조절 화면을 그릴 때 쓴다."""
-        return self.teach.info(name)
+    def record_info(self, name: str, speed: float = 1.0, segment_speeds: dict[int, float] | None = None) -> dict:
+        """기록의 길이, 평균·최대 속도, 속도 구간(멈춤/느림/빠름) 목록. GUI가 구간별 속도 조절 화면을 그릴 때 쓴다.
+        info["fit"] = {fits_1x, slowed_segments, slowed_samples, added_s}: 이 배율로 그대로(original) 재생해도 한도 안인지와 변환 재생(fitted)이 늦추는 구간 수·늘어나는 시간."""
+        return self.teach.info(name, speed, segment_speeds)
 
     def record_stop(self, name: str):
         path = self.teach.record_stop(name)
         self._log("record_stop", {"name": name, "path": str(path)})
         return path
 
-    def replay(self, name: str, speed: float = 1.0, until_limit: bool = False, segment_speeds: dict[int, float] | None = None) -> MotionResult:
+    def replay(self, name: str, speed: float = 1.0, until_limit: bool = False, segment_speeds: dict[int, float] | None = None,
+               mode: str = "original") -> MotionResult:
         self.enable_torque()
-        return self._done("replay", self.teach.replay(name, speed, until_limit, segment_speeds), name=name, speed=speed,
-                          until_limit=until_limit, segment_speeds=segment_speeds)
+        return self._done("replay", self.teach.replay(name, speed, until_limit, segment_speeds, mode), name=name, speed=speed,
+                          until_limit=until_limit, segment_speeds=segment_speeds, mode=mode)
 
     def run_sequence(self, name: str) -> MotionResult:
         return self.replay(name, 1.0)

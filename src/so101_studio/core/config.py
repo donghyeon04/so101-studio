@@ -45,6 +45,9 @@ class RobotConfig:
     grasp_tilt_mode: str = "symmetric"
     grasp_tilt_tol_deg: float = 15.0
     grasp_max_open_mm: float = 100
+    grasp_min_contact_mm: float = 8  # 물체 높이로 집는 높이를 정할 때 턱이 물체에 닿아야 하는 최소 높이(mm). 이보다 얕게 닿아야 지나가는 물체는 거부한다
+    replay_a_max_deg_s2: float = 600  # 변환 재생(mode=fitted)이 맞추는 관절 가속 한도(°/s²). 손으로 움직인 기록은 계획 이동(a_max_deg_s2)보다 훨씬 거칠어 따로 둔다
+    gripper_speed_pct: float = 100  # 그리퍼만 움직이는 동작(열기·닫기·놓으며 열기)의 속도 배율 1~100. 바로 적용된다
     contact_lag_units: float = 4.0
     gripper_squeeze_torque: int = 300
     gripper_hold_torque: int = 200  # 들고 옮기는 동안의 조임 한계(RAM Torque_Limit). 그리퍼 Overload_Torque 25% 아래로 둔다 (결정 0033)

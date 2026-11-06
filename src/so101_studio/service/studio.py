@@ -106,6 +106,13 @@ class Studio:
         """단계별 모드(start(step_mode=True))에서 다음 단계로 진행한다. 어느 스레드에서든 부를 수 있다."""
         self._step.set()
 
+    def reload_workspace(self):
+        """작업대 설정을 다시 읽는다. 작업이 실행 중이면 거부한다(RuntimeError)."""
+        if self._thread is not None and self._thread.is_alive():
+            raise RuntimeError("작업이 실행 중이라 작업대 설정을 다시 읽을 수 없다")
+        self.ws = self.task.ws = self.arm.reload_workspace()
+        return self.ws
+
     def status(self) -> dict:
         return {"state": self.task.state, "arm": self.ctl.state, "result": self.result}
 

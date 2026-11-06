@@ -102,6 +102,7 @@ def main(argv=None) -> None:
     ap.add_argument("--seg-speed", help="replay: 구간별 속도 배율 '번호=배율,...' 예: 1=0.5,3=2 (구간 번호는 info로 본다)")
     ap.add_argument("--free", action="store_true", help="작업대 가장자리 검사를 끈다 (바닥과 관절 한계는 유지). 손으로 움직이는 조종·재생용")
     ap.add_argument("--until-limit", action="store_true", help="replay: 한계나 바닥을 처음 넘는 자세 앞까지만 재생")
+    ap.add_argument("--mode", choices=["original", "fitted"], default="original", help="replay: fitted면 한 주기 이동량·가속 한도를 넘는 구간만 늦춰 재생(info가 미리 보여 준다)")
     ap.add_argument("--trace", action="store_true", help="keys: 명령·실제 관절 위치를 빠르게 기록하고 떨림 요약 (runs/.../trace.csv)")
     ap.add_argument("--speeds", help="shaketest: 시험할 속도들(°/s, 쉼표로). 기본 20,60,200")
     ap.add_argument("--arm", help="팔 파일 이름(config/arms/<이름>.yaml). 기본: local.yaml -> 보드 시리얼 -> 하나뿐이면 그것")
@@ -252,7 +253,7 @@ def main(argv=None) -> None:
         elif c in ("replay", "seq"):
             seg = {int(k): float(x) for k, x in (p.split("=") for p in a.seg_speed.split(","))} if a.seg_speed else None
             try:
-                res = svc.replay(v[0] if v else ap.error(f"{c}: 이름이 필요하다"), a.speed / 100 if a.speed else 1.0, a.until_limit, seg)
+                res = svc.replay(v[0] if v else ap.error(f"{c}: 이름이 필요하다"), a.speed / 100 if a.speed else 1.0, a.until_limit, seg, a.mode)
             except ValueError as e:
                 sys.exit(f"재생 설정 오류: {e}")
             print(fmt(res))

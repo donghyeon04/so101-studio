@@ -21,6 +21,9 @@ grasp_open_policy: max     # max: 물체 크기와 상관없이 최대로 벌려
 grasp_tilt_mode: symmetric  # symmetric: 손을 벌림 각도의 절반만큼 기울여 두 턱이 수직에서 ±θ/2로 벌어지게(보기에 대칭인 V자, 닫으면 같이 선다) | equal_tips: 두 턱 끝 높이가 같아지는 각도(약 23°)
 grasp_tilt_deg: 35         # 손목 한계 때문에 이 각도까지만 기울인다(θ=80°이면 완전 대칭은 40°). 0이면 기울이지 않음
 grasp_tilt_tol_deg: 15     # 턱 축이 팔이 뻗은 방향(앞뒤)에서 이만큼 안쪽일 때만 기울인다(5축 팔은 옆으로 기울일 수 없다)
+grasp_min_contact_mm: 8   # 물체 높이(height_mm)로 집는 높이를 정할 때 턱이 물체에 닿는 최소 높이(mm). 더 얕게 닿아야 지나가는 물체는 out_of_bounds로 거부
+replay_a_max_deg_s2: 600  # 교시 재생 변환본(fitted)이 맞추는 관절 가속 한도(°/s²). 추정값, 실물에서 떨림을 보고 고친다
+gripper_speed_pct: 100    # 그리퍼만 움직이는 동작의 속도 배율(1~100, 100 = 지금 속도). GUI 파라미터에서 바로 바꾼다
 grasp_max_open_mm: 90      # 최대로 벌릴 틈(mm). 시험값 70→90 (REQ-033, 위 grasp_height_mm 근거): H=39에서 t20·G90이면 W<=61까지 지난다(G70은 49). 단 G90은 대칭에 필요한 기울기 33°가 손목 한계(grasp_tilt_deg 35) 안이라 거의 대칭이지만, G100은 40°가 필요해 35°에서 잘려 V자가 한쪽으로 보인다(G90도 보일 수 있음). 70은 기울기 24°라 대칭
 contact_lag_units: 4       # 닫는 중 실제 그리퍼 값이 명령보다 이만큼 앞서 멈춰 있으면 물체에 닿은 것으로 본다
 gripper_squeeze_torque: 300  # 닫을 때 조임 힘 한계(0~1000, RAM Torque_Limit). 얇은 물체가 미끄러져 빠지지 않게 낮춤
