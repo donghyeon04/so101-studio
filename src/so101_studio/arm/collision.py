@@ -65,7 +65,8 @@ class SceneCollision:
                 o = vis.find("origin")
                 xyz = [float(x) for x in (o.get("xyz") if o is not None else "0 0 0").split()]
                 rpy = [float(x) for x in (o.get("rpy") if o is not None else "0 0 0").split()]
-                v = _stl_vertices(urdf.parent / mesh.get("filename")) @ _rpy(*rpy).T + np.array(xyz)
+                scale = float(mesh.get("scale", "1 1 1").split()[0])  # 병렬 그리퍼 메쉬는 mm 단위라 URDF에서 scale 0.001
+                v = (_stl_vertices(urdf.parent / mesh.get("filename")) * scale) @ _rpy(*rpy).T + np.array(xyz)
                 out.append((name, _hull(v)))
         return out
 

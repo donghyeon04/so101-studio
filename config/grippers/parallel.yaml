@@ -5,9 +5,9 @@ gripper_width_mm: [[0, 0], [100, 84]]   # [서보 값, 벌림 폭 mm]. 실물 �
 grasp_max_open_mm: 84
 grasp_tilt_deg: 0
 grasp_min_contact_mm: 8                 # 실물 몫
-gripper_tip_offset_mm: 0                # TCP(두 턱 중앙) -> 턱 끝, 도구 축 방향. 실물 몫
+gripper_tip_offset_mm: 10               # TCP(두 턱 중앙) -> 손끝, 도구 축 방향. URDF의 TCP는 손끝보다 10mm 위. 실물에서 확인
 contact_lag_units: 4.0                  # 실물 몫: 접촉 감지 지연 기준
 gripper_squeeze_torque: 300             # 실물 몫
 gripper_hold_torque: 200                # 실물 몫
 gripper_load_warn_pct: 60               # 실물 몫
-# urdf: assets/so101_parallel.urdf      # 관절 이름 gripper, 서보 ID 6 그대로. 파일·메쉬는 GUI 5-4가 만든다. 생기면 주석을 푼다
+urdf: assets/so101_parallel.urdf    # 관절 이름 gripper, 서보 ID 6 그대로 (REQ-041)
