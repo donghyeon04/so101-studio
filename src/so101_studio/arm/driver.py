@@ -175,6 +175,29 @@ class ArmDriver:
         return out
 
     @_locked
+    def probe_reset(self) -> dict:
+        """서보가 풀린 직후 읽기만 하는 진단(REQ-048 D6): 서보마다 ping 응답·Torque_Enable·Acceleration·Torque_Limit·Status·전압(0.1V)과 연결 때 쓴 Acceleration 설정값.
+        읽기 하나가 실패해도 그 칸만 None이다(리셋 직후에는 일부가 응답하지 않을 수 있다). 쓰기는 하지 않는다."""
+        bus = self._bus
+        out: dict = {"ping": {}, "torque": {}, "acceleration": {}, "torque_limit": {}, "status": {}, "voltage_dv": {}, "ids": {m: bus.motors[m].id for m in bus.motors},
+                     "expected_acceleration": {m: (self.gripper_acceleration if m == "gripper" else self.acceleration) for m in bus.motors}}
+
+        def get(reg, m):
+            try:
+                return int(bus.read(reg, m, normalize=False, num_retry=0))
+            except Exception:  # noqa: BLE001 응답 없음도 정보다
+                return None
+
+        for m in bus.motors:
+            try:
+                out["ping"][m] = bus.ping(m, num_retry=0) is not None
+            except Exception:  # noqa: BLE001
+                out["ping"][m] = False
+            out["torque"][m], out["acceleration"][m], out["torque_limit"][m] = get("Torque_Enable", m), get("Acceleration", m), get("Torque_Limit", m)
+            out["status"][m], out["voltage_dv"][m] = get("Status", m), get("Present_Voltage", m)
+        return out
+
+    @_locked
     def set_acceleration(self, value: int) -> None:
         """팔 관절 5개의 서보 가속 한계를 바꾼다(시험용). 그리퍼는 접촉 감지 때문에 그대로 둔다."""
         self.acceleration = value

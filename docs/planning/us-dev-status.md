@@ -77,7 +77,7 @@
 올린 뒤 ESP32의 EN(리셋) 버튼을 한 번 누른다.
 **서보를 달 때 주의**: 펌웨어는 부팅할 때마다(그리고 포트를 열어 ESP32가 리셋될 때마다) 서보를 90°(정면)로 움직인다. 서보나 브래킷에 손을 대지 않고, 전원을 켜기 전에 회전 범위(10~170°)에 아무것도 없는지 확인한다.
 
-**3. 연결 확인**: 레포 루트에서 `conda activate so101`, PowerShell은 `$env:PYTHONPATH="C:/Users/c/Desktop/so101-studio-us/src"`(session-workflow 2절). 그리고
+**3. 연결 확인**: 레포 루트에서 `conda activate so101`, PowerShell은 `$env:PYTHONPATH="%USERPROFILE%/Desktop/so101-studio-us/src"`(session-workflow 2절). 그리고
 `python -m so101_studio.perception.ultrasonic.bench --port COM5 --k a --n 5 --label check`
 `hello: {...}`가 나오고 팔 센서 거리(mm)가 5개 보이면 된다(보드가 921600에서 안 되면 `--baud 115200`과 펌웨어 `Serial.begin` 값을 같이 바꾼다).
 

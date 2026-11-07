@@ -21,15 +21,16 @@
 두 세션이 한 폴더에서 브랜치를 바꾸면 서로의 작업이 엉킨다. git worktree로 폴더를 나눈다.
 
 ```bash
-cd C:/Users/c/Desktop/so101-studio
+cd %USERPROFILE%/Desktop/so101-studio
 git fetch origin
 git worktree add ../so101-studio-gui -b dev/gui-shell origin/main
 git worktree add ../so101-studio-us -b dev/us-sim origin/main
 ```
 
-- `pip install -e .`은 원래 폴더를 가리킨다. GUI 폴더에서 실행할 때는 그 폴더의 코드가 쓰이도록 `PYTHONPATH`를 GUI 폴더의 `src`로 지정한다. PowerShell: `$env:PYTHONPATH="C:/Users/c/Desktop/so101-studio-gui/src"`. 실행 전에 `python -c "import so101_studio; print(so101_studio.__file__)"`가 GUI 폴더를 가리키는지 확인한다. 테스트(`python -m pytest -q`)는 `pyproject.toml`의 `pythonpath = ["src"]` 덕분에 그대로 GUI 폴더 코드를 쓴다.
+- `pip install -e .`은 원래 폴더를 가리킨다. GUI 폴더에서 실행할 때는 그 폴더의 코드가 쓰이도록 `PYTHONPATH`를 GUI 폴더의 `src`로 지정한다. PowerShell: `$env:PYTHONPATH="%USERPROFILE%/Desktop/so101-studio-gui/src"`. 실행 전에 `python -c "import so101_studio; print(so101_studio.__file__)"`가 GUI 폴더를 가리키는지 확인한다. 테스트(`python -m pytest -q`)는 `pyproject.toml`의 `pythonpath = ["src"]` 덕분에 그대로 GUI 폴더 코드를 쓴다.
 
 - GUI 세션은 `../so101-studio-gui`에서, 초음파 세션은 `../so101-studio-us`에서, 팔 세션은 원래 폴더에서 실행한다. 초음파 폴더에서 실행할 때도 `PYTHONPATH`를 그 폴더의 `src`로 지정한다.
+- 작업 하나를 위해 worktree를 더 만들면(예: `so101-arm2`) PR이 합쳐진 뒤 지운다(`git worktree remove`). `main` 브랜치는 한 폴더만 체크아웃할 수 있으니 다른 폴더는 `origin/main`에서 `dev/<작업>`을 따거나 detached로 둔다(2026-11-07 정리 때 바탕화면은 세 폴더만 남겼다).
 - conda 환경 `so101`은 같이 쓴다. GUI 의존성(viser, nicegui)은 GUI 세션이 설치하고, 팔 세션은 쓰지 않는다.
 - 각자 작업 단위마다 PR을 만들고, 사용자가 승인하면 `main`에 합친다. 상대 세션의 결과가 필요하면 `main`에 합쳐진 뒤 `git fetch origin && git merge origin/main`으로 받는다.
 

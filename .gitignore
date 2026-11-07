@@ -226,3 +226,5 @@ runs/
 config/local.yaml
 
 config/ultrasonic_baseline.json
+# Playwright CLI output (may contain credentials)
+.playwright-cli/

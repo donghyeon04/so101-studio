@@ -261,4 +261,6 @@ def main(argv=None) -> None:
                 kept, total, why = svc.teach.last_cut
                 print(f"한계 앞에서 잘랐습니다: {total}점 중 {kept}점 재생 ({why})")
     finally:
+        from .rest import warn_if_loaded
+        warn_if_loaded(svc)  # 부하가 큰 자세로 끝나면 알린다(움직이지는 않는다)
         svc.disconnect()
