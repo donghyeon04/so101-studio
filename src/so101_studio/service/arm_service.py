@@ -203,7 +203,10 @@ class ArmService:
                 self.ctl.note_comm(True)
                 self._write_status(st)
                 for cb in list(self._callbacks):
-                    cb(st)
+                    try:
+                        cb(st)
+                    except Exception as e:  # noqa: BLE001 GUI 콜백의 코드 오류는 통신 끊김이 아니다: 따로 기록하고(첫 번째는 traceback) 통신 상태는 건드리지 않는다
+                        self._status_error(e, "status_callback_error")
                 if health_tick:  # 오류가 나는 읽기는 2Hz뿐이라, 그 읽기가 다시 성공해야 회복으로 본다
                     self._status_ok()
             except Exception as e:  # noqa: BLE001
@@ -230,19 +233,22 @@ class ArmService:
         self._log("load_probe", {"why": why, "torque": h.get("torque"), "status_bits": h.get("status_bits"), "load_pct": h.get("load_pct"),
                                  "current_ma_by_joint": h.get("current_ma_by_joint"), "state": self.ctl.state if self.ctl else None}, "WARN", "ARM-LOAD-PROBE")
 
-    def _status_error(self, e: Exception) -> None:
-        """첫 발생은 전체 traceback, 반복은 횟수(10, 100, 1000번째)로 남긴다."""
-        key = (type(e).__name__, str(e)[:80])
+    def _status_error(self, e: Exception, kind: str = "status_loop_error") -> None:
+        """첫 발생은 전체 traceback, 반복은 횟수(10, 100, 1000번째)로 남긴다. kind = status_loop_error(상태 읽기) | status_callback_error(GUI 콜백)."""
+        key = (kind, type(e).__name__, str(e)[:80])
+        code = "ARM-STATUS-CALLBACK-ERROR" if kind == "status_callback_error" else "ARM-STATUS-LOOP-ERROR"
         n = self._status_errors[key] = self._status_errors.get(key, 0) + 1
         if n == 1:
-            self._log("status_loop_error", {"error": repr(e), "traceback": traceback.format_exc()}, "ERROR", "ARM-STATUS-LOOP-ERROR")
+            self._log(kind, {"error": repr(e), "traceback": traceback.format_exc()}, "ERROR", code)
         elif n in (10, 100, 1000, 10000):
-            self._log("status_loop_error", {"error": repr(e), "count": n}, "WARN", "ARM-STATUS-LOOP-ERROR")
+            self._log(kind, {"error": repr(e), "count": n}, "WARN", code)
 
     def _status_ok(self) -> None:
-        if self._status_errors:
-            self._log("status_loop_recovered", {"errors": {f"{k[0]}: {k[1]}": v for k, v in self._status_errors.items()}}, "INFO", "ARM-STATUS-LOOP-RECOVERED")
-            self._status_errors = {}
+        errs = {k: v for k, v in self._status_errors.items() if k[0] == "status_loop_error"}  # 콜백 오류는 상태 읽기가 회복돼도 계속되므로 지우지 않는다(매번 traceback을 쏟지 않게)
+        if errs:
+            self._log("status_loop_recovered", {"errors": {f"{k[1]}: {k[2]}": v for k, v in errs.items()}}, "INFO", "ARM-STATUS-LOOP-RECOVERED")
+            for k in errs:
+                del self._status_errors[k]
 
     def _check_torque(self, expect) -> None:
         """2Hz로 읽은 Torque_Enable이 컨트롤러가 기대하는 값(켜져 있어야 함)과 다르면 ARM-TORQUE-LOST."""

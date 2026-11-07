@@ -203,3 +203,29 @@ def test_late_ticks_catch_up_only_within_the_step_limit_on_a_fast_replay(monkeyp
     assert h.result is not None and h.result.status == "ok"
     assert d.read_joints().shoulder_pan == pytest.approx(-50.0 + 213.0 * 0.5, abs=0.5)
     assert c.time_lost_s > 0.05  # 늦어진 시간이 기록된다
+
+
+def test_non_comm_exception_in_a_tick_is_an_internal_error_fault_not_comm_lost():
+    d = SimDriver()
+    c = MotionController(d, safety=Safety(LIMITS), hz=100)
+    events = []
+    c.on_event = lambda kind, level, code, data: events.append((code, data))
+
+    def bug(q):
+        raise KeyError("코드 오류")
+
+    d.write_joints = bug
+    r = c.execute(move_j(A, JointState(10, 0, 0, 0, 0, 0), 30, 100)).wait(2)
+    c.close()
+    assert r.status == "fault" and c.fault == "internal_error" and "KeyError" in c.fault_detail["traceback"]
+    assert not any(code == "ARM-COMM-LOST" for code, _ in events)
+
+
+def test_estop_returns_the_write_failure_or_none():
+    d = SimDriver()
+    c = MotionController(d, safety=Safety(LIMITS))
+    assert c.estop() is None
+    d.write_joints = lambda q: (_ for _ in ()).throw(ConnectionError("no status packet"))
+    err = c.estop()
+    c.close()
+    assert err and "ConnectionError" in err

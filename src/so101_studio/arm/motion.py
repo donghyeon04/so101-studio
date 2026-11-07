@@ -3,6 +3,7 @@ import contextlib
 import math
 import threading
 import time
+import traceback
 from dataclasses import astuple, fields, replace
 
 import numpy as np
@@ -254,9 +255,12 @@ class MotionController:
                         self._tick()
                     elif self._jog is not None:
                         self._tick_jog()
-                except Exception as e:  # noqa: BLE001 통신 오류 등 어떤 실패든 0.5초 넘게 이어지면 fault
+                except OSError as e:  # 통신 오류(serial, ConnectionError, TimeoutError는 모두 OSError): 0.5초 넘게 이어지면 comm_lost fault
                     err = repr(e)[:120]
                     self._fault(self.health.comm_failed(time.perf_counter(), kind))
+                except Exception as e:  # noqa: BLE001 통신이 아닌 예외는 코드 문제다: 통신 끊김으로 부르지 않고 traceback과 함께 바로 fault (REQ-043)
+                    err = repr(e)[:120]
+                    self._fault("internal_error", {"error": err, "where": kind, "traceback": traceback.format_exc()[-1500:]})
             self.ring.add(time.time_ns(), self._last, tick_dt, err, self.state, self.actual_hint)
             time.sleep(max(0.0, nxt - time.perf_counter()))
 

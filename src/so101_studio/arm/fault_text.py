@@ -24,6 +24,9 @@ def describe(reason: str, detail: dict | None = None) -> str:
                 "속도를 낮추거나 팔에 걸린 부하를 줄이세요. " + SAFE)
     if name == "grip_overload":
         return f"그리퍼 부하 {d.get('load_pct', 0):.0f}%가 한계 {d.get('limit_pct', 0):.0f}%를 넘어 그리퍼를 열었습니다. 물체를 너무 세게 쥐고 있었습니다."
+    if name == "internal_error":
+        return (f"제어 루프에서 통신이 아닌 예기치 않은 오류가 났습니다({d.get('error', '')}). 프로그램 문제일 수 있으니 사고 묶음의 traceback을 개발 세션에 알리세요. "
+                + SAFE + " '재개' 하면 다시 시도합니다.")
     if name == "workspace":
         return "작업대 밖입니다(경계 안 여유 안쪽만 가능). 목표를 작업대 안쪽으로 옮기세요."
     if name == "z_floor":
