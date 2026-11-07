@@ -14,11 +14,10 @@ STAGES = ("SCAN", "DECIDE", "CHECK", "PICK", "PLACE", "RESCAN")  # 작업 실행
 SOURCE_TEXT = {"ManualSource": "수동 입력", "UltrasonicSource": "초음파", "SimUltrasonicSource": "초음파(가상)"}
 
 
-def object_lines(objects, events, chosen: str | None, task_state: str) -> list[tuple[str, str]]:
-    """(물체 id, 상태 글자). 놓은 물체는 이번 실행(마지막 PREPARE 뒤)의 작업 이벤트에서, 지금 고른 물체는 작업 상태에서 읽는다."""
-    starts = [i for i, e in enumerate(events) if e.state == "PREPARE"]
-    events = events[starts[-1]:] if starts else events
-    placed = {e.object_id for e in events if e.state == "PLACE" and e.result == "ok" and e.object_id}
+def object_lines(objects, events, chosen: str | None, task_state: str, since: float = 0.0) -> list[tuple[str, str]]:
+    """(물체 id, 상태 글자). 놓은 물체는 이번 실행(since 뒤)의 작업 이벤트에서, 지금 고른 물체는 작업 상태에서 읽는다.
+    실행 경계는 시작 시각이다. 수동 입력은 물체마다 PREPARE를 다시 거쳐 PREPARE로는 나눌 수 없다."""
+    placed = {e.object_id for e in events if e.t >= since and e.state == "PLACE" and e.result == "ok" and e.object_id}
     out = [(oid, "✓ 놓음") for oid in sorted(placed)]
     for o in objects:
         if o.id in placed:
@@ -103,7 +102,7 @@ def build(backend, client_id: str) -> None:
             active = s == ts
             chip.classes(add="operator-chip-active" if active else "", remove="" if active else "operator-chip-active")
         now.text = TASK_TEXT.get(ts, ts) + (" · 일시정지" if backend.paused else "")
-        lines = object_lines(backend.objects(), list(state.events), state.chosen, ts)
+        lines = object_lines(backend.objects(), list(state.events), state.chosen, ts, state.run_t0)
         took = f" · 걸린 시간 {time.monotonic() - started[0]:.0f}초" if started[0] is not None and running else ""
         count.text = f"옮긴 물체 {state.placed}/{len(lines)}{took}" if lines else "물체가 없습니다"
         if lines != last[0]:
