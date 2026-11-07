@@ -257,3 +257,35 @@ def test_top_bar_run_mode_and_doctor(backend):
             await user.should_see("점검 (읽기 전용)")
 
     asyncio.run(go())
+
+
+async def _until(check, timeout=8.0) -> bool:
+    import time
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if check():
+            return True
+        await asyncio.sleep(0.05)
+    return False
+
+
+def test_bottom_bar_speed_home_and_jog_panel(backend):
+    """결정 0044: 아래 막대의 속도·홈, 조그 패널 열기와 그리퍼 버튼. 보기 전용이면 꺼진다."""
+    async def check(user):
+        assert await _until(lambda: backend.owner is not None and next(iter(user.find(marker="bar-home").elements)).enabled)
+        backend.set_speed(40)
+        assert await _until(lambda: next(iter(user.find(marker="bar-speed").elements)).value == 40)
+        assert backend.jog_vector([0.0, 0.5, 0.0])
+        backend.jog_release("cartesian")
+        assert await _until(lambda: backend.arm.ctl.state == "idle")
+        user.find(marker="bar-home").click()
+        assert await _until(lambda: abs(backend.arm.status().joints.shoulder_lift - backend.arm.cfg.poses["home"].shoulder_lift) < 1.0, 15.0)
+        panel = next(iter(user.find(marker="jog-panel").elements))
+        assert not panel.value
+        user.find(marker="bar-jog").click()
+        assert await _until(lambda: panel.value)
+        await user.should_see(marker="bar-pad-xy")
+        backend.owner = "다른 브라우저"
+        assert await _until(lambda: not next(iter(user.find(marker="bar-grip-open").elements)).enabled)
+
+    in_app(backend, check)

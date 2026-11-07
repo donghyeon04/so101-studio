@@ -26,6 +26,7 @@ from .pages import (
     teach,
     workspace,
 )
+from .pages.common import Controls, jog_pads
 from .state import EMPTY, component_states, page_state
 from .view_cube import VIEW_CUBE_JS
 from .watchdog_link import BROWSER_HB_JS, WatchdogLink
@@ -100,8 +101,6 @@ def make_root(backend: Backend):
                 ui.label(title).classes("page-title").mark("page-title")
                 text = page_state(backend.state.status)
                 badge[:] = [ui.badge(text, color=theme.STATE_COLORS[text]).classes("page-state").mark("page-state")]
-                resume[:] = [ui.button("정지 해제", on_click=resume_arm).props("outline no-caps").mark("resume")]
-                resume[0].visible = False
                 reconnect[:] = [ui.button("다시 연결", color="negative", on_click=reconnect_arm).props("no-caps").mark("reconnect")]
                 reconnect[0].visible = False
                 ui.space()
@@ -134,6 +133,9 @@ def make_root(backend: Backend):
                         ui.notify(f"서보 건강: {describe(key)} 정상으로 돌아옴 ({value:.1f})", type="positive")
                     else:
                         ui.notify(f"서보 {LEVEL_TEXT[level]}: {describe(key, level)} ({value:.1f})", type="warning" if level == "warn" else "negative")
+            bar.refresh()
+            if bar_speed.value != backend.arm.speed:
+                bar_speed.value = backend.arm.speed
             comm_lost = backend.comm_lost()
             for name, (level, detail) in component_states(backend.state.status, time.time(), comm_lost).items():
                 icon_name, icon_color, text = theme.COMPONENT_STYLES[level]
@@ -232,6 +234,18 @@ def make_root(backend: Backend):
                 ui.button("닫기", on_click=dialog.close).props("outline no-caps")
             dialog.open()
 
+        bar = Controls(backend, client.id, moves=True)  # 아래 막대와 조그 패널의 움직이는 조작
+
+        async def go_home() -> None:
+            reason = await run.io_bound(backend.home)
+            if reason:
+                ui.notify(reason, type="negative")
+
+        async def grip(value: float) -> None:
+            reason = await run.io_bound(backend.gripper, value)
+            if reason:
+                ui.notify(reason, type="negative")
+
         async def estop() -> None:  # 보기 전용 브라우저도 누를 수 있다. 세우는 일은 조작권과 상관없다
             await run.io_bound(backend.estop)
             ui.notify("비상 정지했습니다", type="negative")
@@ -276,12 +290,29 @@ def make_root(backend: Backend):
                         "flat no-caps align=left"
                     ).classes("nav-item")
 
-        with ui.footer().classes("frame-bar frame-bottom items-center gap-6 px-3 py-1"):
-            for label in BOTTOM_STATS:
-                stats[label] = _stat(label)
+        # 어디서나 여는 조그 패널 (결정 0044, PolyScope X 멀티태스크 패널)
+        with ui.right_drawer(value=False, bordered=True).props(f"width={theme.JOG_PANEL_W}").classes("gap-3").mark("jog-panel") as jog_panel:
+            ui.label("조그").classes("card-title")
+            jog_pads(backend, bar, prefix="bar-")
+            with ui.row().classes("w-full gap-2 no-wrap"):
+                bar.add(ui.button("그리퍼 열기", on_click=bar.guard(lambda: grip(100.0))).props("outline no-caps").classes("flex-1").mark("bar-grip-open"))
+                bar.add(ui.button("닫기", on_click=bar.guard(lambda: grip(0.0))).props("outline no-caps").classes("flex-1").mark("bar-grip-close"))
+            ui.label("직접 조작 화면과 같은 속도·안전 검사를 씁니다").classes("page-body")
 
-        with ui.page_sticky("bottom-right", x_offset=theme.GAP, y_offset=theme.GAP):
-            ui.button("E-STOP", color="negative", on_click=estop).props("round no-caps").classes("estop").mark("estop")
+        # 아래 팔 조작 막대 (결정 0044, PolyScope X 로봇 제어 막대): 상태 값 | 속도·정지 해제·홈·조그 패널·E-STOP
+        with ui.footer().classes("frame-bar frame-bottom items-center gap-4 px-3 py-1 no-wrap"):
+            with ui.row().classes("items-center gap-6 no-wrap min-w-0 flex-1 overflow-x-auto top-stats"):
+                for label in BOTTOM_STATS:
+                    stats[label] = _stat(label)
+            with ui.row().classes("items-center gap-2 no-wrap shrink-0"):
+                ui.label("속도").classes("stat-label")
+                bar_speed = bar.add(ui.slider(min=5, max=100, step=5, value=backend.arm.speed).props('dense label aria-label="속도"').classes("w-28").mark("bar-speed"))
+                bar_speed.on("change", bar.guard(lambda: run.io_bound(backend.set_speed, float(bar_speed.value))))
+                resume[:] = [ui.button("정지 해제", on_click=resume_arm).props("outline no-caps").mark("resume")]
+                resume[0].visible = False
+                bar.add(ui.button("홈", on_click=bar.guard(go_home)).props("outline no-caps").mark("bar-home"))
+                ui.button(icon="open_with", on_click=jog_panel.toggle).props('flat round color=dark aria-label="조그 패널"').mark("bar-jog")
+                ui.button("E-STOP", color="negative", on_click=estop).props("round no-caps").classes("estop").mark("estop")
 
         ui.sub_pages(
             {path: lambda p=path, t=title, k=task: show(p, t, k) for _, pages in PAGES for path, title, task in pages}
