@@ -48,7 +48,7 @@ def test_opening_path_is_used_and_keeps_jaw_midpoint_on_the_point(svc, target):
 
 
 def test_fallback_is_reported_with_a_reason_when_the_gripper_is_already_open(svc):
-    svc.skills._run([svc.skills._gripper(CFG.gripper_open)])  # 쥔 것이 없고 그리퍼는 이미 열려 있다
+    svc.skills._run([svc.skills._gripper(CFG.joint_limits_deg["gripper"][1])])  # 쥔 것이 없고 그리퍼는 이미 최대로 열려 있다(11.3: 벌림 끝은 쥔 틈 + 양쪽 30mm, 최대까지)
     r = svc.place(at=(300.0, 200.0))
     assert r.status == "ok"
     ev = [d for c, d in svc.events if c == "ARM-OPENING-PATH-FALLBACK"]

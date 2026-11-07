@@ -63,8 +63,12 @@ def test_parallel_pick_and_place_in_sim(kin):
     d, ctl, sk = rig(kin, block, **kw)
     r = sk.pick(obj(width=30.0))
     assert r.status == "ok" and d.log[-1].gripper == pytest.approx(block, abs=0.6)
+    events = []
+    ctl.on_event = lambda kind, level, code, data: events.append((code, data))
     assert sk.place_at(300.0, 150.0).status == "ok" and sk.last_place_correction_mm == pytest.approx((0, 0), abs=1e-3)
     ctl.close()
+    opened = [dd for c, dd in events if c == "ARM-OPENING-PATH"]
+    assert len(opened) == 1 and opened[0]["hand_move_xy_mm"] == pytest.approx(0, abs=0.5) and opened[0]["gap_end_mm"] > opened[0]["gap_start_mm"] + 30  # 병렬은 손 이동 없이 양쪽이 벌어진다 (11.3 5번)
 
 
 def test_width_rule_w_le_g_minus_4(kin):

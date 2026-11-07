@@ -160,9 +160,12 @@ def test_grasp_bias_shifts_toward_the_moving_jaw(kin):
 @pytest.mark.slow
 def test_place_opens_gripper_at_zone(kin):
     d, ctl, sk = rig(kin)
+    held = sk._gap_mm(d.read_joints().gripper)
     r = sk.place("right")
     ctl.close()
-    assert r.status == "ok" and d.log[-1].gripper == pytest.approx(CFG.gripper_open, abs=1)
+    cap = sk._gap_mm(CFG.joint_limits_deg["gripper"][1])
+    want = sk.gripper_for_width(min(held + 2 * CFG.place_clearance_mm, cap))  # 쥔 틈 + 양쪽 place_clearance_mm (최대 벌림까지, arm-software-spec 11.3)
+    assert r.status == "ok" and d.log[-1].gripper == pytest.approx(want, abs=1)
 
 
 def test_gripper_for_width_is_clamped_and_monotonic(kin):
