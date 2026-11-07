@@ -65,6 +65,7 @@ def test_floor_check_sees_the_jaw_body(svc):
 
 
 @pytest.mark.parametrize("w,h", [(58, 39), (30, 30), (40, 20), (58, 0)])
+@pytest.mark.slow
 def test_jaw_lowest_point_stays_above_the_table_through_pick_and_place(kin, w, h):  # noqa: F811
     d, ctl, sk = rig(kin, block_for(w))
     o = DetectedObject("b", 300, 200, 0, w, w, 1.0, "manual", h)

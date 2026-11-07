@@ -5,6 +5,7 @@ import threading
 import time
 import types
 
+import pytest
 from test_task import OK, WS, StubSkills, run
 
 from so101_studio.arm.sim_driver import SimDriver
@@ -209,6 +210,7 @@ def sim_studio(tmp_path, driver=SimDriver, spread=SPREAD):
     return Studio(arm, src, dry_run=True), src, arm
 
 
+@pytest.mark.slow
 def test_sim_three_objects_end_to_end(tmp_path):
     st, src, arm = sim_studio(tmp_path)
     seen, us = [], []
@@ -234,6 +236,7 @@ def _in_check(arm):
     time.sleep(0.2)
 
 
+@pytest.mark.slow
 def test_sim_stop_during_check_sends_stop_to_esp32(tmp_path):
     st, src, arm = sim_studio(tmp_path)
     th = threading.Thread(target=lambda: st.start(blocking=False) or None)
@@ -245,6 +248,7 @@ def test_sim_stop_during_check_sends_stop_to_esp32(tmp_path):
     arm.disconnect()
 
 
+@pytest.mark.slow
 def test_sim_read_failure_during_check_faults_and_stops_esp32(tmp_path):
     st, src, arm = sim_studio(tmp_path, ReadFails)
     st.start(blocking=False)
@@ -256,6 +260,7 @@ def test_sim_read_failure_during_check_faults_and_stops_esp32(tmp_path):
     arm.disconnect()
 
 
+@pytest.mark.slow
 def test_sim_front_object_is_found_by_first_scan_with_radar_clear(tmp_path):
     """레이더 정면(방위 90°, 앞 200mm) 물체: park 자세의 팔 끝(300,269)에는 가려지지만 radar_clear에서는 첫 SCAN에서 후보로 나온다 (결정 0039)."""
     st, src, arm = sim_studio(tmp_path, spread=[(300, 200, 90)])
@@ -295,6 +300,7 @@ def test_manual_source_still_parks_every_cycle():
     assert sk.calls.count("park") == 3  # 물체 2개 + 마지막 빈 스캔 앞
 
 
+@pytest.mark.slow
 def test_sim_left_far_object_check_goes_through_from_radar_clear(tmp_path):
     """방위 약 145°·반경 170mm 물체: radar_clear에서 출발하는 첫 CHECK의 접근 IK가 풀려 확인이 끝까지 간다 (REQ-030, plan_goto 여러 시드)."""
     st, _src, arm = sim_studio(tmp_path, spread=[(161, 148, 0)])
@@ -307,6 +313,7 @@ def test_sim_left_far_object_check_goes_through_from_radar_clear(tmp_path):
     arm.disconnect()
 
 
+@pytest.mark.slow
 def test_drop_zone_is_not_a_candidate_and_follows_reload(tmp_path):
     """REQ-045: 배출 구역에 놓인 물체가 다음 스캔에서 후보가 되지 않는다(전에는 같은 물체를 다시 집으러 갔다). 구역을 옮기면 예전 구역은 풀린다."""
     zone = WS.drop_zones["right"]

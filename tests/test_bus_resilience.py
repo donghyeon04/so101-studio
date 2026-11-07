@@ -78,6 +78,7 @@ def test_read_works_again_after_a_write_timeout():
     assert [c for c, _ in d.events] == ["ARM-WRITE-TIMEOUT"]
 
 
+@pytest.mark.slow
 def test_threads_never_overlap_on_the_bus():
     d = fake_driver()
     errors = []

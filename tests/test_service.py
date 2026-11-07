@@ -66,6 +66,7 @@ def test_unreachable_goto_returns_ik_fail_without_moving(svc):
     assert svc.driver.read_joints() == q0
 
 
+@pytest.mark.slow
 def test_pick_and_place_and_retarget(svc):
     r = svc.pick_and_place(DetectedObject("o", 300, 200, 0, 0, 0, 1, "manual"), "right")
     assert r.status == "no_object"  # 가상 팔에는 물체가 없어 끝까지 닫힌다(고정된 결과)
@@ -120,6 +121,7 @@ def test_service_safety_settings_roundtrip_and_validation(svc):
     assert svc.set_safety("normal", 0.0, None)["box_mm_effective"]["z"][0] == CFG.tip_floor_mm
 
 
+@pytest.mark.slow
 def test_pick_and_place_ok_when_the_sim_gripper_is_blocked_by_an_object(tmp_path):
     s = ArmService(SimDriver(CFG.poses["home"], grip_block=30.0), CFG, WS, speed_pct=100, log_root=str(tmp_path))
     assert s.connect()[0]
