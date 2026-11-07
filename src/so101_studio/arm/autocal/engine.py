@@ -89,6 +89,14 @@ class AutoCalibrationError(RuntimeError):
     """The run stopped without a calibration. The servos' registers have been restored."""
 
 
+class CleanupInterrupted(KeyboardInterrupt):
+    """Ctrl-C arrived during the cleanup. failures lists what could not be restored (empty = everything was)."""
+
+    def __init__(self, failures: list[str]):
+        super().__init__("interrupted")
+        self.failures = failures
+
+
 def deg_to_steps(deg: float) -> int:
     return round(deg * FULL_TURN / 360)
 
@@ -533,7 +541,7 @@ class FeetechAutoCalibrator:
             restore(CALIBRATION_REGISTERS)
         attempt("disabling torque", lambda: self.bus.disable_torque(num_retry=self.cfg.num_retry))
         if interrupted:
-            raise KeyboardInterrupt
+            raise CleanupInterrupted(failures)
         return failures
 
     # --- steps --------------------------------------------------------------------------------------------

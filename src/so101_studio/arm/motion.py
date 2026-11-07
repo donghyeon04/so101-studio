@@ -1,8 +1,8 @@
 """동작 실행: 50Hz 스레드가 궤적을 샘플링해 장치에 쓴다 (arm-software-spec.md 6.4). 장치는 이 스레드만 쓴다."""
-import contextlib
 import math
 import threading
 import time
+import traceback
 from dataclasses import astuple, fields, replace
 
 import numpy as np
@@ -35,10 +35,19 @@ class MotionHandle:
         return self.result
 
 
+BUS_ERROR_MARKERS = ("RxPacketError", "TxRxResult")  # LeRobot 버스가 서보 응답의 오류 비트(입력 전압·과부하·과열 등)나 통신 결과를 RuntimeError 메시지로 던진다
+
+
+def is_bus_error(e: Exception) -> bool:
+    """통신(serial, ConnectionError, TimeoutError는 OSError) 또는 서보가 알린 하드웨어 오류. 이 밖의 예외(KeyError, TypeError 등)는 코드 버그다."""
+    return isinstance(e, OSError) or (isinstance(e, RuntimeError) and any(m in str(e) for m in BUS_ERROR_MARKERS))
+
+
 class MotionController:
     def __init__(self, driver, kin=None, safety: Safety | None = None, hz: int = 50):
         self.driver, self.kin, self.safety, self.dt = driver, kin, safety or Safety({}), 1.0 / hz
         self.health = HealthMonitor()
+        self.last_bus_error: str | None = None  # 마지막 버스·서보 오류 메시지(comm_lost 원인 문장에 쓴다)
         self._next_health = 0.0
         self.state = "idle"  # "idle" | "moving" | "teleop" | "stopped" | "fault"
         self.jog_joint_max, self.jog_tool_max = 40.0, 60.0  # 원격 조종 최대 속도 (deg/s, mm/s)
@@ -180,8 +189,8 @@ class MotionController:
         while self._job is not None and time.perf_counter() < end:
             time.sleep(0.01)
 
-    def estop(self) -> None:
-        """즉시 현재 위치 고정. 토크는 끄지 않는다(끄면 팔이 떨어짐)."""
+    def estop(self) -> str | None:
+        """즉시 현재 위치 고정. 토크는 끄지 않는다(끄면 팔이 떨어짐). 서보에 위치 고정을 쓰지 못했으면 그 이유(문자열), 잘 됐으면 None."""
         err = None
         with self._lock:
             if self._job is not None:
@@ -202,6 +211,7 @@ class MotionController:
             except Exception as e:  # noqa: BLE001 통신이 끊긴 상태: 예외를 밖으로 내지 않고 기록만 한다. 끊김은 상태 루프와 틱이 fault로 본다
                 err = repr(e)[:120]
         self._emit("estop", "WARN", "ARM-ESTOP", {"comm_error": err} if err else {})
+        return err
 
     def resume(self) -> bool:
         """stop·estop·fault 뒤 idle로 되돌린다. 통신 끊김 fault는 다시 연결해야 풀리므로 False (decisions/0031)."""
@@ -253,9 +263,13 @@ class MotionController:
                         self._tick()
                     elif self._jog is not None:
                         self._tick_jog()
-                except Exception as e:  # noqa: BLE001 통신 오류 등 어떤 실패든 0.5초 넘게 이어지면 fault
+                except Exception as e:  # noqa: BLE001
                     err = repr(e)[:120]
-                    self._fault(self.health.comm_failed(time.perf_counter(), kind))
+                    if is_bus_error(e):  # 통신·서보 하드웨어 오류: 0.5초 넘게 이어지면 comm_lost fault(원인 문장은 서보가 알린 오류를 담는다)
+                        self.last_bus_error = repr(e)[:200]
+                        self._fault(self.health.comm_failed(time.perf_counter(), kind), {"error": self.last_bus_error})
+                    else:  # 통신이 아닌 예외는 코드 문제다: 통신 끊김으로 부르지 않고 traceback과 함께 바로 fault (REQ-043)
+                        self._fault("internal_error", {"error": err, "where": kind, "traceback": traceback.format_exc()[-1500:]})
             self.ring.add(time.time_ns(), self._last, tick_dt, err, self.state, self.actual_hint)
             time.sleep(max(0.0, nxt - time.perf_counter()))
 
@@ -274,8 +288,10 @@ class MotionController:
         if reason == "comm_lost":  # 통신이 끊겼다: 다시 연결하기 전까지 아무 명령도 보내지 않는다 (decisions/0031)
             self._emit("comm_lost", "ERROR", "ARM-COMM-LOST", {"job": job is not None})
             return
-        with contextlib.suppress(Exception):
+        try:
             self.driver.write_joints(self._last)  # 현재 위치 유지 (토크는 끄지 않는다)
+        except Exception as e:  # noqa: BLE001 fault 중이라 통신이 안 될 수 있다. 위치를 못 붙잡았다는 사실은 남긴다
+            self._emit("fault_hold_failed", "WARN", "ARM-FAULT-HOLD-FAILED", {"reason": reason, "error": repr(e)[:120]})
 
     def _check_health(self) -> None:
         now = time.perf_counter()
@@ -327,11 +343,15 @@ class MotionController:
         if self._grip_warned_at is None:
             if now - self._grip_over_since >= self.grip_load_s:
                 self._grip_warned_at = now
-                with contextlib.suppress(Exception):
+                stop_error = None
+                try:
                     self.grip_hold = self.driver.read_joints().gripper  # 조임을 멈춘다: 목표 = 지금 위치
                     self._last = replace(self._last, gripper=self.grip_hold)
                     self.driver.write_joints(self._last)
-                self._emit("grip_overload_warn", "WARN", "ARM-GRIP-OVERLOAD-WARN", {"load_pct": load, "limit_pct": self.grip_warn_pct})
+                except Exception as e:  # noqa: BLE001 못 멈췄다는 사실을 경고 이벤트에 담는다
+                    stop_error = repr(e)[:120]
+                self._emit("grip_overload_warn", "WARN", "ARM-GRIP-OVERLOAD-WARN",
+                           {"load_pct": load, "limit_pct": self.grip_warn_pct, **({"stop_error": stop_error} if stop_error else {})})
         elif now - self._grip_warned_at >= 1.0:
             self.grip_hold = None
             self._last = replace(self._last, gripper=self.grip_open)  # fault가 이 값을 써서 연다

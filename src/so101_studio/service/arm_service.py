@@ -3,11 +3,13 @@ import math
 import threading
 import time
 import traceback
+import warnings
 from dataclasses import asdict, replace
 from pathlib import Path
 
 import numpy as np
 
+from ..arm.collision import SceneCollision
 from ..arm.kinematics import Kinematics
 from ..arm.motion import MotionController
 from ..arm.safety import MODES, Safety, SafetySettings
@@ -19,6 +21,7 @@ from ..core.blackbox import install_excepthooks
 from ..core.config import GRIPPER_TYPES, RobotConfig, WorkspaceConfig, load_workspace
 from ..core.incident import Incident, create_incident
 from ..core.logging import RunLogger
+from ..core.scene import Scene, load_scene
 from ..core.types import ArmStatus, DetectedObject, JointState, MotionResult, ToolPose
 from ..perception.base import PoseSample
 from . import diagnostics as _diag
@@ -58,6 +61,13 @@ class ArmService:
         self.ws = ws or load_workspace()
         self.speed = speed_pct if speed_pct is not None else cfg.speed_pct_default
         self.log_root = log_root
+        self.collision = None
+        self.scene_error: str | None = None  # config/scene.yaml을 못 읽었을 때의 이유(빈 장면으로 시작한다)
+        try:
+            self.scene = load_scene()  # 장면 부품 (config/scene.yaml, 없으면 빈 목록). reload_workspace가 다시 읽는다
+        except Exception as e:  # noqa: BLE001 장면 파일 하나가 앱 시작을 막지 않게
+            self.scene, self.scene_error = Scene(), str(e)
+            warnings.warn(f"장면 부품 목록을 못 읽어 빈 장면으로 시작한다: {e}", stacklevel=2)
         self.preset_dir = "config/presets"
         self.proc = proc  # 기록 머리의 proc(cli | gui). 없으면 환경변수 SO101_PROC, 기본 cli
         self.config_dir = Path("config")  # 사고 묶음에 설정 사본을 담는 곳
@@ -102,6 +112,10 @@ class ArmService:
             self.kin = Kinematics(self.cfg.urdf, self.ws.base, self.cfg.joint_limits_deg)
         self.safety = Safety(self.cfg.joint_limits_deg, self.ws, self.kin, z_floor_mm=self.cfg.tip_floor_mm,
                              table_z_mm=self.cfg.table_z_mm, physical_limits=self.cfg.physical_limits_deg)
+        if self.collision is None:  # URDF 메쉬는 한 번만 읽는다(재연결 때 또 읽지 않는다)
+            self.collision = SceneCollision(self.kin, self.cfg.urdf, self.ws, self.cfg.table_z_mm, self.cfg.tip_floor_mm)
+        self.collision.set_scene(self.scene, self.ws)
+        self.safety.collision = self.collision
         self.ctl = MotionController(self.driver, self.kin, self.safety, self.cfg.control_hz)
         self.skills = Skills(self.ctl, self.kin, self.cfg, self.ws, self.speed)
         self.teach = Teach(self.ctl, self.cfg)
@@ -180,7 +194,8 @@ class ArmService:
                 "torque": torque, "torque_enabled": st.torque_enabled, "temperature_c": st.temperature_c, "load_pct": st.load_pct, "current_ma": st.current_ma,
                 "current_ma_by_joint": h.get("current_ma_by_joint", {}), "voltage_v": st.voltage_v, "status_bits": h.get("status_bits", {}),
                 "state": st.state, "fault": st.fault, "locked": ctl.locked_reason, "time_lost_s": round(ctl.time_lost_s, 4),
-                "tick_dt_max_ms": round(ctl.tick_dt_max_1s() * 1000, 2)}
+                "tick_dt_max_ms": round(ctl.tick_dt_max_1s() * 1000, 2),
+                "log_write_errors": getattr(self.logger, "write_errors", 0), "log_dropped": getattr(self.logger, "dropped_total", 0)}  # 기록이 빠지고 있는지 GUI가 보여 준다
 
     def _write_status(self, st) -> None:
         self.ctl.actual_hint = st.joints  # 링 버퍼가 쓰는 가장 최근 실제 값
@@ -203,7 +218,10 @@ class ArmService:
                 self.ctl.note_comm(True)
                 self._write_status(st)
                 for cb in list(self._callbacks):
-                    cb(st)
+                    try:
+                        cb(st)
+                    except Exception as e:  # noqa: BLE001 GUI 콜백의 코드 오류는 통신 끊김이 아니다: 따로 기록하고(첫 번째는 traceback) 통신 상태는 건드리지 않는다
+                        self._status_error(e, "status_callback_error")
                 if health_tick:  # 오류가 나는 읽기는 2Hz뿐이라, 그 읽기가 다시 성공해야 회복으로 본다
                     self._status_ok()
             except Exception as e:  # noqa: BLE001
@@ -230,19 +248,22 @@ class ArmService:
         self._log("load_probe", {"why": why, "torque": h.get("torque"), "status_bits": h.get("status_bits"), "load_pct": h.get("load_pct"),
                                  "current_ma_by_joint": h.get("current_ma_by_joint"), "state": self.ctl.state if self.ctl else None}, "WARN", "ARM-LOAD-PROBE")
 
-    def _status_error(self, e: Exception) -> None:
-        """첫 발생은 전체 traceback, 반복은 횟수(10, 100, 1000번째)로 남긴다."""
-        key = (type(e).__name__, str(e)[:80])
+    def _status_error(self, e: Exception, kind: str = "status_loop_error") -> None:
+        """첫 발생은 전체 traceback, 반복은 횟수(10, 100, 1000번째)로 남긴다. kind = status_loop_error(상태 읽기) | status_callback_error(GUI 콜백)."""
+        key = (kind, type(e).__name__, str(e)[:80])
+        code = "ARM-STATUS-CALLBACK-ERROR" if kind == "status_callback_error" else "ARM-STATUS-LOOP-ERROR"
         n = self._status_errors[key] = self._status_errors.get(key, 0) + 1
         if n == 1:
-            self._log("status_loop_error", {"error": repr(e), "traceback": traceback.format_exc()}, "ERROR", "ARM-STATUS-LOOP-ERROR")
+            self._log(kind, {"error": repr(e), "traceback": traceback.format_exc()}, "ERROR", code)
         elif n in (10, 100, 1000, 10000):
-            self._log("status_loop_error", {"error": repr(e), "count": n}, "WARN", "ARM-STATUS-LOOP-ERROR")
+            self._log(kind, {"error": repr(e), "count": n}, "WARN", code)
 
     def _status_ok(self) -> None:
-        if self._status_errors:
-            self._log("status_loop_recovered", {"errors": {f"{k[0]}: {k[1]}": v for k, v in self._status_errors.items()}}, "INFO", "ARM-STATUS-LOOP-RECOVERED")
-            self._status_errors = {}
+        errs = {k: v for k, v in self._status_errors.items() if k[0] == "status_loop_error"}  # 콜백 오류는 상태 읽기가 회복돼도 계속되므로 지우지 않는다(매번 traceback을 쏟지 않게)
+        if errs:
+            self._log("status_loop_recovered", {"errors": {f"{k[1]}: {k[2]}": v for k, v in errs.items()}}, "INFO", "ARM-STATUS-LOOP-RECOVERED")
+            for k in errs:
+                del self._status_errors[k]
 
     def _check_torque(self, expect) -> None:
         """2Hz로 읽은 Torque_Enable이 컨트롤러가 기대하는 값(켜져 있어야 함)과 다르면 ARM-TORQUE-LOST."""
@@ -372,8 +393,14 @@ class ArmService:
         if self.ctl.busy:
             raise RuntimeError("동작 중에는 작업대 설정을 다시 읽을 수 없다")
         ws = load_workspace(path)
+        try:  # 장면을 먼저 읽는다: 실패하면 아무것도 바꾸지 않는다
+            scene = load_scene(Path(path).parent / "scene.yaml")
+        except Exception as e:
+            raise RuntimeError(f"장면 부품 목록을 읽지 못했다: {e}") from e
         self.ws = self.skills.ws = self.safety.ws = ws
         self.kin.base = ws.base
+        self.scene, self.scene_error = scene, None
+        self.collision.set_scene(scene, ws)
         self._log("workspace_reloaded", {"base": asdict(ws.base), "table_mm": ws.table_mm, "drop_zones": list(ws.drop_zones)})
         return ws
 
@@ -711,8 +738,9 @@ class ArmService:
     def stop(self) -> None:
         self.ctl.stop()
 
-    def estop(self) -> None:
-        self.ctl.estop()  # 이벤트(ARM-ESTOP)와 사고 묶음은 컨트롤러가 알린다
+    def estop(self) -> str | None:
+        """즉시 정지. 위치 고정을 서보에 쓰지 못했으면 이유(통신 오류), 아니면 None."""
+        return self.ctl.estop()  # 이벤트(ARM-ESTOP)와 사고 묶음은 컨트롤러가 알린다
 
     def resume(self) -> bool:
         """stop·estop(상태 stopped)이나 fault 뒤에 다시 움직일 수 있게 idle로 되돌린다. 팔은 움직이지 않는다 (REQ-009). 통신 끊김 fault는 풀리지 않고 False(다시 연결해야 한다, decisions/0031)."""

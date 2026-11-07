@@ -515,7 +515,7 @@ def test_gripper_type_can_be_changed_for_the_next_start(backend, tmp_path, monke
     monkeypatch.setattr(backend, "local_path", str(local))
     assert backend.gripper_info()["type"] == "single_jaw"
     assert backend.choose_gripper("nope") and "gripper" not in local.read_text(encoding="utf-8")
-    assert "3D는" in gripper_text({"type": "parallel", "max_open_mm": 84})
+    assert gripper_text({"type": "parallel", "max_open_mm": 84}) == "그리퍼: 병렬(두 턱이 대칭으로 움직임) · 최대 벌림 84 mm"
 
     async def check(user):
         assert "단동식" in _one(user, "gripper-type").text

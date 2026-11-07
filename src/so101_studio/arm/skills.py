@@ -34,10 +34,12 @@ class Skills:
 
     def _restore_grip_torque(self) -> None:
         """조임 한계를 원래 값으로 되돌리고 그리퍼 목표 고정을 푼다. 아무것도 안 바꿨으면 아무것도 쓰지 않는다."""
-        self.ctl.hold_gripper(None)
-        if self._grip_orig is not None:
-            orig, self._grip_orig = self._grip_orig, None
-            self.ctl.driver.set_gripper_torque_limit(orig)
+        try:
+            self.ctl.hold_gripper(None)
+        finally:  # 고정을 푸는 데 실패해도 조임 한계는 반드시 되돌린다(낮춘 채 남으면 다음 물체를 못 쥔다)
+            if self._grip_orig is not None:
+                orig, self._grip_orig = self._grip_orig, None
+                self.ctl.driver.set_gripper_torque_limit(orig)
 
     def _q(self) -> JointState:
         return self.ctl.driver.read_joints()

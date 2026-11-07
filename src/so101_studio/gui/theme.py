@@ -59,7 +59,8 @@ BODY_PX = 15
 RADIUS = 10
 GAP = 16
 DRAWER_W = 240
-ESTOP_D = 88
+ESTOP_D = 64  # 아래 조작 막대 안에서 가장 큰 버튼 (결정 0044)
+JOG_PANEL_W = 300
 
 _FONTS = (
     '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?'
@@ -133,8 +134,10 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 .vc-home {{ position: absolute; left: 0; top: 0; pointer-events: auto; color: {MUTED}; }}
 .scene-layers {{ position: absolute; top: 8px; left: 8px; }}
 .q-page-sticky {{ z-index: 5000; }}
+.program-step {{ border-radius: 6px; }}
+.program-step-selected {{ background: {LINE}; outline: 2px solid {ACCENT}; }}
 .estop {{ width: {ESTOP_D}px; height: {ESTOP_D}px; font-weight: 600; border: 3px solid {CARD}; outline: 2px solid {DANGER}; }}
-.nicegui-content {{ padding: {GAP}px; gap: {GAP}px; padding-bottom: {ESTOP_D + 2 * GAP}px; }}
+.nicegui-content {{ padding: {GAP}px; gap: {GAP}px; }}
 .q-field--outlined .q-field__control:before {{ border-color: {CONTROL_BORDER}; }}
 .q-field--outlined.q-field--focused .q-field__control:after {{ border-color: {ACCENT}; border-width: 2px; }}
 :focus-visible {{ outline: 2px solid {ACCENT}; outline-offset: 2px; }}

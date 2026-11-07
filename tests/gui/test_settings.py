@@ -109,6 +109,12 @@ def test_page_applies_margin_and_box(clean):
     in_app(clean, "/safety", check)
 
 
+def test_one_sided_box_still_checks_moves(clean):
+    """감사 2026-11-07: 높이 최대만 준 상자를 저장한 뒤에도 안전 검사가 예외 없이 판정해야 한다."""
+    assert clean.set_safety("normal", 0.0, {"z": [None, 150]}) is None
+    assert clean.arm.safety.check_goal(clean.arm.status().joints) is None
+
+
 def test_view_only_cannot_change_safety(clean):
     clean.owner = "다른 브라우저"
 

@@ -48,10 +48,17 @@ def table_hit(origin, direction) -> tuple[float, float] | None:
     return (origin[0] + t * direction[0]) * 1000, (origin[1] + t * direction[1]) * 1000
 
 
-def urdf_cfg(q, names) -> np.ndarray:
-    """JointState(도, 그리퍼는 값)를 URDF 관절각(rad)으로. names는 URDF의 관절 순서."""
-    deg = {j: getattr(q, j) for j in ARM_JOINTS} | {"gripper": VALUE_TO_Q[0] + VALUE_TO_Q[1] * q.gripper}
-    return np.radians([deg[n] for n in names])
+def urdf_cfg(q, names, width_mm=None) -> np.ndarray:
+    """JointState(도, 그리퍼는 값)를 URDF 관절값으로. names는 URDF의 관절 순서.
+    width_mm([[값, 폭 mm], ...])를 주면 병렬 그리퍼(REQ-041): gripper는 직선 관절이라 +폭/2(m), gripper_left는 -폭/2."""
+    out = {j: math.radians(getattr(q, j)) for j in ARM_JOINTS}
+    if width_mm:
+        pts = sorted(width_mm)
+        half = float(np.interp(q.gripper, [p[0] for p in pts], [p[1] for p in pts])) / 2000.0
+        out |= {"gripper": half, "gripper_left": -half}
+    else:
+        out["gripper"] = math.radians(VALUE_TO_Q[0] + VALUE_TO_Q[1] * q.gripper)
+    return np.array([out.get(n, 0.0) for n in names])
 
 
 def simplify(mesh, cell_m: float = MESH_CELL_M) -> trimesh.Trimesh:
@@ -151,6 +158,7 @@ class Scene3D:
         )
         self.server.gui.main_panel.minimize()  # 조작은 NiceGUI 쪽에서 한다. 이 패널은 3D를 가리기만 한다
         self._kin, self._table_z = kin, cfg.table_z_mm
+        self._width_mm = cfg.gripper_width_mm if getattr(cfg, "gripper", "single_jaw") == "parallel" else None  # 병렬 URDF는 그리퍼가 직선 관절
         self.layers = dict.fromkeys(LAYERS, True)  # 브라우저가 여럿이어도 3D는 하나라 함께 바뀐다
         self._preview_on = False
         scene = self.server.scene
@@ -225,7 +233,7 @@ class Scene3D:
         """status_stream 콜백. 실제 팔과 툴 좌표축을 지금 자세로 옮긴다."""
         t = status.tool
         with self.server.atomic():
-            self._real.update_cfg(urdf_cfg(status.joints, self._names))
+            self._real.update_cfg(urdf_cfg(status.joints, self._names, self._width_mm))
             self._tool.position = (t.x_mm / 1000, t.y_mm / 1000, (t.z_mm - self._table_z) / 1000)
             self._tool.wxyz = tf.SO3.from_matrix(self._kin.tool_axes(status.joints)).wxyz
 
@@ -234,7 +242,7 @@ class Scene3D:
         self._preview_on = joints is not None
         self._preview_root.visible = self._preview_on and self.layers["preview"]
         if joints is not None:
-            self._preview.update_cfg(urdf_cfg(joints, self._names))
+            self._preview.update_cfg(urdf_cfg(joints, self._names, self._width_mm))
 
     def set_layer(self, name: str, visible: bool) -> None:
         """묶음 하나를 켜거나 끈다. 자리만 바꾸므로 끈 동안의 자세·물체도 켜면 바로 맞게 보인다."""

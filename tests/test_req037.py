@@ -36,10 +36,9 @@ def test_move_tool_with_a_tilted_hand_reaches_the_tip_point(svc):
 
 def test_floor_check_uses_the_tilted_hand_real_jaws(svc):
     # 같은 끝점 높이 2mm라도 기울이면 다른 턱이 더 낮을 수 있다: 안전 검사는 그 자세의 실제 턱으로 판정한다(REQ-036 메쉬)
-    why, _q = svc.preview_tool(svc.point_pose(300, 200, 2.0, pitch=-90.0))
-    assert why in ("z_floor", None)
-    why, _q = svc.preview_tool(svc.point_pose(300, 200, -10.0, pitch=-45.0))
-    assert why == "z_floor"
+    # (300, 230)에서 끝점 높이 6mm: 수직(-90)이면 통과, 45° 기울이면 다른 턱이 더 낮아 z_floor
+    assert svc.preview_tool(svc.point_pose(300, 230, 6.0, pitch=-90.0))[0] is None
+    assert svc.preview_tool(svc.point_pose(300, 230, 6.0, pitch=-45.0))[0] == "z_floor"
 
 
 def test_cartesian_jog_can_tilt_the_hand(svc):
@@ -59,7 +58,7 @@ def test_pick_range_is_the_workspace_reach_and_is_separate_from_the_motion_range
     horiz = {row["height_mm"]: row for row in svc.reach_ranges(0.0)["motion"]}
     assert 330 <= horiz[120]["max_mm"] <= 360  # 0° 자세(완전히 편 팔) 수평 도달 약 353mm (실측 일치)
     assert horiz[120]["max_mm"] > down[120]["max_mm"]  # 손끝 방향이 자유로우면 더 멀리 간다
-    assert svc.reach_ranges(0.0) is not None  # 같은 인자는 캐시
+    assert svc.reach_ranges(0.0)["motion"] is svc.reach_ranges(0.0)["motion"]  # 같은 인자는 캐시(같은 계산 결과 객체)
 
 
 def test_reach_ranges_refuses_to_compute_while_moving(svc):
