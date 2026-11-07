@@ -44,6 +44,13 @@ def test_urdf_cfg_follows_urdf_joint_order_and_gripper_mapping():
     assert got == pytest.approx([math.radians(-10), math.radians(50), math.radians(10)])
 
 
+def test_urdf_cfg_parallel_gripper_is_half_gap_in_meters():
+    """REQ-041: 병렬 URDF의 gripper는 직선 관절(m). 값 50이면 폭 42mm -> 오른쪽 +0.021, 왼쪽 -0.021."""
+    q = JointState(0, 0, 0, 0, 0, 50)
+    got = urdf_cfg(q, ("gripper", "gripper_left", "shoulder_pan"), [[0, 0], [100, 84]])
+    assert got == pytest.approx([0.021, -0.021, 0.0])
+
+
 def test_urdf_cfg_covers_every_actuated_joint(backend3d):
     names = backend3d.scene._names
     assert set(names) == set(ARM_JOINTS) | {"gripper"}
