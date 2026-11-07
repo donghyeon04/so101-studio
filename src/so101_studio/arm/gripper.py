@@ -34,6 +34,7 @@ class Gripper(Protocol):
     def width_to_value(self, width_mm: float) -> float: ...  # 벌림 폭(mm) -> 그리퍼 값
     def jaw_tips(self, pitch_deg: float, yaw_deg: float, v: float): ...  # 기준점에서 본 두 턱 끝 (작업대 좌표계 mm)
     def center_offset(self, pitch_deg: float, yaw_deg: float, v: float) -> np.ndarray: ...  # 기준점에서 본 두 턱 끝 중간점
+    def set_joints(self, robot, v: float) -> None: ...  # placo 로봇의 그리퍼 관절(들)을 그리퍼 값 v에 맞춘다
     def lowest_z(self, q: JointState) -> float: ...  # 턱 메쉬의 가장 낮은 점(모델 z, mm)
     def tilt(self, v: float) -> float: ...  # 그리퍼 값 v에서의 손 기울기(°)
     def narrowing(self, v: float, tilt_ok: bool) -> float: ...  # 턱 끝에서 위로 1mm 갈 때 턱 사이 간격이 줄어드는 mm
@@ -109,16 +110,18 @@ class SingleJawGripper:
         f, m = self.jaw_tips(pitch_deg, yaw_table_deg, gripper_value)
         return (f + m) / 2
 
+    def set_joints(self, robot, v: float) -> None:
+        robot.set_joint("gripper", math.radians(min(max(VALUE_TO_Q[0] + VALUE_TO_Q[1] * v, -10.0), 100.0)))  # URDF gripper 관절 범위
+
     def lowest_z(self, q: JointState) -> float:
         """고정 턱(손 메쉬)과 움직이는 턱 메쉬의 가장 낮은 꼭짓점 높이(모델 z, mm; fk의 z_mm와 같은 기준). 기울기와 벌림을 반영한 실제 턱 몸체 아래 모서리까지 본다 (REQ-036)."""
         meshes = _jaw_meshes()  # 메쉬를 먼저 읽는다(관절을 맞춘 뒤 처음 읽을 때 첫 결과가 틀리게 나온 일이 있었다)
         k = self.kin._k
         robot = k.robot
-        deg = min(max(VALUE_TO_Q[0] + VALUE_TO_Q[1] * q.gripper, -10.0), 100.0)  # URDF gripper 관절 범위
         arm = np.array([getattr(q, j) for j in ARM_JOINTS], float)
         for _ in range(1 if self._jaw_ready else 2):  # placo는 gripper 관절이 처음 들어간 첫 갱신에서 링크 변환이 낡은 채 나온다: 처음에는 두 번 맞춘다
             k.forward_kinematics(arm)
-            robot.set_joint("gripper", math.radians(deg))
+            self.set_joints(robot, q.gripper)
             robot.update_kinematics()
         self._jaw_ready = True
         low = []
@@ -178,6 +181,31 @@ class SingleJawGripper:
         return LineTrajectory(np.array(pts), QuinticShape(max(1.0, abs(gap0 - gap_end) / 16.0) / speed))  # 틈 16mm/s로 천천히(gripper_speed_pct로 더 늦춘다)
 
 
+@functools.lru_cache(maxsize=1)
+def _parallel_meshes() -> dict:
+    """assets/so101_parallel.urdf의 손 본체·클램프 두 개의 볼록 꼭짓점(gripper_link 프레임, m). 클램프는 닫힌(관절 0) 자리."""
+    import xml.etree.ElementTree as ET
+
+    import trimesh
+    urdf = Path(__file__).resolve().parents[3] / "assets" / "so101_parallel.urdf"
+    root = ET.parse(urdf).getroot()
+
+    def vec(e, key):
+        return np.array([float(x) for x in (e.get(key) if e is not None else "0 0 0").split()])
+
+    out = {}
+    for name, link, joint in (("hand", "gripper_link", None), ("right", "clamp_right", "gripper"), ("left", "clamp_left", "gripper_left")):
+        vis = root.find(f"link[@name='{link}']/visual")
+        mesh = vis.find("geometry/mesh")
+        o = vis.find("origin")
+        v = _stl_vertices(urdf.parent / mesh.get("filename")) * float(mesh.get("scale", "1 1 1").split()[0])
+        v = v @ _rpy(*vec(o, "rpy")).T + vec(o, "xyz")
+        if joint:
+            v = v + vec(root.find(f"joint[@name='{joint}']/origin"), "xyz")
+        out[name] = np.asarray(trimesh.convex.hull_points(v), float)
+    return out
+
+
 class ParallelGripper:
     """병렬 그리퍼(Robonine Parallel Gripper 등): 두 턱이 좌우 대칭으로 열린다 (결정 0043-1).
     TCP는 두 턱 중앙이라 손 위치 보정이 0, 기울기 0, 턱 간격은 높이에 따라 좁아지지 않는다(W <= G - 4). 닫기·열기는 그리퍼 축만 움직인다.
@@ -213,11 +241,26 @@ class ParallelGripper:
         f, m = self.jaw_tips(pitch_deg, yaw_table_deg, gripper_value)
         return (f + m) / 2
 
+    def set_joints(self, robot, v: float) -> None:
+        """오른쪽 클램프(gripper)는 +간격/2, 왼쪽(gripper_left)은 -간격/2 (m). placo는 mimic을 몰라 둘 다 맞춘다. URDF에 없으면(단동식 URDF) 건너뛴다."""
+        h = self._gap(v) / 2000.0
+        names = set(robot.joint_names())
+        for name, val in (("gripper", h), ("gripper_left", -h)):
+            if name in names:
+                robot.set_joint(name, val)
+
     def lowest_z(self, q: JointState) -> float:
-        """메쉬가 없으므로 턱 끝 높이(모델 z, mm). 병렬 URDF/메쉬가 들어오면 단동식처럼 메쉬로 바꾼다."""
-        p = self.kin.fk(q)
-        f, m = self.jaw_tips(p.pitch_deg, p.yaw_deg, q.gripper)
-        return float(p.z_mm + min(f[2], m[2]))
+        """손 본체와 두 클램프 메쉬의 가장 낮은 꼭짓점 높이(모델 z, mm). 클램프는 닫힌 자리에서 간격/2만큼 좌우로 벌린다 (assets/so101_parallel.urdf)."""
+        meshes = _parallel_meshes()
+        k = self.kin._k
+        k.forward_kinematics(np.array([getattr(q, j) for j in ARM_JOINTS], float))
+        T = k.robot.get_T_world_frame("gripper_link")
+        h = self._gap(q.gripper) / 2000.0
+        low = []
+        for name, v in meshes.items():
+            dx = {"hand": 0.0, "right": h, "left": -h}[name]
+            low.append(float(((v @ T[2, :3]) + dx * T[2, 0]).min() + T[2, 3]))
+        return min(low) * 1000.0
 
     def tilt_allowed(self, x_mm: float, y_mm: float, yaw_t: float) -> bool:
         return False

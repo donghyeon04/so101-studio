@@ -9,6 +9,7 @@ from test_skills import CFG, WS, kin, obj, rig  # noqa: F401  (kin은 픽스처)
 
 from so101_studio.arm.gripper import ParallelGripper, SingleJawGripper
 from so101_studio.core.config import load_robot
+from so101_studio.core.types import JointState
 
 
 def load_parallel():
@@ -76,3 +77,21 @@ def test_gripper_info_in_sim(tmp_path):
     info = s.gripper_info()
     s.disconnect()
     assert info["type"] == "single_jaw" and "parallel" in info["available"] and info["needs_centering"] is True
+
+
+def test_parallel_urdf_and_mesh_lowest_z(kin):
+    """REQ-041: 병렬 URDF의 gripper 관절·TCP, 메쉬 lowest_z가 턱 끝 계산과 맞는다."""
+    from so101_studio.arm.kinematics import Kinematics
+    cfg = load_parallel()
+    assert cfg.urdf == "assets/so101_parallel.urdf"
+    k = Kinematics(cfg.urdf, WS.base, cfg.joint_limits_deg)
+    k.gripper = ParallelGripper(k, cfg)
+    names = k._k.robot.joint_names()
+    assert "gripper" in names and "gripper_left" in names
+    zs = []
+    for g in (0.0, 50.0, 100.0):
+        q = k.ik(k.gripper.hand_pose(300, 250, 90.0, g, False, 20.0), JointState(0, -30, 30, 60, 0, g))
+        assert q is not None
+        q = replace(q, gripper=g)
+        zs.append(k.gripper.lowest_z(q))
+    assert max(zs) - min(zs) < 1.5 and zs[0] == pytest.approx(20.0 + 0.0, abs=4.0)  # 수직이면 간격이 바뀌어도 가장 낮은 점은 같고, 손끝 높이 20mm 근처
