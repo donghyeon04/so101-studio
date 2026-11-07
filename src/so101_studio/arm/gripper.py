@@ -176,3 +176,69 @@ class SingleJawGripper:
                 return None
             pts.append(np.array(astuple(replace(q, gripper=v)), float))
         return LineTrajectory(np.array(pts), QuinticShape(max(1.0, abs(gap0 - gap_end) / 16.0) / speed))  # 틈 16mm/s로 천천히(gripper_speed_pct로 더 늦춘다)
+
+
+class ParallelGripper:
+    """병렬 그리퍼(Robonine Parallel Gripper 등): 두 턱이 좌우 대칭으로 열린다 (결정 0043-1).
+    TCP는 두 턱 중앙이라 손 위치 보정이 0, 기울기 0, 턱 간격은 높이에 따라 좁아지지 않는다(W <= G - 4). 닫기·열기는 그리퍼 축만 움직인다.
+    폭<->서보값 표, 접촉·조임 기준, TCP에서 턱 끝까지 거리(gripper_tip_offset_mm)는 실물에서 재서 config/grippers/parallel.yaml에 채운다."""
+    name = "parallel"
+    needs_centering = False
+
+    def __init__(self, kin, cfg=None):
+        self.kin, self.cfg = kin, cfg
+
+    def width_to_value(self, width_mm: float) -> float:
+        pts = sorted((mm, v) for v, mm in self.cfg.gripper_width_mm)
+        lo, hi = self.cfg.joint_limits_deg["gripper"]
+        return float(np.clip(np.interp(width_mm, [p[0] for p in pts], [p[1] for p in pts]), lo, hi))
+
+    def _gap(self, v: float) -> float:
+        pts = sorted(self.cfg.gripper_width_mm)
+        return float(np.interp(v, [p[0] for p in pts], [p[1] for p in pts]))
+
+    @property
+    def min_gap_mm(self) -> float:
+        return min(mm for _, mm in self.cfg.gripper_width_mm)
+
+    def jaw_tips(self, pitch_deg: float, yaw_table_deg: float, gripper_value: float):
+        """TCP(두 턱 중앙)에서 본 두 턱 끝: 도구 x축으로 -+간격/2, 도구 축(+z)으로 gripper_tip_offset_mm. 가동 턱 쪽(-x)을 앞에 둔다(단동식과 같은 순서)."""
+        R = _rotation(pitch_deg, yaw_table_deg - self.kin.base.yaw_deg) @ self.kin._C
+        c, s = math.cos(math.radians(self.kin.base.yaw_deg)), math.sin(math.radians(self.kin.base.yaw_deg))
+        Rt = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]]) @ R
+        h, off = self._gap(gripper_value) / 2, self.cfg.gripper_tip_offset_mm if self.cfg else 0.0
+        return Rt @ np.array([h, 0.0, off]), Rt @ np.array([-h, 0.0, off])
+
+    def center_offset(self, pitch_deg: float, yaw_table_deg: float, gripper_value: float) -> np.ndarray:
+        f, m = self.jaw_tips(pitch_deg, yaw_table_deg, gripper_value)
+        return (f + m) / 2
+
+    def lowest_z(self, q: JointState) -> float:
+        """메쉬가 없으므로 턱 끝 높이(모델 z, mm). 병렬 URDF/메쉬가 들어오면 단동식처럼 메쉬로 바꾼다."""
+        p = self.kin.fk(q)
+        f, m = self.jaw_tips(p.pitch_deg, p.yaw_deg, q.gripper)
+        return float(p.z_mm + min(f[2], m[2]))
+
+    def tilt_allowed(self, x_mm: float, y_mm: float, yaw_t: float) -> bool:
+        return False
+
+    def tilt(self, v: float) -> float:
+        return 0.0
+
+    def narrowing(self, v: float, tilt_ok: bool) -> float:
+        return 0.0
+
+    def hand_pose(self, ox: float, oy: float, yaw_t: float, v: float, tilt_ok: bool, tip_z: float, tilt_scale: float = 1.0) -> ToolPose:
+        f, m = self.jaw_tips(-90.0, yaw_t, v)
+        mid = (f[:2] + m[:2]) / 2  # 수직 하강이라 0
+        return ToolPose(ox - mid[0], oy - mid[1], tip_z - min(f[2], m[2]), yaw_t, -90.0)
+
+    def closing_path(self, q_start: JointState, center, yaw_t: float, tilt_ok: bool, v0: float, v_end: float, gap0: float, gap_end: float, tip_z: float, speed: float = 1.0):
+        """손은 그대로 두고 그리퍼 축만 v0 -> v_end. 열 때도 같은 경로."""
+        pts = np.array([np.array(astuple(replace(q_start, gripper=v0)), float), np.array(astuple(replace(q_start, gripper=v_end)), float)])
+        return LineTrajectory(pts, QuinticShape(max(1.0, abs(gap0 - gap_end) / 16.0) / speed))
+
+
+def make_gripper(kin, cfg):
+    """설정 gripper에 맞는 그리퍼 (config/grippers/<종류>.yaml)."""
+    return {"single_jaw": SingleJawGripper, "parallel": ParallelGripper}[cfg.gripper](kin, cfg)

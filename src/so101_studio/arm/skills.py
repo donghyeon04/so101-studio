@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 
 from ..core.types import DetectedObject, JointState, MotionResult, ToolPose
-from .gripper import SingleJawGripper
+from .gripper import make_gripper
 from .trajectory import cfg_move_j, cfg_move_l
 
 SEEDS = [JointState(0, -30, 30, 60, 0, 0), JointState(0, -60, 60, 30, 0, 0), JointState(0, 0, 60, 30, 0, 0)]
@@ -16,7 +16,7 @@ SEEDS = [JointState(0, -30, 30, 60, 0, 0), JointState(0, -60, 60, 30, 0, 0), Joi
 class Skills:
     def __init__(self, ctl, kin, cfg, ws, speed_pct: float | None = None):
         self.ctl, self.kin, self.cfg, self.ws = ctl, kin, cfg, ws
-        self.gripper = kin.gripper = SingleJawGripper(kin, cfg)  # 그리퍼 종류별 기하·보정·경로 지식은 arm/gripper.py (work-queue 5-3)
+        self.gripper = kin.gripper = make_gripper(kin, cfg)  # 그리퍼 종류별 기하·보정·경로 지식은 arm/gripper.py (work-queue 5-3)
         self.speed = speed_pct if speed_pct is not None else cfg.speed_pct_default
         self.opening_fallback_reason: str | None = None  # 마지막 _opening_path가 None이었던 이유
         self.last_place_correction_mm: tuple[float, float] | None = None  # 마지막 place가 손 xy를 옮긴 양
