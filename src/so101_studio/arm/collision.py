@@ -1,6 +1,7 @@
 """장면 부품과 팔의 충돌 거리 (REQ-040, 결정 0043-5). coal로 팔 링크 메쉬(볼록 근사)와 장면 부품 사이 최단 거리를 잰다.
 링크에 붙은 부품은 팔의 일부로 본다. 단위: 입출력 mm, 내부 coal은 m.
 shortcut: 메쉬를 볼록 껍질로 근사한다(오목한 부품은 실제보다 크게 잡힌다: 안전한 쪽), 오목 부품을 정확히 보려면 BVH로 바꾼다."""
+import functools
 import math
 import threading
 import xml.etree.ElementTree as ET
@@ -31,14 +32,19 @@ def _T(T: np.ndarray):
     return coal.Transform3s(np.ascontiguousarray(T[:3, :3], float), np.ascontiguousarray(T[:3, 3], float))
 
 
+@functools.lru_cache(maxsize=2)
+def _shared(urdf_path: str):
+    """(placo 로봇, 잠금, 링크 볼록체 목록)을 URDF 경로마다 한 번만 만든다."""
+    return RobotKinematics(urdf_path, "gripper_frame_link", joint_names=ARM_JOINTS), threading.Lock(), SceneCollision._load_links(Path(urdf_path))
+
+
 class SceneCollision:
     def __init__(self, kin, urdf_path: str, ws=None, table_z_mm: float = 0.0, z_floor_mm: float = 4.0):
         self.kin, self.ws, self.table_z_mm, self.z_floor_mm = kin, ws, table_z_mm, z_floor_mm
-        # 제어 스레드(조그 IK)와 GUI 계획 스레드(check_path)가 kin._k를 같이 쓰므로 링크 변환은 이 객체의 자기 placo 로봇으로 구한다. 이 객체 안에서는 잠금으로 한 번에 하나만
-        self._k = RobotKinematics(urdf_path, "gripper_frame_link", joint_names=ARM_JOINTS)
-        self._lock = threading.Lock()
+        # 제어 스레드(조그 IK)와 GUI 계획 스레드(check_path)가 kin._k를 같이 쓰므로 링크 변환은 kin과 따로 만든 placo 로봇으로 구하고, 그 로봇은 잠금으로 한 번에 하나만 쓴다.
+        # URDF마다 한 번만 만들어 이 프로세스의 모든 SceneCollision이 나눠 쓴다(ArmService를 여러 번 만들어도 메모리가 늘지 않고 메쉬 읽기 1.2초도 한 번뿐)
+        self._k, self._lock, self._links = _shared(str(urdf_path))
         self.scene = None
-        self._links = self._load_links(Path(urdf_path))  # [(링크, coal 볼록체)]
         self._parts: list = []  # 작업대 부품: (이름, coal 볼록체, 작업대 -> 부품 4x4 m)
         self._attached: list = []  # 링크 부품: (이름, 링크, coal 볼록체, 꼭짓점 m, 링크 -> 부품 4x4 m)
         self._ready = False
@@ -46,6 +52,7 @@ class SceneCollision:
 
     @staticmethod
     def _load_links(urdf: Path) -> list:
+        """[(링크, coal 볼록체)]"""
         out = []
         for link in ET.parse(urdf).getroot().findall("link"):
             name = link.get("name")
