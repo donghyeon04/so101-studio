@@ -95,9 +95,9 @@ def build(backend, client_id: str, actions) -> None:
     with actions:
         ui.button("정지", color="negative", on_click=lambda: run.io_bound(backend.stop_program)).props("outline no-caps").mark("program-stop")
 
-    with ui.row().classes("w-full no-wrap items-start gap-4"):
+    with ui.row().classes("w-full items-start gap-4"):  # 좁으면 편집·자세 칸이 단계 목록 아래로 내려간다
         # 단계 목록
-        with ui.column().classes("flex-1 min-w-0 gap-3"):
+        with ui.column().classes("flex-1 min-w-[360px] gap-3"):
             with ui.card().classes("w-full gap-2"):
                 with ui.row().classes("w-full items-center gap-2 no-wrap"):
                     picker = ui.select(backend.program_names(), label="불러오기", on_change=lambda e: load(e.value)).props("outlined dense").classes("w-48").mark("program-picker")
