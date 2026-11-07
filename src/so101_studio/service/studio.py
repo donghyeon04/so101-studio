@@ -111,6 +111,7 @@ class Studio:
         if self._thread is not None and self._thread.is_alive():
             raise RuntimeError("작업이 실행 중이라 작업대 설정을 다시 읽을 수 없다")
         self.ws = self.task.ws = self.arm.reload_workspace()
+        self.task.refresh_ignore_zones()  # 배출 구역이 바뀌었으면 인식 소스도 따라간다
         return self.ws
 
     def status(self) -> dict:

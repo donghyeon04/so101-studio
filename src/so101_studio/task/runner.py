@@ -24,6 +24,7 @@ class TaskRunner:
         self._stop = False
         self._step_mode = False
         self._trail: PoseTrail | None = None
+        self._auto_zones: list[tuple[float, float, float]] = []  # 전에 소스에 넘긴 배출 구역(소스 고유 영역과 구별한다)
         self._warned_rescan_cfg = False
         self.wait_step: Callable[[], None] = lambda: None  # 단계별 모드에서 다음 단계를 기다리는 함수(CLI는 Enter, GUI는 step())
 
@@ -67,12 +68,20 @@ class TaskRunner:
                     emit("task_config_warn", "WARN", "TASK-RESCAN-CFG-MISSING", {"detail": "rescan_home 설정이 없어 기본값(켬)으로 진행"})
             return True
 
+    def refresh_ignore_zones(self) -> None:
+        """배출 구역을 인식 소스의 ignore_zones로 넘긴다(소스가 따로 가진 영역은 남기고 전에 넘긴 배출 구역만 바꾼다). 실행 시작과 작업대 설정을 다시 읽을 때 부른다."""
+        if not hasattr(self.source, "ignore_zones"):
+            return
+        self.source.ignore_zones = [z for z in self.source.ignore_zones if z not in self._auto_zones] + (auto := self.ws.ignore_zones())
+        self._auto_zones = auto
+
     def _begin_checkable(self) -> None:
         if self.arm is None:
             raise ValueError("확인 기능이 있는 인식 방식은 TaskRunner(arm=...)이 필요하다")
         if getattr(self.source, "bus", 1) is None:
             self.source.bus = self.bus  # us.* 이벤트가 Studio.bus로 나간다 (GUI가 구독)
         self.arm.set_sensor_offset(dict(self.source.cfg.arm_sensor_offset_mm))
+        self.refresh_ignore_zones()
         self.source.begin_cycle()
         self._trail = getattr(self.arm, "trail", None) or PoseTrail(self.arm)  # 가상 ESP32가 쓰는 기록이 있으면 그것을 같이 쓴다
         self._trail.attach()

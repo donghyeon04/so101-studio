@@ -41,7 +41,7 @@ def make_ultrasonic_source(arm, *, sim: bool, port: str | None = None, radar: di
         port = port or cfg.port
         if port in (None, "auto"):
             raise SystemExit("초음파 포트를 모른다: --us-port COMx 로 지정한다")
-        return UltrasonicSource(Link(SerialTransport(port, cfg.baud)), cfg)
+        return UltrasonicSource(Link(SerialTransport(port, cfg.baud)), cfg)  # 배출 구역(ignore_zones)은 TaskRunner가 실행을 시작할 때 넘긴다 (REQ-045)
     boxes = boxes if boxes is not None else random_layout(random.Random("demo-None-0"), "demo")  # 벤치마크 demo 배치 그대로
     trail, clk = PoseTrail(arm), RealClock()
     arm.trail = trail  # TaskRunner가 이 기록에 팔 자세를 남긴다
