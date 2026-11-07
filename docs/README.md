@@ -14,8 +14,8 @@
 | 경로 | 유형 | 상태 | 설명 |
 |---|---|---|---|
 | `docs/planning/overview.md` | 기획 | 초안 | 기획서: 한 줄 정의, 일정·평가, 산출물, 역할, 기획 진행 순서, 범위, 주간 일정 |
-| `docs/planning/project-status.md` | 기획 | 초안 | 프로젝트 현황 한 장(팀 공유·인수인계): 부분별 된 것과 남은 것, 가상 성능, 팀과 논의할 것, 일정 |
-| `docs/planning/work-queue.md` | 기획 | 초안 | 작업 대기열: 사용자 큰 지시(2026-11-07)의 단계, 진행 상황, 사용자 결정 모음. 압축·세션 교체 뒤 여기부터 읽는다 |
+| `docs/planning/project-status.md` | 기획 | 초안 | 프로젝트 현황 한 장(팀 공유·인수인계): 처음 읽는 순서, 부분별 된 것과 남은 것, 실물 확인 결과, 세션과 폴더 |
+| `docs/planning/work-queue.md` | 기획 | 초안 | 작업 대기열: 지금 순서, 사용자 결정 대기, 세션별 다음 일, 실물로만 할 일, 열린 PR. 압축·세션 교체 뒤 여기부터 읽는다 |
 | `docs/planning/features.md` | 기획 | 초안 | 기능명세서와 메뉴트리, 시연 시나리오, 기능별 범위 층 |
 | `docs/planning/system-architecture.md` | 기획 | 확정 | 시스템 구성, 모듈 경계, 공통 타입, 인식 규격, 작업 실행 상태 머신, ESP32 통신 틀, 폴더 구조, 0~2단계 작업 순서 |
 | `docs/planning/arm-software-spec.md` | 기획 | 확정 | 팔 모듈 계층 구조, 데이터 타입, 모듈 API, 설정·출력 형식, 구현 작업 순서(T1~T11) |
@@ -23,7 +23,7 @@
 | `docs/planning/workbench-hardware-requirements.md` | 기획 | 초안 | 작업대(판) 하드웨어 설계 요구사항: 작업 면 600×400·좌표 원점, 팔 고정, 레이더 높이 20mm·시야, 손목 센서, 테두리, 그리드 단위·표시, 돌려받을 수치 |
 | `docs/planning/arm-dev-status.md` | 기획 | 초안 | 팔 개발 현황과 인수인계: 상태, 구현 목록, 이 세션에서 한 일, 현재 설정값, 설계서와 다른 점, 사용법, GUI 연결 API, 조사·측정 결과, 알려진 문제, 남은 일 |
 | `docs/planning/gui-spec.md` | 기획 | 확정 | GUI 설계서(1차 기본 골자): 원칙, 공통 틀, 13개 페이지, 디자인 기본값, 범위, 폴더 구조, 실행 구조, 작업 순서 G0~G10 |
-| `docs/planning/gui-dev-status.md` | 기획 | 초안 | GUI 개발 현황과 인수인계: 환경, 작업 진행(G0~G10), 보낸 요청 |
+| `docs/planning/gui-dev-status.md` | 기획 | 초안 | GUI 개발 현황과 인수인계: 지금 상태, 실행, 알려진 함정, 설계 메모, 남은 GUI 일 |
 | `docs/planning/us-dev-status.md` | 기획 | 초안 | 초음파 개발 현황과 인수인계: 작업 진행(U0~U9), 측정, 보낸 요청 (초음파 세션이 처음 만든다) |
 | `docs/planning/session-requests.md` | 기획 | 초안 | 세션 간 요청 대장 (REQ 번호, 보냄·받음, 상태). 받은 세션이 갱신 |
 | `docs/planning/hardware.md` | 기획 | 초안 | 부품 구성(BOM), 보유 현황, 예상 비용, 전기적 주의사항 |
