@@ -75,3 +75,4 @@
 | `docs/decisions/0041-radar-clear-upright-pose.md` | 결정 | 확정 | `radar_clear` 기본 자세는 위로 세운 `[0, -90, 85, -90, 0, 3]`(0039의 원점 위 150mm 접은 자세는 기구학상 없음). 벤치마크도 이 값을 읽음 |
 | `docs/decisions/0042-after-real-test-batch.md` | 결정 | 확정 | 실물 시험 뒤 묶음: 물체 높이 전달(`DetectedObject.height_mm`), 그리퍼 속도 설정, 호버 도달 띠 유지, 교시 재생 변환본, 원인별 오류 문구, 작업대 설정 바로 적용, 조그 값 입력 (사용자가 로컬 총괄과 정함) |
 | `docs/decisions/0043-overnight-decisions.md` | 결정 | 확정 | 밤샘 작업 결정 묶음: 그리퍼 두 종(TCP 두 턱 중앙, 병렬은 설정으로), 레이더 서보 OpenRB-150 + XL330(UART, 5V), 자동 캘리브레이션 11.0V 유지·전원 경로 점검, 장면 부품 STL 목록, 다음 기능 순서, 레포 정리 (0035 일부 대체) |
+| `docs/decisions/0044-gui-structure-and-next-features.md` | 결정 | 확정 | GUI는 지금 구조를 고쳐 씀(아래 조작 막대, 어디서나 조그 패널, 자세 즐겨찾기, 프로그램 트리, 운영자 화면, 메뉴 정리), 다음 기능은 블록 프로그래밍·캘리브레이션 마법사·장면 부품 편집기 → MuJoCo, 1·2·3·11 뺌, 4·10은 카메라 뒤 (0043-5 순서 대체) |
