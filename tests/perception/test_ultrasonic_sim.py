@@ -461,3 +461,18 @@ def test_dxl_servo_reports_actual_angle_and_source_uses_it():
     plain, _ = radar.find_candidates(vals, base, cfg)
     shifted, _ = radar.find_candidates(vals, base, cfg, {a: -3.0 for a in vals})
     assert shifted[0].servo_deg == plain[0].servo_deg - 3.0
+
+
+def test_connect_switches_firmware_servo_driver_to_config():
+    # 펌웨어는 켤 때 pwm이고, servo.driver 설정이 dxl이면 연결할 때 `driver` 명령으로 바꾼다(hello가 dxl로 돌아옴)
+    from so101_studio.perception.ultrasonic.fake_esp32 import FakeESP32, SimClock
+    from so101_studio.perception.ultrasonic.link import Link
+    from so101_studio.perception.ultrasonic.model import load_config
+    from so101_studio.perception.ultrasonic.source import UltrasonicSource
+    clk = SimClock()
+    cfg = load_config(servo={"driver": "dxl"})
+    esp = FakeESP32(clk, [], cfg)
+    assert esp.servo == "pwm"
+    UltrasonicSource(Link(esp, clk), cfg, arm_origin_mm=(300.0, 50.0)).connect()
+    assert esp.servo == "dxl"
+    assert load_config().servo.driver == "pwm"  # 기본은 MG90S(pwm), 하위 호환
