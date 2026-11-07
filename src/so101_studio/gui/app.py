@@ -19,6 +19,7 @@ from .pages import (
     logs,
     manual,
     params,
+    program,
     runs,
     safety,
     start,
@@ -26,6 +27,7 @@ from .pages import (
     teach,
     workspace,
 )
+from .pages.common import Controls, jog_pads
 from .state import EMPTY, component_states, page_state
 from .view_cube import VIEW_CUBE_JS
 from .watchdog_link import BROWSER_HB_JS, WatchdogLink
@@ -37,7 +39,7 @@ REFRESH_S = 0.1
 # (그룹, 페이지들). 페이지는 (경로, 제목, 채우는 작업). gui-spec 3절
 PAGES = (
     ("안내", (("/start", "시작", "G12"),)),
-    ("작업", (("/", "작업 공간", "G6"), ("/manual", "직접 조작", "G4"), ("/teach", "교시", "G5"))),
+    ("작업", (("/", "작업 공간", "G6"), ("/manual", "직접 조작", "G4"), ("/teach", "교시", "G5"), ("/program", "프로그램", "결정 0044"))),
     ("인식", sensors.menu()),
     ("장치", (("/arm", "팔", "G8"), ("/esp32", "ESP32 센서 보드", "3단계"))),
     ("설정", (("/params", "파라미터·프리셋", "G7"), ("/safety", "안전", "G7"), ("/table", "작업대·좌표", "G7"))),
@@ -48,6 +50,7 @@ DESCRIPTIONS = {
     "/": "인식한 물체를 차례로 집어 배출 구역으로 옮기는 자동 작업을 실행하고 지켜봅니다.",
     "/manual": "팔을 관절이나 손끝 좌표로 직접 움직입니다.",
     "/teach": "손으로 움직인 동작을 기록하고 다시 재생합니다.",
+    "/program": "저장한 자세와 이동·집기·그리퍼·대기·반복을 순서대로 엮어 저장하고 실행합니다.",
     "/ultrasonic": "레이더와 손목 센서가 찾은 물체를 봅니다. 지금은 가상 실행만 됩니다.",
     "/camera": "카메라로 물체를 찾는 화면입니다.",
     "/input": "센서 대신 사람이 물체 위치를 알려 주는 인식 방식입니다. 작업 공간 자동 실행이 이 물체들을 집습니다.",
@@ -60,7 +63,7 @@ DESCRIPTIONS = {
     "/logs": "앱과 감시 프로세스의 기록을 한 시간축으로 봅니다.",
     "/start": "지금 모드와 처음 할 순서, 페이지 안내를 봅니다.",
 }
-BUILDERS = {"/": workspace.build, "/manual": manual.build, "/teach": teach.build, "/params": params.build, "/safety": safety.build, "/table": table.build, "/arm": arm.build, "/esp32": esp32.build, "/runs": runs.build, "/logs": logs.build, "/start": lambda b, c, a: start.build(b, c, a, PAGES[1:], DESCRIPTIONS), **sensors.pages()}  # 만든 페이지. 나머지는 자리만 있다
+BUILDERS = {"/": workspace.build, "/manual": manual.build, "/teach": teach.build, "/program": program.build, "/params": params.build, "/safety": safety.build, "/table": table.build, "/arm": arm.build, "/esp32": esp32.build, "/runs": runs.build, "/logs": logs.build, "/start": lambda b, c, a: start.build(b, c, a, PAGES[1:], DESCRIPTIONS), **sensors.pages()}  # 만든 페이지. 나머지는 자리만 있다
 COMPONENTS = ("버스", "서보")  # 감시 칸과 센서 칸은 따로 있다 (decisions/0030)
 TOP_STATS = ("센서", "전압", "최고 온도", "속도", "조작권")  # 감시 칸은 아이콘이 있어 따로 그린다. 실행 방식은 오른쪽 고르기 칸이 보인다
 WIDE_ONLY = {"센서", "최고 온도"}  # 1440px 아래에서는 숨긴다. 과열은 서보 칸이 경고로 보인다
@@ -100,8 +103,6 @@ def make_root(backend: Backend):
                 ui.label(title).classes("page-title").mark("page-title")
                 text = page_state(backend.state.status)
                 badge[:] = [ui.badge(text, color=theme.STATE_COLORS[text]).classes("page-state").mark("page-state")]
-                resume[:] = [ui.button("정지 해제", on_click=resume_arm).props("outline no-caps").mark("resume")]
-                resume[0].visible = False
                 reconnect[:] = [ui.button("다시 연결", color="negative", on_click=reconnect_arm).props("no-caps").mark("reconnect")]
                 reconnect[0].visible = False
                 ui.space()
@@ -134,6 +135,9 @@ def make_root(backend: Backend):
                         ui.notify(f"서보 건강: {describe(key)} 정상으로 돌아옴 ({value:.1f})", type="positive")
                     else:
                         ui.notify(f"서보 {LEVEL_TEXT[level]}: {describe(key, level)} ({value:.1f})", type="warning" if level == "warn" else "negative")
+            bar.refresh()
+            if backend.arm.speed != shown_speed[0]:  # 다른 화면에서 바뀐 속도만 따라간다. 끄는 중인 값은 덮지 않는다
+                shown_speed[0] = bar_speed.value = backend.arm.speed
             comm_lost = backend.comm_lost()
             for name, (level, detail) in component_states(backend.state.status, time.time(), comm_lost).items():
                 icon_name, icon_color, text = theme.COMPONENT_STYLES[level]
@@ -232,9 +236,21 @@ def make_root(backend: Backend):
                 ui.button("닫기", on_click=dialog.close).props("outline no-caps")
             dialog.open()
 
+        bar = Controls(backend, client.id, moves=True)  # 아래 막대와 조그 패널의 움직이는 조작
+
+        async def go_home() -> None:
+            reason = await run.io_bound(backend.home)
+            if reason:
+                ui.notify(reason, type="negative")
+
+        async def grip(value: float) -> None:
+            reason = await run.io_bound(backend.gripper, value)
+            if reason:
+                ui.notify(reason, type="negative")
+
         async def estop() -> None:  # 보기 전용 브라우저도 누를 수 있다. 세우는 일은 조작권과 상관없다
-            await run.io_bound(backend.estop)
-            ui.notify("비상 정지했습니다", type="negative")
+            failed = await run.io_bound(backend.estop)
+            ui.notify(failed or "비상 정지했습니다", type="negative", **({"timeout": 0, "close_button": "닫기"} if failed else {}))
 
         drawer = ui.left_drawer(value=True, bordered=False).props(f"width={theme.DRAWER_W}").classes("p-0 gap-0")
 
@@ -276,12 +292,30 @@ def make_root(backend: Backend):
                         "flat no-caps align=left"
                     ).classes("nav-item")
 
-        with ui.footer().classes("frame-bar frame-bottom items-center gap-6 px-3 py-1"):
-            for label in BOTTOM_STATS:
-                stats[label] = _stat(label)
+        # 어디서나 여는 조그 패널 (결정 0044, PolyScope X 멀티태스크 패널)
+        with ui.right_drawer(value=False, bordered=True).props(f"width={theme.JOG_PANEL_W}").classes("gap-3").mark("jog-panel") as jog_panel:
+            ui.label("조그").classes("card-title")
+            jog_pads(backend, bar, prefix="bar-")
+            with ui.row().classes("w-full gap-2 no-wrap"):
+                bar.add(ui.button("그리퍼 열기", on_click=bar.guard(lambda: grip(100.0))).props("outline no-caps").classes("flex-1").mark("bar-grip-open"))
+                bar.add(ui.button("닫기", on_click=bar.guard(lambda: grip(0.0))).props("outline no-caps").classes("flex-1").mark("bar-grip-close"))
+            ui.label("직접 조작 화면과 같은 속도·안전 검사를 씁니다").classes("page-body")
 
-        with ui.page_sticky("bottom-right", x_offset=theme.GAP, y_offset=theme.GAP):
-            ui.button("E-STOP", color="negative", on_click=estop).props("round no-caps").classes("estop").mark("estop")
+        # 아래 팔 조작 막대 (결정 0044, PolyScope X 로봇 제어 막대): 상태 값 | 속도·정지 해제·홈·조그 패널·E-STOP
+        with ui.footer().classes("frame-bar frame-bottom items-center gap-4 px-3 py-1 no-wrap"):
+            with ui.row().classes("items-center gap-6 no-wrap min-w-0 flex-1 overflow-x-auto top-stats"):
+                for label in BOTTOM_STATS:
+                    stats[label] = _stat(label)
+            with ui.row().classes("items-center gap-2 no-wrap shrink-0"):
+                ui.label("속도").classes("stat-label")
+                bar_speed = bar.add(ui.slider(min=5, max=100, step=5, value=backend.arm.speed).props('dense label aria-label="속도"').classes("w-28").mark("bar-speed"))
+                shown_speed = [backend.arm.speed]
+                bar_speed.on("change", bar.guard(lambda: run.io_bound(backend.set_speed, float(bar_speed.value))))
+                resume[:] = [ui.button("정지 해제", on_click=resume_arm).props("outline no-caps").mark("resume")]
+                resume[0].visible = False
+                bar.add(ui.button("홈", on_click=bar.guard(go_home)).props("outline no-caps").mark("bar-home"))
+                ui.button(icon="open_with", on_click=jog_panel.toggle).props('flat round color=dark aria-label="조그 패널"').mark("bar-jog")
+                ui.button("E-STOP", color="negative", on_click=estop).props("round no-caps").classes("estop").mark("estop")
 
         ui.sub_pages(
             {path: lambda p=path, t=title, k=task: show(p, t, k) for _, pages in PAGES for path, title, task in pages}

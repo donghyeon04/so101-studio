@@ -34,6 +34,7 @@ class Gripper(Protocol):
     def width_to_value(self, width_mm: float) -> float: ...  # 벌림 폭(mm) -> 그리퍼 값
     def jaw_tips(self, pitch_deg: float, yaw_deg: float, v: float): ...  # 기준점에서 본 두 턱 끝 (작업대 좌표계 mm)
     def center_offset(self, pitch_deg: float, yaw_deg: float, v: float) -> np.ndarray: ...  # 기준점에서 본 두 턱 끝 중간점
+    def set_joints(self, robot, v: float) -> None: ...  # placo 로봇의 그리퍼 관절(들)을 그리퍼 값 v에 맞춘다
     def lowest_z(self, q: JointState) -> float: ...  # 턱 메쉬의 가장 낮은 점(모델 z, mm)
     def tilt(self, v: float) -> float: ...  # 그리퍼 값 v에서의 손 기울기(°)
     def narrowing(self, v: float, tilt_ok: bool) -> float: ...  # 턱 끝에서 위로 1mm 갈 때 턱 사이 간격이 줄어드는 mm
@@ -109,16 +110,19 @@ class SingleJawGripper:
         f, m = self.jaw_tips(pitch_deg, yaw_table_deg, gripper_value)
         return (f + m) / 2
 
+    def set_joints(self, robot, v: float) -> None:
+        """placo 로봇의 그리퍼 관절을 그리퍼 값 v에 맞춘다(단동식: gripper 회전 관절, rad)."""
+        robot.set_joint("gripper", math.radians(min(max(VALUE_TO_Q[0] + VALUE_TO_Q[1] * v, -10.0), 100.0)))  # URDF gripper 관절 범위
+
     def lowest_z(self, q: JointState) -> float:
         """고정 턱(손 메쉬)과 움직이는 턱 메쉬의 가장 낮은 꼭짓점 높이(모델 z, mm; fk의 z_mm와 같은 기준). 기울기와 벌림을 반영한 실제 턱 몸체 아래 모서리까지 본다 (REQ-036)."""
         meshes = _jaw_meshes()  # 메쉬를 먼저 읽는다(관절을 맞춘 뒤 처음 읽을 때 첫 결과가 틀리게 나온 일이 있었다)
         k = self.kin._k
         robot = k.robot
-        deg = min(max(VALUE_TO_Q[0] + VALUE_TO_Q[1] * q.gripper, -10.0), 100.0)  # URDF gripper 관절 범위
         arm = np.array([getattr(q, j) for j in ARM_JOINTS], float)
         for _ in range(1 if self._jaw_ready else 2):  # placo는 gripper 관절이 처음 들어간 첫 갱신에서 링크 변환이 낡은 채 나온다: 처음에는 두 번 맞춘다
             k.forward_kinematics(arm)
-            robot.set_joint("gripper", math.radians(deg))
+            self.set_joints(robot, q.gripper)
             robot.update_kinematics()
         self._jaw_ready = True
         low = []

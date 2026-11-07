@@ -30,6 +30,7 @@ class Safety:
         self.physical = physical_limits or {}
         self.settings = SafetySettings()
         self.max_step_deg, self.z_floor_mm, self.table_z_mm = max_step_deg, z_floor_mm, table_z_mm
+        self.collision = None  # SceneCollision (장면 부품과 팔의 거리). ArmService가 연결한다 (REQ-040)
         self.check_xy = True  # False면 작업대 가장자리 검사를 건너뛰고 바닥(턱 끝 높이)만 본다. 전원·부하 시험이 팔을 끝까지 펼 때만 임시로 끈다
 
     @property
@@ -76,7 +77,21 @@ class Safety:
                 lo, hi = min(lo, getattr(ref, name)), max(hi, getattr(ref, name))
             if not lo <= getattr(q, name) <= hi:
                 return f"joint_limit:{name}"
-        return self._workspace(q, ref)
+        return self._workspace(q, ref) or self._scene(q, ref)
+
+    def _scene(self, q: JointState, ref: JointState | None = None) -> str | None:
+        """장면 부품과 팔 링크 사이 거리가 margin_mm보다 가까우면 'scene:<이름>', 링크에 붙은 부품이 바닥(z_floor_mm)보다 낮으면 'scene_floor:<이름>'.
+        이미 안에서 출발했다면 거리가 줄지 않고 더 낮아지지 않는 움직임은 허용해 빠져나올 수 있게 한다(_workspace와 같다)."""
+        c = self.collision
+        if c is None or c.scene is None:
+            return None
+        d, name, low_name, low_z = c.distance(q)
+        r = c.distance(ref) if ref is not None else None
+        if low_z < c.z_floor_mm and not (r is not None and r[3] < c.z_floor_mm and low_z >= r[3] - 1e-6):
+            return f"scene_floor:{low_name}"
+        if d >= c.scene.margin_mm or (r is not None and d >= r[0] - 1e-6):
+            return None
+        return f"scene:{name}"
 
     def _tip_height(self, q: JointState) -> float:
         """낮은 턱 끝의 작업대 면 위 높이(mm). 기준점(고정 턱 면)은 수직일 때 턱 끝보다 약 7mm 위라 기준점으로 재면 느슨하다."""

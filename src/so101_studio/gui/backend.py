@@ -25,6 +25,7 @@ from ..service.stop_listener import StopListener
 from ..service.studio import Studio
 from ..service.targets import reason_text, tip_vector
 from ..task.policy import reachable
+from . import programs
 from .health import ServoHealth, count_events
 from .scene3d import Scene3D
 from .state import (
@@ -53,6 +54,8 @@ JOG_YAW_DEG_S = 60.0
 RUN_MODES = {"sim": "시뮬레이션만", "real": "실제만", "both": "동시", "sim_first": "시뮬레이션 먼저"}
 REASON_EXTRA = {"z_ceiling": "허용 상자보다 높습니다"}  # service.targets에 아직 없는 이유
 BUSY_TEXT = "팔이 아직 움직이고 있습니다"
+NAME_RE = re.compile(r"[0-9A-Za-z가-힣_\- ]{1,40}")  # 자세·프로그램 이름(파일 이름에도 쓴다)
+ESTOP_FAILED_TEXT = "정지 명령을 서보에 쓰지 못했습니다({}). 팔이 계속 움직이면 전원 스위치를 끄세요"
 COMM_LOST_TEXT = "통신이 끊겼습니다. 케이블과 전원을 확인하고 [다시 연결]을 눌러 주세요"
 OUTSIDE_TEXT = "작업대 밖에서 출발했습니다. 안쪽으로만 움직일 수 있습니다"
 EDGE_TEXT = "작업대 가장자리 밖이라 움직이지 않았습니다"  # 이 문구면 화면이 "가장자리 검사를 끄고 다시 하기"를 묻는다
@@ -110,6 +113,8 @@ class Backend:
     workspace_path = "config/workspace.yaml"
     arms_path = "config/arms"
     local_path = "config/local.yaml"
+    waypoints_path = "config/waypoints.yaml"  # 자세 즐겨찾기 (결정 0044)
+    programs_dir = "config/programs"
 
     def __init__(self, speed: float | None = None, log_root: str | None = "runs", link: WatchdogLink | None = None,
                  viser_port: int | None = None, real_driver=None, arm_name: str | None = None, serials=(), port: str | None = None, first_report: dict | None = None):
@@ -139,6 +144,7 @@ class Backend:
         self.pending: tuple | None = None  # 시뮬레이션 먼저: 실제 팔로 실행할지 묻는 동작 (이름, action)
         self._planning = False
         self._record_name: str | None = None
+        self.program_run: programs.Run | None = None
         for arm in self._arms():
             ok, msg = arm.connect(port if arm is self.real else None)
             if not ok:
@@ -282,8 +288,8 @@ class Backend:
     def _run_on(arm: ArmService, action) -> str | None:
         try:
             result = action(arm)
-        except RuntimeError:  # 컨트롤러가 이미 다른 동작을 실행 중이다
-            return BUSY_TEXT
+        except RuntimeError as e:  # 동작 중일 때만 "아직 움직이는 중", 잠김·연결 안 됨 같은 다른 이유는 그대로 보인다
+            return BUSY_TEXT if arm.ctl is not None and arm.ctl.busy else str(e)
         except ValueError as e:  # 배율 때문에 속도 한계를 넘는 경우 등
             return str(e)
         if result.reason == "workspace":
@@ -481,6 +487,76 @@ class Backend:
             return r
 
         return self._dispatch(run, "집어 옮기기")
+
+    # ---- 자세 즐겨찾기와 프로그램 (결정 0044). 실패하면 이유 문장, 성공하면 None
+    def waypoints(self) -> dict:
+        return programs.load_waypoints(Path(self.waypoints_path))
+
+    def save_waypoint(self, name: str) -> str | None:
+        """지금 자세(움직일 팔 기준)를 이름으로 저장한다. 같은 이름이면 덮어쓴다(즐겨찾기 표시는 유지)."""
+        name = name.strip()
+        if not NAME_RE.fullmatch(name):
+            return "이름은 한글·영문·숫자·_-·공백, 40자까지입니다"
+        st = self._model_arm().status()
+        wps = self.waypoints()
+        wps[name] = programs.pose_entry(st.joints, st.tool, wps.get(name, {}).get("favorite", False))
+        programs.save_waypoints(Path(self.waypoints_path), wps)
+        return None
+
+    def set_favorite(self, name: str, favorite: bool) -> None:
+        wps = self.waypoints()
+        if name in wps:
+            wps[name]["favorite"] = bool(favorite)
+            programs.save_waypoints(Path(self.waypoints_path), wps)
+
+    def delete_waypoint(self, name: str) -> None:
+        wps = self.waypoints()
+        if wps.pop(name, None) is not None:
+            programs.save_waypoints(Path(self.waypoints_path), wps)
+
+    def goto_waypoint(self, name: str) -> str | None:
+        wps = self.waypoints()
+        if name not in wps:
+            return f"저장된 자세 '{name}'이 없습니다"
+        joints = JointState(**{k: float(v) for k, v in wps[name]["joints"].items()})
+        return self._dispatch(lambda arm: arm.move_joints(joints), f"자세 {name}로 이동")
+
+    def program_names(self) -> list[str]:
+        return programs.program_names(Path(self.programs_dir))
+
+    def load_program(self, name: str) -> list:
+        return programs.load_program(Path(self.programs_dir), name)
+
+    def save_program(self, name: str, steps: list) -> str | None:
+        name = name.strip()
+        if not NAME_RE.fullmatch(name):
+            return "이름은 한글·영문·숫자·_-·공백, 40자까지입니다"
+        reason = programs.validate(steps, self.waypoints())
+        if reason:
+            return reason
+        programs.save_program(Path(self.programs_dir), name, steps)
+        return None
+
+    def run_program(self, steps: list, label: str, step_mode: bool = False) -> str | None:
+        """프로그램 전체를 동작 하나로 실행 방식대로 보낸다(시뮬레이션 먼저면 끝난 뒤 실제 팔 확인). 블로킹이라 스레드에서 부른다."""
+        wps = self.waypoints()
+        reason = programs.validate(steps, wps)
+        if reason:
+            return reason
+        if not steps:
+            return "단계가 없습니다"
+        if step_mode and self.mode == "both":  # 두 팔이 '다음 단계' 신호 하나를 나눠 쓰면 어긋난다
+            return "한 단계씩은 '동시' 실행 방식에서 쓸 수 없습니다"
+        self.program_run = programs.Run(step_mode)
+        act = programs.action(steps, wps, self.program_run, lambda arm: arm is self.sim)
+        reason = self._dispatch(act, f"프로그램 {label}")
+        self.program_run.reason = reason
+        return reason
+
+    def stop_program(self) -> None:
+        if self.program_run:
+            self.program_run.stop.set()
+        self.stop_all()
 
     # ---- 작업
     def objects(self) -> list[DetectedObject]:
@@ -751,8 +827,8 @@ class Backend:
             return self.arm.run_diagnostic(name, progress, stop, **kw), None
         except ValueError as e:
             return None, str(e)
-        except RuntimeError:
-            return None, BUSY_TEXT
+        except RuntimeError as e:
+            return None, BUSY_TEXT if self.arm.ctl is not None and self.arm.ctl.busy else str(e)
 
     def run_names(self) -> list[str]:
         """실행 기록 폴더 이름. 최근 것이 먼저다."""
@@ -867,6 +943,7 @@ class Backend:
             self.real.record_stop(name)
         except Exception as e:  # noqa: BLE001  통신이 끊겼으면 저장·토크 켜기가 실패한다. 부르는 쪽의 비상 정지까지 막으면 안 된다
             self.real.log_event("record_stop_failed", {"name": name, "error": repr(e)}, level="ERROR")
+            logging.getLogger(__name__).error("기록 저장·토크 켜기 실패(%s): 팔을 받치고 다시 연결하세요", e)  # 로그 화면·알림에 보인다
             return None
         return name
 
@@ -909,13 +986,26 @@ class Backend:
             self.record_finish()  # 토크가 꺼진 채 조작하던 화면이 사라지면 지금 자세를 잡는다
             self.stop_task()
 
-    def estop(self) -> None:
-        self.record_finish()  # 기록 중에는 토크가 꺼져 있어 정지 명령만으로는 팔이 서지 않는다
-        self.paused = False
-        self.studio.stop()
-        self.pending = None
+    def estop(self) -> str | None:
+        """앞 단계가 실패해도 모든 팔에 정지가 간다(감사 2026-11-07: 예외 하나로 실제 팔이 정지를 못 받던 순서).
+        서보에 정지 자세를 쓰지 못한 팔이 있으면 그 이유(화면이 경고로 보인다), 모두 됐으면 None."""
+        failed = []
+        try:
+            self.record_finish()  # 기록 중에는 토크가 꺼져 있어 정지 명령만으로는 팔이 서지 않는다
+            self.paused = False
+            self.studio.stop()
+            self.pending = None
+        except Exception:  # 정지 준비가 실패해도 아래 팔 정지는 반드시 한다
+            logging.getLogger(__name__).exception("E-STOP 준비 단계 실패")
         for arm in self._arms():
-            arm.estop()  # Studio.estop은 실행 기록에 남기지 않는다
+            try:
+                err = arm.estop()  # Studio.estop은 실행 기록에 남기지 않는다. REQ-043부터 서보에 못 쓰면 이유를 돌려준다
+            except Exception as e:  # 한 팔이 실패해도 다음 팔은 세운다
+                logging.getLogger(__name__).exception("E-STOP 실패")
+                err = repr(e)
+            if err:
+                failed.append(f"{'실제 팔' if arm is self.real else '시뮬레이션'}: {err}")
+        return ESTOP_FAILED_TEXT.format("; ".join(failed)) if failed else None
 
     def close(self) -> None:
         self._closing = True
