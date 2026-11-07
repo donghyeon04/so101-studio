@@ -20,6 +20,7 @@
 | `docs/planning/system-architecture.md` | 기획 | 확정 | 시스템 구성, 모듈 경계, 공통 타입, 인식 규격, 작업 실행 상태 머신, ESP32 통신 틀, 폴더 구조, 0~2단계 작업 순서 |
 | `docs/planning/arm-software-spec.md` | 기획 | 확정 | 팔 모듈 계층 구조, 데이터 타입, 모듈 API, 설정·출력 형식, 구현 작업 순서(T1~T11) |
 | `docs/planning/measurements.md` | 기획 | 초안 | 로컬 개발 세션의 측정 기록 (T0~T11, 떨림·전원·그리퍼 시험) |
+| `docs/planning/workbench-hardware-requirements.md` | 기획 | 초안 | 작업대(판) 하드웨어 설계 요구사항: 작업 면 600×400·좌표 원점, 팔 고정, 레이더 높이 20mm·시야, 손목 센서, 테두리, 그리드 단위·표시, 돌려받을 수치 |
 | `docs/planning/arm-dev-status.md` | 기획 | 초안 | 팔 개발 현황과 인수인계: 상태, 구현 목록, 이 세션에서 한 일, 현재 설정값, 설계서와 다른 점, 사용법, GUI 연결 API, 조사·측정 결과, 알려진 문제, 남은 일 |
 | `docs/planning/gui-spec.md` | 기획 | 확정 | GUI 설계서(1차 기본 골자): 원칙, 공통 틀, 13개 페이지, 디자인 기본값, 범위, 폴더 구조, 실행 구조, 작업 순서 G0~G10 |
 | `docs/planning/gui-dev-status.md` | 기획 | 초안 | GUI 개발 현황과 인수인계: 환경, 작업 진행(G0~G10), 보낸 요청 |
