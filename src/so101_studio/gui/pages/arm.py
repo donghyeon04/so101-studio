@@ -102,6 +102,16 @@ def _clock(t: float) -> str:
     return time.strftime("%H:%M:%S", time.localtime(t))
 
 
+GRIPPER_TEXT = {"single_jaw": "단동식(한쪽 턱만 움직임, 기본)", "parallel": "병렬(두 턱이 대칭으로 움직임)"}
+
+
+def gripper_text(info: dict) -> str:
+    """지금 그리퍼 한 줄. 병렬은 3D 모양이 아직 단동식이라 그 점을 함께 알린다."""
+    name = GRIPPER_TEXT.get(info["type"], info["type"])
+    text = f"그리퍼: {name} · 최대 벌림 {info['max_open_mm']:g} mm"
+    return text + (" · 3D는 병렬 모델이 준비될 때까지 단동식 모양으로 보입니다" if info["type"] == "parallel" else "")
+
+
 # 움직이는 명령은 사람이 직접 실행한다 (decisions/0027)
 ZERO_CHECK_STEP = "so101 calibrate --verify-zero로 0° 자세를 확인합니다 (팔이 움직입니다)"
 NEW_ARM_STEPS = (
@@ -179,6 +189,17 @@ def _doctor_card(backend, controls: Controls) -> None:
             with ui.row().classes("items-center gap-2"):
                 picker = ui.select(names, value=info["arm"] or names[0], label="팔").classes("w-64").mark("arm-picker")
                 controls.add(ui.button("팔 바꾸기", on_click=controls.guard(choose)).props("outline no-caps").mark("arm-change"))
+        grip = backend.gripper_info()
+        if grip:  # 결정 0043-1: 종류는 local.yaml에 적고 다시 시작하면 적용된다
+            ui.label(gripper_text(grip)).classes("page-body").mark("gripper-type")
+            with ui.row().classes("items-center gap-2"):
+                grip_pick = ui.select({g: GRIPPER_TEXT.get(g, g) for g in grip["available"]}, value=grip["type"], label="그리퍼").classes("w-64").mark("gripper-picker")
+
+                async def choose_gripper() -> None:
+                    reason = backend.choose_gripper(grip_pick.value)
+                    ui.notify(reason or f"{GRIPPER_TEXT.get(grip_pick.value, grip_pick.value)}: 다시 시작하면 적용됩니다", type="negative" if reason else "positive")
+
+                controls.add(ui.button("그리퍼 바꾸기", on_click=controls.guard(choose_gripper)).props("outline no-caps").mark("gripper-change"))
         lock = backend.setup_lock()
         if lock and lock.startswith("0° 자세"):
             ui.label(f"터미널에서 {ZERO_CHECK_STEP}").classes("page-body").mark("zero-check-step")
