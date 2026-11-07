@@ -49,24 +49,19 @@ def test_req002_perception_select_calibrate_scan():
     st.perception.select("other")
     assert st.task.source is other and [o.id for o in st.perception.scan().objects] == ["obj-9"]
     assert st.perception.calibrate() == {}
-    try:
+    with pytest.raises(ValueError):
         st.perception.select("nope")
-    except ValueError:
-        pass
-    else:
-        raise AssertionError
+    assert st.task.source is other and st.perception.active == "other"  # 거부된 선택은 인식 방식을 바꾸지 않는다
 
 
 def test_req002_select_refused_while_running():
     st = make_studio()
     st.start(step_mode=True)
     time.sleep(0.2)
-    try:
+    before = (st.task.source, st.perception.active)
+    with pytest.raises(RuntimeError):
         st.perception.select("list")
-    except RuntimeError:
-        pass
-    else:
-        raise AssertionError
+    assert (st.task.source, st.perception.active) == before  # 실행 중에는 바꾸지 않는다
     st.stop()
     st._thread.join(2)
 

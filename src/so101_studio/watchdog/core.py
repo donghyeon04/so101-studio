@@ -7,6 +7,7 @@ import threading
 import time
 
 HB_TIMEOUT_S = 1.0  # armed인 동안 heartbeat가 이만큼 끊기면 작동
+TRIP_RETRY_S = 1.0  # trip이 예외로 실패하면 이만큼 뒤에 다시 시도한다
 ACK_TIMEOUT_S = 0.3  # 정지 명령에 이 시간 안에 응답이 없으면 팔 프로세스를 끝낸다
 SOURCES = ("browser", "server")
 
@@ -20,6 +21,8 @@ class Watchdog:
         self.tripped, self.reason = False, None
         self._busy = False  # 정지 순서 진행 중. tripped는 순서가 끝난 뒤에 켠다(ack 전에 작동으로 보이지 않게)
         self._last = dict.fromkeys(SOURCES, clock())
+        self._last_tick: float | None = None  # 마지막 tick 시각. 판정 스레드가 죽거나 멈추면 status의 last_tick_age_s가 커진다
+        self._retry_at = 0.0  # trip이 예외로 실패했을 때 다시 시도할 가장 이른 시각(50ms마다 되풀이해 기록이 쏟아지지 않게)
         self._noted = False  # 시뮬레이션에서 같은 끊김을 한 번만 기록
         self._lock = threading.Lock()
 
@@ -39,7 +42,7 @@ class Watchdog:
             self.log({"event": "run_dir", "run_dir": run_dir})
         with self._lock:
             self.armed, self.pid, self.stop_port = armed, (pid if armed else None), (stop_port if armed else None)
-            self.tripped, self.reason, self._noted, self._busy = False, None, False, False
+            self.tripped, self.reason, self._noted, self._busy, self._retry_at = False, None, False, False, 0.0
             self._last = dict.fromkeys(SOURCES, self.clock())
         self.log({"event": "arm", "armed": armed, "pid": pid, "stop_port": stop_port, "sim": self.sim})
 
@@ -47,14 +50,18 @@ class Watchdog:
         with self._lock:
             now = self.clock()
             return {"alive": True, "armed": self.armed, "sim": self.sim, "tripped": self.tripped, "reason": self.reason,
-                    "age_s": {s: round(now - t, 3) for s, t in self._last.items()}}
+                    "age_s": {s: round(now - t, 3) for s, t in self._last.items()},
+                    "last_tick_age_s": None if self._last_tick is None else round(now - self._last_tick, 3)}
 
     def tick(self) -> bool:
         """20Hz로 부른다. 작동했으면 True."""
         with self._lock:
+            self._last_tick = self.clock()
             if not self.armed or self.tripped or self._busy:
                 return False
             now = self.clock()
+            if now < self._retry_at:
+                return False
             stale = [s for s in SOURCES if now - self._last[s] > self.hb_timeout]
         if not stale:
             self._noted = False
@@ -73,8 +80,15 @@ class Watchdog:
                 self._noted = True
                 self.log({"event": "trip_ignored", "reason": reason, "armed": armed, "sim": self.sim})
             return False
-        acked = self._send_estop(port, reason)
-        killed = False if acked else self._kill(pid)
+        try:
+            acked = self._send_estop(port, reason)
+            killed = False if acked else self._kill(pid)
+        except Exception as e:  # noqa: BLE001 어떤 예외든 _busy가 남아 감시가 영영 멈추지 않게 한다: 기록하고 다음 tick에 다시 시도
+            with self._lock:
+                self._busy = False
+                self._retry_at = self.clock() + TRIP_RETRY_S
+            self.log({"event": "trip_error", "reason": reason, "error": repr(e), "pid": pid, "retry_in_s": TRIP_RETRY_S})
+            return False
         with self._lock:
             self.tripped, self.reason, self._busy = True, reason, False
         self.log({"event": "trip", "reason": reason, "acked": acked, "killed": killed, "pid": pid})
@@ -101,4 +115,10 @@ class Watchdog:
 
     def run(self, stop: threading.Event, hz: float = 20.0) -> None:
         while not stop.wait(1.0 / hz):
-            self.tick()
+            try:
+                self.tick()
+            except Exception as e:  # noqa: BLE001 한 번의 예외로 감시 스레드가 죽으면 /status는 alive인데 아무도 안 본다: 기록하고 계속 돈다
+                try:
+                    self.log({"event": "tick_error", "error": repr(e)})
+                except Exception:  # noqa: BLE001, S110 기록 실패도 감시를 멈추지 않는다
+                    pass

@@ -198,8 +198,8 @@ class ArmDriver:
 
     @_locked
     def set_torque(self, on: bool) -> None:
-        if on and self.locked_reason:
-            return  # 잠긴 동안은 토크를 켜지 않는다(켜는 순간 목표 위치를 쓰기 때문)
+        if on:
+            self._require_unlocked()  # 잠긴 동안은 토크를 켜지 않는다(켜는 순간 목표 위치를 쓰기 때문). 조용히 넘어가면 호출한 쪽은 켜진 줄 안다(REQ-043)
         if on:
             self._bus.sync_write("Goal_Position", self._bus.sync_read("Present_Position"))  # 켜는 순간 튀지 않게
             self._bus.enable_torque()

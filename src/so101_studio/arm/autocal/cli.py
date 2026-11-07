@@ -44,8 +44,12 @@ def run_calibrate(a, cfg, *, input_fn=input, out=print, opener=open_robot, now=d
     except AutoCalibrationError as e:
         out(f"중단: {e}")
         return 1
-    except KeyboardInterrupt:
-        out("Ctrl+C: 중단했다(레지스터는 되돌렸다)")
+    except KeyboardInterrupt as e:
+        failures = getattr(e, "failures", [])  # CleanupInterrupted: 정리 중에 누른 Ctrl+C. 되돌리지 못한 것을 숨기지 않는다
+        if failures:
+            out("Ctrl+C: 중단했다. 되돌리지 못한 레지스터가 있다:\n  " + "\n  ".join(failures) + "\n팔 전원을 껐다 켜서 이전 설정으로 되돌린다")
+        else:
+            out("Ctrl+C: 중단했다(레지스터는 되돌렸다)")
         return 1
 
 

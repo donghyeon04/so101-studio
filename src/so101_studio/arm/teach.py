@@ -150,14 +150,20 @@ class Teach:
         self._stop.set()
         self._thread.join(timeout=2.0)
         self._thread = None
+        torque_error = None
         if not self.ctl.locked_reason:  # 기록은 잠기지 않았을 때만 시작하지만, 그 사이 잠겼다면 켜지 않는다(REQ-027)
-            self.ctl.driver.set_torque(True)
+            try:
+                self.ctl.driver.set_torque(True)
+            except Exception as e:  # noqa: BLE001 드라이버만 잠겼거나 쓰기가 실패해도 기록은 먼저 저장한다(사용자가 한 시연을 잃지 않게). 예외는 저장 뒤에 다시 낸다
+                torque_error = e
         self.ctl.sync()
         self.dir.mkdir(parents=True, exist_ok=True)
         path = self.dir / f"{name}.json"
         meta = self._analyze(np.array(self._rows, float), np.array(self._t, float))
         meta["recorded_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
         path.write_text(json.dumps({"hz": self.hz, "t": self._t, "joints": self._rows, "meta": meta}, ensure_ascii=False), encoding="utf-8")
+        if torque_error is not None:
+            raise RuntimeError(f"기록은 {path}에 저장했지만 토크를 켜지 못했다: {torque_error}") from torque_error
         return path
 
     def _analyze(self, q: np.ndarray, t: np.ndarray) -> dict:

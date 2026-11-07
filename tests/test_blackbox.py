@@ -244,6 +244,24 @@ def test_status_loop_error_is_logged_once_with_traceback_and_loop_continues(tmp_
         s.disconnect()
 
 
+def test_status_callback_exception_is_logged_separately_and_is_not_a_comm_failure(tmp_path):
+    s = make_svc(tmp_path)
+    try:
+        calls = []
+
+        def bad(st):
+            calls.append(1)
+            raise ValueError("GUI 콜백 오류")
+
+        s.status_stream(bad)
+        assert wait_for(lambda: len(calls) >= 5 and (s.logger.flush(), any(e["code"] == "ARM-STATUS-CALLBACK-ERROR" for e in read_events(s.logger.dir)))[1], 8)
+        errs = [e for e in read_events(s.logger.dir) if e["code"] == "ARM-STATUS-CALLBACK-ERROR"]
+        assert len(errs) == 1 and "Traceback" in errs[0]["data"]["traceback"]  # 반복해도 traceback은 한 번
+        assert not any(e["code"] == "ARM-STATUS-LOOP-ERROR" for e in read_events(s.logger.dir)) and s.ctl.health._comm_down_since is None
+    finally:
+        s.disconnect()
+
+
 def test_unhandled_thread_exception_is_reported_and_original_hook_still_runs():
     got, orig = [], []
     old = threading.excepthook

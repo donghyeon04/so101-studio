@@ -213,15 +213,13 @@ def test_samples_use_actual_joint_reads_not_commands(svc):
 def test_unreachable_path_is_rejected_before_moving(svc):
     before = svc.driver.read_joints()
     assert svc.follow_path([(260.0, 200.0), (300.0, 900.0)], Z, 60.0) == []
-    assert svc.last_path.status in ("ik_fail", "out_of_bounds")
+    assert svc.last_path.status == "ik_fail"
     assert svc.driver.read_joints() == before  # 접근도 하지 않았다
 
 
 def test_out_of_workspace_reports_reason(svc):
     svc.follow_path([(260.0, 200.0), (700.0, 200.0)], Z, 60.0)
-    assert svc.last_path.status in ("ik_fail", "out_of_bounds")
-    if svc.last_path.status == "out_of_bounds":
-        assert svc.last_path.reason
+    assert svc.last_path.status == "ik_fail"  # 팔이 닿지 않는 점은 도달 불가로 거부(작업대 검사까지 가지 않는다)
 
 
 def test_speed_is_capped_by_tool_v_max_and_speed_pct(tmp_path):

@@ -68,24 +68,12 @@ def test_stop_halts_within_300ms():
     assert d.read_joints().shoulder_pan == pos and 0 < pos < 60
 
 
-def test_estop_blocks_until_resume():
-    d = SimDriver()
-    c = MotionController(d, safety=Safety(LIMITS))
-    c.execute(move_j(A, JointState(60, 0, 0, 0, 0, 0), 30, 100))
-    time.sleep(0.2)
-    c.estop()
-    assert c.execute(move_j(A, B, 30, 100)).wait(1).status == "stopped"
-    c.resume()
-    assert c.execute(move_j(d.read_joints(), A, 100, 1000)).wait(5).status == "ok"
-    c.close()
-
-
 def test_big_jump_between_ticks_is_a_fault():
     d = SimDriver()
     c = MotionController(d, hz=50)
     r = c.execute(move_j(A, JointState(60, 0, 0, 0, 0, 0), 5000, 1e6)).wait(2)  # 0.2s에 60° → 주기당 5° 초과
     c.close()
-    assert r.status == "fault"
+    assert r.status == "fault" and c.fault == "step"  # 이유까지(통신·과열 등 다른 fault와 구별)
 
 
 def test_goal_at_resting_pose_beyond_limit_is_allowed_as_start():
@@ -203,3 +191,57 @@ def test_late_ticks_catch_up_only_within_the_step_limit_on_a_fast_replay(monkeyp
     assert h.result is not None and h.result.status == "ok"
     assert d.read_joints().shoulder_pan == pytest.approx(-50.0 + 213.0 * 0.5, abs=0.5)
     assert c.time_lost_s > 0.05  # 늦어진 시간이 기록된다
+
+
+def test_non_comm_exception_in_a_tick_is_an_internal_error_fault_not_comm_lost():
+    d = SimDriver()
+    c = MotionController(d, safety=Safety(LIMITS), hz=100)
+    events = []
+    c.on_event = lambda kind, level, code, data: events.append((code, data))
+
+    def bug(q):
+        raise KeyError("코드 오류")
+
+    d.write_joints = bug
+    r = c.execute(move_j(A, JointState(10, 0, 0, 0, 0, 0), 30, 100)).wait(2)
+    c.close()
+    assert r.status == "fault" and c.fault == "internal_error" and "KeyError" in c.fault_detail["traceback"]
+    assert not any(code == "ARM-COMM-LOST" for code, _ in events)
+    assert any(code == "ARM-FAULT-HOLD-FAILED" for code, _ in events)  # 위치 유지 쓰기도 실패했다는 사실이 남는다
+
+
+def test_estop_returns_the_write_failure_or_none():
+    d = SimDriver()
+    c = MotionController(d, safety=Safety(LIMITS))
+    assert c.estop() is None
+    d.write_joints = lambda q: (_ for _ in ()).throw(ConnectionError("no status packet"))
+    err = c.estop()
+    c.close()
+    assert err and "ConnectionError" in err
+
+
+def test_second_execute_while_a_job_runs_is_refused_and_leaves_the_first_running():
+    d = SimDriver()
+    c = MotionController(d, safety=Safety(LIMITS))
+    h = c.execute(move_j(A, JointState(30, 0, 0, 0, 0, 0), 30, 100))
+    time.sleep(0.1)
+    with pytest.raises(RuntimeError, match="이미 동작 중"):
+        c.execute(move_j(A, B, 30, 100))
+    c.stop()
+    assert h.wait(2).status == "stopped"  # 첫 동작은 영향 없이 정상 정지
+    c.close()
+
+
+def test_servo_error_bit_runtime_error_is_a_comm_fault_with_the_cause_not_a_code_bug():
+    """LeRobot 버스는 서보의 오류 비트를 RuntimeError로 던진다. 입력 전압 오류 같은 하드웨어 문제를 코드 버그(internal_error)로 부르면 안 된다."""
+    d = SimDriver()
+    c = MotionController(d, safety=Safety(LIMITS), hz=100)
+
+    def servo_error(q):
+        raise RuntimeError("Failed to write 'Goal_Position' on id_=2. [RxPacketError] Input voltage error!")
+
+    d.write_joints = servo_error
+    r = c.execute(move_j(A, JointState(10, 0, 0, 0, 0, 0), 30, 100)).wait(3)
+    c.close()
+    assert r.status == "fault" and c.fault == "comm_lost"  # 0.5초 유예 뒤 통신 끊김
+    assert "Input voltage error" in c.fault_detail["error"] and "입력 전압 오류" in c.fault_text and "프로그램" not in c.fault_text

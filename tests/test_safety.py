@@ -95,6 +95,26 @@ def test_comm_loss_after_half_second():
     assert m.comm_failed(11.0) is None
 
 
+def test_temperature_and_load_boundaries_are_inclusive():
+    m = HealthMonitor()
+    assert [m.update_health(health(temp=59), t) for t in (0, 1, 2)] == [None, None, None]  # 59°C는 몇 번 읽어도 정상
+    assert [m.update_health(health(temp=60), t) for t in (3, 4, 5)] == [None, None, "overheat:elbow_flex"]  # 60°C부터(>=)
+    m = HealthMonitor()
+    assert m.update_health(health(load=89), 0) is None and m.update_health(health(load=89), 9) is None  # 89%는 오래 가도 정상
+    m = HealthMonitor()
+    assert m.update_health(health(load=90), 0) is None
+    assert m.update_health(health(load=90), 3.0) == "overload:elbow_flex"  # 90%부터(>=)
+
+
+def test_comm_down_clock_restarts_after_comm_ok():
+    m = HealthMonitor()
+    assert m.comm_failed(10.0) is None
+    m.comm_ok()
+    assert m.comm_failed(10.4) is None  # 성공이 끼면 끊김 시계가 새로 시작한다(10.0부터 세지 않는다)
+    assert m.comm_failed(10.8) is None
+    assert m.comm_failed(10.9) == "comm_lost"  # 새 시계 10.4 + 0.5
+
+
 def test_controller_rejects_unsafe_goal_without_moving(safety):
     d = SimDriver(CFG.poses["home"])
     c = MotionController(d, safety=safety)
