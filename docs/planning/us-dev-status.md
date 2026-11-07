@@ -219,3 +219,5 @@ yaw 90에서는 센서가 손끝 왼쪽(-x)에 있어 안쪽(100)은 잘 되고 
 | ang-a 평균·최대 (°, dxl) | |
 | 판정 (지연 ±3° 이하? 아니면 spec 10절 대안) | |
 | 원자료 | `runs/b4-<시각>/` |
+
+**OpenRB 펌웨어 컴파일**: 보드 패키지 `OpenRB-150:samd`(인덱스 `https://raw.githubusercontent.com/ROBOTIS-GIT/OpenRB-150/master/package_openrb_index.json`)와 라이브러리 Dynamixel2Arduino 0.8.2를 `C:rduino15`에 설치했다. `arduino-cli compile --fqbn OpenRB-150:samd:OpenRB-150 --warnings all --build-path C:	mpw2 firmware/openrb_servo` 성공(경고 없음, 플래시 32,836B 12%, RAM 4,296B 13%). 업로드·실물 시험은 안 했다.
