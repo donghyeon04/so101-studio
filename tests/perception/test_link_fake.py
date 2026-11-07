@@ -124,8 +124,9 @@ def test_serial_transport_reports_closed_port_after_draining_queue():
     from so101_studio.perception.ultrasonic.link import SerialTransport
 
     class Ser:
-        is_open = True
-        lines = [b'{"t":"hello"}\n', b'{"t":"r"}\n']
+        def __init__(self):
+            self.is_open = True
+            self.lines = [b'{"t":"hello"}\n', b'{"t":"r"}\n']
 
         def readline(self):
             if self.lines:
