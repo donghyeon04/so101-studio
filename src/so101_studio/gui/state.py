@@ -32,6 +32,7 @@ class State:
     task_state: str = "IDLE"
     chosen: str | None = None
     placed: int = 0
+    run_t0: float = 0.0  # 이번 작업을 시작한 시각(이벤트 t와 같은 epoch 초). 운영자 화면이 이번 실행의 이벤트만 센다
     events: deque = field(default_factory=lambda: deque(maxlen=200))
 
     def update(self, status: ArmStatus) -> None:

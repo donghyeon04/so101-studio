@@ -200,6 +200,10 @@ class Backend:
             self.link.rearm()
         return None
 
+    def log_loss(self) -> int:
+        """실행 기록(events·status.jsonl)에 쓰지 못했거나 밀려 버린 줄 수. 늘어나면 화면이 알린다(디스크 가득 참·권한 등)."""
+        return sum(getattr(a.logger, "write_errors", 0) + getattr(a.logger, "dropped_total", 0) for a in self._arms() if getattr(a, "logger", None))
+
     def comm_lost(self) -> bool:
         return bool(self.real and (self._reconnect_failed or self.real.ctl.fault == "comm_lost"))
 
@@ -590,7 +594,7 @@ class Backend:
             return self._real_blocked()
         if self.arm.ctl.state != "idle":  # 그대로 시작하면 동작 충돌로 곧 FAULT로 끝난다
             return MOTION_TEXT["stopped"] if self.arm.ctl.state in ("stopped", "fault") else BUSY_TEXT
-        self.state.placed, self.paused = 0, step_mode
+        self.state.placed, self.paused, self.state.run_t0 = 0, step_mode, time.time()
         self.studio.start(step_mode=step_mode)
         return None
 
