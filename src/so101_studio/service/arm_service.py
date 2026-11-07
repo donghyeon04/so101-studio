@@ -19,6 +19,7 @@ from ..core.blackbox import install_excepthooks
 from ..core.config import RobotConfig, WorkspaceConfig, load_workspace
 from ..core.incident import Incident, create_incident
 from ..core.logging import RunLogger
+from ..core.scene import load_scene
 from ..core.types import ArmStatus, DetectedObject, JointState, MotionResult, ToolPose
 from ..perception.base import PoseSample
 from . import diagnostics as _diag
@@ -58,6 +59,7 @@ class ArmService:
         self.ws = ws or load_workspace()
         self.speed = speed_pct if speed_pct is not None else cfg.speed_pct_default
         self.log_root = log_root
+        self.scene = load_scene()  # 장면 부품 (config/scene.yaml, 없으면 빈 목록). reload_workspace가 다시 읽는다
         self.preset_dir = "config/presets"
         self.proc = proc  # 기록 머리의 proc(cli | gui). 없으면 환경변수 SO101_PROC, 기본 cli
         self.config_dir = Path("config")  # 사고 묶음에 설정 사본을 담는 곳
@@ -374,6 +376,7 @@ class ArmService:
         ws = load_workspace(path)
         self.ws = self.skills.ws = self.safety.ws = ws
         self.kin.base = ws.base
+        self.scene = load_scene(Path(path).parent / "scene.yaml")
         self._log("workspace_reloaded", {"base": asdict(ws.base), "table_mm": ws.table_mm, "drop_zones": list(ws.drop_zones)})
         return ws
 

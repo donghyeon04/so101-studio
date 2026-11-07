@@ -10,6 +10,7 @@ dependencies:
   - "libblas=*=*mkl"
   - placo=0.9.25
   - pyyaml
+  - trimesh  # 장면 부품 메쉬(core/scene.py). 충돌 검사의 coal은 placo와 함께 설치된다
   - pip
   - pip:
       - "lerobot[feetech]==0.6.1"
