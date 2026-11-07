@@ -80,3 +80,4 @@
 | `docs/decisions/0045-test-and-verification-tooling.md` | 결정 | 확정 | 테스트·검증: 느린 테스트 slow 표시, pr-review-toolkit 테스트 감사, PR마다 code-review, 고친 파일 ruff 훅, GUI PR 화면 확인, 완료 보고에 실행 결과 |
 | `docs/decisions/0046-merge-with-related-tests.md` | 결정 | 확정 | PR은 main과 합쳐 관련 테스트만 돌리고 합침, 전체 테스트는 하루 마칠 때·실물 시험 전에 총괄이 한 번, 리뷰는 PR마다 |
 | `docs/decisions/0047-gui-share-view-and-estop.md` | 결정 | 확정 | GUI 다른 기기 보기는 `gui --share`일 때만, 원격 브라우저는 조작권 없음, E-STOP은 모든 화면·브라우저에 |
+| `docs/decisions/0048-egm-design-review.md` | 결정 | 확정 | EGM 플러그인은 설계서 구현 전 Stage 9 리뷰와 하루 마칠 때 drift-report만, 산출물은 runs/egm, 코드 테스트 규칙(0045·0046)은 그대로 |
