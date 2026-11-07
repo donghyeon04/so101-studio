@@ -282,8 +282,8 @@ class Backend:
     def _run_on(arm: ArmService, action) -> str | None:
         try:
             result = action(arm)
-        except RuntimeError:  # 컨트롤러가 이미 다른 동작을 실행 중이다
-            return BUSY_TEXT
+        except RuntimeError as e:  # 동작 중일 때만 "아직 움직이는 중", 잠김·연결 안 됨 같은 다른 이유는 그대로 보인다
+            return BUSY_TEXT if arm.ctl is not None and arm.ctl.busy else str(e)
         except ValueError as e:  # 배율 때문에 속도 한계를 넘는 경우 등
             return str(e)
         if result.reason == "workspace":
@@ -751,8 +751,8 @@ class Backend:
             return self.arm.run_diagnostic(name, progress, stop, **kw), None
         except ValueError as e:
             return None, str(e)
-        except RuntimeError:
-            return None, BUSY_TEXT
+        except RuntimeError as e:
+            return None, BUSY_TEXT if self.arm.ctl is not None and self.arm.ctl.busy else str(e)
 
     def run_names(self) -> list[str]:
         """실행 기록 폴더 이름. 최근 것이 먼저다."""
@@ -867,6 +867,7 @@ class Backend:
             self.real.record_stop(name)
         except Exception as e:  # noqa: BLE001  통신이 끊겼으면 저장·토크 켜기가 실패한다. 부르는 쪽의 비상 정지까지 막으면 안 된다
             self.real.log_event("record_stop_failed", {"name": name, "error": repr(e)}, level="ERROR")
+            logging.getLogger(__name__).error("기록 저장·토크 켜기 실패(%s): 팔을 받치고 다시 연결하세요", e)  # 로그 화면·알림에 보인다
             return None
         return name
 
@@ -910,12 +911,19 @@ class Backend:
             self.stop_task()
 
     def estop(self) -> None:
-        self.record_finish()  # 기록 중에는 토크가 꺼져 있어 정지 명령만으로는 팔이 서지 않는다
-        self.paused = False
-        self.studio.stop()
-        self.pending = None
+        """앞 단계가 실패해도 모든 팔에 정지가 간다(감사 2026-11-07: 예외 하나로 실제 팔이 정지를 못 받던 순서)."""
+        try:
+            self.record_finish()  # 기록 중에는 토크가 꺼져 있어 정지 명령만으로는 팔이 서지 않는다
+            self.paused = False
+            self.studio.stop()
+            self.pending = None
+        except Exception:  # 정지 준비가 실패해도 아래 팔 정지는 반드시 한다
+            logging.getLogger(__name__).exception("E-STOP 준비 단계 실패")
         for arm in self._arms():
-            arm.estop()  # Studio.estop은 실행 기록에 남기지 않는다
+            try:
+                arm.estop()  # Studio.estop은 실행 기록에 남기지 않는다
+            except Exception:  # 한 팔이 실패해도 다음 팔은 세운다
+                logging.getLogger(__name__).exception("E-STOP 실패")
 
     def close(self) -> None:
         self._closing = True
