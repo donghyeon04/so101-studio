@@ -66,7 +66,7 @@
 | `docs/decisions/0032-mattpocock-skills.md` | 결정 | 확정 | mattpocock/skills는 11개만 `.claude/skills/`에 넣고 프로젝트 규칙에 맞게 고침(용어·결정 위치, 임시 디렉터리 산출물, 한국어), `/grill-me`는 여러 질문 라운드 |
 | `docs/decisions/0033-gripper-hold-preload-and-place-compensation.md` | 결정 | 확정 | 그리퍼 접촉 뒤 예압으로 잡기, 조임 한계는 RAM Torque_Limit(닫기 300·들기 200·놓은 뒤 복원), no_object면 올라와서 열기, 그리퍼 부하 2단계 감시, 놓기 중심 보정 (0010~0012 보완) |
 | `docs/decisions/0034-ultrasonic-radar-plus-arm-check.md` | 결정 | 확정 | 초음파 인식은 앞 변 가운데 레이더(서보 1개)로 후보를 찾고 팔 손목 센서가 십자·원형으로 확인하는 2단계, 작업 순서에 CHECK, 시간 줄이기 기법을 설정으로, 정확·빠른 모드(→ 0038로 하나) (0006 보완) |
-| `docs/decisions/0035-scan-servo-and-power.md` | 결정 | 확정 | 스캔 서보 MG90S 2개(예비 1), 서보 전원은 기존 12V 5A를 Y 케이블 + 12V→5V 강압 모듈로, 브래킷은 모두 출력(손목은 SO-ARM100 손목 카메라 마운트 개조, 레이더는 공개 받침 + 새 클램프) (0034 보완) |
+| `docs/decisions/0035-scan-servo-and-power.md` | 결정 | 대체됨(→ 0043 일부) | 스캔 서보 MG90S 2개(예비 1), 서보 전원은 기존 12V 5A를 Y 케이블 + 12V→5V 강압 모듈로, 브래킷은 모두 출력(손목은 SO-ARM100 손목 카메라 마운트 개조, 레이더는 공개 받침 + 새 클램프) (0034 보완) |
 | `docs/decisions/0036-three-local-sessions-with-hub.md` | 결정 | 확정 | 로컬 세션을 GUI(Opus, 총괄)·팔(Sonnet)·초음파(Sonnet) 셋으로, 총괄이 일 나누기·요청 대장·Sonnet PR 검토, 진행 상황은 문서에 (0024 보완) |
 | `docs/decisions/0037-single-shared-calculator.md` | 결정 | 확정 | 검증용 계산기는 주제마다 하나만, 레포 안 실제 코드 위에(초음파는 8.5절 벤치마크, 도달은 팔 세션 계산), 아이디어는 옵션으로, 기획은 가정을 정하고 검토, 설계서 숫자는 고정 시나리오 결과만 |
 | `docs/decisions/0038-single-check-mode.md` | 결정 | 확정 | 초음파 확인 모드는 하나(빠른 모드 없앰, 벤치마크에서 시간 -3~+4%), T8은 옵션 `check.approach_line` |
@@ -74,3 +74,4 @@
 | `docs/decisions/0040-team-local-install.md` | 결정 | 확정 | 팀원 배포는 Miniforge 무인 설치 + 배치 스크립트(`설치.cmd`, 시뮬레이션·실물 실행 `.cmd`)로 로컬 설치. 서버(웹 링크) 배포는 안 함 |
 | `docs/decisions/0041-radar-clear-upright-pose.md` | 결정 | 확정 | `radar_clear` 기본 자세는 위로 세운 `[0, -90, 85, -90, 0, 3]`(0039의 원점 위 150mm 접은 자세는 기구학상 없음). 벤치마크도 이 값을 읽음 |
 | `docs/decisions/0042-after-real-test-batch.md` | 결정 | 확정 | 실물 시험 뒤 묶음: 물체 높이 전달(`DetectedObject.height_mm`), 그리퍼 속도 설정, 호버 도달 띠 유지, 교시 재생 변환본, 원인별 오류 문구, 작업대 설정 바로 적용, 조그 값 입력 (사용자가 로컬 총괄과 정함) |
+| `docs/decisions/0043-overnight-decisions.md` | 결정 | 확정 | 밤샘 작업 결정 묶음: 그리퍼 두 종(TCP 두 턱 중앙, 병렬은 설정으로), 레이더 서보 OpenRB-150 + XL330(UART, 5V), 자동 캘리브레이션 11.0V 유지·전원 경로 점검, 장면 부품 STL 목록, 다음 기능 순서, 레포 정리 (0035 일부 대체) |
