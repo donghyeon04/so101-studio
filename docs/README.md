@@ -78,3 +78,4 @@
 | `docs/decisions/0043-overnight-decisions.md` | 결정 | 확정 | 밤샘 작업 결정 묶음: 그리퍼 두 종(TCP 두 턱 중앙, 병렬은 설정으로), 레이더 서보 OpenRB-150 + XL330(UART, 5V), 자동 캘리브레이션 11.0V 유지·전원 경로 점검, 장면 부품 STL 목록, 다음 기능 순서, 레포 정리 (0035 일부 대체) |
 | `docs/decisions/0044-gui-structure-and-next-features.md` | 결정 | 확정 | GUI는 지금 구조를 고쳐 씀(아래 조작 막대, 어디서나 조그 패널, 자세 즐겨찾기, 프로그램 트리, 운영자 화면, 메뉴 정리), 다음 기능은 블록 프로그래밍·캘리브레이션 마법사·장면 부품 편집기 → MuJoCo, 1·2·3·11 뺌, 4·10은 카메라 뒤 (0043-5 순서 대체) |
 | `docs/decisions/0045-test-and-verification-tooling.md` | 결정 | 확정 | 테스트·검증: 느린 테스트 slow 표시, pr-review-toolkit 테스트 감사, PR마다 code-review, 고친 파일 ruff 훅, GUI PR 화면 확인, 완료 보고에 실행 결과 |
+| `docs/decisions/0046-merge-with-related-tests.md` | 결정 | 확정 | PR은 main과 합쳐 관련 테스트만 돌리고 합침, 전체 테스트는 하루 마칠 때·실물 시험 전에 총괄이 한 번, 리뷰는 PR마다 |
