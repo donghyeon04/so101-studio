@@ -336,3 +336,8 @@ def test_missing_arm_file_blocks_moves_on_real_hardware_but_not_in_sim(tmp_path)
         assert ok_svc.locked_reason is None and ok_svc.move_joints(JointState(10, -80, 90, 0, 0, 3)).status == "ok"
     finally:
         ok_svc.disconnect()
+
+
+def test_temp_warn_threshold_is_50():
+    from so101_studio.doctor import TEMP_WARN_C
+    assert TEMP_WARN_C == 50
