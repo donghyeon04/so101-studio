@@ -13,6 +13,7 @@ from .core.config import ArmSelectionError, arm_files, load_robot_ex
 PING, READ = 0x01, 0x02
 BAUD = 1_000_000
 SERVO_IDS = range(1, 7)
+TEMP_WARN_C = 50  # 서보 온도 주의 기준(°C). GUI 서보 건강 대시보드(gui/health.py)와 같다 (REQ-042)
 MODEL_STS3215 = 777
 # (주소, 바이트 수): STS3215 레지스터 중 읽기만 쓰는 것
 REGS = {"model": (3, 2), "min": (9, 2), "max": (11, 2), "homing": (31, 2), "torque": (40, 1), "pos": (56, 2),
@@ -236,8 +237,8 @@ def doctor(cfg=None, probe: bool = True, port: str | None = None, progress=None,
             checks.append(_check("전압", "ok", f"{min(volts):.1f}~{vmax:.1f}V"))
         temps = [s["temp_c"] for s in sv if s["temp_c"] is not None]
         hot = max(temps) if temps else None
-        checks.append(_check("온도", "skip" if hot is None else ("warn" if hot >= 55 else "ok"), "온도를 못 읽었다" if hot is None else f"최고 {hot}°C",
-                             "" if hot is None or hot < 55 else "식을 때까지 쉰다"))
+        checks.append(_check("온도", "skip" if hot is None else ("warn" if hot >= TEMP_WARN_C else "ok"), "온도를 못 읽었다" if hot is None else f"최고 {hot}°C",
+                             "" if hot is None or hot < TEMP_WARN_C else "식을 때까지 쉰다"))
         mismatch = compare_calibration(cal, sv) if cal else []
         if not cal:
             checks.append(_check("캘리브레이션 대조", "skip", "비교할 캘리브레이션 파일이 없다"))

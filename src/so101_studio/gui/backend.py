@@ -25,6 +25,7 @@ from ..service.stop_listener import StopListener
 from ..service.studio import Studio
 from ..service.targets import reason_text, tip_vector
 from ..task.policy import reachable
+from .health import ServoHealth, count_events
 from .scene3d import Scene3D
 from .state import (
     EMPTY,
@@ -145,6 +146,8 @@ class Backend:
         # 궤적 계산용으로 따로 둔다(팔의 Kinematics는 다른 스레드도 쓴다). 만드는 동안 파이썬 전체가 1초 넘게 멈춰, 감시 프로세스가 켜진 뒤에 만들면 앱이 강제 종료된다
         self._path_kin = Kinematics(cfg.urdf, self.arm.ws.base, cfg.joint_limits_deg)
         self.arm.status_stream(self.state.update)
+        self.health = ServoHealth()
+        self.arm.status_stream(self.health.update)
         self.source = ManualSource()
         self._make_studio()
         self._reconnect_failed = False
@@ -152,6 +155,7 @@ class Backend:
         if viser_port is not None:
             self.scene = Scene3D(cfg, self.arm.ws, self.arm.kin, viser_port)
             self.scene.set_objects(self.objects())
+            self.scene.set_parts(getattr(self.arm, "scene", None))  # 장면 부품(REQ-040). 팔이 아직 모르면 그리지 않는다
             self.arm.status_stream(self.scene.update_status)
             if self.real:
                 self.sim.status_stream(self._on_twin_status)
@@ -653,6 +657,8 @@ class Backend:
             for arm in self._arms():
                 arm.reload_workspace(path)
             self.studio.ws = self.studio.task.ws = self.arm.ws
+            if self.scene:
+                self.scene.set_parts(getattr(self.arm, "scene", None))
         except RuntimeError as e:
             return f"저장했지만 지금은 적용하지 못했습니다({e}). 동작이 끝난 뒤 다시 저장하거나 앱을 다시 시작하세요"
         return None
@@ -678,11 +684,28 @@ class Backend:
         """다음 실행부터 쓸 팔을 local.yaml에 적는다. 실패 이유 또는 None. 설정은 시작할 때 읽어 지금 팔은 그대로다."""
         if name not in self.arm_names():
             return f"팔 파일이 없습니다: {name}"
+        self._set_local("arm", name)
+        return None
+
+    def _set_local(self, key: str, value: str) -> None:
+        """config/local.yaml의 한 줄만 바꾼다(주석은 그대로). 없으면 끝에 더한다."""
         path = Path(self.local_path)
         text = path.read_text(encoding="utf-8") if path.exists() else ""
-        line = f"arm: {name}"
-        text, count = re.subn(r"^arm:.*$", line, text, flags=re.MULTILINE)  # 주석을 지키려고 그 줄만 바꾼다
+        line = f"{key}: {value}"
+        text, count = re.subn(rf"^{key}:.*$", line, text, flags=re.MULTILINE)
         path.write_text(text if count else f"{text.rstrip()}\n{line}\n".lstrip(), encoding="utf-8")
+
+    def gripper_info(self) -> dict | None:
+        """지금 그리퍼 종류와 고를 수 있는 종류 (REQ-038). 팔이 모르면 None."""
+        info = getattr(self.arm, "gripper_info", None)
+        return info() if info else None
+
+    def choose_gripper(self, name: str) -> str | None:
+        """다음 실행부터 쓸 그리퍼 종류를 local.yaml에 적는다(결정 0043-1). 실패 이유 또는 None."""
+        info = self.gripper_info()
+        if not info or name not in info["available"]:
+            return f"그리퍼 종류가 없습니다: {name}"
+        self._set_local("gripper", name)
         return None
 
     def _run_linkwatch(self, progress=None, stop=None) -> tuple[dict | None, str | None]:
@@ -769,6 +792,11 @@ class Backend:
                 text = f"{rec.get('kind')}: {json.dumps(rec.get('data'), ensure_ascii=False, default=str)}"
                 records.append(LogRecord(rec["t"] / 1e9, LOG_LEVELS.get(rec["level"], "INFO"), text, rec["proc"], rec.get("code"), rec["file"].split("/")[0]))
         return sorted(records, key=lambda r: r.t)
+
+    def health_events(self) -> dict:
+        """이번 실행의 통신 끊김·토크 풀림·오류 정지 횟수 (결정 0043-5)."""
+        # shortcut: 부를 때마다 events.jsonl 전체를 읽는다, 실행이 아주 길어 느려지면 logs()처럼 이어 읽기로 바꾼다
+        return count_events(logread.read_events(self.run_dir) if self.run_dir else [])
 
     def incidents(self) -> list[dict]:
         return logread.list_incidents(self.runs_root)

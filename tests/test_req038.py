@@ -103,3 +103,23 @@ def test_parallel_urdf_and_mesh_lowest_z(kin):
         q = replace(q, gripper=g)
         zs.append(k.gripper.lowest_z(q))
     assert max(zs) - min(zs) < 1.5 and zs[0] == pytest.approx(20.0, abs=1.0)  # 수직이면 간격이 바뀌어도 가장 낮은 점은 같고, 손끝 높이 20mm 근처
+
+
+def test_scene_collision_with_the_parallel_urdf_moves_both_clamps():
+    """#168과 함께: 병렬 URDF에서도 충돌 거리가 gripper 관절(직선 m)로 계산되고, 벌리면 클램프가 장면 부품에 더 가까워진다."""
+    import trimesh
+
+    from so101_studio.arm.collision import SceneCollision
+    from so101_studio.core.scene import Scene, ScenePart
+    cfg, k = load_parallel(), pkin()
+    k.gripper = ParallelGripper(k, cfg)
+    q = k.ik(k.gripper.hand_pose(300, 230, 90.0, 0.0, False, 30.0), JointState(0, -30, 30, 60, 0, 0))
+    assert q is not None
+    tip = k.fk(q)
+    side = trimesh.creation.box(extents=[10, 10, 80])
+    T = np.eye(4)
+    T[:3, 3] = [tip.x_mm, tip.y_mm + 60, cfg.table_z_mm]  # 손끝 옆(yaw 90이면 집게가 y 방향으로 열린다) 60mm
+    coll = SceneCollision(k, cfg.urdf, WS, cfg.table_z_mm, cfg.tip_floor_mm)
+    coll.set_scene(Scene(10.0, [ScenePart("wall", "table", T, side)]), WS)
+    closed, opened = coll.distance(replace(q, gripper=0.0))[0], coll.distance(replace(q, gripper=100.0))[0]
+    assert np.isfinite(closed) and opened < closed - 10  # 84mm 열리면 한쪽 클램프가 40mm 가까이 간다

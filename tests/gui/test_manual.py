@@ -216,10 +216,10 @@ def test_resume_button_appears_only_when_stopped(backend):
         assert await _until(lambda: backend.owner is not None)
         await user.should_not_see(marker="resume")
         backend.estop()
-        await user.should_see(marker="resume")
+        await user.should_see(marker="resume", retries=30)  # 기본 0.3초는 부하가 있으면 상태줄 갱신보다 짧다
         user.find(marker="resume").click()
         assert await _until(lambda: backend.arm.ctl.state == "idle")
-        await user.should_not_see(marker="resume")
+        await user.should_not_see(marker="resume", retries=30)
 
     in_app(backend, check)
 

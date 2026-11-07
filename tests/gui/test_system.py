@@ -504,3 +504,26 @@ def test_simulation_doctor_does_not_fail_on_missing_port(backend, monkeypatch):
         {"name": "포트 목록", "state": "fail", "text": "포트 0개", "fix": "USB 케이블을 확인한다"}]})
     report = backend.run_doctor()
     assert report["ok"] and report["checks"][0]["state"] == "skip" and "시뮬레이션" in report["checks"][0]["text"]
+
+
+def test_gripper_type_can_be_changed_for_the_next_start(backend, tmp_path, monkeypatch):
+    """결정 0043-1·REQ-038: 지금 종류를 보이고, 고른 종류를 local.yaml에 적는다(주석 유지). 없는 종류는 거부."""
+    from so101_studio.gui.pages.arm import gripper_text
+
+    local = tmp_path / "local.yaml"
+    local.write_text("# 주석\nport: COM9\n", encoding="utf-8")
+    monkeypatch.setattr(backend, "local_path", str(local))
+    assert backend.gripper_info()["type"] == "single_jaw"
+    assert backend.choose_gripper("nope") and "gripper" not in local.read_text(encoding="utf-8")
+    assert "3D는" in gripper_text({"type": "parallel", "max_open_mm": 84})
+
+    async def check(user):
+        assert "단동식" in _one(user, "gripper-type").text
+        assert await _until(lambda: backend.owner is not None and _one(user, "gripper-change").enabled)
+        _one(user, "gripper-picker").value = "parallel"
+        user.find(marker="gripper-change").click()
+        assert await _until(lambda: "gripper: parallel" in local.read_text(encoding="utf-8"))
+        await user.should_see("다시 시작하면 적용됩니다")
+
+    in_app(backend, "/arm", check)
+    assert local.read_text(encoding="utf-8") == "# 주석\nport: COM9\ngripper: parallel\n"

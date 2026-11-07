@@ -45,5 +45,8 @@
 | REQ-035 | 결정 0042 초음파 몫: 확인 결과 실측 높이(h_mm)를 `DetectedObject.height_mm`에 | GUI → 초음파(결정 0042) | 추가 | 완료 | #130 합쳐짐 | |
 | REQ-036 | 놓기 여는 경로(_opening_path)가 실패하면 조용히 그냥 열기로 대체되는 문제(가운데 보정 동작 빠짐), 기울인 V자 턱 끝이 책상까지 내려가는 간섭(바닥 검사가 실제 턱 끝을 보게, 벌림을 물체 폭에 맞추기) | GUI → 팔(사용자 실물 영상 2026-11-06) | 버그 수정 | 완료 | #137 합쳐짐 | 집기·놓기 5/5 성공 뒤 영상, 시뮬레이션 재현 |
 | REQ-037 | 손끝 방향 자유(pitch·yaw)로 좌표 이동·직교 조그, 집기 범위와 움직임 범위 나누기(gui-spec 11절 B6·C9) | GUI → 팔(사용자 요청) | 추가 | 완료 | #143(팔), #154(GUI) 합쳐짐 | 0° 자세 수평 도달 실측 353mm |
-| REQ-038 | 결정 0043-1 병렬 그리퍼: `ParallelGripper`(TCP 두 턱 중앙, 보정 0, W ≤ G − 4), `gripper: single_jaw\|parallel` 설정, `config/grippers/<종류>.yaml`, `assets/so101_parallel.urdf` | GUI → 팔(결정 0043) | 추가 | 요청 | | 폭↔서보값 표·접촉 기준은 실물 몫. GUI 선택 화면은 그 뒤 |
-| REQ-039 | 결정 0043-2 레이더 서보 OpenRB-150 + XL330: `firmware/openrb_servo/`, `servo.driver`, ESP32 UART 연결, `ultrasonic-spec.md` 3.2·3.4·3.5 갱신안 | GUI → 초음파(결정 0043) | 추가 | 요청 | | XL330 5V, 12V를 VIN에 넣지 않음. 설계서 갱신은 총괄이 검토 |
+| REQ-038 | 결정 0043-1 병렬 그리퍼: `ParallelGripper`(TCP 두 턱 중앙, 보정 0, W ≤ G − 4), `gripper: single_jaw\|parallel` 설정, `config/grippers/<종류>.yaml`, `assets/so101_parallel.urdf` | GUI → 팔(결정 0043) | 추가 | 진행 | #167 검토 | 폭↔서보값 표·접촉 기준은 실물 몫. GUI 선택 화면은 그 뒤 |
+| REQ-039 | 결정 0043-2 레이더 서보 OpenRB-150 + XL330: `firmware/openrb_servo/`, `servo.driver`, ESP32 UART 연결, `ultrasonic-spec.md` 3.2·3.4·3.5 갱신안 | GUI → 초음파(결정 0043) | 추가 | 완료 | #165 합쳐짐 | XL330 5V, 12V를 VIN에 넣지 않음. 설계서 갱신은 총괄이 검토 |
+| REQ-040 | 결정 0043-4·5 장면 부품: `config/scene.yaml`, `core/scene.py`의 `load_scene`·`ScenePart`(name, attach, T mm, mesh mm, collide, color), `ArmService.scene`, coal로 팔 링크와 작업대 부품 충돌 검사(`scene:<이름>`, margin_mm) | GUI → 팔(결정 0043) | 추가 | 진행 | #168 진행 | GUI는 `arm.scene`을 3D에 그림(링크 부품은 링크를 따라감). STL이 없는 동안 `box_mm` 상자 |
+| REQ-041 | 병렬 그리퍼 URDF·메쉬: Robonine 공개 STL(CERN-OHL-P-2.0)을 `assets/`에, `assets/so101_parallel.urdf`(관절 `gripper`, ID 6), `parallel.yaml`의 `urdf:`, 병렬 `lowest_z`를 메쉬로 | GUI → 팔(사용자 승인 2026-11-07) | 추가 | 진행 | WIP 브랜치 | 사용자 부품 CAD는 Autodesk Fusion |
+| REQ-042 | `doctor` 서보 온도 주의 55°C → 50°C(GUI 서보 건강 기준과 같게) | GUI → 팔(사용자 승인 2026-11-07) | 수정 | 완료 | #171 합쳐짐 | GUI 기준은 `gui/health.py` LIMITS |

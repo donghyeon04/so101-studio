@@ -93,3 +93,50 @@ def test_real_clock_is_perf_counter_ns():
     assert a <= b <= c and c - a < 5_000_000
     ticks = {RealClock.now_ns() for _ in range(2000)}
     assert len(ticks) > 20  # 15.6ms 단위로 계단 지는 시계면 몇 개 안 된다
+
+
+class _Lines:
+    """readlines만 있는 전송 계층(줄을 미리 넣어 둔다)."""
+
+    def __init__(self, *lines):
+        self.lines = list(lines)
+
+    def write(self, line):
+        pass
+
+    def readlines(self):
+        out, self.lines = self.lines, []
+        return out
+
+
+def test_poll_skips_non_dict_and_missing_us():
+    # 부팅 잡음(숫자·리스트·us 없는 측정)에 예외 없이 건너뛰고, 정상 줄은 받는다 (REQ-044)
+    link = Link(_Lines("123", "[1, 2]", '"x"', "null", '{"t":"r","a":86,"d":300}', '{"t":"sync"}',
+                       '{"t":"r","a":90,"d":null,"us":5}'), SimClock())
+    msgs = link.poll()
+    assert [m["a"] for m in msgs] == [90] and "t_ns" in msgs[0]
+
+
+def test_serial_transport_reports_closed_port_after_draining_queue():
+    # 읽기 스레드가 오류 없이 끝나도 끊김으로 알리고, 그 전에 받은 줄은 먼저 돌려준다 (REQ-044)
+    import queue
+
+    from so101_studio.perception.ultrasonic.link import SerialTransport
+
+    class Ser:
+        def __init__(self):
+            self.is_open = True
+            self.lines = [b'{"t":"hello"}\n', b'{"t":"r"}\n']
+
+        def readline(self):
+            if self.lines:
+                return self.lines.pop(0)
+            self.is_open = False  # 포트가 닫힘
+            return b""
+
+    tx = object.__new__(SerialTransport)
+    tx._ser, tx._q, tx._err = Ser(), queue.Queue(), None
+    tx._read()
+    assert tx.readlines() == ['{"t":"hello"}\n', '{"t":"r"}\n']  # 오류 전에 받은 줄 보존
+    with pytest.raises(UltrasonicLinkError, match="포트가 닫혔다"):
+        tx.readlines()

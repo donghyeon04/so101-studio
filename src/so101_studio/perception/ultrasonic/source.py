@@ -48,12 +48,18 @@ class UltrasonicSource:
         for _ in range(10):
             self.link.send(cmd="hello")
             try:
-                self.link.wait_for("hello", 0.5)
+                hello = self.link.wait_for("hello", 0.5)
                 break
             except UltrasonicLinkError:
                 continue
         else:
             raise UltrasonicLinkError("hello 응답 없음(5초): 포트·케이블·펌웨어를 확인한다")
+        want = self.cfg.servo.driver
+        if hello.get("servo") != want:  # 서보 구동을 설정(servo.driver)에 맞춘다. 펌웨어는 켤 때마다 pwm이다
+            self.link.send(cmd="driver", name=want)
+            hello = self.link.wait_for("hello", 1.0)
+            if hello.get("servo") != want:
+                raise UltrasonicLinkError(f"펌웨어가 서보 구동 {want!r}를 지원하지 않는다(hello servo={hello.get('servo')!r}): 펌웨어를 올린다")
         self.link.sync()
 
     def calibrate(self) -> dict:

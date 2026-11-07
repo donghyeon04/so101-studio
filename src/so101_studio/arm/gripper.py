@@ -111,6 +111,7 @@ class SingleJawGripper:
         return (f + m) / 2
 
     def set_joints(self, robot, v: float) -> None:
+        """placo 로봇의 그리퍼 관절을 그리퍼 값 v에 맞춘다(단동식: gripper 회전 관절, rad)."""
         robot.set_joint("gripper", math.radians(min(max(VALUE_TO_Q[0] + VALUE_TO_Q[1] * v, -10.0), 100.0)))  # URDF gripper 관절 범위
 
     def lowest_z(self, q: JointState) -> float:
