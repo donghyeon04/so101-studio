@@ -28,7 +28,7 @@ def main(argv=None) -> None:
     def log(rec: dict) -> None:
         kind = rec.get("event", "log")
         data = {k: v for k, v in rec.items() if k != "event"}
-        level = "ERROR" if kind == "trip" else "WARN" if kind == "trip_ignored" else "INFO"
+        level = "ERROR" if kind in ("trip", "trip_error", "tick_error", "hotkey_error") else "WARN" if kind == "trip_ignored" else "INFO"
         jl.write(kind, data, level, f"WATCHDOG-{kind.upper()}")
         print(json.dumps({"t": time.time(), **rec}, ensure_ascii=False), flush=True)
 
@@ -38,7 +38,7 @@ def main(argv=None) -> None:
     srv = make_server(wd, a.port)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     threading.Thread(target=wd.run, args=(stop,), daemon=True).start()
-    hk = start_hotkey(hotkey, lambda: wd.trip(f"단축키 {hotkey}"), stop)
+    hk = start_hotkey(hotkey, lambda: wd.trip(f"단축키 {hotkey}"), stop, on_error=lambda e: log({"event": "hotkey_error", "error": repr(e)}))
     log({"event": "start", "port": a.port, "sim": a.sim, "hotkey": hotkey if hk else None, "log": str(path)})
     try:
         while True:

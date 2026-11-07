@@ -253,3 +253,43 @@ def test_arm_with_run_dir_moves_the_log_and_a_rejected_dir_does_not_arm(tmp_path
         wd.arm(False, run_dir=str(tmp_path.parent))
     assert wd.armed  # 거절되면 등록 상태도 그대로
     rl.close()
+
+
+def test_trip_exception_releases_busy_and_is_logged():
+    clk, logs = Clock(), []
+    wd = Watchdog(clock=clk, log=logs.append)
+    wd._send_estop = lambda port, reason: (_ for _ in ()).throw(RuntimeError("boom"))
+    wd.arm(True, pid=4242, stop_port=8091)
+    clk.t += 1.1
+    assert wd.tick() is False  # 예외가 tick 밖으로 새지 않는다
+    assert any(r["event"] == "trip_error" for r in logs)
+    assert not wd._busy and not wd.status()["tripped"]  # 다음 tick에 다시 시도할 수 있다
+    wd._send_estop = lambda port, reason: True
+    assert wd.tick() is True
+
+
+def test_run_loop_survives_a_tick_exception_and_status_reports_last_tick():
+    clk, logs = Clock(), []
+    wd = Watchdog(clock=clk, log=logs.append)
+    assert wd.status()["last_tick_age_s"] is None
+    calls = {"n": 0}
+    real = wd.tick
+
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("tick boom")
+        return real()
+
+    wd.tick = flaky
+    stop = threading.Event()
+    th = threading.Thread(target=wd.run, args=(stop, 200.0), daemon=True)
+    th.start()
+    deadline = time.time() + 3
+    while calls["n"] < 3 and time.time() < deadline:
+        time.sleep(0.01)
+    stop.set()
+    th.join(1)
+    assert calls["n"] >= 3 and any(r["event"] == "tick_error" for r in logs)  # 예외 뒤에도 계속 돈다
+    clk.t += 5
+    assert wd.status()["last_tick_age_s"] == pytest.approx(5.0, abs=0.01)  # 이후 tick이 없으면 나이가 커진다
