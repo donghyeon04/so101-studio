@@ -304,3 +304,20 @@ def test_sim_left_far_object_check_goes_through_from_radar_clear(tmp_path):
     assert ok and out["picked"], (res, out)
     assert math.dist((ok[0]["object"]["x_mm"], ok[0]["object"]["y_mm"]), (161, 148)) < 30
     arm.disconnect()
+
+
+def test_drop_zone_is_not_a_candidate_and_follows_reload(tmp_path):
+    """REQ-045: 배출 구역에 놓인 물체가 다음 스캔에서 후보가 되지 않는다(전에는 같은 물체를 다시 집으러 갔다)."""
+    zone = WS.drop_zones["right"]
+    boxes = [Box(zone["x_mm"], zone["y_mm"], 0, 30, 100)]
+    arm = ArmService(SimDriver(CFG.poses["home"]), CFG, WS, speed_pct=100, log_root=str(tmp_path / "runs"))
+    assert arm.connect()[0]
+    src = make_ultrasonic_source(arm, sim=True, boxes=boxes)
+    assert src.ignore_zones == [(zone["x_mm"], zone["y_mm"], WS.drop_zone_ignore_radius_mm)]
+    assert src.scan().objects == []  # 구역 안이라 무시
+    src.ignore_zones = []
+    assert any(math.hypot(o.x_mm - zone["x_mm"], o.y_mm - zone["y_mm"]) < 40 for o in src.scan().objects)  # 무시를 풀면 후보가 된다(시험이 의미 있다)
+    st = Studio(arm, src, dry_run=True)
+    st.task.refresh_ignore_zones()
+    assert src.ignore_zones == WS.ignore_zones()
+    arm.disconnect()
