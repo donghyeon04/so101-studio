@@ -88,6 +88,17 @@ def test_cli_goes_through_the_service(capsys):
     assert "ok" in out and "shoulder_pan" in out and "torque" in out
 
 
+def test_one_sided_none_box_never_raises(svc):
+    """box에 한쪽만 None이어도(제한 없음) check_goal이 예외 없이 끝난다. 예외는 조그 루프에서 통신 실패로 오인되어 comm_lost가 된다."""
+    home = JointState(*CFG.poses["home"])
+    for box in ({"z": [None, 150]}, {"z": [5, None]}, {"z": [None, None]}, {"x": [None, 400]}, {"x": [50, None]}, {"y": [None, None]}, {"x": [None, 300], "y": [20, None], "z": [None, 200]}):
+        s = svc.set_safety(box_mm=box)
+        assert s["box_mm_effective"] is not None
+        assert svc.safety.check_goal(home) in (None, "workspace", "z_floor", "z_ceiling")  # 어떤 경우든 예외 없이 사유 하나로 끝난다
+        assert svc.safety.check_goal(home, home) in (None, "workspace", "z_floor", "z_ceiling")
+    svc.set_safety("normal", 0.0, None)
+
+
 def test_service_safety_settings_roundtrip_and_validation(svc):
     s = svc.set_safety(mode="free", joint_margin_deg=-3, box_mm={"z": [10, 300]})
     assert s["mode"] == "free" and s["effective_limits_deg"]["elbow_flex"][1] == pytest.approx(97.1) and s["box_mm_effective"]["z"] == [10, 300]
