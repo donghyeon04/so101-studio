@@ -2,6 +2,7 @@
 port: auto                # local.yaml이 우선
 baud: 921600
 ping_gap_ms: 33
+servo: {driver: pwm}      # pwm = MG90S(GPIO 13) | dxl = OpenRB-150 + XL330(결정 0043, 읽은 각도 ang). 연결할 때 펌웨어에 `driver` 명령으로 알린다
 beam_half_deg: 7.5        # B1 실측으로 고침
 radar:
   station_mm: {x: 300, y: 400}

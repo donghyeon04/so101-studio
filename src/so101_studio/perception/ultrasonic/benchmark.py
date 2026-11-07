@@ -215,11 +215,11 @@ class FakeArm:
 
 def build(boxes, seed=0, model="optimistic", reach=REACH, arm_kw=None, esp_kw=None, radar=None, **check):
     """설정 + 가상 시계 + 가상 ESP32 + 가상 팔. model: MODELS 이름 또는 None(이상적 센서)."""
-    cfg = load_config(radar=radar, **check)
     clk = SimClock()
     holder = {}
     kw = dict(MODELS[model]) if model else {}
     kw.update(esp_kw or {})
+    cfg = load_config(radar=radar, servo={"driver": kw.get("servo", "pwm")}, **check)
     esp = FakeESP32(clk, boxes, cfg, seed=seed, arm_sensor_fn=lambda t: holder["a"].sensor_at(t),
                     arm_links_fn=lambda t: holder["a"].links_at(t), **kw)
     arm = holder["a"] = FakeArm(clk, cfg, arm_base(), reach=reach, **(arm_kw or {}))

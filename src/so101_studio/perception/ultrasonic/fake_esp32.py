@@ -115,6 +115,10 @@ class FakeESP32:
         self._once.clear()
         self._sweep = self._stream = None
 
+    def _cmd_driver(self, m, now):
+        self.servo = "dxl" if m.get("name") == "dxl" else "pwm"
+        self._cmd_hello(m, now)
+
     def _cmd_servo(self, m, now):
         self._servo_deg = m.get("deg", 90)
 
