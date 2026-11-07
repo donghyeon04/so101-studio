@@ -80,16 +80,16 @@ class Safety:
         return self._workspace(q, ref) or self._scene(q, ref)
 
     def _scene(self, q: JointState, ref: JointState | None = None) -> str | None:
-        """장면 부품과 팔 링크 사이 거리가 margin_mm보다 가까우면 'scene:<이름>'. 링크에 붙은 부품이 바닥에 닿으면 z_floor.
-        이미 margin 안에서 출발했다면 거리가 줄지 않는 움직임은 허용해 빠져나올 수 있게 한다."""
-        if self.collision is None or self.collision.scene is None:
+        """장면 부품과 팔 링크 사이 거리가 margin_mm보다 가까우면 'scene:<이름>', 링크에 붙은 부품이 바닥(z_floor_mm)보다 낮으면 'scene_floor:<이름>'.
+        이미 안에서 출발했다면 거리가 줄지 않고 더 낮아지지 않는 움직임은 허용해 빠져나올 수 있게 한다(_workspace와 같다)."""
+        c = self.collision
+        if c is None or c.scene is None:
             return None
-        d, name, floor = self.collision.distance(q)
-        if floor and (ref is None or self.collision.distance(ref)[2] is None):
-            return "z_floor"
-        if d >= self.collision.scene.margin_mm:
-            return None
-        if ref is not None and d >= self.collision.distance(ref)[0] - 1e-6:
+        d, name, low_name, low_z = c.distance(q)
+        r = c.distance(ref) if ref is not None else None
+        if low_z < c.z_floor_mm and not (r is not None and r[3] < c.z_floor_mm and low_z >= r[3] - 1e-6):
+            return f"scene_floor:{low_name}"
+        if d >= c.scene.margin_mm or (r is not None and d >= r[0] - 1e-6):
             return None
         return f"scene:{name}"
 

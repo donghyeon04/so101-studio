@@ -94,7 +94,10 @@ def test_attached_part_touching_floor_is_z_floor(kin, coll):
     tool = box("tool", (0, 0, 0), (20, 20, 20), attach="gripper_link")
     tool.mesh = trimesh.creation.box(extents=[1600, 1600, 1600])  # 어느 방향으로 뻗어도 작업대 아래로 내려가는 긴 부품
     s = safety(kin, coll, [box("far", (50, 400, 0)), tool])
-    assert s.check_goal(HOME) == "z_floor"
+    assert s.check_goal(HOME) == "scene_floor:tool"
+    assert "tool" in reason_text("scene_floor:tool")
+    assert s.check_goal(HOME, HOME) is None  # 이미 닿은 채 출발해 더 낮아지지 않으면 허용
+    assert coll._k is not kin._k  # 제어 스레드가 쓰는 로봇과 따로
 
 
 def test_check_path_speed(kin, coll):
@@ -117,3 +120,26 @@ def test_service_scene_and_reload(tmp_path):
     svc.reload_workspace(tmp_path / "workspace.yaml")
     assert [p.name for p in svc.scene.parts] == ["wall"] and svc.safety.collision.scene is svc.scene
     svc.disconnect()
+
+
+BAD_SCENE = "parts:\n  - {name: a, file: nope.stl}\n"
+
+
+def test_reload_failure_changes_nothing_and_bad_scene_does_not_block_start(tmp_path, monkeypatch):
+    from so101_studio.arm.sim_driver import SimDriver
+    from so101_studio.service.arm_service import ArmService
+    (tmp_path / "workspace.yaml").write_text(Path("config/workspace.yaml").read_text(encoding="utf-8").replace("x_mm: 300", "x_mm: 310", 1), encoding="utf-8")
+    (tmp_path / "scene.yaml").write_text(BAD_SCENE, encoding="utf-8")
+    svc = ArmService(SimDriver(CFG.poses["home"]), CFG, WS, speed_pct=100, log_root=str(tmp_path / "runs"))
+    assert svc.connect()[0]
+    ws0, scene0 = svc.ws, svc.scene
+    with pytest.raises(RuntimeError):
+        svc.reload_workspace(tmp_path / "workspace.yaml")
+    assert svc.ws is ws0 and svc.scene is scene0 and svc.skills.ws is ws0
+    svc.disconnect()
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "scene.yaml").write_text(BAD_SCENE, encoding="utf-8")
+    with pytest.warns(UserWarning):
+        bad = ArmService(SimDriver(CFG.poses["home"]), CFG, WS, speed_pct=100, log_root=None)
+    assert bad.scene.parts == [] and bad.scene_error

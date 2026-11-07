@@ -3,6 +3,7 @@ import math
 import threading
 import time
 import traceback
+import warnings
 from dataclasses import asdict, replace
 from pathlib import Path
 
@@ -20,7 +21,7 @@ from ..core.blackbox import install_excepthooks
 from ..core.config import RobotConfig, WorkspaceConfig, load_workspace
 from ..core.incident import Incident, create_incident
 from ..core.logging import RunLogger
-from ..core.scene import load_scene
+from ..core.scene import Scene, load_scene
 from ..core.types import ArmStatus, DetectedObject, JointState, MotionResult, ToolPose
 from ..perception.base import PoseSample
 from . import diagnostics as _diag
@@ -61,7 +62,12 @@ class ArmService:
         self.speed = speed_pct if speed_pct is not None else cfg.speed_pct_default
         self.log_root = log_root
         self.collision = None
-        self.scene = load_scene()  # 장면 부품 (config/scene.yaml, 없으면 빈 목록). reload_workspace가 다시 읽는다
+        self.scene_error: str | None = None  # config/scene.yaml을 못 읽었을 때의 이유(빈 장면으로 시작한다)
+        try:
+            self.scene = load_scene()  # 장면 부품 (config/scene.yaml, 없으면 빈 목록). reload_workspace가 다시 읽는다
+        except Exception as e:  # noqa: BLE001 장면 파일 하나가 앱 시작을 막지 않게
+            self.scene, self.scene_error = Scene(), str(e)
+            warnings.warn(f"장면 부품 목록을 못 읽어 빈 장면으로 시작한다: {e}", stacklevel=2)
         self.preset_dir = "config/presets"
         self.proc = proc  # 기록 머리의 proc(cli | gui). 없으면 환경변수 SO101_PROC, 기본 cli
         self.config_dir = Path("config")  # 사고 묶음에 설정 사본을 담는 곳
@@ -380,10 +386,14 @@ class ArmService:
         if self.ctl.busy:
             raise RuntimeError("동작 중에는 작업대 설정을 다시 읽을 수 없다")
         ws = load_workspace(path)
+        try:  # 장면을 먼저 읽는다: 실패하면 아무것도 바꾸지 않는다
+            scene = load_scene(Path(path).parent / "scene.yaml")
+        except Exception as e:
+            raise RuntimeError(f"장면 부품 목록을 읽지 못했다: {e}") from e
         self.ws = self.skills.ws = self.safety.ws = ws
         self.kin.base = ws.base
-        self.scene = load_scene(Path(path).parent / "scene.yaml")
-        self.collision.set_scene(self.scene, ws)
+        self.scene, self.scene_error = scene, None
+        self.collision.set_scene(scene, ws)
         self._log("workspace_reloaded", {"base": asdict(ws.base), "table_mm": ws.table_mm, "drop_zones": list(ws.drop_zones)})
         return ws
 

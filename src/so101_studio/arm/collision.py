@@ -2,18 +2,21 @@
 링크에 붙은 부품은 팔의 일부로 본다. 단위: 입출력 mm, 내부 coal은 m.
 shortcut: 메쉬를 볼록 껍질로 근사한다(오목한 부품은 실제보다 크게 잡힌다: 안전한 쪽), 오목 부품을 정확히 보려면 BVH로 바꾼다."""
 import math
+import threading
 import xml.etree.ElementTree as ET
+from collections import OrderedDict
 from dataclasses import astuple
 from pathlib import Path
 
 import coal
 import numpy as np
 import trimesh
+from lerobot.model.kinematics import RobotKinematics
 
 from ..core import frames
 from ..core.types import JointState
 from .gripper import _rpy, _stl_vertices
-from .kinematics import ARM_JOINTS, PAN_AXIS_X_MM, VALUE_TO_Q
+from .kinematics import ARM_JOINTS, PAN_AXIS_X_MM
 
 
 def _hull(vertices: np.ndarray):
@@ -31,12 +34,15 @@ def _T(T: np.ndarray):
 class SceneCollision:
     def __init__(self, kin, urdf_path: str, ws=None, table_z_mm: float = 0.0, z_floor_mm: float = 4.0):
         self.kin, self.ws, self.table_z_mm, self.z_floor_mm = kin, ws, table_z_mm, z_floor_mm
+        # 제어 스레드(조그 IK)와 GUI 계획 스레드(check_path)가 kin._k를 같이 쓰므로 링크 변환은 이 객체의 자기 placo 로봇으로 구한다. 이 객체 안에서는 잠금으로 한 번에 하나만
+        self._k = RobotKinematics(urdf_path, "gripper_frame_link", joint_names=ARM_JOINTS)
+        self._lock = threading.Lock()
         self.scene = None
         self._links = self._load_links(Path(urdf_path))  # [(링크, coal 볼록체)]
         self._parts: list = []  # 작업대 부품: (이름, coal 볼록체, 작업대 -> 부품 4x4 m)
         self._attached: list = []  # 링크 부품: (이름, 링크, coal 볼록체, 꼭짓점 m, 링크 -> 부품 4x4 m)
         self._ready = False
-        self._memo: dict = {}
+        self._memo: OrderedDict = OrderedDict()
 
     @staticmethod
     def _load_links(urdf: Path) -> list:
@@ -58,7 +64,8 @@ class SceneCollision:
 
     def set_scene(self, scene, ws=None) -> None:
         """장면(또는 작업대 설정)이 바뀌면 다시 부른다."""
-        self.scene, self._memo = scene, {}
+        with self._lock:
+            self.scene, self._memo = scene, OrderedDict()
         if ws is not None:
             self.ws = ws
         self._parts, self._attached = [], []
@@ -86,23 +93,32 @@ class SceneCollision:
         return T
 
     def _pose(self, q: JointState):
-        k = self.kin._k
+        k = self._k
         arm = np.array([getattr(q, j) for j in ARM_JOINTS], float)
-        deg = min(max(VALUE_TO_Q[0] + VALUE_TO_Q[1] * q.gripper, -10.0), 100.0)
         for _ in range(1 if self._ready else 2):  # placo는 gripper 관절이 처음 들어간 첫 갱신에서 링크 변환이 낡은 채 나온다 (gripper.lowest_z와 같다)
             k.forward_kinematics(arm)
-            k.robot.set_joint("gripper", math.radians(deg))
+            self.kin.gripper.set_joints(k.robot, q.gripper)  # 그리퍼 종류마다 관절이 다르다(회전 rad | 직선 m)
             k.robot.update_kinematics()
         self._ready = True
         return k.robot
 
-    def distance(self, q: JointState) -> tuple[float, str | None, str | None]:
-        """(작업대 부품까지 가장 가까운 거리 mm, 그 부품 이름, 바닥에 닿은 링크 부품 이름 | None). 부품이 없으면 (inf, None, None)."""
-        if not self._parts and not self._attached:
-            return math.inf, None, None
+    def distance(self, q: JointState) -> tuple[float, str | None, str | None, float]:
+        """(작업대 부품까지 가장 가까운 거리 mm, 그 부품 이름, 가장 낮게 내려온 링크 부품 이름, 그 부품의 작업대 면 위 최저 높이 mm).
+        부품이 없으면 (inf, None, None, inf). 같은 자세는 기억해 둔다(check_path가 ref를 반복해 묻는다)."""
         key = astuple(q)
-        if key in self._memo:
-            return self._memo[key]
+        with self._lock:
+            if key in self._memo:
+                self._memo.move_to_end(key)
+                return self._memo[key]
+            out = self._distance(q)
+            self._memo[key] = out
+            if len(self._memo) > 256:
+                self._memo.popitem(last=False)  # 가장 오래 안 쓴 하나만 버린다
+            return out
+
+    def _distance(self, q: JointState) -> tuple[float, str | None, str | None, float]:
+        if not self._parts and not self._attached:
+            return math.inf, None, None, math.inf
         robot = self._pose(q)
         world = {}
 
@@ -112,13 +128,13 @@ class SceneCollision:
             return world[name]
 
         geoms = [(h, _T(link_T(n))) for n, h in self._links]
-        floor_hit = None
+        low_name, low_z = None, math.inf
         for name, link, h, v, T in self._attached:  # 링크에 붙은 부품은 팔의 일부
             Tw = link_T(link) @ T
             geoms.append((h, _T(Tw)))
-            z = (v @ Tw[2, :3] + Tw[2, 3]) * 1000.0
-            if floor_hit is None and z.min() - self.table_z_mm < self.z_floor_mm:
-                floor_hit = name
+            z = float(((v @ Tw[2, :3] + Tw[2, 3]) * 1000.0).min()) - self.table_z_mm
+            if z < low_z:
+                low_name, low_z = name, z
         T_tw = self._table_to_world()
         req, res = coal.DistanceRequest(), coal.DistanceResult()
         best, who = math.inf, None
@@ -129,7 +145,4 @@ class SceneCollision:
                 d = coal.distance(h, Tg, ph, Tp, req, res) * 1000.0
                 if d < best:
                     best, who = d, name
-        if len(self._memo) > 64:
-            self._memo.clear()
-        self._memo[key] = (best, who, floor_hit)
-        return self._memo[key]
+        return best, who, low_name, low_z
