@@ -56,7 +56,7 @@ def pkin():
 
 def test_parallel_pick_and_place_in_sim(kin):
     kin = pkin()  # 병렬 URDF: TCP와 메쉬가 맞아야 바닥 검사가 맞는다
-    kw = {k: getattr(load_parallel(), k) for k in ("gripper", "gripper_width_mm", "grasp_max_open_mm", "grasp_tilt_deg", "gripper_tip_offset_mm")}
+    kw = {k: getattr(load_parallel(), k) for k in ("gripper", "gripper_width_mm", "grasp_max_open_mm", "grasp_tilt_deg", "gripper_tip_offset_mm", "urdf")}
     pts = sorted((mm, v) for v, mm in load_parallel().gripper_width_mm)
     block = float(np.interp(30.0, [p[0] for p in pts], [p[1] for p in pts]))
     d, ctl, sk = rig(kin, block, **kw)

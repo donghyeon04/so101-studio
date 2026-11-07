@@ -238,3 +238,10 @@ GUI가 쓰는 것만. 자세한 근거는 각 PR(#117·#132·#133·#135·#137·#
 - **그리퍼**: `kin.gripper`/`skills.gripper`(`SingleJawGripper`): `width_to_value`, `jaw_tips`, `center_offset`, `lowest_z`, `tilt`, `narrowing`, `hand_pose`, `closing_path`. `Kinematics.jaw_tip_offsets`·`jaw_lowest_z`는 위임.
 - **그리퍼 종류(REQ-038, 결정 0043-1)**: `RobotConfig.gripper` = `single_jaw`(기본) | `parallel`, `config/local.yaml`의 `gripper:`로 고르고 다시 연결해야 적용된다. 겹치는 순서 robot.yaml ← 팔 ← `config/grippers/<종류>.yaml` ← local(팔 파일의 단동식 폭 표가 병렬에 새지 않게 그리퍼 파일이 팔보다 위). `make_gripper(kin, cfg)`가 `SingleJawGripper`/`ParallelGripper`를 고른다. 병렬: TCP 두 턱 중앙, 보정 0, 기울기 0, `W ≤ G − 4`, 닫기·열기는 그리퍼 축만. API: `ArmService.gripper_info()` → `{type, available, needs_centering, width_mm, max_open_mm}`. 폭↔서보값 표·접촉·조임 기준·`gripper_tip_offset_mm`은 `parallel.yaml`의 시작값(실물 몫). `assets/so101_parallel.urdf`는 아직 없다(GUI 5-4 몫): 생기면 `parallel.yaml`의 `urdf:` 주석을 푼다.
 - **통신 기록**: `ARM-WRITE-TIMEOUT`(SerialTimeoutException), 끊김(comm_lost) 중에는 `ARM-LOAD-PROBE`를 남기지 않는다. `connect` 이벤트의 port는 시뮬레이션이면 `"sim"`.
+
+## 22. 병렬 그리퍼 URDF (REQ-041)
+상태: 확정. 출처·라이선스는 `assets/assets/parallel/NOTICE.txt`.
+- `assets/so101_parallel.urdf`는 `so101_new_calib.urdf`에서 `gripper_link` 아래만 바꾼 것이다. 관절 `gripper`(서보 ID 6)는 오른쪽 클램프(`clamp_right`)의 prismatic(0 = 닫힘, m), 왼쪽 클램프(`clamp_left`)는 `gripper_left`가 mimic -1. placo는 mimic을 몰라서 `ParallelGripper.set_joints`가 두 관절을 따로 맞춘다. `gripper_frame_link`(TCP)는 두 턱 중앙(손끝 10mm 위), 방향은 단동식과 같다(rpy 0 π 0).
+- 코드(`ParallelGripper._parallel_meshes`)는 `cfg.urdf`에서 링크 `gripper_link`·`clamp_right`·`clamp_left`, 관절 `gripper`·`gripper_left`를 읽는다. 사용자가 Fusion으로 고친 URDF를 넣을 때도 이 이름을 지키면 된다(결정 0044).
+- 좌표 변환: Robonine 시뮬레이션 URDF(so_arm_101_description)는 메쉬를 영점 세계 좌표에 두고 링크 원점만 옮긴다(회전 없음). 이쪽 `gripper_link`와 맞추려고 p_이쪽 = M (p_저쪽 − o5), M = Rx(90°), o5 = link5 원점 (0.007062, −0.120627, 0.152066) m를 썼다. 롤 축 y→z, 손끝 방향 −y→−z, 열리는 축 x→x. 메쉬 단위는 mm라 URDF에서 scale 0.001. 손끝 접촉면은 롤 축에서 +0.44mm에서 만난다.
+- 확인 안 된 것(실물 몫): 폭↔관절 표(간격 = 2 × 관절 m로 가정, 스트로크 84mm라 관절 상한 0.042), 손끝 패드 위치, TCP 높이(`gripper_tip_offset_mm` 10).

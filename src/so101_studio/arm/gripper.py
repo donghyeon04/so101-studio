@@ -181,13 +181,15 @@ class SingleJawGripper:
         return LineTrajectory(np.array(pts), QuinticShape(max(1.0, abs(gap0 - gap_end) / 16.0) / speed))  # 틈 16mm/s로 천천히(gripper_speed_pct로 더 늦춘다)
 
 
-@functools.lru_cache(maxsize=1)
-def _parallel_meshes() -> dict:
-    """assets/so101_parallel.urdf의 손 본체·클램프 두 개의 볼록 꼭짓점(gripper_link 프레임, m). 클램프는 닫힌(관절 0) 자리."""
+@functools.lru_cache(maxsize=4)
+def _parallel_meshes(urdf_file: str) -> dict:
+    """설정 urdf(병렬 그리퍼 URDF)의 손 본체·클램프 두 개의 볼록 꼭짓점(gripper_link 프레임, m). 클램프는 닫힌(관절 0) 자리.
+    링크 이름 gripper_link·clamp_right·clamp_left와 관절 gripper·gripper_left를 기대한다(docs/planning/arm-dev-status.md 22절)."""
     import xml.etree.ElementTree as ET
 
     import trimesh
-    urdf = Path(__file__).resolve().parents[3] / "assets" / "so101_parallel.urdf"
+    urdf = Path(urdf_file)
+    urdf = urdf if urdf.is_absolute() else Path(__file__).resolve().parents[3] / urdf
     root = ET.parse(urdf).getroot()
 
     def vec(e, key):
@@ -251,7 +253,7 @@ class ParallelGripper:
 
     def lowest_z(self, q: JointState) -> float:
         """손 본체와 두 클램프 메쉬의 가장 낮은 꼭짓점 높이(모델 z, mm). 클램프는 닫힌 자리에서 간격/2만큼 좌우로 벌린다 (assets/so101_parallel.urdf)."""
-        meshes = _parallel_meshes()
+        meshes = _parallel_meshes(self.cfg.urdf)
         k = self.kin._k
         k.forward_kinematics(np.array([getattr(q, j) for j in ARM_JOINTS], float))
         T = k.robot.get_T_world_frame("gripper_link")

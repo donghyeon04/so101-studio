@@ -1,0 +1,5 @@
+Robonine SO-ARM100-101-Parallel-Gripper (https://github.com/roboninecom/SO-ARM100-101-Parallel-Gripper),
+simulation/so_arm_101_description/meshes/visual/, fetched 2026-11-07. Copyright (c) 2025 Robonine.
+- parallel_hand.stl (= link5_1.stl): Apache-2.0 (fuses upstream SO-ARM101 wrist geometry with Robonine's main frame).
+- clamp_right.stl (= clamp_1.stl), clamp_left.stl (= clamp_2.stl): CERN-OHL-P-2.0.
+Units: mm. Changes: none to the meshes (renamed only). Used by assets/so101_parallel.urdf (see docs/planning/arm-dev-status.md, section 22).
