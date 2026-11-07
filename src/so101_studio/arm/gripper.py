@@ -39,7 +39,7 @@ class Gripper(Protocol):
     def tilt(self, v: float) -> float: ...  # 그리퍼 값 v에서의 손 기울기(°)
     def narrowing(self, v: float, tilt_ok: bool) -> float: ...  # 턱 끝에서 위로 1mm 갈 때 턱 사이 간격이 줄어드는 mm
     def hand_pose(self, ox: float, oy: float, yaw_t: float, v: float, tilt_ok: bool, tip_z: float, tilt_scale: float = 1.0) -> ToolPose: ...
-    def closing_path(self, q_start: JointState, center, yaw_t: float, tilt_ok: bool, v0: float, v_end: float, gap0: float, gap_end: float, tip_z: float, speed: float = 1.0): ...
+    def closing_path(self, q_start: JointState, center, yaw_t: float, tilt_ok: bool, v0: float, v_end: float, gap0: float, gap_end: float, tip_z: float, speed: float = 1.0, duration_s: float | None = None): ...
 
 
 def _rpy(r: float, p: float, y: float) -> np.ndarray:
@@ -168,7 +168,7 @@ class SingleJawGripper:
         mid = (f[:2] + m[:2]) / 2
         return ToolPose(ox - mid[0], oy - mid[1], tip_z - min(f[2], m[2]), yaw_t, pitch)
 
-    def closing_path(self, q_start: JointState, center, yaw_t: float, tilt_ok: bool, v0: float, v_end: float, gap0: float, gap_end: float, tip_z: float, speed: float = 1.0):
+    def closing_path(self, q_start: JointState, center, yaw_t: float, tilt_ok: bool, v0: float, v_end: float, gap0: float, gap_end: float, tip_z: float, speed: float = 1.0, duration_s: float | None = None):
         """닫으면서 손의 자세와 위치를 매 단계 다시 계산한 한 개의 경로: 두 턱 끝의 중간점이 center에 계속 머물고,
         기울기는 닫히는 정도에 맞춰 풀린다(고정 턱은 +m 쪽으로, 가동 턱은 -m 쪽으로 같이 다가온다). 열 때도 같은 경로를 쓴다. 못 풀면 None."""
         n = max(2, math.ceil(abs(v0 - v_end) / 1.5))
@@ -179,7 +179,7 @@ class SingleJawGripper:
             if q is None:
                 return None
             pts.append(np.array(astuple(replace(q, gripper=v)), float))
-        return LineTrajectory(np.array(pts), QuinticShape(max(1.0, abs(gap0 - gap_end) / 16.0) / speed))  # 틈 16mm/s로 천천히(gripper_speed_pct로 더 늦춘다)
+        return LineTrajectory(np.array(pts), QuinticShape(duration_s if duration_s is not None else max(1.0, abs(gap0 - gap_end) / 16.0) / speed))  # 틈 16mm/s로 천천히(gripper_speed_pct로 더 늦춘다). 놓기는 duration_s로 시간을 직접 정한다
 
 
 @functools.lru_cache(maxsize=4)
@@ -279,10 +279,10 @@ class ParallelGripper:
         mid = (f[:2] + m[:2]) / 2  # 수직 하강이라 0
         return ToolPose(ox - mid[0], oy - mid[1], tip_z - min(f[2], m[2]), yaw_t, -90.0)
 
-    def closing_path(self, q_start: JointState, center, yaw_t: float, tilt_ok: bool, v0: float, v_end: float, gap0: float, gap_end: float, tip_z: float, speed: float = 1.0):
+    def closing_path(self, q_start: JointState, center, yaw_t: float, tilt_ok: bool, v0: float, v_end: float, gap0: float, gap_end: float, tip_z: float, speed: float = 1.0, duration_s: float | None = None):
         """손은 그대로 두고 그리퍼 축만 v0 -> v_end. 열 때도 같은 경로."""
         pts = np.array([np.array(astuple(replace(q_start, gripper=v0)), float), np.array(astuple(replace(q_start, gripper=v_end)), float)])
-        return LineTrajectory(pts, QuinticShape(max(1.0, abs(gap0 - gap_end) / 16.0) / speed))
+        return LineTrajectory(pts, QuinticShape(duration_s if duration_s is not None else max(1.0, abs(gap0 - gap_end) / 16.0) / speed))  # 틈 16mm/s로 천천히(gripper_speed_pct로 더 늦춘다). 놓기는 duration_s로 시간을 직접 정한다
 
 
 def make_gripper(kin, cfg):

@@ -39,6 +39,8 @@ class RobotConfig:
     tip_floor_mm: float = 4.0
     gripper_margin_mm: float = 20
     place_height_mm: float = 30
+    place_clearance_mm: float = 30  # 놓을 때 벌림 끝 = 쥔 틈 + 양쪽 이만큼(최대 벌림을 넘으면 최대까지). 부딪히면 줄여 다시 계산한다(최소 10mm) (arm-software-spec 11.3)
+    place_open_s: float = 1.0  # 놓을 때 벌림과 손 이동을 끝내는 시간(초). 그리퍼 속도 막대는 놓기 벌림에 쓰지 않는다 (11.3)
     grasp_bias_mm: float = 0.0
     grasp_open_policy: str = "max"
     grasp_tilt_deg: float = 35.0

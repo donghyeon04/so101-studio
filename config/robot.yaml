@@ -32,6 +32,8 @@ grip_preload_units: 2        # 접촉 뒤 그리퍼 목표 = 지금 위치에서
 gripper_load_warn_pct: 60    # 그리퍼 부하 감시 기준(%). 넘은 채 gripper_load_s 지나면 조임을 멈추고 WARN, 1초 더 이어지면 열고 fault. 정상 집기 5회 최대값x1.3으로 실측해 바꾼다
 gripper_load_s: 1.0          # 위 기준을 넘고 있어야 하는 시간(초)
 place_height_mm: 30        # 놓을 때 그리퍼 끝 높이
+place_clearance_mm: 30     # 놓을 때 벌림 끝 = 쥔 틈 + 양쪽 이만큼 (최대 벌림까지). 장면 부품·바닥·알려진 물체와 겹치면 줄여 다시 계산(최소 10). 시험값 (arm-software-spec 11.3)
+place_open_s: 1.0          # 놓을 때 벌림과 손 이동을 끝내는 시간(초). 한 턱이 초당 25mm 이상 움직이게. 전원 판정(U3)이 power_reset이면 1.5로 늘려 본다
 gripper_open: 60           # 놓을 때 여는 정도(0~100)
 record_hz: 20            # 교시 기록 주기(Hz)
 record_max_s: 90         # 한 번에 기록하는 최대 시간(초)
