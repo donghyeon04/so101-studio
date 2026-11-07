@@ -594,7 +594,7 @@ class Backend:
             return self._real_blocked()
         if self.arm.ctl.state != "idle":  # 그대로 시작하면 동작 충돌로 곧 FAULT로 끝난다
             return MOTION_TEXT["stopped"] if self.arm.ctl.state in ("stopped", "fault") else BUSY_TEXT
-        self.state.placed, self.paused = 0, step_mode
+        self.state.placed, self.paused, self.state.run_t0 = 0, step_mode, time.time()
         self.studio.start(step_mode=step_mode)
         return None
 

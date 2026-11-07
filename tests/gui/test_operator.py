@@ -62,8 +62,8 @@ def test_object_lines_mark_placed_current_and_waiting():
     objs = [DetectedObject(i, 0, 0, 0, 30, 30, 1.0, "manual") for i in ("a", "b", "c")]
     events = [TaskEvent(0.0, "PLACE", "a", "ok", {})]
     assert object_lines(objs[1:], events, "b", "CHECK") == [("a", "✓ 놓음"), ("b", "확인 중"), ("c", "대기")]
-    old_run = [TaskEvent(0.0, "PREPARE"), TaskEvent(1.0, "PLACE", "z", "ok"), TaskEvent(2.0, "PREPARE"), *events]
-    assert object_lines(objs[1:], old_run, None, "SCAN")[0] == ("a", "✓ 놓음") and len(object_lines(objs[1:], old_run, None, "SCAN")) == 3  # 지난 실행의 z는 뺀다
+    old_run = [TaskEvent(0.5, "PLACE", "z", "ok"), TaskEvent(1.0, "PREPARE"), TaskEvent(2.0, "PLACE", "a", "ok"), TaskEvent(3.0, "PREPARE")]
+    assert object_lines([], old_run, None, "SCAN", since=1.0) == [("a", "✓ 놓음")]  # 지난 실행의 z는 빼고, 물체마다 오는 PREPARE에는 끊기지 않는다
 
 
 def test_view_only_hides_buttons_and_stage_follows_task_state(clean):
