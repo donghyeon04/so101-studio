@@ -114,6 +114,7 @@ def test_add_move_remove_reset_objects(clean):
     assert len(clean.objects()) == count
 
 
+@pytest.mark.slow
 def test_two_objects_are_moved_in_turn_and_events_follow(clean):
     clean.set_speed(100)
     first, second = _keep_two(clean)
@@ -152,6 +153,7 @@ def test_stop_during_step_mode_ends_the_thread(clean):
     assert _wait(lambda: not clean.task_running(), 15.0)
 
 
+@pytest.mark.slow
 def test_pause_holds_then_continue_runs(clean):
     clean.set_speed(100)
     _keep_two(clean)

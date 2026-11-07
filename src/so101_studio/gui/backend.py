@@ -200,6 +200,10 @@ class Backend:
             self.link.rearm()
         return None
 
+    def log_loss(self) -> int:
+        """실행 기록(events·status.jsonl)에 쓰지 못했거나 밀려 버린 줄 수. 늘어나면 화면이 알린다(디스크 가득 참·권한 등)."""
+        return sum(getattr(a.logger, "write_errors", 0) + getattr(a.logger, "dropped_total", 0) for a in self._arms() if getattr(a, "logger", None))
+
     def comm_lost(self) -> bool:
         return bool(self.real and (self._reconnect_failed or self.real.ctl.fault == "comm_lost"))
 
