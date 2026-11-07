@@ -12,6 +12,7 @@ from ..core.ports import PortChoiceError, list_serial_ports, pick_port
 from ..doctor import doctor
 from . import scene3d, sensors, theme
 from .backend import RUN_MODES, Backend
+from .health import LEVEL_TEXT, describe
 from .pages import (
     arm,
     esp32,
@@ -85,6 +86,7 @@ def make_root(backend: Backend):
         reconnect: list[ui.button] = []
         lock_row: list = []
         beating: list[bool] = []  # 이 브라우저가 지금 감시 프로세스에 heartbeat를 보내는가
+        health_seen = [time.time()]  # 이 시각 뒤에 바뀐 서보 건강 판정만 알린다
         ui.add_head_html(BROWSER_HB_JS)
         ui.add_head_html(VIEW_CUBE_JS)
 
@@ -125,6 +127,13 @@ def make_root(backend: Backend):
             if backend.pending and backend.owner == client.id and not pending_dialog.value:
                 pending_text.text = f"시뮬레이션에서 '{backend.pending[0]}'을 마쳤습니다. 실제 팔로 실행할까요?"
                 pending_dialog.open()
+            for t, key, level, value in list(backend.health.changes):
+                if t > health_seen[0]:
+                    health_seen[0] = t
+                    if level == "ok":
+                        ui.notify(f"서보 건강: {describe(key)} 정상으로 돌아옴 ({value:.1f})", type="positive")
+                    else:
+                        ui.notify(f"서보 {LEVEL_TEXT[level]}: {describe(key, level)} ({value:.1f})", type="warning" if level == "warn" else "negative")
             comm_lost = backend.comm_lost()
             for name, (level, detail) in component_states(backend.state.status, time.time(), comm_lost).items():
                 icon_name, icon_color, text = theme.COMPONENT_STYLES[level]
