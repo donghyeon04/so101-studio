@@ -96,6 +96,7 @@ def test_height_is_above_the_table_and_tip_is_below_the_reference_point(svc):
     assert svc.point_pose(300, 150, 20, frame="world", tcp="ref") == ref
 
 
+@pytest.mark.slow
 def test_powertest_runs_in_sim_and_writes_csv(svc, monkeypatch):
     from so101_studio.cli import powertest
 

@@ -20,6 +20,7 @@ def svc(tmp_path):
     s.disconnect()
 
 
+@pytest.mark.slow
 def test_place_puts_jaw_midpoint_on_drop_zone(svc):
     zone = next(iter(WS.drop_zones))
     z = WS.drop_zones[zone]
@@ -38,6 +39,7 @@ def test_place_puts_jaw_midpoint_on_drop_zone(svc):
     assert math.hypot(dx, dy) > 5.0  # 보정이 실제로 있었다(손끝을 그대로 내리면 중간점은 그만큼 빗나간다)
 
 
+@pytest.mark.slow
 def test_place_event_logs_correction(svc, tmp_path):
     zone = next(iter(WS.drop_zones))
     svc.skills._run([svc.skills._gripper(15.0)])
@@ -117,6 +119,7 @@ def test_pick_and_place_rejects_out_of_reach_points_without_moving(svc):
         svc.pick_and_place(ok_obj, zone="right", place_at=(350.0, 200.0))
 
 
+@pytest.mark.slow
 def test_place_lifts_straight_up_after_opening(svc):
     """열면서 손이 옆으로 옮겨진 뒤에는 원래 하강 경로를 거꾸로 타지 않고 지금 자리에서 수직으로 올린다 (REQ-033). 연 채로 올린다."""
     zone = next(iter(WS.drop_zones))

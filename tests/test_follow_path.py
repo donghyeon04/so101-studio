@@ -180,6 +180,7 @@ def test_unreachable_first_point_falls_back_to_safe_approach(svc, monkeypatch):
     assert fail is None and len(pre) >= 1 and len(runs) == 1  # plan_goto의 안전 경로가 접근으로 남는다
 
 
+@pytest.mark.slow
 def test_samples_use_actual_joint_reads_not_commands(svc):
     class Lagging(SimDriver):  # 읽는 값이 명령보다 늘 뒤처지는 장치
         def __init__(self, *a, **k):
@@ -222,6 +223,7 @@ def test_out_of_workspace_reports_reason(svc):
     assert svc.last_path.status == "ik_fail"  # 팔이 닿지 않는 점은 도달 불가로 거부(작업대 검사까지 가지 않는다)
 
 
+@pytest.mark.slow
 def test_speed_is_capped_by_tool_v_max_and_speed_pct(tmp_path):
     s = ArmService(SimDriver(CFG.poses["home"]), CFG, WS, speed_pct=30, log_root=str(tmp_path))
     s.connect()
@@ -371,6 +373,7 @@ def test_read_failure_at_the_last_tick_still_finishes_the_handle(tmp_path):
     s.disconnect()
 
 
+@pytest.mark.slow
 def test_follow_path_reads_the_bus_a_constant_number_of_times_for_planning(tmp_path):
     s = ArmService(SimDriver(CFG.poses["home"]), CFG, WS, speed_pct=100, log_root=None)
     s.connect()

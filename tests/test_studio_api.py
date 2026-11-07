@@ -178,6 +178,7 @@ def test_req005_gui_command_dispatches_or_explains(monkeypatch):
     assert got[0].sim and got[0].speed == 20 and got[0].command == "gui"
 
 
+@pytest.mark.slow
 def test_req006_diagnostics_progress_result_and_stop(svc, monkeypatch):
     from so101_studio.cli import powertest, shaketest
 
