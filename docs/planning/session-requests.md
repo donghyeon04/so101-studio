@@ -47,3 +47,4 @@
 | REQ-037 | 손끝 방향 자유(pitch·yaw)로 좌표 이동·직교 조그, 집기 범위와 움직임 범위 나누기(gui-spec 11절 B6·C9) | GUI → 팔(사용자 요청) | 추가 | 완료 | #143(팔), #154(GUI) 합쳐짐 | 0° 자세 수평 도달 실측 353mm |
 | REQ-038 | 결정 0043-1 병렬 그리퍼: `ParallelGripper`(TCP 두 턱 중앙, 보정 0, W ≤ G − 4), `gripper: single_jaw\|parallel` 설정, `config/grippers/<종류>.yaml`, `assets/so101_parallel.urdf` | GUI → 팔(결정 0043) | 추가 | 요청 | | 폭↔서보값 표·접촉 기준은 실물 몫. GUI 선택 화면은 그 뒤 |
 | REQ-039 | 결정 0043-2 레이더 서보 OpenRB-150 + XL330: `firmware/openrb_servo/`, `servo.driver`, ESP32 UART 연결, `ultrasonic-spec.md` 3.2·3.4·3.5 갱신안 | GUI → 초음파(결정 0043) | 추가 | 완료 | #165 합쳐짐 | XL330 5V, 12V를 VIN에 넣지 않음. 설계서 갱신은 총괄이 검토 |
+| REQ-040 | 결정 0043-4·5 장면 부품: `config/scene.yaml`, `core/scene.py`의 `load_scene`·`ScenePart`(name, attach, T mm, mesh mm, collide, color), `ArmService.scene`, coal로 팔 링크와 작업대 부품 충돌 검사(`scene:<이름>`, margin_mm) | GUI → 팔(결정 0043) | 추가 | 요청 | | GUI는 `arm.scene`을 3D에 그림(링크 부품은 링크를 따라감). STL이 없는 동안 `box_mm` 상자 |
