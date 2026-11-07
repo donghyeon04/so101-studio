@@ -50,6 +50,7 @@
 | REQ-040 | 결정 0043-4·5 장면 부품: `config/scene.yaml`, `core/scene.py`의 `load_scene`·`ScenePart`(name, attach, T mm, mesh mm, collide, color), `ArmService.scene`, coal로 팔 링크와 작업대 부품 충돌 검사(`scene:<이름>`, margin_mm) | GUI → 팔(결정 0043) | 추가 | 진행 | #168 진행 | GUI는 `arm.scene`을 3D에 그림(링크 부품은 링크를 따라감). STL이 없는 동안 `box_mm` 상자 |
 | REQ-041 | 병렬 그리퍼 URDF·메쉬: Robonine 공개 STL(CERN-OHL-P-2.0)을 `assets/`에, `assets/so101_parallel.urdf`(관절 `gripper`, ID 6), `parallel.yaml`의 `urdf:`, 병렬 `lowest_z`를 메쉬로 | GUI → 팔(사용자 승인 2026-11-07) | 추가 | 진행 | WIP 브랜치 | 사용자 부품 CAD는 Autodesk Fusion |
 | REQ-042 | `doctor` 서보 온도 주의 55°C → 50°C(GUI 서보 건강 기준과 같게) | GUI → 팔(사용자 승인 2026-11-07) | 수정 | 완료 | #171 합쳐짐 | GUI 기준은 `gui/health.py` LIMITS |
-| REQ-043 | 감사 수정(팔): 한쪽 None 허용 상자 TypeError, 감시 프로세스 스레드 생존·last_tick_age_s, E-STOP ack, 버그와 통신 실패 구분, 정지 쓰기 실패 숨김, 허위·약한 테스트 | GUI → 팔(사용자 승인 2026-11-07) | 수정 | 요청 | | pr-test-analyzer·silent-failure-hunter 감사 |
+| REQ-043 | 감사 수정(팔): 한쪽 None 허용 상자 TypeError, 감시 프로세스 스레드 생존·last_tick_age_s, E-STOP ack, 버그와 통신 실패 구분, 정지 쓰기 실패 숨김, 허위·약한 테스트 | GUI → 팔(사용자 승인 2026-11-07) | 수정 | 완료 | #180·#188 합쳐짐 | pr-test-analyzer·silent-failure-hunter 감사 |
 | REQ-044 | 감사 수정(초음파): link.py dict 아닌 줄로 스레드 죽음, 포트 닫힘이 안 보임 | GUI → 초음파(사용자 승인 2026-11-07) | 수정 | 완료 | #179 합쳐짐 | |
-| REQ-045 | 작업 실행이 배출 구역(drop_zones)을 초음파 `ignore_zones`로 넘김. 놓은 물체가 다음 스캔에서 다시 후보가 되는 버그 | 기획·사용자 → 팔(2026-11-07) | 버그 수정 | 요청 | | 초음파 실물 I1 전에 필요 |
+| REQ-045 | 작업 실행이 배출 구역(drop_zones)을 초음파 `ignore_zones`로 넘김. 놓은 물체가 다음 스캔에서 다시 후보가 되는 버그 | 기획·사용자 → 팔(2026-11-07) | 버그 수정 | 완료 | #185 합쳐짐 | 초음파 실물 I1 전에 필요 |
+| REQ-046 | `table_z_mm` −35 → 약 −15: 11-06 실측이 ToolPose 모델 z 명령이었는데 턱 끝 높이로 읽어 잘못 고침. 지금 값이면 집기 높이에서 턱이 바닥에 닿음 | GUI(실물 시험) → 팔(2026-11-07) | 버그 수정(안전) | 요청 | | `measurements.md` "실물 점검과 높이 다시 실측". 집기·2-9a 실물 전에 필요 |
