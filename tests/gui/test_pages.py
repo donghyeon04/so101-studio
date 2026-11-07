@@ -23,10 +23,10 @@ def in_app(backend, check) -> None:
     asyncio.run(go())
 
 
-def test_thirteen_pages_in_six_groups():
+def test_fourteen_pages_in_six_groups():
     assert len(gui_app.PAGES) == 6  # 맨 위 "안내"(시작 화면) + 다섯 그룹 (gui-spec 11절)
-    assert len(ALL_PAGES) == 13  # 카메라는 장치를 달 때까지 메뉴에 없다 (결정 0044)
-    assert len({path for path, _, _ in ALL_PAGES}) == 13
+    assert len(ALL_PAGES) == 14  # 카메라는 장치를 달 때까지 메뉴에 없고, 프로그램이 더해졌다 (결정 0044)
+    assert len({path for path, _, _ in ALL_PAGES}) == 14
 
 
 @pytest.mark.parametrize("path,title,task", ALL_PAGES)
