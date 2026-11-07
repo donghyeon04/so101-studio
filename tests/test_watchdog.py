@@ -1,6 +1,7 @@
 """E-STOP 감시 프로세스와 정지 수신 스레드 (REQ-011, decisions/0026)."""
 import dataclasses
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -88,6 +89,49 @@ def test_no_ack_kills_the_process_and_rearm_resets():
     assert [c[0] for c in calls] == ["estop", "kill"] and calls[1] == ("kill", 4242)
     wd.arm(True, pid=4242, stop_port=8091)  # 다시 등록하면 작동 상태가 풀린다
     assert not wd.status()["tripped"] and not wd.tick()
+
+
+def _udp_replier(reply: bytes | None):
+    """127.0.0.1의 UDP 서버: 받은 정지 명령에 reply로 답한다(None이면 답하지 않는다). (포트, 받은 메시지 목록, 닫는 함수)"""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("127.0.0.1", 0))
+    sock.settimeout(0.2)
+    got, stop = [], threading.Event()
+
+    def loop():
+        while not stop.is_set():
+            try:
+                data, addr = sock.recvfrom(1024)
+            except TimeoutError:
+                continue
+            got.append(json.loads(data))
+            if reply is not None:
+                sock.sendto(reply, addr)
+
+    th = threading.Thread(target=loop, daemon=True)
+    th.start()
+    return sock.getsockname()[1], got, lambda: (stop.set(), th.join(1), sock.close())
+
+
+@pytest.mark.parametrize("reply,killed", [(b'{"ack": "nope"}', True), (b"not json", True), (None, True), (b'{"ack": "estop", "ok": true}', False)])
+def test_real_udp_ack_decides_whether_the_process_is_killed(reply, killed):
+    port, got, close = _udp_replier(reply)
+    clk = Clock()
+    wd = Watchdog(clock=clk, ack_timeout=0.2)
+    kills = []
+    wd._kill = lambda pid: kills.append(pid) or True
+    wd.arm(True, pid=4242, stop_port=port)
+    clk.t += 1.1
+    try:
+        assert wd.tick()
+    finally:
+        close()
+    assert got and got[0]["cmd"] == "estop"  # 실제 UDP로 나갔다
+    assert bool(kills) is killed and (kills == [4242] if killed else True)  # 잘못된 응답·무응답이면 끝내고, 올바른 ack면 끝내지 않는다
+
+
+def test_kill_never_targets_its_own_process():
+    assert Watchdog._kill(os.getpid()) is False
 
 
 def test_sim_and_disarmed_only_log():

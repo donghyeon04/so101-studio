@@ -75,9 +75,19 @@ def test_pick_and_place_and_retarget(svc):
 
 
 def test_estop_blocks_motion_until_resume(svc):
-    svc.estop()
+    """E-STOP -> 거부 -> resume -> 다시 동작: 이 흐름은 서비스 단의 이 시험 하나로 본다(컨트롤러·GUI 쪽 중복은 지웠다)."""
+    from so101_studio.arm.trajectory import move_j
+    start = svc.driver.read_joints()
+    svc.ctl.execute(move_j(start, JointState(60, -90, 93, 0, 0, 3), 30, 100))
+    time.sleep(0.2)
+    err = svc.estop()
+    assert err is None
+    pos = svc.driver.read_joints()
+    assert 0 < pos.shoulder_pan < 60  # 이동 중이었다가 그 자리에 섰다
+    time.sleep(0.2)
+    assert svc.driver.read_joints() == pos  # 정지 뒤 더 움직이지 않는다
     assert svc.move_joints(JointState(10, -90, 93, 0, 0, 3)).status == "stopped"
-    svc.ctl.resume()
+    assert svc.ctl.resume()
     assert svc.move_joints(JointState(10, -90, 93, 0, 0, 3)).status == "ok"
 
 

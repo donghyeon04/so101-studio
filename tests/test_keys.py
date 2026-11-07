@@ -38,7 +38,7 @@ def test_preview_does_not_move_and_flags_unreachable(svc):
     q0 = svc.status().joints
     ok_reason, q = svc.preview_tool(ToolPose(300, 150, 60, 90, -90))
     bad_reason, _ = svc.preview_tool(ToolPose(300, 390, 60, 90, -90))
-    assert ok_reason is None and q is not None and bad_reason is not None
+    assert ok_reason is None and q is not None and bad_reason == "ik_fail"  # 작업대 앞쪽 끝(y=390)은 팔이 닿지 않는다
     assert svc.status().joints == q0
 
 

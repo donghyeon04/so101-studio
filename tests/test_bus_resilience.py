@@ -146,15 +146,15 @@ def test_comm_lost_within_half_second_while_a_job_runs(svc):
     h.wait()
 
 
-def test_job_with_a_single_read_glitch_does_not_fault(svc):
-    h = svc.ctl.execute(svc.skills._joint_move(JointState(0, -80, 80, 0, 0, 3)))
-    svc.ctl.note_comm(False)
-    for _ in range(10):  # 곧 읽기가 다시 된다
-        time.sleep(0.1)
-        svc.ctl.note_comm(True)
-    assert svc.ctl.state != "fault"
-    svc.ctl.stop()
-    h.wait()
+def test_a_single_read_glitch_does_not_become_comm_lost(svc):
+    """가짜 시계(명시한 시각)로: 실제 sleep 없이 0.5초 규칙을 본다."""
+    h = svc.ctl.health
+    h.comm_failed(10.0, "read")
+    assert h.comm_lost(10.3) is None  # 0.5초 전
+    h.comm_ok(10.35, "read")  # 읽기가 다시 됐다
+    assert h.comm_lost(11.5) is None  # 회복 뒤에는 시간이 지나도 끊김이 아니다
+    h.comm_failed(11.6, "read")
+    assert h.comm_lost(12.0) is None and h.comm_lost(12.1) == "comm_lost"  # 새 끊김은 새 시계(11.6)로 0.5초
 
 
 # ---- 토크 반복, 끊김 중 프로브

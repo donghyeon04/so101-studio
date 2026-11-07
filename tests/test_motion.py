@@ -68,22 +68,6 @@ def test_stop_halts_within_300ms():
     assert d.read_joints().shoulder_pan == pos and 0 < pos < 60
 
 
-def test_estop_blocks_until_resume():
-    d = SimDriver()
-    c = MotionController(d, safety=Safety(LIMITS))
-    c.execute(move_j(A, JointState(60, 0, 0, 0, 0, 0), 30, 100))
-    time.sleep(0.2)
-    c.estop()
-    pos = d.read_joints()
-    assert 0 < pos.shoulder_pan < 60  # 이동 중이었다가 그 자리에 섰다
-    time.sleep(0.2)
-    assert d.read_joints() == pos  # 정지 뒤 더 움직이지 않는다
-    assert c.execute(move_j(A, B, 30, 100)).wait(1).status == "stopped"
-    c.resume()
-    assert c.execute(move_j(d.read_joints(), A, 100, 1000)).wait(5).status == "ok"
-    c.close()
-
-
 def test_big_jump_between_ticks_is_a_fault():
     d = SimDriver()
     c = MotionController(d, hz=50)

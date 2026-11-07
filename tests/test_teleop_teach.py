@@ -78,11 +78,10 @@ def test_cartesian_jog_moves_the_tip_forward(kin):
     q0 = d.read_joints()
     p0 = kin.fk(q0)
     f, left, up, yaw = robot_to_table((30.0, 0, 0, 0), WS.base.yaw_deg)  # 로봇 앞쪽 30mm/s
-    jog_for(ctl, "cartesian", [f, left, up, yaw], 0.5)
+    jog_for(ctl, "cartesian", [f, left, up, yaw], 1.0)  # 0.5초는 시작 지연이 비율로 커서(9.9/15mm) 1초로: 30mm/s x 1s = 30mm
     ctl.close()
     p1 = kin.fk(d.read_joints())
-    assert np.hypot(p1.x_mm - p0.x_mm, p1.y_mm - p0.y_mm) > 5  # 움직였다
-    assert (p1.x_mm - p0.x_mm, p1.y_mm - p0.y_mm) == pytest.approx((f * 0.5, left * 0.5), abs=8)
+    assert (p1.x_mm - p0.x_mm, p1.y_mm - p0.y_mm) == pytest.approx((f * 1.0, left * 1.0), abs=5)
 
 
 def test_keyboard_loop_maps_keys_and_exits():
@@ -167,9 +166,9 @@ def test_cartesian_jog_works_with_the_wrist_rolled(kin):
     ctl = MotionController(d, kin, Safety(LIMITS, WS, kin, z_floor_mm=CFG.tip_floor_mm, table_z_mm=CFG.table_z_mm), 100)
     y0 = kin.fk(d.read_joints()).y_mm
     f, left, up, yaw = robot_to_table((30.0, 0, 0, 0), WS.base.yaw_deg)
-    jog_for(ctl, "cartesian", [f, left, up, yaw], 0.5)
+    jog_for(ctl, "cartesian", [f, left, up, yaw], 1.0)
     ctl.close()
-    assert kin.fk(d.read_joints()).y_mm - y0 == pytest.approx(0.5 * 30, abs=6)
+    assert kin.fk(d.read_joints()).y_mm - y0 == pytest.approx(30.0, abs=5)
 
 
 def test_jog_speed_ramps_up_and_down_without_a_velocity_step():
@@ -253,7 +252,7 @@ def test_check_path_sees_a_short_violation_in_a_long_sequence():
     q = np.zeros((len(t), 6))
     q[:, 1], q[:, 2] = -90, 93
     q[500:508, 0] = 130  # 0.4초만 한계 밖 (60초 중)
-    assert s.check_path(SequenceTrajectory(t, q)) is not None
+    assert s.check_path(SequenceTrajectory(t, q)) == "joint_limit:shoulder_pan"
 
 
 def test_recording_saves_real_sample_times_and_replay_uses_them(tmp_path):
