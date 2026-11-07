@@ -178,7 +178,7 @@ def test_stop_ends_task_and_estop_needs_resume(clean):
     assert _wait(lambda: clean.task_running(), 2.0)
     clean.estop()
     assert _wait(lambda: not clean.task_running(), 15.0)
-    assert clean.arm.ctl.state in ("stopped", "fault")
+    assert clean.arm.ctl.state == "stopped"  # E-STOP은 fault가 아니라 정지 상태여야 한다
     assert clean.start_task() == "정지 상태입니다. 정지 해제를 눌러 주세요"
 
 

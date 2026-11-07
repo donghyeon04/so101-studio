@@ -434,3 +434,34 @@ def test_component_states_show_the_fault_sentence():
 def test_fault_result_shows_the_cause_sentence():
     result = MotionResult("fault", 0.0, ToolPose(0, 0, 0, 0), reason="서보와의 통신이 0.5초 넘게 끊겼습니다.")
     assert Backend._run_on(None, lambda arm: result) == "서보와의 통신이 0.5초 넘게 끊겼습니다."
+
+
+def test_estop_reaches_the_arm_even_when_earlier_steps_fail(backend, monkeypatch):
+    """감사 2026-11-07: 기록 저장·작업 정지가 예외를 내도 팔 정지는 반드시 간다."""
+    def broken():
+        raise RuntimeError("기록 저장 실패")
+
+    monkeypatch.setattr(backend, "record_finish", broken)
+    backend.estop()
+    assert backend.arm.ctl.state == "stopped"
+    backend.resume()
+
+
+def test_run_on_shows_the_real_reason_unless_the_arm_is_busy():
+    """감사 2026-11-07: 동작 중이 아닐 때의 RuntimeError(잠김, 연결 안 됨)는 '아직 움직이는 중'으로 바꾸지 않는다."""
+    from so101_studio.gui.backend import BUSY_TEXT
+
+    def fail(_arm):
+        raise RuntimeError("연결되지 않음")
+
+    idle = SimpleNamespace(ctl=SimpleNamespace(busy=False))
+    busy = SimpleNamespace(ctl=SimpleNamespace(busy=True))
+    assert Backend._run_on(idle, fail) == "연결되지 않음"
+    assert Backend._run_on(busy, fail) == BUSY_TEXT
+
+
+def test_estop_reports_when_the_servo_write_failed(backend, monkeypatch):
+    """REQ-043: 팔이 정지 자세를 쓰지 못했다고 하면 화면이 성공 대신 그 이유와 전원을 끄라는 안내를 보인다."""
+    monkeypatch.setattr(backend.arm, "estop", lambda: "SerialException('port gone')")
+    reason = backend.estop()
+    assert reason and "port gone" in reason and "전원 스위치" in reason

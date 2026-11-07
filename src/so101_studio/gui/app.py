@@ -249,8 +249,8 @@ def make_root(backend: Backend):
                 ui.notify(reason, type="negative")
 
         async def estop() -> None:  # 보기 전용 브라우저도 누를 수 있다. 세우는 일은 조작권과 상관없다
-            await run.io_bound(backend.estop)
-            ui.notify("비상 정지했습니다", type="negative")
+            failed = await run.io_bound(backend.estop)
+            ui.notify(failed or "비상 정지했습니다", type="negative", **({"timeout": 0, "close_button": "닫기"} if failed else {}))
 
         drawer = ui.left_drawer(value=True, bordered=False).props(f"width={theme.DRAWER_W}").classes("p-0 gap-0")
 

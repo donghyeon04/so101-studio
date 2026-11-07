@@ -29,23 +29,15 @@ def test_fourteen_pages_in_six_groups():
     assert len({path for path, _, _ in ALL_PAGES}) == 14
 
 
-@pytest.mark.parametrize("path,title,task", ALL_PAGES)
-def test_menu_click_changes_page(backend, path, title, task):
+def test_menu_click_changes_page_and_frame_stays(backend):
+    """모든 페이지를 한 번의 앱 실행에서 차례로 연다(감사 2026-11-07: 페이지마다 앱을 띄우던 것을 합침)."""
     async def check(user):
-        with user.scope(marker="nav"):
-            user.find(title).click()
-        await user.should_see(marker="page-title", content=title)
-        if path not in gui_app.BUILDERS:
-            await user.should_see(marker="page-pending")
-
-    in_app(backend, check)
-
-
-def test_frame_stays_on_every_page(backend):
-    async def check(user):
-        for _, title, _ in ALL_PAGES:
+        for path, title, _ in ALL_PAGES:
             with user.scope(marker="nav"):
                 user.find(title).click()
+            await user.should_see(marker="page-title", content=title)
+            if path not in gui_app.BUILDERS:
+                await user.should_see(marker="page-pending")
             for text in ("SO-101 Studio", "시뮬레이션", "조작권", "손끝 좌표", "기록 폴더", "E-STOP"):
                 await user.should_see(text)
 
