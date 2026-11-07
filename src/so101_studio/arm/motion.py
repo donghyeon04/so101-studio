@@ -180,8 +180,8 @@ class MotionController:
         while self._job is not None and time.perf_counter() < end:
             time.sleep(0.01)
 
-    def estop(self) -> None:
-        """즉시 현재 위치 고정. 토크는 끄지 않는다(끄면 팔이 떨어짐)."""
+    def estop(self) -> str | None:
+        """즉시 현재 위치 고정. 토크는 끄지 않는다(끄면 팔이 떨어짐). 서보에 위치 고정을 쓰지 못했으면 그 이유(문자열), 잘 됐으면 None."""
         err = None
         with self._lock:
             if self._job is not None:
@@ -202,6 +202,7 @@ class MotionController:
             except Exception as e:  # noqa: BLE001 통신이 끊긴 상태: 예외를 밖으로 내지 않고 기록만 한다. 끊김은 상태 루프와 틱이 fault로 본다
                 err = repr(e)[:120]
         self._emit("estop", "WARN", "ARM-ESTOP", {"comm_error": err} if err else {})
+        return err
 
     def resume(self) -> bool:
         """stop·estop·fault 뒤 idle로 되돌린다. 통신 끊김 fault는 다시 연결해야 풀리므로 False (decisions/0031)."""

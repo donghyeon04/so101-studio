@@ -163,10 +163,28 @@ def test_stop_listener_estops_and_acks(svc):
             s.settimeout(1)
             s.sendto(b"not json", ("127.0.0.1", lis.port))  # 이상한 입력은 무시
             s.sendto(json.dumps({"cmd": "estop"}).encode(), ("127.0.0.1", lis.port))
-            assert json.loads(s.recvfrom(256)[0]) == {"ack": "estop"}
+            assert json.loads(s.recvfrom(256)[0]) == {"ack": "estop", "ok": True}
         assert svc.ctl.state == "stopped" and svc.driver.torque_enabled()  # 토크는 유지
     finally:
         lis.close()
+
+
+def test_stop_listener_ack_says_not_ok_when_the_servo_write_fails_and_stops_before_logging(svc):
+    order = []
+    orig_stop, orig_note = svc.ctl.estop, svc.on_watchdog_stop
+    svc.ctl.estop = lambda: order.append("estop") or "SerialTimeoutException('x')"  # 서보 쓰기 실패를 흉내
+    svc.on_watchdog_stop = lambda reason=None: order.append("log")
+    lis = StopListener(svc, port=0).start()
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.settimeout(1)
+            s.sendto(json.dumps({"cmd": "estop", "reason": "t"}).encode(), ("127.0.0.1", lis.port))
+            ack = json.loads(s.recvfrom(256)[0])
+        assert ack["ack"] == "estop" and ack["ok"] is False and "Serial" in ack["comm_error"]
+        assert order == ["estop", "log"]  # 정지가 기록보다 먼저
+    finally:
+        lis.close()
+        svc.ctl.estop, svc.on_watchdog_stop = orig_stop, orig_note
 
 
 def test_heartbeat_loss_stops_the_arm_within_1_3_seconds(svc):

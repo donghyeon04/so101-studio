@@ -711,8 +711,9 @@ class ArmService:
     def stop(self) -> None:
         self.ctl.stop()
 
-    def estop(self) -> None:
-        self.ctl.estop()  # 이벤트(ARM-ESTOP)와 사고 묶음은 컨트롤러가 알린다
+    def estop(self) -> str | None:
+        """즉시 정지. 위치 고정을 서보에 쓰지 못했으면 이유(통신 오류), 아니면 None."""
+        return self.ctl.estop()  # 이벤트(ARM-ESTOP)와 사고 묶음은 컨트롤러가 알린다
 
     def resume(self) -> bool:
         """stop·estop(상태 stopped)이나 fault 뒤에 다시 움직일 수 있게 idle로 되돌린다. 팔은 움직이지 않는다 (REQ-009). 통신 끊김 fault는 풀리지 않고 False(다시 연결해야 한다, decisions/0031)."""
