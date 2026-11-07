@@ -77,3 +77,28 @@ def test_unlocked_commands_still_turn_torque_on():
     assert s.move_joints(JointState(10.0, -60.0, 60.0, 20.0, 0.0, 10.0), 100).status == "ok"
     assert s.driver.on_calls >= 1
     s.disconnect()
+
+
+def test_driver_set_torque_on_while_locked_raises_instead_of_silently_returning():
+    from so101_studio.arm.driver import ArmDriver
+    d = ArmDriver()
+    d.locked_reason = REASON
+    with pytest.raises(RuntimeError, match="시험"):
+        d.set_torque(True)
+
+
+def test_grip_torque_limit_is_restored_even_if_releasing_the_hold_fails():
+    from so101_studio.arm.skills import Skills
+    sk = Skills.__new__(Skills)
+    written = []
+    sk._grip_orig = 1000
+    sk.ctl = types.SimpleNamespace(hold_gripper=lambda v: (_ for _ in ()).throw(ConnectionError("x")),
+                                   driver=types.SimpleNamespace(set_gripper_torque_limit=written.append))
+    with pytest.raises(ConnectionError):
+        sk._restore_grip_torque()
+    assert written == [1000] and sk._grip_orig is None
+
+
+def test_status_data_carries_log_write_errors_and_dropped(svc):
+    d = svc._status_data(svc.status())
+    assert d["log_write_errors"] == 0 and d["log_dropped"] == 0

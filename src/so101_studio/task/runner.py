@@ -24,6 +24,7 @@ class TaskRunner:
         self._stop = False
         self._step_mode = False
         self._trail: PoseTrail | None = None
+        self._warned_rescan_cfg = False
         self.wait_step: Callable[[], None] = lambda: None  # 단계별 모드에서 다음 단계를 기다리는 함수(CLI는 Enter, GUI는 step())
 
     def stop(self) -> None:
@@ -58,7 +59,12 @@ class TaskRunner:
     def _rescan_enabled(self) -> bool:
         try:
             return bool(self.source.cfg.radar.rescan_home)
-        except AttributeError:
+        except AttributeError:  # 설정이 없는 인식 방식: 기본값(켬)으로 가되 한 번은 알린다(설정 오타가 조용히 묻히지 않게)
+            if not self._warned_rescan_cfg:
+                self._warned_rescan_cfg = True
+                emit = getattr(getattr(self.skills, "ctl", None), "_emit", None)  # 이벤트 기록(없는 시험용 스킬은 건너뜀)
+                if emit:
+                    emit("task_config_warn", "WARN", "TASK-RESCAN-CFG-MISSING", {"detail": "rescan_home 설정이 없어 기본값(켬)으로 진행"})
             return True
 
     def _begin_checkable(self) -> None:

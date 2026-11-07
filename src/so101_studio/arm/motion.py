@@ -1,5 +1,4 @@
 """동작 실행: 50Hz 스레드가 궤적을 샘플링해 장치에 쓴다 (arm-software-spec.md 6.4). 장치는 이 스레드만 쓴다."""
-import contextlib
 import math
 import threading
 import time
@@ -279,8 +278,10 @@ class MotionController:
         if reason == "comm_lost":  # 통신이 끊겼다: 다시 연결하기 전까지 아무 명령도 보내지 않는다 (decisions/0031)
             self._emit("comm_lost", "ERROR", "ARM-COMM-LOST", {"job": job is not None})
             return
-        with contextlib.suppress(Exception):
+        try:
             self.driver.write_joints(self._last)  # 현재 위치 유지 (토크는 끄지 않는다)
+        except Exception as e:  # noqa: BLE001 fault 중이라 통신이 안 될 수 있다. 위치를 못 붙잡았다는 사실은 남긴다
+            self._emit("fault_hold_failed", "WARN", "ARM-FAULT-HOLD-FAILED", {"reason": reason, "error": repr(e)[:120]})
 
     def _check_health(self) -> None:
         now = time.perf_counter()
@@ -332,11 +333,15 @@ class MotionController:
         if self._grip_warned_at is None:
             if now - self._grip_over_since >= self.grip_load_s:
                 self._grip_warned_at = now
-                with contextlib.suppress(Exception):
+                stop_error = None
+                try:
                     self.grip_hold = self.driver.read_joints().gripper  # 조임을 멈춘다: 목표 = 지금 위치
                     self._last = replace(self._last, gripper=self.grip_hold)
                     self.driver.write_joints(self._last)
-                self._emit("grip_overload_warn", "WARN", "ARM-GRIP-OVERLOAD-WARN", {"load_pct": load, "limit_pct": self.grip_warn_pct})
+                except Exception as e:  # noqa: BLE001 못 멈췄다는 사실을 경고 이벤트에 담는다
+                    stop_error = repr(e)[:120]
+                self._emit("grip_overload_warn", "WARN", "ARM-GRIP-OVERLOAD-WARN",
+                           {"load_pct": load, "limit_pct": self.grip_warn_pct, **({"stop_error": stop_error} if stop_error else {})})
         elif now - self._grip_warned_at >= 1.0:
             self.grip_hold = None
             self._last = replace(self._last, gripper=self.grip_open)  # fault가 이 값을 써서 연다

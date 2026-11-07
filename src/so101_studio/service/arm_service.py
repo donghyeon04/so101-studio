@@ -180,7 +180,8 @@ class ArmService:
                 "torque": torque, "torque_enabled": st.torque_enabled, "temperature_c": st.temperature_c, "load_pct": st.load_pct, "current_ma": st.current_ma,
                 "current_ma_by_joint": h.get("current_ma_by_joint", {}), "voltage_v": st.voltage_v, "status_bits": h.get("status_bits", {}),
                 "state": st.state, "fault": st.fault, "locked": ctl.locked_reason, "time_lost_s": round(ctl.time_lost_s, 4),
-                "tick_dt_max_ms": round(ctl.tick_dt_max_1s() * 1000, 2)}
+                "tick_dt_max_ms": round(ctl.tick_dt_max_1s() * 1000, 2),
+                "log_write_errors": getattr(self.logger, "write_errors", 0), "log_dropped": getattr(self.logger, "dropped_total", 0)}  # 기록이 빠지고 있는지 GUI가 보여 준다
 
     def _write_status(self, st) -> None:
         self.ctl.actual_hint = st.joints  # 링 버퍼가 쓰는 가장 최근 실제 값

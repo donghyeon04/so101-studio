@@ -219,6 +219,7 @@ def test_non_comm_exception_in_a_tick_is_an_internal_error_fault_not_comm_lost()
     c.close()
     assert r.status == "fault" and c.fault == "internal_error" and "KeyError" in c.fault_detail["traceback"]
     assert not any(code == "ARM-COMM-LOST" for code, _ in events)
+    assert any(code == "ARM-FAULT-HOLD-FAILED" for code, _ in events)  # 위치 유지 쓰기도 실패했다는 사실이 남는다
 
 
 def test_estop_returns_the_write_failure_or_none():
