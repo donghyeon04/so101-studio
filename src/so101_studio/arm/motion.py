@@ -270,6 +270,9 @@ class MotionController:
                         self._fault(self.health.comm_failed(time.perf_counter(), kind), {"error": self.last_bus_error})
                     else:  # 통신이 아닌 예외는 코드 문제다: 통신 끊김으로 부르지 않고 traceback과 함께 바로 fault (REQ-043)
                         self._fault("internal_error", {"error": err, "where": kind, "traceback": traceback.format_exc()[-1500:]})
+                else:
+                    if self.health._comm_down_since is None:  # 끊김이 풀린 틱: 예전 서보 오류가 나중 끊김의 원인으로 잘못 붙지 않게 지운다(끊김이 이어지는 동안은 시계가 남아 지우지 않는다)
+                        self.last_bus_error = None
             self.ring.add(time.time_ns(), self._last, tick_dt, err, self.state, self.actual_hint)
             time.sleep(max(0.0, nxt - time.perf_counter()))
 
@@ -277,6 +280,8 @@ class MotionController:
         """fault로 들어간다. detail(관절·값·한도 등)과 사람이 읽을 문장(text, 해결법 포함)을 이벤트·진행 중이던 동작의 MotionResult.reason·fault_text에 담는다 (REQ-034)."""
         if reason is None or self.state == "fault":
             return
+        if reason == "comm_lost" and self.last_bus_error and not (detail or {}).get("error"):  # 끊김 감시(_check_health)가 먼저 걸려도 원인(서보가 알린 오류)을 잃지 않는다
+            detail = {**(detail or {}), "error": self.last_bus_error}
         self.state = "fault"
         text = describe(reason, detail)
         job, self._job = self._job, None
