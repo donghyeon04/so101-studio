@@ -226,6 +226,11 @@ class Skills:
         self._run([self._gripper(self.cfg.gripper_open)])  # 접근 높이까지 올라온 뒤에 연다(바닥에서는 열지 않는다): 턱 사이에 끼인 것을 푼다
         return MotionResult("no_object", r.duration_s, r.final_tool)
 
+    def _gap_mm(self, v: float) -> float:
+        """그리퍼 값 v에서의 턱 끝 벌림(mm). 폭 표 gripper_width_mm를 거꾸로 읽는다."""
+        pts = sorted((mm, val) for val, mm in self.cfg.gripper_width_mm)
+        return float(np.interp(v, [p[1] for p in pts], [p[0] for p in pts]))
+
     def _opening_path(self):
         """놓을 때: 집을 때의 닫는 경로를 반대로(지금 값 -> gripper_open) 써서 두 턱 끝의 중간점이 제자리에 머물게 손을 같이 보낸다. 못 풀면 None."""
         q = self._q()
@@ -238,8 +243,7 @@ class Skills:
         mid = (f[:2] + m[:2]) / 2
         center = SimpleNamespace(x_mm=p.x_mm + float(mid[0]), y_mm=p.y_mm + float(mid[1]))
         tip_z = p.z_mm + float(min(f[2], m[2]))
-        pts = sorted((mm, v) for v, mm in self.cfg.gripper_width_mm)
-        gap = lambda v: float(np.interp(v, [p_[1] for p_ in pts], [p_[0] for p_ in pts]))
+        gap = self._gap_mm
         path = self._closing_path(q, center, p.yaw_deg, False, v0, v1, gap(v0), gap(v1), tip_z)
         if path is None:
             self.opening_fallback_reason = "ik_failed_along_opening_path"
@@ -272,6 +276,14 @@ class Skills:
             path = self._opening_path()  # 열리는 동안 손을 같이 보내 물체 위치를 지킨다
             if path is None:  # 못 풀면 제자리에서 그냥 연다: 조용히 넘어가지 않고 이유를 남긴다 (REQ-036)
                 self.ctl._emit("opening_path_fallback", "WARN", "ARM-OPENING-PATH-FALLBACK", {"reason": self.opening_fallback_reason, "gripper": float(self._q().gripper)})
+            elif len(path.pts) > 1:  # 열리는 동안 손이 얼마나 움직이는지 남긴다: 실물에서 '같이 벌어지는지' 눈으로 본 것과 대조하려고
+                a, b = JointState(*path.pts[0]), JointState(*path.pts[-1])
+                pa, pb = self.kin.fk(a), self.kin.fk(b)
+                move = (float(pb.x_mm - pa.x_mm), float(pb.y_mm - pa.y_mm), float(pb.z_mm - pa.z_mm))
+                self.ctl._emit("opening_path", "INFO", "ARM-OPENING-PATH", {"gap_start_mm": round(self._gap_mm(a.gripper), 1), "gap_end_mm": round(self._gap_mm(b.gripper), 1),
+                                                                           "hand_move_mm": [round(m, 2) for m in move], "hand_move_xy_mm": round(math.hypot(move[0], move[1]), 2),
+                                                                           "steps": len(path.pts) - 1, "duration_s": round(float(path.duration_s), 2),
+                                                                           "gripper_start": round(a.gripper, 1), "gripper_end": round(b.gripper, 1)})
             r = self._run([path or self._gripper(self.cfg.gripper_open)])
             if r.status != "ok":
                 return r
