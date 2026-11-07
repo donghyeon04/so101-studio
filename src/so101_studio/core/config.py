@@ -55,6 +55,8 @@ class RobotConfig:
     gripper_load_warn_pct: float = 60  # 그리퍼 부하가 이 값을 gripper_load_s 넘게 넘으면 조임을 멈추고 WARN, 1초 더 이어지면 열고 fault. 실측 전 시작값
     gripper_load_s: float = 1.0
     gripper_open: float = 60
+    gripper: str = "single_jaw"  # 그리퍼 종류: single_jaw(기본) | parallel. 세부 값은 config/grippers/<종류>.yaml이 robot.yaml 위에 겹쳐진다 (결정 0043)
+    gripper_tip_offset_mm: float = 0.0  # 병렬 그리퍼: TCP(두 턱 중앙)에서 턱 끝까지 도구 축 방향 거리. 실물 몫(자리만)
     gripper_width_mm: list[list[float]] = field(default_factory=lambda: [[0, 0], [100, 90]])
     a_max_deg_s2: float = 120
     trajectory_profile: str = "quintic"
@@ -128,9 +130,17 @@ def resolve_arm(arms_dir: Path, local: dict, arm: str | None = None, serials=())
     raise ArmSelectionError(f"팔을 고르지 못했다. --arm <이름>이나 config/local.yaml의 arm으로 고른다 (있는 팔: {sorted(files)})", sorted(files))
 
 
+GRIPPER_TYPES = ("single_jaw", "parallel")
+
+
+def gripper_files(grippers_dir: Path) -> dict[str, Path]:
+    """config/grippers/*.yaml (종류 이름 = 파일 이름)."""
+    return {p.stem: p for p in sorted(grippers_dir.glob("*.yaml"))} if grippers_dir.is_dir() else {}
+
+
 def load_robot_ex(path: str | Path = "config/robot.yaml", arm: str | None = None, serials=(), arms_dir: str | Path | None = None,
                   local_path: str | Path | None = None) -> tuple[RobotConfig, dict]:
-    """robot.yaml <- config/arms/<팔>.yaml <- config/local.yaml 순서로 겹쳐 읽는다(뒤가 앞을 덮고, 키 단위로 통째로 바꾼다).
+    """robot.yaml <- config/arms/<팔>.yaml <- config/grippers/<종류>.yaml <- config/local.yaml 순서로 겹쳐 읽는다(뒤가 앞을 덮고, 키 단위로 통째로 바꾼다).
     arms 폴더와 local.yaml은 robot.yaml 옆에서 찾는다. 둘 다 없으면 robot.yaml만 읽는다(예전과 같다).
     (설정, {"arm": 이름|None, "reason": 이유, "files": [읽은 파일]})."""
     path = Path(path)
@@ -140,10 +150,19 @@ def load_robot_ex(path: str | Path = "config/robot.yaml", arm: str | None = None
     name, reason = resolve_arm(arms_dir, local, arm, serials)
     merged = _read_yaml(path)
     files = [str(path)]
+    arm_yaml = _read_yaml(arm_files(arms_dir)[name]) if name else {}
+    gtype = local.get("gripper") or arm_yaml.get("gripper") or merged.get("gripper") or "single_jaw"
+    if gtype not in GRIPPER_TYPES:
+        raise ValueError(f"알 수 없는 그리퍼 종류: {gtype} (있는 종류: {list(GRIPPER_TYPES)})")
+    gfile = path.parent / "grippers" / f"{gtype}.yaml"
     if name:
-        merged |= _read_yaml(arm_files(arms_dir)[name])
+        merged |= arm_yaml
         files.append(str(arm_files(arms_dir)[name]))
         merged["arm_name"] = name
+    if gfile.exists():  # 순서: robot.yaml <- 팔 <- 그리퍼 <- local. 팔 파일의 폭 표·조임 값은 단동식을 잰 것이라 다른 그리퍼 종류에서는 그리퍼 파일이 이긴다
+        merged |= _read_yaml(gfile)
+        files.append(str(gfile))
+    merged["gripper"] = gtype
     if local_path.exists():
         files.append(str(local_path))
     merged |= {k: v for k, v in local.items() if k != "arm"}
