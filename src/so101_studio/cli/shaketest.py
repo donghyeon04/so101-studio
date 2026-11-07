@@ -9,6 +9,7 @@ from dataclasses import replace
 import numpy as np
 
 from ..arm.trajectory import move_j
+from .rest import go_rest, prepare_rest
 from .trace import Tracer, analyze
 
 ACCELS = (25, 254)
@@ -21,7 +22,7 @@ def run_shaketest(svc, reps: int = 10, out=print, poll_mark=None, accels=None, s
     accels, speeds = accels or ACCELS, speeds or SPEEDS
     if not svc.enable_torque():
         raise RuntimeError(svc.locked_reason)  # 잠긴 팔은 읽기만 된다
-    start = svc.driver.read_joints()
+    start = prepare_rest(svc, out)  # 한계 밖(쉬는 자세)에서 시작했으면 먼저 home으로 (REQ-047)
     goal = replace(start, shoulder_pan=start.shoulder_pan + 50, shoulder_lift=start.shoulder_lift + 40,
                    elbow_flex=start.elbow_flex - 40, wrist_flex=start.wrist_flex + 30)
     why = svc.safety.check_path(move_j(start, goal, 20.0, A_MAX_DEG_S2))
@@ -42,9 +43,7 @@ def run_shaketest(svc, reps: int = 10, out=print, poll_mark=None, accels=None, s
                         for name, q in (("갈 때", goal), ("올 때", start)):
                             if stop():
                                 out("중단 요청")
-                                if name == "올 때":
-                                    svc._run([move_j(svc.driver.read_joints(), start, v, A_MAX_DEG_S2)])
-                                raise RuntimeError("stopped")
+                                raise RuntimeError("stopped")  # 돌아가기는 아래 finally가 한다
                             label = f"가속{acc}/{v:.0f}°/s/{rep + 1}번째 {name}"
                             t0 = time.perf_counter()
                             out(f"[{len(moves) + 1}/{total}] {label}  (시작 후 {t0 - t_begin:.0f}s)")
@@ -61,6 +60,7 @@ def run_shaketest(svc, reps: int = 10, out=print, poll_mark=None, accels=None, s
             pass
         finally:
             svc.driver.set_acceleration(rest_acc)
+            go_rest(svc, start, out)  # 끝나든 중단되든 실패하든 시험 자세에 남기지 않는다 (REQ-047)
     tr.result()
     for m in moves:  # 이동마다 6Hz 이상 흔들림
         seg = tr.slice(m["t0"], m["t1"])
