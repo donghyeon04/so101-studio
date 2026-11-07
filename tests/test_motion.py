@@ -245,3 +245,13 @@ def test_servo_error_bit_runtime_error_is_a_comm_fault_with_the_cause_not_a_code
     c.close()
     assert r.status == "fault" and c.fault == "comm_lost"  # 0.5초 유예 뒤 통신 끊김
     assert "Input voltage error" in c.fault_detail["error"] and "입력 전압 오류" in c.fault_text and "프로그램" not in c.fault_text
+
+
+def test_comm_lost_from_the_down_clock_still_carries_the_last_servo_error():
+    """끊김 감시(_check_health)가 루프의 comm_failed보다 먼저 comm_lost를 내도 fault 상세에 마지막 서보 오류가 들어간다(부하 때 순서가 바뀌어 흔들리던 시험)."""
+    d = SimDriver()
+    c = MotionController(d, safety=Safety(LIMITS), hz=100)
+    c.last_bus_error = "RuntimeError('[RxPacketError] Input voltage error!')"
+    c._fault("comm_lost")  # detail 없이(감시 경로)
+    c.close()
+    assert c.fault == "comm_lost" and "Input voltage error" in c.fault_detail["error"] and "입력 전압 오류" in c.fault_text

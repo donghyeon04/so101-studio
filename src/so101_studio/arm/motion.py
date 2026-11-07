@@ -277,6 +277,8 @@ class MotionController:
         """fault로 들어간다. detail(관절·값·한도 등)과 사람이 읽을 문장(text, 해결법 포함)을 이벤트·진행 중이던 동작의 MotionResult.reason·fault_text에 담는다 (REQ-034)."""
         if reason is None or self.state == "fault":
             return
+        if reason == "comm_lost" and self.last_bus_error and not (detail or {}).get("error"):  # 끊김 감시(_check_health)가 먼저 걸려도 원인(서보가 알린 오류)을 잃지 않는다
+            detail = {**(detail or {}), "error": self.last_bus_error}
         self.state = "fault"
         text = describe(reason, detail)
         job, self._job = self._job, None
