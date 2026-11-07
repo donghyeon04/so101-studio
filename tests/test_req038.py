@@ -54,6 +54,7 @@ def pkin():
     return Kinematics(cfg.urdf, WS.base, cfg.joint_limits_deg)
 
 
+@pytest.mark.slow
 def test_parallel_pick_and_place_in_sim(kin):
     kin = pkin()  # 병렬 URDF: TCP와 메쉬가 맞아야 바닥 검사가 맞는다
     kw = {k: getattr(load_parallel(), k) for k in ("gripper", "gripper_width_mm", "grasp_max_open_mm", "grasp_tilt_deg", "gripper_tip_offset_mm", "urdf")}
