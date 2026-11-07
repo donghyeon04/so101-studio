@@ -25,6 +25,7 @@ from ..service.stop_listener import StopListener
 from ..service.studio import Studio
 from ..service.targets import reason_text, tip_vector
 from ..task.policy import reachable
+from . import programs
 from .health import ServoHealth, count_events
 from .scene3d import Scene3D
 from .state import (
@@ -53,6 +54,7 @@ JOG_YAW_DEG_S = 60.0
 RUN_MODES = {"sim": "시뮬레이션만", "real": "실제만", "both": "동시", "sim_first": "시뮬레이션 먼저"}
 REASON_EXTRA = {"z_ceiling": "허용 상자보다 높습니다"}  # service.targets에 아직 없는 이유
 BUSY_TEXT = "팔이 아직 움직이고 있습니다"
+NAME_RE = re.compile(r"[0-9A-Za-z가-힣_\- ]{1,40}")  # 자세·프로그램 이름(파일 이름에도 쓴다)
 COMM_LOST_TEXT = "통신이 끊겼습니다. 케이블과 전원을 확인하고 [다시 연결]을 눌러 주세요"
 OUTSIDE_TEXT = "작업대 밖에서 출발했습니다. 안쪽으로만 움직일 수 있습니다"
 EDGE_TEXT = "작업대 가장자리 밖이라 움직이지 않았습니다"  # 이 문구면 화면이 "가장자리 검사를 끄고 다시 하기"를 묻는다
@@ -110,6 +112,8 @@ class Backend:
     workspace_path = "config/workspace.yaml"
     arms_path = "config/arms"
     local_path = "config/local.yaml"
+    waypoints_path = "config/waypoints.yaml"  # 자세 즐겨찾기 (결정 0044)
+    programs_dir = "config/programs"
 
     def __init__(self, speed: float | None = None, log_root: str | None = "runs", link: WatchdogLink | None = None,
                  viser_port: int | None = None, real_driver=None, arm_name: str | None = None, serials=(), port: str | None = None, first_report: dict | None = None):
@@ -139,6 +143,7 @@ class Backend:
         self.pending: tuple | None = None  # 시뮬레이션 먼저: 실제 팔로 실행할지 묻는 동작 (이름, action)
         self._planning = False
         self._record_name: str | None = None
+        self.program_run: programs.Run | None = None
         for arm in self._arms():
             ok, msg = arm.connect(port if arm is self.real else None)
             if not ok:
@@ -481,6 +486,74 @@ class Backend:
             return r
 
         return self._dispatch(run, "집어 옮기기")
+
+    # ---- 자세 즐겨찾기와 프로그램 (결정 0044). 실패하면 이유 문장, 성공하면 None
+    def waypoints(self) -> dict:
+        return programs.load_waypoints(Path(self.waypoints_path))
+
+    def save_waypoint(self, name: str) -> str | None:
+        """지금 자세(움직일 팔 기준)를 이름으로 저장한다. 같은 이름이면 덮어쓴다(즐겨찾기 표시는 유지)."""
+        name = name.strip()
+        if not NAME_RE.fullmatch(name):
+            return "이름은 한글·영문·숫자·_-·공백, 40자까지입니다"
+        st = self._model_arm().status()
+        wps = self.waypoints()
+        wps[name] = programs.pose_entry(st.joints, st.tool, wps.get(name, {}).get("favorite", False))
+        programs.save_waypoints(Path(self.waypoints_path), wps)
+        return None
+
+    def set_favorite(self, name: str, favorite: bool) -> None:
+        wps = self.waypoints()
+        if name in wps:
+            wps[name]["favorite"] = bool(favorite)
+            programs.save_waypoints(Path(self.waypoints_path), wps)
+
+    def delete_waypoint(self, name: str) -> None:
+        wps = self.waypoints()
+        if wps.pop(name, None) is not None:
+            programs.save_waypoints(Path(self.waypoints_path), wps)
+
+    def goto_waypoint(self, name: str) -> str | None:
+        wps = self.waypoints()
+        if name not in wps:
+            return f"저장된 자세 '{name}'이 없습니다"
+        joints = JointState(**{k: float(v) for k, v in wps[name]["joints"].items()})
+        return self._dispatch(lambda arm: arm.move_joints(joints), f"자세 {name}로 이동")
+
+    def program_names(self) -> list[str]:
+        return programs.program_names(Path(self.programs_dir))
+
+    def load_program(self, name: str) -> list:
+        return programs.load_program(Path(self.programs_dir), name)
+
+    def save_program(self, name: str, steps: list) -> str | None:
+        name = name.strip()
+        if not NAME_RE.fullmatch(name):
+            return "이름은 한글·영문·숫자·_-·공백, 40자까지입니다"
+        reason = programs.validate(steps, self.waypoints())
+        if reason:
+            return reason
+        programs.save_program(Path(self.programs_dir), name, steps)
+        return None
+
+    def run_program(self, steps: list, label: str, step_mode: bool = False) -> str | None:
+        """프로그램 전체를 동작 하나로 실행 방식대로 보낸다(시뮬레이션 먼저면 끝난 뒤 실제 팔 확인). 블로킹이라 스레드에서 부른다."""
+        wps = self.waypoints()
+        reason = programs.validate(steps, wps)
+        if reason:
+            return reason
+        if not steps:
+            return "단계가 없습니다"
+        self.program_run = programs.Run(step_mode)
+        act = programs.action(steps, wps, self.program_run, lambda arm: arm is self.sim, place_zone=next(iter(self.arm.ws.drop_zones), None))
+        reason = self._dispatch(act, f"프로그램 {label}")
+        self.program_run.reason = reason
+        return reason
+
+    def stop_program(self) -> None:
+        if self.program_run:
+            self.program_run.stop.set()
+        self.stop_all()
 
     # ---- 작업
     def objects(self) -> list[DetectedObject]:

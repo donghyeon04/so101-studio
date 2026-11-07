@@ -19,6 +19,7 @@ from .pages import (
     logs,
     manual,
     params,
+    program,
     runs,
     safety,
     start,
@@ -37,7 +38,7 @@ REFRESH_S = 0.1
 # (그룹, 페이지들). 페이지는 (경로, 제목, 채우는 작업). gui-spec 3절
 PAGES = (
     ("안내", (("/start", "시작", "G12"),)),
-    ("작업", (("/", "작업 공간", "G6"), ("/manual", "직접 조작", "G4"), ("/teach", "교시", "G5"))),
+    ("작업", (("/", "작업 공간", "G6"), ("/manual", "직접 조작", "G4"), ("/teach", "교시", "G5"), ("/program", "프로그램", "결정 0044"))),
     ("인식", sensors.menu()),
     ("장치", (("/arm", "팔", "G8"), ("/esp32", "ESP32 센서 보드", "3단계"))),
     ("설정", (("/params", "파라미터·프리셋", "G7"), ("/safety", "안전", "G7"), ("/table", "작업대·좌표", "G7"))),
@@ -48,6 +49,7 @@ DESCRIPTIONS = {
     "/": "인식한 물체를 차례로 집어 배출 구역으로 옮기는 자동 작업을 실행하고 지켜봅니다.",
     "/manual": "팔을 관절이나 손끝 좌표로 직접 움직입니다.",
     "/teach": "손으로 움직인 동작을 기록하고 다시 재생합니다.",
+    "/program": "저장한 자세와 이동·집기·그리퍼·대기·반복을 순서대로 엮어 저장하고 실행합니다.",
     "/ultrasonic": "레이더와 손목 센서가 찾은 물체를 봅니다. 지금은 가상 실행만 됩니다.",
     "/camera": "카메라로 물체를 찾는 화면입니다.",
     "/input": "센서 대신 사람이 물체 위치를 알려 주는 인식 방식입니다. 작업 공간 자동 실행이 이 물체들을 집습니다.",
@@ -60,7 +62,7 @@ DESCRIPTIONS = {
     "/logs": "앱과 감시 프로세스의 기록을 한 시간축으로 봅니다.",
     "/start": "지금 모드와 처음 할 순서, 페이지 안내를 봅니다.",
 }
-BUILDERS = {"/": workspace.build, "/manual": manual.build, "/teach": teach.build, "/params": params.build, "/safety": safety.build, "/table": table.build, "/arm": arm.build, "/esp32": esp32.build, "/runs": runs.build, "/logs": logs.build, "/start": lambda b, c, a: start.build(b, c, a, PAGES[1:], DESCRIPTIONS), **sensors.pages()}  # 만든 페이지. 나머지는 자리만 있다
+BUILDERS = {"/": workspace.build, "/manual": manual.build, "/teach": teach.build, "/program": program.build, "/params": params.build, "/safety": safety.build, "/table": table.build, "/arm": arm.build, "/esp32": esp32.build, "/runs": runs.build, "/logs": logs.build, "/start": lambda b, c, a: start.build(b, c, a, PAGES[1:], DESCRIPTIONS), **sensors.pages()}  # 만든 페이지. 나머지는 자리만 있다
 COMPONENTS = ("버스", "서보")  # 감시 칸과 센서 칸은 따로 있다 (decisions/0030)
 TOP_STATS = ("센서", "전압", "최고 온도", "속도", "조작권")  # 감시 칸은 아이콘이 있어 따로 그린다. 실행 방식은 오른쪽 고르기 칸이 보인다
 WIDE_ONLY = {"센서", "최고 온도"}  # 1440px 아래에서는 숨긴다. 과열은 서보 칸이 경고로 보인다
