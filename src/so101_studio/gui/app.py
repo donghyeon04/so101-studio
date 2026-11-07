@@ -18,6 +18,7 @@ from .pages import (
     esp32,
     logs,
     manual,
+    operator,
     params,
     program,
     runs,
@@ -78,9 +79,12 @@ def _stat(label: str, value: str = EMPTY, wide_only: bool = False) -> ui.label:
 
 def make_root(backend: Backend):
     def root() -> None:
-        """모든 페이지가 공유하는 틀."""
-        theme.apply()
+        """모든 페이지가 공유하는 틀. /operator는 틀 없이 운영자 화면만 그린다(gui-spec 12.4)."""
         client = ui.context.client
+        if client.request is not None and client.request.url.path == "/operator":
+            operator.build(backend, client.id)
+            return
+        theme.apply()
         nav: dict[str, ui.button] = {}
         components: dict[str, tuple] = {}
         stats: dict[str, ui.label] = {}
