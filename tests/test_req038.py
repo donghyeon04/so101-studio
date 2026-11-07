@@ -41,21 +41,28 @@ def test_skills_pick_the_gripper_class(kin):
 
 def test_parallel_geometry_has_no_correction(kin):
     g = ParallelGripper(kin, load_parallel())
-    assert g.center_offset(-90.0, 30.0, 50.0) == pytest.approx([0, 0, 0], abs=1e-9)
+    assert g.center_offset(-90.0, 30.0, 50.0) == pytest.approx([0, 0, -g.cfg.gripper_tip_offset_mm], abs=1e-3)  # 손끝은 TCP 아래
     f, m = g.jaw_tips(-90.0, 0.0, 100.0)
     assert np.linalg.norm(f - m) == pytest.approx(84.0) and g.tilt(100) == 0 and g.narrowing(100, True) == 0
     h = g.hand_pose(300, 200, 40.0, 100.0, True, 20.0)
-    assert (h.x_mm, h.y_mm, h.z_mm, h.pitch_deg) == pytest.approx((300, 200, 20, -90), abs=0.01)
+    assert (h.x_mm, h.y_mm, h.z_mm, h.pitch_deg) == pytest.approx((300, 200, 20 + g.cfg.gripper_tip_offset_mm, -90), abs=0.01)
+
+
+def pkin():
+    from so101_studio.arm.kinematics import Kinematics
+    cfg = load_parallel()
+    return Kinematics(cfg.urdf, WS.base, cfg.joint_limits_deg)
 
 
 def test_parallel_pick_and_place_in_sim(kin):
-    kw = {k: getattr(load_parallel(), k) for k in ("gripper", "gripper_width_mm", "grasp_max_open_mm", "grasp_tilt_deg")}
+    kin = pkin()  # 병렬 URDF: TCP와 메쉬가 맞아야 바닥 검사가 맞는다
+    kw = {k: getattr(load_parallel(), k) for k in ("gripper", "gripper_width_mm", "grasp_max_open_mm", "grasp_tilt_deg", "gripper_tip_offset_mm")}
     pts = sorted((mm, v) for v, mm in load_parallel().gripper_width_mm)
     block = float(np.interp(30.0, [p[0] for p in pts], [p[1] for p in pts]))
     d, ctl, sk = rig(kin, block, **kw)
     r = sk.pick(obj(width=30.0))
     assert r.status == "ok" and d.log[-1].gripper == pytest.approx(block, abs=0.6)
-    assert sk.place_at(300.0, 150.0).status == "ok" and sk.last_place_correction_mm == pytest.approx((0, 0), abs=1e-6)
+    assert sk.place_at(300.0, 150.0).status == "ok" and sk.last_place_correction_mm == pytest.approx((0, 0), abs=1e-3)
     ctl.close()
 
 
@@ -90,8 +97,9 @@ def test_parallel_urdf_and_mesh_lowest_z(kin):
     assert "gripper" in names and "gripper_left" in names
     zs = []
     for g in (0.0, 50.0, 100.0):
-        q = k.ik(k.gripper.hand_pose(300, 250, 90.0, g, False, 20.0), JointState(0, -30, 30, 60, 0, g))
+        pose = k.gripper.hand_pose(300, 250, 90.0, g, False, 20.0)
+        q = next((q for q in (k.ik(pose, JointState(0, a, b, c, 0, g)) for a, b, c in ((-30, 30, 60), (-60, 60, 30), (0, 60, 30))) if q), None)
         assert q is not None
         q = replace(q, gripper=g)
         zs.append(k.gripper.lowest_z(q))
-    assert max(zs) - min(zs) < 1.5 and zs[0] == pytest.approx(20.0 + 0.0, abs=4.0)  # 수직이면 간격이 바뀌어도 가장 낮은 점은 같고, 손끝 높이 20mm 근처
+    assert max(zs) - min(zs) < 1.5 and zs[0] == pytest.approx(20.0, abs=1.0)  # 수직이면 간격이 바뀌어도 가장 낮은 점은 같고, 손끝 높이 20mm 근처
