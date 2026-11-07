@@ -81,7 +81,7 @@ def test_state_tracks_chosen_and_placed():
 
 
 def test_registry_has_manual_page_and_pending_sensors():
-    assert [path for path, _, _ in sensors.menu()] == ["/ultrasonic", "/camera", "/input"]
+    assert [path for path, _, _ in sensors.menu()] == ["/ultrasonic", "/input"]  # 카메라는 장치를 달 때까지 숨김 (결정 0044)
     assert {"/input", "/ultrasonic"} <= set(sensors.pages())
     assert sensors.pending_titles() == ["카메라"]
     assert [v.name for v in sensors.mini_views()] == ["ultrasonic", "manual"]
