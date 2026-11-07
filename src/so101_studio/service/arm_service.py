@@ -16,7 +16,7 @@ from ..arm.teach import Teach
 from ..arm.trajectory import cfg_move_j, cfg_move_l, smooth_l
 from ..core import frames
 from ..core.blackbox import install_excepthooks
-from ..core.config import RobotConfig, WorkspaceConfig, load_workspace
+from ..core.config import GRIPPER_TYPES, RobotConfig, WorkspaceConfig, load_workspace
 from ..core.incident import Incident, create_incident
 from ..core.logging import RunLogger
 from ..core.types import ArmStatus, DetectedObject, JointState, MotionResult, ToolPose
@@ -528,6 +528,12 @@ class ArmService:
                 rows.append({"height_mm": h, "segments": segs, "min_mm": segs[0][0] if segs else None, "max_mm": segs[-1][1] if segs else None})
             cache[key] = {"pitch_deg": pitch_deg, "motion": rows}
         return {**cache[key], "pick": dict(self.ws.pick_reach_mm)}
+
+    def gripper_info(self) -> dict:
+        """그리퍼 선택 화면용: 지금 종류와 고를 수 있는 종류(결정 0043-1). 종류는 config/local.yaml의 `gripper:`로 고르고 다시 연결(재시작)해야 적용된다."""
+        g = self.skills.gripper if self.skills else None
+        return {"type": self.cfg.gripper, "available": list(GRIPPER_TYPES), "needs_centering": getattr(g, "needs_centering", None),
+                "width_mm": [list(p) for p in self.cfg.gripper_width_mm], "max_open_mm": self.cfg.grasp_max_open_mm}
 
     def get_safety(self) -> dict:
         """지금 안전 설정과 실제로 적용되는 값. GUI가 설정 화면을 그릴 때 쓴다."""

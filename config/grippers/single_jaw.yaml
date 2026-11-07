@@ -1,0 +1,2 @@
+# 단동식(SO-101 기본, 고정 턱 1 + 가동 턱 1). 값은 robot.yaml에 있고 여기서는 덮어쓰지 않는다.
+gripper: single_jaw
