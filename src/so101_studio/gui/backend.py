@@ -155,6 +155,7 @@ class Backend:
         if viser_port is not None:
             self.scene = Scene3D(cfg, self.arm.ws, self.arm.kin, viser_port)
             self.scene.set_objects(self.objects())
+            self.scene.set_parts(getattr(self.arm, "scene", None))  # 장면 부품(REQ-040). 팔이 아직 모르면 그리지 않는다
             self.arm.status_stream(self.scene.update_status)
             if self.real:
                 self.sim.status_stream(self._on_twin_status)
@@ -656,6 +657,8 @@ class Backend:
             for arm in self._arms():
                 arm.reload_workspace(path)
             self.studio.ws = self.studio.task.ws = self.arm.ws
+            if self.scene:
+                self.scene.set_parts(getattr(self.arm, "scene", None))
         except RuntimeError as e:
             return f"저장했지만 지금은 적용하지 못했습니다({e}). 동작이 끝난 뒤 다시 저장하거나 앱을 다시 시작하세요"
         return None

@@ -169,3 +169,27 @@ def test_objects_layer_survives_redrawing_the_objects(backend3d):
         assert scene._objects_root.visible is True
     finally:
         scene.set_layer("objects", True)
+
+
+def test_scene_parts_on_table_and_on_link(backend3d):
+    """결정 0043-4·REQ-040: 작업대 부품은 /parts 아래, 링크 부품은 그 링크 노드 아래(팔을 따라 움직임). 모르는 링크는 건너뛴다."""
+    from types import SimpleNamespace
+
+    import trimesh
+
+    box = trimesh.creation.box((80.0, 60.0, 40.0))
+    T = np.eye(4)
+    T[:3, 3] = (100.0, 200.0, 20.0)
+    parts = [SimpleNamespace(name="station", attach="table", T=T, mesh=box, color="#8a8f98"),
+             SimpleNamespace(name="bracket", attach="wrist_link", T=np.eye(4), mesh=box, color=None),
+             SimpleNamespace(name="ghost", attach="no_such_link", T=np.eye(4), mesh=box, color=None)]
+    scene = backend3d.scene
+    scene.set_parts(SimpleNamespace(parts=parts))
+    nodes = scene.server.scene._handle_from_node_name
+    assert "/parts/part_station" in nodes
+    assert np.allclose(nodes["/parts/part_station"].position, (0.1, 0.2, 0.02))
+    bracket = [n for n in nodes if n.endswith("/wrist_link/part_bracket")]
+    assert len(bracket) == 1 and bracket[0].startswith("/real/")
+    assert not any("ghost" in n for n in nodes)
+    scene.set_parts(None)
+    assert not any("part_" in n for n in scene.server.scene._handle_from_node_name)

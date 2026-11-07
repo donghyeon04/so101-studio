@@ -1,6 +1,7 @@
 """Viser 3D 장면: URDF 팔 두 개(실제, 계산 자세), 작업대, 물체, 배출 구역, 좌표축 (gui-spec 4·8절).
 장면 좌표는 작업대 좌표를 m로 옮긴 것이고, z = 0이 작업대 면이다."""
 
+import logging
 import math
 import threading
 import time
@@ -22,6 +23,7 @@ DEFAULT_PORT = 8081
 TABLE_T_M = 0.01
 OBJECT_H_M = 0.03
 PREVIEW_ALPHA = 0.4
+PART_ALPHA = 0.85  # 장면 부품: 뒤의 팔·물체가 조금 비치게
 MESH_CELL_M = 0.002
 ALLOWED_TOP_MM = 300.0  # 높이 제한이 없을 때 허용 상자를 그리는 높이
 DEFAULT_PICK_H_MM = 40.0  # 작업대를 클릭했을 때의 높이. 0이면 턱 끝이 작업대에 닿는다
@@ -70,6 +72,16 @@ def _load_urdf(path: Path) -> yourdfpy.URDF:
     for name, mesh in list(urdf.scene.geometry.items()):
         urdf.scene.geometry[name] = simplify(mesh)
     return urdf
+
+
+def link_node(urdf: yourdfpy.URDF, link: str, root: str) -> str:
+    """URDF 링크가 ViserUrdf 안에서 갖는 장면 노드 이름(viser.extras._urdf와 같은 규칙). 이 노드 아래에 둔 것은 링크를 따라 움직인다."""
+    graph = urdf.scene.graph
+    frames = []
+    while link != graph.base_frame:
+        frames.append(link)
+        link = graph.transforms.parents[link]
+    return root + "/" + "/".join(reversed(frames))
 
 
 def _yaw(deg: float) -> np.ndarray:
@@ -170,7 +182,8 @@ class Scene3D:
         root = {"position": (ox / 1000, oy / 1000, -self._table_z / 1000), "wxyz": _yaw(base.yaw_deg)}
         urdf_path = Path(cfg.urdf)
         real_root = scene.add_frame("/real", show_axes=False, **root)
-        self._real = ViserUrdf(self.server, _load_urdf(urdf_path), root_node_name="/real")
+        self._real_urdf = _load_urdf(urdf_path)
+        self._real = ViserUrdf(self.server, self._real_urdf, root_node_name="/real")
         self._preview_root = scene.add_frame("/preview", show_axes=False, visible=False, **root)
         self._preview = ViserUrdf(
             self.server, _load_urdf(urdf_path), root_node_name="/preview",
@@ -184,8 +197,10 @@ class Scene3D:
         self._handle.on_update(self._on_drag)
         self._objects_root = None
         marks = scene.add_frame("/marks", show_axes=False)
+        parts = scene.add_frame("/parts", show_axes=False)
+        self._part_nodes: list[str] = []
         self._layer_nodes = {
-            "arm": [real_root], "table": [table, grid], "zones": zones, "axes": [axes_table, axes_robot, self._tool],
+            "arm": [real_root], "table": [table, grid, parts], "zones": zones, "axes": [axes_table, axes_robot, self._tool],
             "marks": [marks], "handle": [self._handle],
         }
         scene.on_click()(self._on_click)
@@ -245,6 +260,31 @@ class Scene3D:
                     dimensions=(o.length_mm / 1000, o.width_mm / 1000, OBJECT_H_M),
                     position=(o.x_mm / 1000, o.y_mm / 1000, OBJECT_H_M / 2), wxyz=_yaw(o.angle_deg or 0.0),
                 )
+
+    def set_parts(self, scene_def) -> None:
+        """장면 부품(결정 0043-4, REQ-040)을 그린다. 작업대 부품은 작업대 좌표에, 링크 부품은 그 링크 노드 아래에 두어 팔을 따라 움직이게 한다.
+        scene_def는 core.scene.Scene(parts: name, attach, T(4x4, mm), mesh(mm), color). None이면 지운다."""
+        scene = self.server.scene
+        with self.server.atomic():
+            for name in self._part_nodes:
+                scene.remove_by_name(name)
+            self._part_nodes = []
+            for part in getattr(scene_def, "parts", None) or []:
+                if part.attach == "table":
+                    parent = "/parts"
+                elif part.attach in self._real_urdf.scene.graph.nodes:
+                    parent = link_node(self._real_urdf, part.attach, "/real")
+                else:
+                    logging.getLogger(__name__).warning("장면 부품 %s: 모르는 링크 %s", part.name, part.attach)
+                    continue
+                T = np.asarray(part.T, float)
+                name = f"{parent}/part_{part.name}"
+                scene.add_mesh_simple(
+                    name, np.asarray(part.mesh.vertices, np.float32) / 1000, np.asarray(part.mesh.faces, np.uint32),
+                    color=theme.rgb(getattr(part, "color", None) or theme.MUTED), opacity=PART_ALPHA,
+                    position=T[:3, 3] / 1000, wxyz=tf.SO3.from_matrix(T[:3, :3]).wxyz,
+                )
+                self._part_nodes.append(name)
 
     def pick(self, x_mm: float, y_mm: float, h_mm: float) -> None:
         """작업대 클릭이나 손잡이로 고른 점을 남긴다. Viser 스레드에서 불리고, 화면 타이머가 picked로 읽는다."""
