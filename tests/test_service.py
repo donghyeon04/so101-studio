@@ -68,7 +68,7 @@ def test_unreachable_goto_returns_ik_fail_without_moving(svc):
 
 def test_pick_and_place_and_retarget(svc):
     r = svc.pick_and_place(DetectedObject("o", 300, 200, 0, 0, 0, 1, "manual"), "right")
-    assert r.status in ("ok", "no_object")  # 시뮬레이션은 물체가 없어 no_object가 나올 수 있다
+    assert r.status == "no_object"  # 가상 팔에는 물체가 없어 끝까지 닫힌다(고정된 결과)
     h = svc.retarget(JointState(20, -90, 93, 0, 0, 3))
     assert h.wait(10).status == "ok"
     assert svc.driver.read_joints().shoulder_pan == pytest.approx(20, abs=0.05)
@@ -108,6 +108,24 @@ def test_service_safety_settings_roundtrip_and_validation(svc):
         svc.set_safety(box_mm={"z": [-5, 100]})  # 작업대 면 아래는 안 된다
     assert svc.get_safety()["mode"] == "free"  # 실패한 호출은 설정을 바꾸지 않는다
     assert svc.set_safety("normal", 0.0, None)["box_mm_effective"]["z"][0] == CFG.tip_floor_mm
+
+
+def test_pick_and_place_ok_when_the_sim_gripper_is_blocked_by_an_object(tmp_path):
+    s = ArmService(SimDriver(CFG.poses["home"], grip_block=30.0), CFG, WS, speed_pct=100, log_root=str(tmp_path))
+    assert s.connect()[0]
+    try:
+        assert s.pick_and_place(DetectedObject("o", 300, 200, 0, 0, 0, 1, "manual"), "right").status == "ok"
+    finally:
+        s.disconnect()
+
+
+def test_unsafe_mode_is_off_and_keeps_only_the_per_step_limit(svc):
+    from dataclasses import replace
+    home = JointState(*CFG.poses["home"])
+    svc.set_safety(mode="off")
+    assert svc.get_safety()["mode"] == "off"
+    assert svc.safety.check_goal(replace(home, shoulder_pan=500.0)) is None  # 관절 한계·작업 영역은 꺼졌다
+    assert svc.safety.check_step(home, replace(home, shoulder_pan=home.shoulder_pan + 20)) == "step"  # 한 주기 이동량 한계는 그대로
 
 
 def test_cli_unsafe_flag_warns_and_runs(capsys):

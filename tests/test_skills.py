@@ -199,12 +199,22 @@ def test_contact_sets_goal_to_position_plus_preload_and_torque_limit_goes_300_20
 
 
 def test_torque_limit_is_ram_not_eeprom():
-    import inspect
+    import types
 
     from so101_studio.arm.driver import ArmDriver
 
-    src = inspect.getsource(ArmDriver.set_gripper_torque_limit)
-    assert '"Torque_Limit"' in src and 'write("Max_Torque_Limit"' not in src
+    class FakeBus:
+        def __init__(self):
+            self.motors = {"gripper": None}
+            self.writes = []
+
+        def write(self, register, motor, value, **kw):
+            self.writes.append((register, motor, value))
+
+    bus, d = FakeBus(), ArmDriver()
+    d._robot = types.SimpleNamespace(bus=bus)
+    d.set_gripper_torque_limit(300)
+    assert bus.writes == [("Torque_Limit", "gripper", 300)]  # RAM(Torque_Limit)만. Max_Torque_Limit(EEPROM)은 쓰지 않는다
 
 
 def test_torque_limit_is_restored_when_place_raises(kin):

@@ -83,5 +83,5 @@ def test_open_only_as_much_as_needed_when_width_and_height_are_known(kin):  # no
     assert sk._needed_gap(small, True) < CFG.grasp_max_open_mm  # 작은 물체는 최대까지 안 벌린다
     wide_tall = DetectedObject("w", 300, 200, 0, 58, 58, 1.0, "manual", 39)
     g = sk._needed_gap(wide_tall, True)
-    _t, why = sk._grasp_height(wide_tall, g, sk.gripper_for_width(g), True)
-    assert why is None or g == CFG.grasp_max_open_mm  # 지나면 그 벌림, 못 지나면 최대
+    t, why = sk._grasp_height(wide_tall, g, sk.gripper_for_width(g), True)
+    assert g == 86.0 and g < CFG.grasp_max_open_mm and why is None and t == 20.0  # 58×39: 최대(90)까지 안 벌려도 지나는 가장 작은 벌림 86mm에서 설정 높이 20mm로 집는다

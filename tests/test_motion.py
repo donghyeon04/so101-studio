@@ -74,6 +74,10 @@ def test_estop_blocks_until_resume():
     c.execute(move_j(A, JointState(60, 0, 0, 0, 0, 0), 30, 100))
     time.sleep(0.2)
     c.estop()
+    pos = d.read_joints()
+    assert 0 < pos.shoulder_pan < 60  # 이동 중이었다가 그 자리에 섰다
+    time.sleep(0.2)
+    assert d.read_joints() == pos  # 정지 뒤 더 움직이지 않는다
     assert c.execute(move_j(A, B, 30, 100)).wait(1).status == "stopped"
     c.resume()
     assert c.execute(move_j(d.read_joints(), A, 100, 1000)).wait(5).status == "ok"
@@ -85,7 +89,7 @@ def test_big_jump_between_ticks_is_a_fault():
     c = MotionController(d, hz=50)
     r = c.execute(move_j(A, JointState(60, 0, 0, 0, 0, 0), 5000, 1e6)).wait(2)  # 0.2s에 60° → 주기당 5° 초과
     c.close()
-    assert r.status == "fault"
+    assert r.status == "fault" and c.fault == "step"  # 이유까지(통신·과열 등 다른 fault와 구별)
 
 
 def test_goal_at_resting_pose_beyond_limit_is_allowed_as_start():
@@ -230,3 +234,15 @@ def test_estop_returns_the_write_failure_or_none():
     err = c.estop()
     c.close()
     assert err and "ConnectionError" in err
+
+
+def test_second_execute_while_a_job_runs_is_refused_and_leaves_the_first_running():
+    d = SimDriver()
+    c = MotionController(d, safety=Safety(LIMITS))
+    h = c.execute(move_j(A, JointState(30, 0, 0, 0, 0, 0), 30, 100))
+    time.sleep(0.1)
+    with pytest.raises(RuntimeError, match="이미 동작 중"):
+        c.execute(move_j(A, B, 30, 100))
+    c.stop()
+    assert h.wait(2).status == "stopped"  # 첫 동작은 영향 없이 정상 정지
+    c.close()

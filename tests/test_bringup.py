@@ -338,6 +338,8 @@ def test_missing_arm_file_blocks_moves_on_real_hardware_but_not_in_sim(tmp_path)
         ok_svc.disconnect()
 
 
-def test_temp_warn_threshold_is_50():
-    from so101_studio.doctor import TEMP_WARN_C
-    assert TEMP_WARN_C == 50
+@pytest.mark.parametrize("temp,state", [(49, "ok"), (50, "warn"), (51, "warn")])
+def test_doctor_temperature_warns_from_50_degrees(bus, temp, state):
+    first = next(iter(bus["servos"]["COM3"]))
+    bus["servos"]["COM3"][first][63] = temp  # 서보 하나만 뜨거워도 최고 온도로 본다
+    assert states(dr.doctor(config_path="config/robot.yaml"))["온도"] == state
