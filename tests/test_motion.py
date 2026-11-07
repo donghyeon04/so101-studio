@@ -245,3 +245,27 @@ def test_servo_error_bit_runtime_error_is_a_comm_fault_with_the_cause_not_a_code
     c.close()
     assert r.status == "fault" and c.fault == "comm_lost"  # 0.5초 유예 뒤 통신 끊김
     assert "Input voltage error" in c.fault_detail["error"] and "입력 전압 오류" in c.fault_text and "프로그램" not in c.fault_text
+
+
+def test_comm_lost_from_the_down_clock_still_carries_the_last_servo_error():
+    """끊김 감시(_check_health)가 루프의 comm_failed보다 먼저 comm_lost를 내도 fault 상세에 마지막 서보 오류가 들어간다(부하 때 순서가 바뀌어 흔들리던 시험)."""
+    d = SimDriver()
+    c = MotionController(d, safety=Safety(LIMITS), hz=100)
+    c.close()  # 루프를 멈춘 뒤에 확인한다(정상 틱이 last_bus_error를 지우는 경쟁을 피함)
+    c.last_bus_error = "RuntimeError('[RxPacketError] Input voltage error!')"
+    c._fault("comm_lost")  # detail 없이(감시 경로)
+    assert c.fault == "comm_lost" and "Input voltage error" in c.fault_detail["error"] and "입력 전압 오류" in c.fault_text
+
+
+def test_a_recovered_servo_error_is_not_blamed_for_a_later_comm_lost():
+    """오류 -> 정상 틱 -> 상세 없는 comm_lost면 error 칸이 없다(전압 오류가 회복된 뒤 케이블이 빠졌을 때 원인을 전압으로 오해하지 않게)."""
+    d = SimDriver()
+    c = MotionController(d, safety=Safety(LIMITS), hz=100)
+    c.last_bus_error = "RuntimeError('[RxPacketError] Input voltage error!')"
+    deadline = time.time() + 2
+    while c.last_bus_error is not None and time.time() < deadline:
+        time.sleep(0.01)
+    assert c.last_bus_error is None  # 정상 틱이 지웠다
+    c._fault("comm_lost")
+    c.close()
+    assert "error" not in c.fault_detail and "입력 전압" not in c.fault_text

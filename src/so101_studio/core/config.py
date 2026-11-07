@@ -86,10 +86,15 @@ class WorkspaceConfig:
     drop_zones: dict = field(default_factory=dict)
     safety_margin_mm: float = 10
     reach_mm: dict = field(default_factory=lambda: {"min": 90.0, "max": 250.0})
+    drop_zone_ignore_radius_mm: float = 75.0  # 초음파가 배출 구역 둘레 이 반경 안의 후보를 무시한다. 구역 표시(80x80, 반 대각선 약 57mm) + 레이더 오차 여유 (REQ-045)
 
     @property
     def base(self) -> Pose2D:
         return Pose2D(**self.robot_base_in_table)
+
+    def ignore_zones(self) -> list[tuple[float, float, float]]:
+        """모든 배출 구역의 (x, y, 반경 mm). 놓은 물체가 다음 스캔에서 다시 후보가 되어 집히지 않게 인식 소스(ignore_zones)에 넘긴다."""
+        return [(float(z["x_mm"]), float(z["y_mm"]), float(self.drop_zone_ignore_radius_mm)) for z in self.drop_zones.values()]
 
     @property
     def pick_reach_mm(self) -> dict:
