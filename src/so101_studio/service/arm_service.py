@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
+from ..arm.collision import SceneCollision
 from ..arm.kinematics import Kinematics
 from ..arm.motion import MotionController
 from ..arm.safety import MODES, Safety, SafetySettings
@@ -59,6 +60,7 @@ class ArmService:
         self.ws = ws or load_workspace()
         self.speed = speed_pct if speed_pct is not None else cfg.speed_pct_default
         self.log_root = log_root
+        self.collision = None
         self.scene = load_scene()  # 장면 부품 (config/scene.yaml, 없으면 빈 목록). reload_workspace가 다시 읽는다
         self.preset_dir = "config/presets"
         self.proc = proc  # 기록 머리의 proc(cli | gui). 없으면 환경변수 SO101_PROC, 기본 cli
@@ -104,6 +106,10 @@ class ArmService:
             self.kin = Kinematics(self.cfg.urdf, self.ws.base, self.cfg.joint_limits_deg)
         self.safety = Safety(self.cfg.joint_limits_deg, self.ws, self.kin, z_floor_mm=self.cfg.tip_floor_mm,
                              table_z_mm=self.cfg.table_z_mm, physical_limits=self.cfg.physical_limits_deg)
+        if self.collision is None:  # URDF 메쉬는 한 번만 읽는다(재연결 때 또 읽지 않는다)
+            self.collision = SceneCollision(self.kin, self.cfg.urdf, self.ws, self.cfg.table_z_mm, self.cfg.tip_floor_mm)
+        self.collision.set_scene(self.scene, self.ws)
+        self.safety.collision = self.collision
         self.ctl = MotionController(self.driver, self.kin, self.safety, self.cfg.control_hz)
         self.skills = Skills(self.ctl, self.kin, self.cfg, self.ws, self.speed)
         self.teach = Teach(self.ctl, self.cfg)
@@ -377,6 +383,7 @@ class ArmService:
         self.ws = self.skills.ws = self.safety.ws = ws
         self.kin.base = ws.base
         self.scene = load_scene(Path(path).parent / "scene.yaml")
+        self.collision.set_scene(self.scene, ws)
         self._log("workspace_reloaded", {"base": asdict(ws.base), "table_mm": ws.table_mm, "drop_zones": list(ws.drop_zones)})
         return ws
 

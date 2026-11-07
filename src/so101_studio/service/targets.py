@@ -24,6 +24,8 @@ REASONS = {
 
 
 def reason_text(reason: str) -> str:
+    if reason.startswith("scene:"):
+        return f"장면 부품 {reason.split(':', 1)[1]}에 너무 가깝습니다 (config/scene.yaml의 margin_mm 안)"
     return "관절 한계를 넘습니다 (" + reason.split(":", 1)[1] + ")" if reason.startswith("joint_limit") else REASONS.get(reason, reason)
 
 
