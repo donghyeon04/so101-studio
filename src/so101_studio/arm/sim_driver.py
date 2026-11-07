@@ -46,6 +46,15 @@ class SimDriver:
             "status_bits": {m: 0 for m in JOINTS},
         }
 
+    def probe_reset(self) -> dict:
+        """가상 서보의 풀림 진단. simulated_reset이 켜져 있으면 서보가 리셋된 것처럼(RAM 기본값 Acceleration 254, ID 1만 응답) 답한다."""
+        reset = getattr(self, "simulated_reset", False)
+        exp = {m: self.acceleration for m in JOINTS}
+        return {"ping": {m: (m == JOINTS[0] if reset == "id1" else True) for m in JOINTS}, "torque": {m: int(self._torque) for m in JOINTS},
+                "acceleration": {m: (254 if reset is True else exp[m]) for m in JOINTS}, "torque_limit": {m: 1000 for m in JOINTS},
+                "status": {m: getattr(self, "simulated_status", {}).get(m, 0) for m in JOINTS}, "voltage_dv": {m: 120 for m in JOINTS},
+                "ids": {m: i + 1 for i, m in enumerate(JOINTS)}, "expected_acceleration": exp}
+
     def read_power(self) -> tuple[float, dict, dict]:
         return 12.0, {m: 0.0 for m in JOINTS}, {m: 0.0 for m in JOINTS}
 
