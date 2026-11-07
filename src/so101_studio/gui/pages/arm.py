@@ -106,10 +106,8 @@ GRIPPER_TEXT = {"single_jaw": "단동식(한쪽 턱만 움직임, 기본)", "par
 
 
 def gripper_text(info: dict) -> str:
-    """지금 그리퍼 한 줄. 병렬은 3D 모양이 아직 단동식이라 그 점을 함께 알린다."""
-    name = GRIPPER_TEXT.get(info["type"], info["type"])
-    text = f"그리퍼: {name} · 최대 벌림 {info['max_open_mm']:g} mm"
-    return text + (" · 3D는 병렬 모델이 준비될 때까지 단동식 모양으로 보입니다" if info["type"] == "parallel" else "")
+    """지금 그리퍼 한 줄."""
+    return f"그리퍼: {GRIPPER_TEXT.get(info['type'], info['type'])} · 최대 벌림 {info['max_open_mm']:g} mm"
 
 
 # 움직이는 명령은 사람이 직접 실행한다 (decisions/0027)
