@@ -5,6 +5,7 @@ from collections import deque
 from dataclasses import dataclass, field
 
 from ..core.types import ArmStatus, TaskEvent
+from .health import LIMITS
 
 EMPTY = "—"
 PAGE_STATE = {"idle": "대기", "moving": "실행 중", "teleop": "실행 중", "teach": "실행 중", "stopped": "정지", "fault": "오류"}
@@ -72,8 +73,8 @@ class LogBook(logging.Handler):
 
 
 STALE_S = 1.0  # 상태가 10Hz로 오므로 이만큼 끊기면 값을 믿지 않는다
-SERVO_WARN_C = 55.0  # doctor의 온도 주의와 같은 기준
-SERVO_WARN_LOAD_PCT = 70.0
+SERVO_WARN_C = LIMITS["temperature"][1]  # 서보 건강 대시보드와 같은 주의 기준 (결정 0043-5)
+SERVO_WARN_LOAD_PCT = LIMITS["load"][1]
 FAULT_TEXT = {"grip_overload": "그리퍼 과부하로 열고 멈췄습니다. 물체와 턱을 확인한 뒤 정지 해제를 눌러 주세요"}
 
 

@@ -25,6 +25,7 @@ from ..service.stop_listener import StopListener
 from ..service.studio import Studio
 from ..service.targets import reason_text, tip_vector
 from ..task.policy import reachable
+from .health import ServoHealth, count_events
 from .scene3d import Scene3D
 from .state import (
     EMPTY,
@@ -145,6 +146,8 @@ class Backend:
         # 궤적 계산용으로 따로 둔다(팔의 Kinematics는 다른 스레드도 쓴다). 만드는 동안 파이썬 전체가 1초 넘게 멈춰, 감시 프로세스가 켜진 뒤에 만들면 앱이 강제 종료된다
         self._path_kin = Kinematics(cfg.urdf, self.arm.ws.base, cfg.joint_limits_deg)
         self.arm.status_stream(self.state.update)
+        self.health = ServoHealth()
+        self.arm.status_stream(self.health.update)
         self.source = ManualSource()
         self._make_studio()
         self._reconnect_failed = False
@@ -769,6 +772,11 @@ class Backend:
                 text = f"{rec.get('kind')}: {json.dumps(rec.get('data'), ensure_ascii=False, default=str)}"
                 records.append(LogRecord(rec["t"] / 1e9, LOG_LEVELS.get(rec["level"], "INFO"), text, rec["proc"], rec.get("code"), rec["file"].split("/")[0]))
         return sorted(records, key=lambda r: r.t)
+
+    def health_events(self) -> dict:
+        """이번 실행의 통신 끊김·토크 풀림·오류 정지 횟수 (결정 0043-5)."""
+        # shortcut: 부를 때마다 events.jsonl 전체를 읽는다, 실행이 아주 길어 느려지면 logs()처럼 이어 읽기로 바꾼다
+        return count_events(logread.read_events(self.run_dir) if self.run_dir else [])
 
     def incidents(self) -> list[dict]:
         return logread.list_incidents(self.runs_root)
