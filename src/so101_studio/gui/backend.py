@@ -53,6 +53,7 @@ JOG_YAW_DEG_S = 60.0
 RUN_MODES = {"sim": "시뮬레이션만", "real": "실제만", "both": "동시", "sim_first": "시뮬레이션 먼저"}
 REASON_EXTRA = {"z_ceiling": "허용 상자보다 높습니다"}  # service.targets에 아직 없는 이유
 BUSY_TEXT = "팔이 아직 움직이고 있습니다"
+ESTOP_FAILED_TEXT = "정지 명령을 서보에 쓰지 못했습니다({}). 팔이 계속 움직이면 전원 스위치를 끄세요"
 COMM_LOST_TEXT = "통신이 끊겼습니다. 케이블과 전원을 확인하고 [다시 연결]을 눌러 주세요"
 OUTSIDE_TEXT = "작업대 밖에서 출발했습니다. 안쪽으로만 움직일 수 있습니다"
 EDGE_TEXT = "작업대 가장자리 밖이라 움직이지 않았습니다"  # 이 문구면 화면이 "가장자리 검사를 끄고 다시 하기"를 묻는다
@@ -910,8 +911,10 @@ class Backend:
             self.record_finish()  # 토크가 꺼진 채 조작하던 화면이 사라지면 지금 자세를 잡는다
             self.stop_task()
 
-    def estop(self) -> None:
-        """앞 단계가 실패해도 모든 팔에 정지가 간다(감사 2026-11-07: 예외 하나로 실제 팔이 정지를 못 받던 순서)."""
+    def estop(self) -> str | None:
+        """앞 단계가 실패해도 모든 팔에 정지가 간다(감사 2026-11-07: 예외 하나로 실제 팔이 정지를 못 받던 순서).
+        서보에 정지 자세를 쓰지 못한 팔이 있으면 그 이유(화면이 경고로 보인다), 모두 됐으면 None."""
+        failed = []
         try:
             self.record_finish()  # 기록 중에는 토크가 꺼져 있어 정지 명령만으로는 팔이 서지 않는다
             self.paused = False
@@ -921,9 +924,13 @@ class Backend:
             logging.getLogger(__name__).exception("E-STOP 준비 단계 실패")
         for arm in self._arms():
             try:
-                arm.estop()  # Studio.estop은 실행 기록에 남기지 않는다
-            except Exception:  # 한 팔이 실패해도 다음 팔은 세운다
+                err = arm.estop()  # Studio.estop은 실행 기록에 남기지 않는다. REQ-043부터 서보에 못 쓰면 이유를 돌려준다
+            except Exception as e:  # 한 팔이 실패해도 다음 팔은 세운다
                 logging.getLogger(__name__).exception("E-STOP 실패")
+                err = repr(e)
+            if err:
+                failed.append(f"{'실제 팔' if arm is self.real else '시뮬레이션'}: {err}")
+        return ESTOP_FAILED_TEXT.format("; ".join(failed)) if failed else None
 
     def close(self) -> None:
         self._closing = True

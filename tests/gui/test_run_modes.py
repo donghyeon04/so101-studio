@@ -458,3 +458,10 @@ def test_run_on_shows_the_real_reason_unless_the_arm_is_busy():
     busy = SimpleNamespace(ctl=SimpleNamespace(busy=True))
     assert Backend._run_on(idle, fail) == "연결되지 않음"
     assert Backend._run_on(busy, fail) == BUSY_TEXT
+
+
+def test_estop_reports_when_the_servo_write_failed(backend, monkeypatch):
+    """REQ-043: 팔이 정지 자세를 쓰지 못했다고 하면 화면이 성공 대신 그 이유와 전원을 끄라는 안내를 보인다."""
+    monkeypatch.setattr(backend.arm, "estop", lambda: "SerialException('port gone')")
+    reason = backend.estop()
+    assert reason and "port gone" in reason and "전원 스위치" in reason
