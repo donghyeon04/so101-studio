@@ -29,16 +29,19 @@ class SerialTransport:
                     self._q.put(line.decode(errors="replace"))
         except Exception as e:  # noqa: BLE001  케이블이 뽑히면 여기로 온다
             self._err = e
+            return
+        self._err = EOFError("포트가 닫혔다")  # 오류 없이 루프가 끝난 경우도 끊김으로 알린다
 
     def write(self, line: str) -> None:
         self._ser.write((line + "\n").encode())
 
     def readlines(self) -> list[str]:
-        if self._err:
-            raise UltrasonicLinkError(f"시리얼 오류: {self._err}")
+        err = self._err  # 오류 전에 큐에 들어간 줄을 먼저 돌려준 뒤 다음 호출에서 던진다
         out = []
         while not self._q.empty():
             out.append(self._q.get())
+        if err and not out:
+            raise UltrasonicLinkError(f"시리얼 오류: {err}")
         return out
 
     def close(self) -> None:
@@ -94,7 +97,11 @@ class Link:
                 m = json.loads(line)
             except json.JSONDecodeError:
                 continue  # 부팅 로그 등
+            if not isinstance(m, dict):
+                continue  # 숫자·리스트 같은 부팅 잡음
             self._last_rx = self.clock.now_ns()
+            if m.get("t") in ("sync", "r", "a", "end") and not isinstance(m.get("us"), int):
+                continue  # us가 없거나 깨진 줄
             if m.get("t") == "sync":
                 self._on_sync(m)
                 continue
