@@ -109,7 +109,6 @@ def test_page_applies_margin_and_box(clean):
     in_app(clean, "/safety", check)
 
 
-@pytest.mark.xfail(strict=True, raises=TypeError, reason="REQ-043: 한쪽만 준 허용 상자에서 안전 검사가 TypeError. 팔 몫이 고쳐지면 이 표시를 지운다")
 def test_one_sided_box_still_checks_moves(clean):
     """감사 2026-11-07: 높이 최대만 준 상자를 저장한 뒤에도 안전 검사가 예외 없이 판정해야 한다."""
     assert clean.set_safety("normal", 0.0, {"z": [None, 150]}) is None
