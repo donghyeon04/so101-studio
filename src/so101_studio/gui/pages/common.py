@@ -62,9 +62,17 @@ def _layer_menu(scene) -> None:
             ui.checkbox(text, value=scene.layers[name], on_change=lambda e, n=name: scene.set_layer(n, e.value)).mark(f"layer-{name}")
 
 
+def _request_host() -> str | None:
+    """이 브라우저가 앱을 연 호스트 이름(시험처럼 요청이 없으면 None)."""
+    try:
+        return ui.context.client.request.url.hostname
+    except (RuntimeError, AttributeError):
+        return None
+
+
 def scene_frame(backend, classes: str = "scene3d") -> None:
     with ui.element("div").classes("scene-wrap"):
-        ui.element("iframe").props(f'src={backend.scene.url} title="3D 보기"').classes(classes).mark("scene3d")
+        ui.element("iframe").props(f'src={backend.scene.url_for(_request_host())} title="3D 보기"').classes(classes).mark("scene3d")
         view_cube(backend.scene)
         _layer_menu(backend.scene)
 

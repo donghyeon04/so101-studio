@@ -104,6 +104,9 @@ def test_objects_are_drawn_and_replaced(backend3d):
 
 def test_viser_binds_to_localhost_only(backend3d):
     assert backend3d.scene.url.startswith("http://127.0.0.1:")
+    port = backend3d.scene.server.get_port()
+    assert backend3d.scene.url_for("192.168.0.12") == f"http://192.168.0.12:{port}"  # 다른 기기는 연 호스트로 3D를 연다(gui-spec 12.6)
+    assert backend3d.scene.url_for("::1") == f"http://[::1]:{port}" and backend3d.scene.url_for(None) == backend3d.scene.url
     assert backend3d.scene.server._websock_server._host == "127.0.0.1"
 
 

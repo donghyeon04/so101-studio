@@ -117,7 +117,8 @@ class Backend:
     programs_dir = "config/programs"
 
     def __init__(self, speed: float | None = None, log_root: str | None = "runs", link: WatchdogLink | None = None,
-                 viser_port: int | None = None, real_driver=None, arm_name: str | None = None, serials=(), port: str | None = None, first_report: dict | None = None):
+                 viser_port: int | None = None, real_driver=None, arm_name: str | None = None, serials=(), port: str | None = None, first_report: dict | None = None,
+                 viser_host: str = "127.0.0.1", share: bool = False, web_port: int = 8080):
         cfg, self.arm_info = load_robot_ex(arm=arm_name, serials=serials)
         self._arm_option = arm_name
         self._first_report = first_report  # 팔을 연결하기 전에 포트를 열어 읽은 점검 결과
@@ -125,6 +126,7 @@ class Backend:
         self._closing = False
         self.state = State()
         self.link = link
+        self.share, self.web_port = share, web_port  # 다른 기기 보기(결정 0047): 상태줄 '공유 중' 배지와 주소
         self.scene: Scene3D | None = None
         self.reach = EMPTY
         self.runs_root = log_root or "runs"
@@ -159,7 +161,7 @@ class Backend:
         self._reconnect_failed = False
         self.paused = False
         if viser_port is not None:
-            self.scene = Scene3D(cfg, self.arm.ws, self.arm.kin, viser_port)
+            self.scene = Scene3D(cfg, self.arm.ws, self.arm.kin, viser_port, viser_host)
             self.scene.set_objects(self.objects())
             self.scene.set_parts(getattr(self.arm, "scene", None))  # 장면 부품(REQ-040). 팔이 아직 모르면 그리지 않는다
             self.arm.status_stream(self.scene.update_status)
@@ -177,8 +179,10 @@ class Backend:
     def run_dir(self) -> str | None:
         return str(self.arm.logger.dir) if self.arm.logger else None
 
-    def claim(self, client: str) -> bool:
-        """비어 있으면 조작권을 가져간다. 이 브라우저가 조작권을 가졌는지 돌려준다."""
+    def claim(self, client: str, remote: bool = False) -> bool:
+        """비어 있으면 조작권을 가져간다. 이 브라우저가 조작권을 가졌는지 돌려준다. 다른 기기(원격)는 늘 보기 전용이라 거부한다(결정 0047, gui-spec 12.6)."""
+        if remote:
+            return False
         if self.owner is None:
             self.owner = client
             self.arm.log_event("owner", {"client": client})

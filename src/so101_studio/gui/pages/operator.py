@@ -1,16 +1,17 @@
 """운영자 화면 /operator (gui-spec 12.4, 결정 0044): 시연·프로젝터용. 메뉴·설정·진단 없이 3D, 지금 단계, 물체 목록, 실행 버튼만 크게.
-조작권이 없는 브라우저는 보기 전용이라 버튼 줄과 E-STOP이 숨는다. 작업 공간 화면과 같은 Backend 작업 함수를 쓴다."""
+조작권이 없는 브라우저는 보기 전용이라 버튼 줄이 숨고, E-STOP은 늘 보인다(결정 0047). 다른 기기(원격)는 조작권을 받을 수 없다. 작업 공간 화면과 같은 Backend 작업 함수를 쓴다."""
 
 import time
 
 from nicegui import run, ui
 
 from .. import theme
+from ..share import is_remote
 from ..state import TASK_TEXT
 from ..watchdog_link import BROWSER_HB_JS
 from .common import Controls, scene_frame
 
-STAGES = ("SCAN", "DECIDE", "CHECK", "PICK", "PLACE", "RESCAN")  # 작업 실행 상태 그대로 (gui-spec 11절 알려진 문제 3)
+STAGES = ("SCAN", "DECIDE", "CHECK", "PICK", "PLACE", "RESCAN")  # 작업 실행 상태 그대로 (gui-spec 12.4)
 SOURCE_TEXT = {"ManualSource": "수동 입력", "UltrasonicSource": "초음파", "SimUltrasonicSource": "초음파(가상)"}
 
 
@@ -30,6 +31,7 @@ def build(backend, client_id: str) -> None:
     theme.apply()
     ui.add_head_html(BROWSER_HB_JS)
     controls = Controls(backend, client_id, block_during_task=False)
+    remote = is_remote(ui.context.client.ip)  # 다른 기기(LAN IP로 연 같은 PC 포함)는 늘 보기 전용(gui-spec 12.6)
     state = backend.state
     started: list = [None]  # 이 화면에서 본 작업 시작 시각(걸린 시간 표시)
     beating: list[bool] = []
@@ -54,8 +56,8 @@ def build(backend, client_id: str) -> None:
     with ui.column().classes("w-full gap-4 p-4 operator").mark("operator"):
         with ui.row().classes("w-full items-center no-wrap gap-4"):
             title = ui.label("").classes("operator-title flex-1 min-w-0").mark("operator-title")
-            take = ui.button("조작권 받기", on_click=lambda: backend.claim(client_id)).props("outline no-caps").mark("operator-take")
-            estop_button = ui.button("E-STOP", color="negative", on_click=estop).props("round no-caps").classes("estop").mark("operator-estop")
+            take = ui.button("조작권 받기", on_click=lambda: backend.claim(client_id, remote)).props("outline no-caps").mark("operator-take")
+            ui.button("E-STOP", color="negative", on_click=estop).props("round no-caps").classes("estop").mark("operator-estop")
         with ui.row().classes("w-full items-start gap-4"):
             with ui.column().classes("flex-1 min-w-[420px] gap-4"):
                 scene_frame(backend, "scene3d")
@@ -83,9 +85,10 @@ def build(backend, client_id: str) -> None:
             beating[:] = [mine]
             ui.run_javascript(f"so101Hb({str(mine).lower()})")
         running = backend.task_running()
-        buttons.visible = estop_button.visible = mine
-        view_only.visible = not mine and backend.owner is not None
-        take.visible = backend.owner is None
+        buttons.visible = mine  # E-STOP은 조작권과 상관없이 늘 보인다(결정 0047)
+        view_only.visible = not mine and (remote or backend.owner is not None)
+        view_only.text = "보기 전용(다른 기기): 조작은 팔이 연결된 PC 화면에서 합니다" if remote else "보기 전용: 조작은 조작권이 있는 화면에서 합니다"
+        take.visible = backend.owner is None and not remote
         idle = bool(state.status and state.status.state == "idle")
         start_button.enabled = mine and idle and not running and not backend.move_lock()
         step_button.enabled = mine and (not running or backend.paused) and not backend.move_lock()
@@ -114,6 +117,6 @@ def build(backend, client_id: str) -> None:
 
     # 본 화면과 같다: 소켓이 열리면 조작권을 받고(비어 있을 때), 끊기면 돌려주며 작업을 세운다
     client = ui.context.client
-    client.on_connect(lambda: backend.claim(client_id))
+    client.on_connect(lambda: backend.claim(client_id, remote))
     client.on_disconnect(lambda: backend.disconnected(client_id))
     ui.timer(0.2, tick)

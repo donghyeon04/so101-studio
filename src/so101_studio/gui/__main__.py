@@ -6,7 +6,8 @@ from .app import DEFAULT_PORT, main
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="python -m so101_studio.gui")
     parser.add_argument("--sim", action="store_true", help="실제 팔 없이 시뮬레이션으로 실행. 없으면 실제 팔에 연결한다")
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--port", dest="web_port", type=int, default=DEFAULT_PORT, help="웹 포트(이 입구에서만. so101.cmd gui의 --port는 서보 포트다)")
     parser.add_argument("--arm", help="팔 파일 이름(config/arms/<이름>.yaml)")
     parser.add_argument("--viser-port", type=int, default=scene3d.DEFAULT_PORT)
+    parser.add_argument("--share", action="store_true", help="같은 네트워크의 다른 기기에서 보기 전용으로 보게 연다(결정 0047). 원격은 조작권이 없고 E-STOP만 누를 수 있다")
     main(parser.parse_args())

@@ -47,7 +47,12 @@ def build(backend, client_id: str, actions) -> None:
         if plan is None or not plan.ok:
             return
         move_button.disable()
-        reason = await run.io_bound(backend.move_to, target["x"], target["y"], target["h"], target["yaw"], target["pitch"])
+        planned = plan_state.get("planned")
+        if planned != target:  # 이동은 늘 미리보기(계산)한 점으로: 그 사이 다른 기기가 3D에서 점을 바꿨을 수 있다(gui-spec 12.6)
+            plan_state["dirty"] = True
+            ui.notify("점이 바뀌었습니다. 다시 계산한 뒤 [이동]을 누르세요", type="warning")
+            return
+        reason = await run.io_bound(backend.move_to, planned["x"], planned["y"], planned["h"], planned["yaw"], planned["pitch"])
         if reason == EDGE_TEXT:
             offer_free_edge(backend, move)
         elif reason:
@@ -162,6 +167,8 @@ def build(backend, client_id: str, actions) -> None:
     async def refresh_plan() -> None:
         seq, x, y, h = backend.scene.picked
         if seq != plan_state["seq"]:  # 3D에서 고른 점을 입력칸에 옮긴다
+            if plan_state.get("planned") is not None and owner():
+                ui.notify(f"3D에서 점이 바뀌었습니다: x {x:.0f}, y {y:.0f}. 다시 계산합니다", type="info")
             plan_state["seq"] = seq
             for key, value in (("x", x), ("y", y), ("h", h)):
                 target[key] = round(value, 1)
@@ -174,8 +181,10 @@ def build(backend, client_id: str, actions) -> None:
         # 3D의 점과 계산 자세는 하나뿐이라 조작권을 가진 브라우저만 계산한다
         if owner() and plan_state["dirty"] and not plan_state["busy"] and backend.state.status and backend.state.status.state == "idle":
             plan_state["dirty"], plan_state["busy"] = False, True
+            planned = dict(target)
             try:
-                plan_state["plan"] = await run.io_bound(backend.plan, target["x"], target["y"], target["h"], target["yaw"], target["pitch"])
+                plan_state["plan"] = await run.io_bound(backend.plan, planned["x"], planned["y"], planned["h"], planned["yaw"], planned["pitch"])
+                plan_state["planned"] = planned
             finally:
                 plan_state["busy"] = False
             plan = plan_state["plan"]
