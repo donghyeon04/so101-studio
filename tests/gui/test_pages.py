@@ -279,7 +279,7 @@ def test_bottom_bar_speed_home_and_jog_panel(backend):
         backend.jog_release("cartesian")
         assert await _until(lambda: backend.arm.ctl.state == "idle")
         user.find(marker="bar-home").click()
-        assert await _until(lambda: abs(backend.arm.status().joints.shoulder_lift - backend.arm.cfg.poses["home"].shoulder_lift) < 1.0, 15.0)
+        assert await _until(lambda: abs(backend.arm.status().joints.shoulder_lift - backend.arm.cfg.poses["home"][1]) < 1.0, 15.0)
         panel = next(iter(user.find(marker="jog-panel").elements))
         assert not panel.value
         user.find(marker="bar-jog").click()
