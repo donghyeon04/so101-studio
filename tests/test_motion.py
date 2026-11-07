@@ -230,3 +230,18 @@ def test_second_execute_while_a_job_runs_is_refused_and_leaves_the_first_running
     c.stop()
     assert h.wait(2).status == "stopped"  # 첫 동작은 영향 없이 정상 정지
     c.close()
+
+
+def test_servo_error_bit_runtime_error_is_a_comm_fault_with_the_cause_not_a_code_bug():
+    """LeRobot 버스는 서보의 오류 비트를 RuntimeError로 던진다. 입력 전압 오류 같은 하드웨어 문제를 코드 버그(internal_error)로 부르면 안 된다."""
+    d = SimDriver()
+    c = MotionController(d, safety=Safety(LIMITS), hz=100)
+
+    def servo_error(q):
+        raise RuntimeError("Failed to write 'Goal_Position' on id_=2. [RxPacketError] Input voltage error!")
+
+    d.write_joints = servo_error
+    r = c.execute(move_j(A, JointState(10, 0, 0, 0, 0, 0), 30, 100)).wait(3)
+    c.close()
+    assert r.status == "fault" and c.fault == "comm_lost"  # 0.5초 유예 뒤 통신 끊김
+    assert "Input voltage error" in c.fault_detail["error"] and "입력 전압 오류" in c.fault_text and "프로그램" not in c.fault_text

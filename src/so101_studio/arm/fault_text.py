@@ -11,8 +11,14 @@ def describe(reason: str, detail: dict | None = None) -> str:
         return (f"{joint}가 한 제어 주기에 {d.get('delta_deg', 0):.1f}°(한계 {d.get('limit_deg', 0):.1f}°)를 넘게 움직이려 했습니다. "
                 "목표가 너무 멀리 있거나 서보가 따라오지 못한 것입니다. " + SAFE + " '재개' 뒤 더 느린 속도로 다시 하세요.")
     if name == "comm_lost":
-        return ("서보와의 통신이 0.5초 넘게 끊겼습니다. USB 케이블, 12V 전원 어댑터, 서보 커넥터를 확인한 뒤 팔을 다시 연결하세요. "
-                "다시 연결하기 전에는 어떤 명령도 보내지 않습니다.")
+        err = d.get("error") or ""
+        why = ""
+        if "voltage" in err.lower():
+            why = "서보가 '입력 전압 오류'를 알렸습니다: 12V 전원이 순간적으로 처졌습니다(어댑터·전원 케이블·커넥터, 전원 경로를 확인). "
+        elif "overload" in err.lower() or "overheat" in err.lower():
+            why = "서보가 과부하·과열 오류를 알렸습니다. "
+        return (why + "서보와의 통신이 0.5초 넘게 끊겼습니다. USB 케이블, 12V 전원 어댑터, 서보 커넥터를 확인한 뒤 팔을 다시 연결하세요. "
+                "다시 연결하기 전에는 어떤 명령도 보내지 않습니다." + (f" (마지막 오류: {err[:120]})" if err else ""))
     if name == "overload":
         return (f"{joint} 부하 {d.get('load_pct', 0):.0f}%가 {d.get('limit_pct', 0):.0f}%를 {d.get('seconds', 0):.0f}초 넘게 이어졌습니다. "
                 "물체에 끼었거나 무리한 자세입니다. 막힌 것을 치우고 '재개' 하세요. " + SAFE)

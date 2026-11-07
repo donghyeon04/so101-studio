@@ -326,6 +326,10 @@ def test_trip_exception_releases_busy_and_is_logged():
     assert wd.tick() is False  # 예외가 tick 밖으로 새지 않는다
     assert any(r["event"] == "trip_error" for r in logs)
     assert not wd._busy and not wd.status()["tripped"]  # 다음 tick에 다시 시도할 수 있다
+    errors = [r for r in logs if r["event"] == "trip_error"]
+    clk.t += 0.5
+    assert wd.tick() is False and len([r for r in logs if r["event"] == "trip_error"]) == len(errors)  # 재시도 간격(1초) 안에서는 다시 시도하지도 기록하지도 않는다
+    clk.t += 1.0
     wd._send_estop = lambda port, reason: True
     assert wd.tick() is True
 

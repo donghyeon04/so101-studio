@@ -349,3 +349,15 @@ def test_recording_saves_summary_and_segments(tmp_path):
     meta = json.loads(path.read_text(encoding="utf-8"))["meta"]
     ctl.close()
     assert meta["points"] > 5 and meta["duration_s"] > 0.5 and "segments" in meta and meta["recorded_at"]
+
+
+def test_record_stop_saves_the_recording_even_if_turning_torque_on_fails(tmp_path):
+    d, ctl = rig()
+    teach = Teach(ctl, CFG, tmp_path)
+    teach.record_start()
+    time.sleep(0.2)
+    d.set_torque = lambda on: (_ for _ in ()).throw(RuntimeError("잠김(시험)")) if on else None  # 드라이버만 잠긴 경우
+    with pytest.raises(RuntimeError, match="저장했지만"):
+        teach.record_stop("kept")
+    ctl.close()
+    assert (tmp_path / "kept.json").exists()  # 기록은 사라지지 않는다

@@ -35,10 +35,19 @@ class MotionHandle:
         return self.result
 
 
+BUS_ERROR_MARKERS = ("RxPacketError", "TxRxResult")  # LeRobot 버스가 서보 응답의 오류 비트(입력 전압·과부하·과열 등)나 통신 결과를 RuntimeError 메시지로 던진다
+
+
+def is_bus_error(e: Exception) -> bool:
+    """통신(serial, ConnectionError, TimeoutError는 OSError) 또는 서보가 알린 하드웨어 오류. 이 밖의 예외(KeyError, TypeError 등)는 코드 버그다."""
+    return isinstance(e, OSError) or (isinstance(e, RuntimeError) and any(m in str(e) for m in BUS_ERROR_MARKERS))
+
+
 class MotionController:
     def __init__(self, driver, kin=None, safety: Safety | None = None, hz: int = 50):
         self.driver, self.kin, self.safety, self.dt = driver, kin, safety or Safety({}), 1.0 / hz
         self.health = HealthMonitor()
+        self.last_bus_error: str | None = None  # 마지막 버스·서보 오류 메시지(comm_lost 원인 문장에 쓴다)
         self._next_health = 0.0
         self.state = "idle"  # "idle" | "moving" | "teleop" | "stopped" | "fault"
         self.jog_joint_max, self.jog_tool_max = 40.0, 60.0  # 원격 조종 최대 속도 (deg/s, mm/s)
@@ -254,12 +263,13 @@ class MotionController:
                         self._tick()
                     elif self._jog is not None:
                         self._tick_jog()
-                except OSError as e:  # 통신 오류(serial, ConnectionError, TimeoutError는 모두 OSError): 0.5초 넘게 이어지면 comm_lost fault
+                except Exception as e:  # noqa: BLE001
                     err = repr(e)[:120]
-                    self._fault(self.health.comm_failed(time.perf_counter(), kind))
-                except Exception as e:  # noqa: BLE001 통신이 아닌 예외는 코드 문제다: 통신 끊김으로 부르지 않고 traceback과 함께 바로 fault (REQ-043)
-                    err = repr(e)[:120]
-                    self._fault("internal_error", {"error": err, "where": kind, "traceback": traceback.format_exc()[-1500:]})
+                    if is_bus_error(e):  # 통신·서보 하드웨어 오류: 0.5초 넘게 이어지면 comm_lost fault(원인 문장은 서보가 알린 오류를 담는다)
+                        self.last_bus_error = repr(e)[:200]
+                        self._fault(self.health.comm_failed(time.perf_counter(), kind), {"error": self.last_bus_error})
+                    else:  # 통신이 아닌 예외는 코드 문제다: 통신 끊김으로 부르지 않고 traceback과 함께 바로 fault (REQ-043)
+                        self._fault("internal_error", {"error": err, "where": kind, "traceback": traceback.format_exc()[-1500:]})
             self.ring.add(time.time_ns(), self._last, tick_dt, err, self.state, self.actual_hint)
             time.sleep(max(0.0, nxt - time.perf_counter()))
 
