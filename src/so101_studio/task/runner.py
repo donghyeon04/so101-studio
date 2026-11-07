@@ -24,6 +24,7 @@ class TaskRunner:
         self._stop = False
         self._step_mode = False
         self._trail: PoseTrail | None = None
+        self._auto_zones: list[tuple[float, float, float]] = []  # 전에 소스에 넘긴 배출 구역(소스 고유 영역과 구별한다)
         self.wait_step: Callable[[], None] = lambda: None  # 단계별 모드에서 다음 단계를 기다리는 함수(CLI는 Enter, GUI는 step())
 
     def stop(self) -> None:
@@ -65,8 +66,7 @@ class TaskRunner:
         """배출 구역을 인식 소스의 ignore_zones로 넘긴다(소스가 따로 가진 영역은 남기고 전에 넘긴 배출 구역만 바꾼다). 실행 시작과 작업대 설정을 다시 읽을 때 부른다."""
         if not hasattr(self.source, "ignore_zones"):
             return
-        mine = list(getattr(self, "_auto_zones", []))
-        self.source.ignore_zones = [z for z in self.source.ignore_zones if z not in mine] + (auto := self.ws.ignore_zones())
+        self.source.ignore_zones = [z for z in self.source.ignore_zones if z not in self._auto_zones] + (auto := self.ws.ignore_zones())
         self._auto_zones = auto
 
     def _begin_checkable(self) -> None:

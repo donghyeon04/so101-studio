@@ -1,4 +1,5 @@
 """REQ-025: 작업 실행의 CHECK·RESCAN·prefetch·note_failure·give_up (스텁으로 논리를, 마지막 시험은 --sim 팔과 FakeESP32로 끝까지)."""
+import dataclasses
 import math
 import threading
 import time
@@ -307,17 +308,21 @@ def test_sim_left_far_object_check_goes_through_from_radar_clear(tmp_path):
 
 
 def test_drop_zone_is_not_a_candidate_and_follows_reload(tmp_path):
-    """REQ-045: 배출 구역에 놓인 물체가 다음 스캔에서 후보가 되지 않는다(전에는 같은 물체를 다시 집으러 갔다)."""
+    """REQ-045: 배출 구역에 놓인 물체가 다음 스캔에서 후보가 되지 않는다(전에는 같은 물체를 다시 집으러 갔다). 구역을 옮기면 예전 구역은 풀린다."""
     zone = WS.drop_zones["right"]
     boxes = [Box(zone["x_mm"], zone["y_mm"], 0, 30, 100)]
     arm = ArmService(SimDriver(CFG.poses["home"]), CFG, WS, speed_pct=100, log_root=str(tmp_path / "runs"))
     assert arm.connect()[0]
     src = make_ultrasonic_source(arm, sim=True, boxes=boxes)
-    assert src.ignore_zones == [(zone["x_mm"], zone["y_mm"], WS.drop_zone_ignore_radius_mm)]
-    assert src.scan().objects == []  # 구역 안이라 무시
-    src.ignore_zones = []
-    assert any(math.hypot(o.x_mm - zone["x_mm"], o.y_mm - zone["y_mm"]) < 40 for o in src.scan().objects)  # 무시를 풀면 후보가 된다(시험이 의미 있다)
     st = Studio(arm, src, dry_run=True)
+    src.ignore_zones = [(10.0, 10.0, 5.0)]  # 소스 고유 영역은 남는다
+    assert any(math.hypot(o.x_mm - zone["x_mm"], o.y_mm - zone["y_mm"]) < 40 for o in src.scan().objects)  # 넘기기 전에는 후보(시험이 의미 있다)
     st.task.refresh_ignore_zones()
-    assert src.ignore_zones == WS.ignore_zones()
+    st.task.refresh_ignore_zones()  # 두 번 불러도 겹치지 않는다
+    mine = (zone["x_mm"], zone["y_mm"], WS.drop_zone_ignore_radius_mm)
+    assert src.ignore_zones == [(10.0, 10.0, 5.0), mine]
+    assert src.scan().objects == []  # 구역 안이라 무시
+    st.task.ws = dataclasses.replace(WS, drop_zones={"right": {"x_mm": 100.0, "y_mm": 300.0}})  # reload_workspace가 하는 일
+    st.task.refresh_ignore_zones()
+    assert src.ignore_zones == [(10.0, 10.0, 5.0), (100.0, 300.0, WS.drop_zone_ignore_radius_mm)]  # 예전 (500,150)은 사라졌다
     arm.disconnect()
