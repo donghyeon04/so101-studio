@@ -4,6 +4,7 @@ import threading
 import time
 import traceback
 import warnings
+from collections import deque
 from dataclasses import asdict, replace
 from pathlib import Path
 
@@ -12,6 +13,8 @@ import numpy as np
 from ..arm.collision import SceneCollision
 from ..arm.kinematics import Kinematics
 from ..arm.motion import MotionController
+from ..arm.reset_probe import classify as classify_torque_loss
+from ..arm.reset_probe import decode_status
 from ..arm.safety import MODES, Safety, SafetySettings
 from ..arm.skills import SEEDS, Skills
 from ..arm.teach import Teach
@@ -78,6 +81,7 @@ class ArmService:
         self._incident_thread: threading.Thread | None = None
         self._status_errors: dict[tuple, int] = {}
         self._torque_lost = False
+        self._volt_hist: deque = deque(maxlen=120)  # (시각, 전압 V): 풀림 직전 전압 진단용(2Hz 표본 1분)
         self._probe_t = -1e9
         self._restore_hooks = None
         self.logger: RunLogger | None = None
@@ -211,6 +215,7 @@ class ArmService:
                 if health_tick:
                     expect = getattr(self.driver, "expect_torque", None)  # 읽기 전에 정한다: 읽는 사이에 켠 토크를 풀림으로 오해하지 않게
                     self._health = self.driver.read_health()  # 온도·부하·토크·Status는 2Hz로만 읽는다
+                    self._volt_hist.append((time.monotonic(), self._health.get("voltage_v", 0.0)))
                     self._check_torque(expect)
                     if max(self._health.get("load_pct", {}).values(), default=0.0) >= LOAD_PROBE_PCT:
                         self._probe("high_load")
@@ -272,8 +277,31 @@ class ArmService:
         if lost and not self._torque_lost:
             self._log("torque_lost", {"expected": True, "read": torque, "status_bits": self._health.get("status_bits"), "state": self.ctl.state, "fault": self.ctl.fault,
                                       "load_pct": self._health.get("load_pct")}, "ERROR", "ARM-TORQUE-LOST")
+            self._diagnose_torque_loss(torque)
             self._trigger_incident("ARM-TORQUE-LOST", "켜져 있어야 할 토크가 꺼져 읽혔다")
         self._torque_lost = lost
+
+    def _diagnose_torque_loss(self, torque: dict) -> None:
+        """토크가 풀린 것을 읽은 직후 한 번: 서보 응답·ID·Torque_Enable·리셋 흔적(Acceleration)·Status를 읽고 '리셋(전원)인지 개별 보호인지' 한 줄 이벤트(ARM-TORQUE-LOSS-DIAG)로 남긴다 (REQ-048 D6).
+        직전 전압은 2Hz 건강 읽기 표본이라 ms 단위 강하는 못 잡는다(그건 powertest의 160Hz 표본이 맡는다)."""
+        probe = getattr(self.driver, "probe_reset", None)
+        now = time.monotonic()
+        recent = [v for t, v in self._volt_hist if now - t <= 10.0]
+        base = {"voltage_min_10s_v": min(recent) if recent else None, "voltage_last_v": recent[-1] if recent else None, "voltage_samples_10s": len(recent),
+                "n_torque_off": sum(1 for v in torque.values() if not v)}
+        if probe is None:
+            self._log("torque_loss_diag", {**base, "verdict": "unknown", "reasons": ["드라이버가 probe_reset을 지원하지 않음"]}, "ERROR", "ARM-TORQUE-LOSS-DIAG")
+            return
+        try:
+            info = probe()
+            verdict, reasons = classify_torque_loss(info, base["n_torque_off"])
+        except Exception as e:  # noqa: BLE001 진단 실패도 기록하되 상태 루프는 계속
+            self._log("torque_loss_diag", {**base, "verdict": "unknown", "reasons": [f"진단을 읽지 못함: {e!r}"[:160]]}, "ERROR", "ARM-TORQUE-LOSS-DIAG")
+            return
+        responded = sum(1 for ok in info["ping"].values() if ok)
+        self._log("torque_loss_diag", {**base, "verdict": verdict, "reasons": reasons, "responded": responded, "ids": info["ids"], "ping": info["ping"], "torque": info["torque"],
+                                       "acceleration": info["acceleration"], "expected_acceleration": info["expected_acceleration"], "status": info["status"],
+                                       "status_names": {n: decode_status(v) for n, v in info["status"].items()}, "voltage_dv": info["voltage_dv"]}, "ERROR", "ARM-TORQUE-LOSS-DIAG")
 
     def _event(self, kind: str, level: str, code: str, data) -> None:
         if self.logger:
