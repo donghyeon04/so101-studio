@@ -116,9 +116,11 @@ def test_program_page_saves_pose_builds_steps_and_runs_in_sim(backend, tmp_path,
         assert backend.home() is None  # 다른 자세로 옮겨 둔다
         one(user, "step-kind").value = "waypoint"
         user.find(marker="step-add").click()
+        await user.should_see(marker="edit-name", retries=30)  # 단계 목록·편집 칸이 다시 그려질 때까지
         one(user, "edit-name").value = "시작"
         one(user, "step-kind").value = "wait"
         user.find(marker="step-add").click()
+        await user.should_see(marker="edit-s", retries=30)
         one(user, "program-name").value = "시험"
         user.find(marker="program-save").click()
         assert await until(lambda: backend.program_names() == ["시험"])
