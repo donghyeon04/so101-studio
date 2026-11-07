@@ -84,6 +84,7 @@ def test_plan_unreachable_point_gives_reason_and_no_preview(backend):
     backend.scene.clear_target()
 
 
+@pytest.mark.slow
 def test_horizontal_tip_plans_moves_and_draws_reach_rings(backend):
     """REQ-037: 손끝 각도 0(수평)으로 앞쪽 점에 닿고, 집기 범위와 움직임 범위 호를 3D에 그린다."""
     nodes = backend.scene.server.scene._handle_from_node_name
@@ -237,6 +238,7 @@ def test_joint_to_moves_one_joint_to_the_typed_angle(backend):
     assert backend.joint_to(JOG_JOINTS.index("wrist_roll"), 0.0) is None
 
 
+@pytest.mark.slow
 def test_pick_place_moves_object_to_the_place_point(backend):
     """gui-spec 11절 B7: 집기 점에서 집어 놓기 점에 놓는다. 범위 밖이면 이유를 돌려준다."""
     backend.set_speed(100)

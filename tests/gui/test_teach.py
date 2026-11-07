@@ -59,6 +59,7 @@ def test_chart_has_six_joint_series_on_one_axis(backend):
     assert len({s["color"] for s in options["series"]}) == 6
 
 
+@pytest.mark.slow
 def test_replay_follows_total_and_segment_speed(backend):
     segments = backend.arm.record_info(NAME)["segments"]
     plain = backend.arm.replay(NAME, 1.0).duration_s
@@ -75,12 +76,14 @@ def test_replay_too_fast_gives_reason_and_stays_put(backend):
     assert backend.arm.status().joints == before
 
 
+@pytest.mark.slow
 def test_outside_record_is_refused_with_advice_then_cut_at_the_limit(backend):
     assert "한계 앞까지만" in backend.replay(OUTSIDE, 1.0)  # 첫 자세까지는 간 뒤 거부된다
     assert backend.replay(OUTSIDE, 1.0, True) is None
     assert "까지 재생했습니다" in backend.replay_cut()
 
 
+@pytest.mark.slow
 def test_finished_full_replay_has_no_cut(backend):
     assert backend.replay(NAME, 1.0) is None
     assert backend.replay_cut() is None

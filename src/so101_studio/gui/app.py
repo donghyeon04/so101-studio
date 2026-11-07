@@ -90,6 +90,7 @@ def make_root(backend: Backend):
         lock_row: list = []
         beating: list[bool] = []  # 이 브라우저가 지금 감시 프로세스에 heartbeat를 보내는가
         health_seen = [time.time()]  # 이 시각 뒤에 바뀐 서보 건강 판정만 알린다
+        log_seen = [backend.log_loss()]  # 이 브라우저가 열린 뒤 새로 빠진 기록만 알린다
         ui.add_head_html(BROWSER_HB_JS)
         ui.add_head_html(VIEW_CUBE_JS)
 
@@ -135,6 +136,10 @@ def make_root(backend: Backend):
                         ui.notify(f"서보 건강: {describe(key)} 정상으로 돌아옴 ({value:.1f})", type="positive")
                     else:
                         ui.notify(f"서보 {LEVEL_TEXT[level]}: {describe(key, level)} ({value:.1f})", type="warning" if level == "warn" else "negative")
+            lost = backend.log_loss()
+            if lost > log_seen[0]:
+                ui.notify(f"실행 기록 {lost - log_seen[0]}줄을 쓰지 못했습니다. 디스크 공간과 runs 폴더 권한을 확인하세요 (지금까지 {lost}줄)", type="warning")
+                log_seen[0] = lost
             bar.refresh()
             if backend.arm.speed != shown_speed[0]:  # 다른 화면에서 바뀐 속도만 따라간다. 끄는 중인 값은 덮지 않는다
                 shown_speed[0] = bar_speed.value = backend.arm.speed

@@ -104,3 +104,21 @@ def test_arm_page_shows_health_card(backend, monkeypatch):
         assert await _until(lambda: "elbow_flex 온도 ≥ 60°C" in _one(user, "health-summary").text, timeout=4.0)
 
     in_app(backend, "/arm", check)
+
+
+
+def test_lost_log_lines_are_announced(backend, monkeypatch):
+    """실행 기록 줄을 쓰지 못하면(디스크 가득 참 등) 알린다. 열기 전에 빠진 줄은 다시 알리지 않는다."""
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(backend, "_arms", lambda: [SimpleNamespace(logger=SimpleNamespace(write_errors=1, dropped_total=1)), SimpleNamespace(logger=None)])
+    assert backend.log_loss() == 2  # 기록기가 없는 팔(log_root=None)은 0으로 본다
+    lost = [2]
+    monkeypatch.setattr(backend, "log_loss", lambda: lost[0])
+
+    async def check(user):
+        await user.should_see(marker="page-title")
+        lost[0] = 5
+        await user.should_see("실행 기록 3줄을 쓰지 못했습니다", retries=30)
+
+    in_app(backend, "/", check)
