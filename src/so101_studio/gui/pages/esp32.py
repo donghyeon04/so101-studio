@@ -103,6 +103,8 @@ class Board:
                 time.sleep(POLL_S)
         except UltrasonicLinkError as e:
             self.error = str(e)
+        except Exception as e:  # noqa: BLE001  예상 못 한 줄(부팅 잡음 등)로 스레드가 조용히 죽지 않게 화면에 보인다
+            self.error = f"읽기 중 오류로 멈췄습니다: {e!r}"
         finally:
             tx.close()
 

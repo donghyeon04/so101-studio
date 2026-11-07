@@ -25,27 +25,19 @@ def in_app(backend, check) -> None:
 
 def test_fourteen_pages_in_six_groups():
     assert len(gui_app.PAGES) == 6  # 맨 위 "안내"(시작 화면) + 다섯 그룹 (gui-spec 11절)
-    assert len(ALL_PAGES) == 14
+    assert len(ALL_PAGES) == 14  # 카메라는 장치를 달 때까지 메뉴에 없고, 프로그램이 더해졌다 (결정 0044)
     assert len({path for path, _, _ in ALL_PAGES}) == 14
 
 
-@pytest.mark.parametrize("path,title,task", ALL_PAGES)
-def test_menu_click_changes_page(backend, path, title, task):
+def test_menu_click_changes_page_and_frame_stays(backend):
+    """모든 페이지를 한 번의 앱 실행에서 차례로 연다(감사 2026-11-07: 페이지마다 앱을 띄우던 것을 합침)."""
     async def check(user):
-        with user.scope(marker="nav"):
-            user.find(title).click()
-        await user.should_see(marker="page-title", content=title)
-        if path not in gui_app.BUILDERS:
-            await user.should_see(marker="page-pending")
-
-    in_app(backend, check)
-
-
-def test_frame_stays_on_every_page(backend):
-    async def check(user):
-        for _, title, _ in ALL_PAGES:
+        for path, title, _ in ALL_PAGES:
             with user.scope(marker="nav"):
                 user.find(title).click()
+            await user.should_see(marker="page-title", content=title)
+            if path not in gui_app.BUILDERS:
+                await user.should_see(marker="page-pending")
             for text in ("SO-101 Studio", "시뮬레이션", "조작권", "손끝 좌표", "기록 폴더", "E-STOP"):
                 await user.should_see(text)
 
@@ -257,3 +249,35 @@ def test_top_bar_run_mode_and_doctor(backend):
             await user.should_see("점검 (읽기 전용)")
 
     asyncio.run(go())
+
+
+async def _until(check, timeout=8.0) -> bool:
+    import time
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if check():
+            return True
+        await asyncio.sleep(0.05)
+    return False
+
+
+def test_bottom_bar_speed_home_and_jog_panel(backend):
+    """결정 0044: 아래 막대의 속도·홈, 조그 패널 열기와 그리퍼 버튼. 보기 전용이면 꺼진다."""
+    async def check(user):
+        assert await _until(lambda: backend.owner is not None and next(iter(user.find(marker="bar-home").elements)).enabled)
+        backend.set_speed(40)
+        assert await _until(lambda: next(iter(user.find(marker="bar-speed").elements)).value == 40)
+        assert backend.jog_vector([0.0, 0.5, 0.0])
+        backend.jog_release("cartesian")
+        assert await _until(lambda: backend.arm.ctl.state == "idle")
+        user.find(marker="bar-home").click()
+        assert await _until(lambda: abs(backend.arm.status().joints.shoulder_lift - backend.arm.cfg.poses["home"][1]) < 1.0, 15.0)
+        panel = next(iter(user.find(marker="jog-panel").elements))
+        assert not panel.value
+        user.find(marker="bar-jog").click()
+        assert await _until(lambda: panel.value)
+        await user.should_see(marker="bar-pad-xy")
+        backend.owner = "다른 브라우저"
+        assert await _until(lambda: not next(iter(user.find(marker="bar-grip-open").elements)).enabled)
+
+    in_app(backend, check)
