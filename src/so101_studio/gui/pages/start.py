@@ -34,6 +34,10 @@ def build(backend, client_id: str, actions, pages, descriptions) -> None:
         for path, text in FIRST_STEPS:
             ui.button(text, on_click=lambda p=path: ui.navigate.to(p)).props("outline no-caps").mark(f"start-step-{path}")
 
+    with ui.row().classes("w-full items-center gap-2"):
+        ui.link("운영자 화면 (시연용, 새 탭)", "/operator", new_tab=True).classes("font-semibold").mark("start-operator")
+        ui.label("메뉴 없이 3D·지금 단계·물체·실행 버튼만 크게 보입니다").classes("page-body")
+
     ui.label("페이지 안내").classes("card-title")
     with ui.element("div").classes("w-full grid gap-3").style("grid-template-columns: repeat(auto-fill, minmax(260px, 1fr))"):
         for group, items in pages:

@@ -117,6 +117,14 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 .segment-bar {{ gap: 2px; }}
 .segment {{ min-width: 0; height: {CONTROL_H}px; line-height: {CONTROL_H}px; text-align: center; overflow: hidden; border-radius: 4px; font-size: 13px; }}
 .control-column {{ width: 380px; flex: none; }}
+.operator-title {{ font-size: 28px; font-weight: 600; line-height: 36px; }}
+.operator-card-title {{ font-size: 22px; font-weight: 600; }}
+.operator-body {{ font-size: 20px; line-height: 30px; }}
+.operator-stage {{ width: 340px; flex: none; }}
+.operator-chip {{ font-size: 22px; line-height: 48px; padding: 0 16px; background: {CARD}; color: {MUTED}; border: 1px solid {LINE}; border-radius: 8px; }}
+.operator-chip.operator-chip-active {{ background: {ACCENT}; color: #ffffff; font-weight: 600; border-color: {ACCENT}; }}
+.operator-button {{ font-size: 20px; min-height: 56px; padding: 0 28px; }}
+.operator-now {{ font-size: 32px; font-weight: 600; line-height: 40px; }}
 .scene-column {{ position: sticky; top: {GAP}px; }}
 .jog-button {{ min-width: {CONTROL_H}px; padding: 0 8px; }}
 .jog-unit {{ width: 24px; }}
