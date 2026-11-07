@@ -4,7 +4,7 @@ from nicegui import run, ui
 
 from .. import theme
 from ..backend import ANGLE_AXES, CART_AXES, EDGE_TEXT, JOG_JOINTS, JOINT_TEXT
-from .common import Controls, offer_free_edge, scene_frame
+from .common import Controls, jog_pads, offer_free_edge, scene_frame
 
 STEPS = {0: "누르기", 1: "1", 5: "5", 10: "10"}
 DEFAULT_TARGET = {"x": 300.0, "y": 200.0, "h": 40.0, "yaw": 90.0, "pitch": -90.0}
@@ -14,23 +14,6 @@ def build(backend, client_id: str, actions) -> None:
     gate = Controls(backend, client_id, moves=True)
     control, guarded, owner = gate.add, gate.guard, lambda: gate.mine
     held: list = []  # 지금 누르고 있는 조그 (mode, index, sign)
-    pad: dict = {"v": None}  # 조이스틱이 지금 보내는 직교 비율 [x, y, z]
-
-    def pad_move(key: str, e) -> None:
-        if not gate.allowed or e.x is None:
-            return
-        v = list(pad["v"] or [0.0, 0.0, 0.0])
-        if key == "xy":
-            v[0], v[1] = e.x, e.y
-        else:
-            v[2] = e.y
-        pad["v"] = v
-        backend.jog_vector(v)
-
-    def pad_end() -> None:
-        if pad["v"] is not None:
-            pad["v"] = None
-            backend.jog_release("cartesian")
     plan_state = {"dirty": True, "busy": False, "plan": None, "seq": backend.scene.picked[0]}
     target = dict(DEFAULT_TARGET)
 
@@ -119,13 +102,7 @@ def build(backend, client_id: str, actions) -> None:
 
                             control(ui.button("이동", on_click=guarded(joint_to)).props("outline no-caps").mark("joint-to"))
                     with ui.tab_panel(cart_tab).classes("p-0 gap-1"):
-                        # G13 조이스틱: 누르는 동안 기울인 만큼의 속도로, 떼면 멈춘다. 위 = 팔 앞쪽(+y)
-                        with ui.row().classes("w-full no-wrap items-end justify-around gap-2 mb-2").mark("joystick"):
-                            for key, label, opts in (("xy", "앞뒤·좌우", {}), ("z", "높이", {"lockY": True})):
-                                with ui.column().classes("items-center gap-1"):
-                                    ui.joystick(color=theme.ACCENT, size=96, on_move=lambda e, k=key: pad_move(k, e),
-                                                on_end=lambda _e: pad_end(), **opts).classes("joystick").mark(f"pad-{key}")
-                                    ui.label(f"{label} (눌러 끌기)").classes("stat-label")
+                        jog_pads(backend, gate)
                         for i, name in enumerate(CART_AXES):
                             unit = "°" if name in ANGLE_AXES else "mm"
                             _jog_row(backend, name, ("cartesian", i), unit, held, step, control, guarded)
@@ -220,8 +197,6 @@ def build(backend, client_id: str, actions) -> None:
         move_button.enabled = bool(mine and idle and plan and plan.ok and not plan_state["dirty"])
         if held:  # 데드맨: 이 호출이 끊기면 팔이 스스로 멈춘다
             backend.jog(*held[0])
-        elif pad["v"] and mine:  # 조이스틱도 가만히 쥐고 있으면 이벤트가 안 와서 여기서 이어 보낸다
-            backend.jog_vector(pad["v"])
 
     ui.timer(0.1, refresh_plan)
 

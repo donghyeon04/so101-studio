@@ -4,6 +4,7 @@ import asyncio
 
 from nicegui import run, ui
 
+from .. import theme
 from ..scene3d import LAYERS
 from ..view_cube import view_cube
 
@@ -126,3 +127,37 @@ def nudge_pad(on_step, add=lambda e: e, rotate: bool = True) -> None:
         ui.element()
         button("arrow_downward", "아래로", (0, -m, 0))
         ui.element()
+
+
+def jog_pads(backend, gate: Controls, prefix: str = "") -> None:
+    """G13 조이스틱 두 개(앞뒤·좌우, 높이): 누르는 동안 기울인 만큼의 속도로, 떼면 멈춘다. 위 = 팔 앞쪽(+y).
+    직접 조작 화면과 어디서나 여는 조그 패널(결정 0044)이 같이 쓴다. 가만히 쥐고 있으면 이벤트가 안 와서 0.1초마다 이어 보낸다(데드맨)."""
+    pad: dict = {"v": None}
+
+    def move(key: str, e) -> None:
+        if not gate.allowed or e.x is None:
+            return
+        v = list(pad["v"] or [0.0, 0.0, 0.0])
+        if key == "xy":
+            v[0], v[1] = e.x, e.y
+        else:
+            v[2] = e.y
+        pad["v"] = v
+        backend.jog_vector(v)
+
+    def end() -> None:
+        if pad["v"] is not None:
+            pad["v"] = None
+            backend.jog_release("cartesian")
+
+    def keep() -> None:
+        if pad["v"] and gate.allowed:
+            backend.jog_vector(pad["v"])
+
+    with ui.row().classes("w-full no-wrap items-end justify-around gap-2 mb-2").mark(f"{prefix}joystick"):
+        for key, label, opts in (("xy", "앞뒤·좌우", {}), ("z", "높이", {"lockY": True})):
+            with ui.column().classes("items-center gap-1"):
+                ui.joystick(color=theme.ACCENT, size=96, on_move=lambda e, k=key: move(k, e),
+                            on_end=lambda _e: end(), **opts).classes("joystick").mark(f"{prefix}pad-{key}")
+                ui.label(f"{label} (눌러 끌기)").classes("stat-label")
+    ui.timer(0.1, keep)
