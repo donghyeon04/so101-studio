@@ -51,4 +51,5 @@
 | REQ-041 | 병렬 그리퍼 URDF·메쉬: Robonine 공개 STL(CERN-OHL-P-2.0)을 `assets/`에, `assets/so101_parallel.urdf`(관절 `gripper`, ID 6), `parallel.yaml`의 `urdf:`, 병렬 `lowest_z`를 메쉬로 | GUI → 팔(사용자 승인 2026-11-07) | 추가 | 진행 | WIP 브랜치 | 사용자 부품 CAD는 Autodesk Fusion |
 | REQ-042 | `doctor` 서보 온도 주의 55°C → 50°C(GUI 서보 건강 기준과 같게) | GUI → 팔(사용자 승인 2026-11-07) | 수정 | 완료 | #171 합쳐짐 | GUI 기준은 `gui/health.py` LIMITS |
 | REQ-043 | 감사 수정(팔): 한쪽 None 허용 상자 TypeError, 감시 프로세스 스레드 생존·last_tick_age_s, E-STOP ack, 버그와 통신 실패 구분, 정지 쓰기 실패 숨김, 허위·약한 테스트 | GUI → 팔(사용자 승인 2026-11-07) | 수정 | 요청 | | pr-test-analyzer·silent-failure-hunter 감사 |
-| REQ-044 | 감사 수정(초음파): link.py dict 아닌 줄로 스레드 죽음, 포트 닫힘이 안 보임 | GUI → 초음파(사용자 승인 2026-11-07) | 수정 | 요청 | | |
+| REQ-044 | 감사 수정(초음파): link.py dict 아닌 줄로 스레드 죽음, 포트 닫힘이 안 보임 | GUI → 초음파(사용자 승인 2026-11-07) | 수정 | 완료 | #179 합쳐짐 | |
+| REQ-045 | 작업 실행이 배출 구역(drop_zones)을 초음파 `ignore_zones`로 넘김. 놓은 물체가 다음 스캔에서 다시 후보가 되는 버그 | 기획·사용자 → 팔(2026-11-07) | 버그 수정 | 요청 | | 초음파 실물 I1 전에 필요 |
