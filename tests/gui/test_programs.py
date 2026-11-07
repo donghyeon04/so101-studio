@@ -56,6 +56,22 @@ def test_action_runs_in_order_and_stops_at_the_first_failure():
     assert action(steps, WPS, Run(), lambda a: True)(arm).status == "ok" and arm.calls[-1] == "home"
 
 
+def test_pick_place_places_at_the_step_point():
+    """놓기는 단계의 점(at)만 넘긴다. 배출 구역까지 같이 넘기면 ArmService.place가 ValueError를 낸다."""
+    placed = []
+
+    class Arm(FakeArm):
+        def place(self, zone=None, at=None):
+            assert (zone is None) != (at is None)
+            placed.append(at)
+            return _ok()
+
+    run = Run()
+    step = {"type": "pick_place", **programs.DEFAULTS["pick_place"]}
+    assert action([step], WPS, run, lambda a: True)(Arm()).status == "ok"
+    assert placed == [(450.0, 150.0)] and not run.active
+
+
 def test_wait_and_step_mode_obey_stop():
     run = Run(step_mode=True)
     out = []

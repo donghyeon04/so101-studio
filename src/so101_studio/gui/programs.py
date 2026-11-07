@@ -99,12 +99,13 @@ class Run:
         self.go = threading.Event()  # 한 단계씩: 다음 단계를 허락한다
         self.step_mode = step_mode
         self.reason: str | None = None
+        self.active = False  # 팔이 이 프로그램을 돌리는 중(시뮬레이션 먼저의 실제 팔 확인 실행 포함)
 
     def next_step(self) -> None:
         self.go.set()
 
 
-def action(steps: list, waypoints: dict, run: Run, is_sim, place_zone=None):
+def action(steps: list, waypoints: dict, run: Run, is_sim):
     """프로그램 전체를 팔 하나에 거는 동작으로. 단계가 ok가 아니면 거기서 멈추고 그 결과를 돌려준다."""
     order = flatten(steps)
 
@@ -127,11 +128,18 @@ def action(steps: list, waypoints: dict, run: Run, is_sim, place_zone=None):
                                  float(step["length"]), 1.0, "manual", height_mm=float(step["height"]))
             r = arm.pick_and_place(obj)
             if r.status == "ok" or (r.status == "no_object" and is_sim(arm)):  # 시뮬레이션은 쥘 물체가 없다(직접 조작 집어 옮기기와 같다)
-                return arm.place(zone=place_zone, at=(float(step["place_x"]), float(step["place_y"])))
+                return arm.place(at=(float(step["place_x"]), float(step["place_y"])))
             return r
         raise ValueError(f"모르는 단계 {t}")
 
     def act(arm):
+        run.active = True
+        try:
+            return steps_on(arm)
+        finally:
+            run.active = False
+
+    def steps_on(arm):
         run.total = len(order)
         for n, (i, j, step) in enumerate(order):
             if run.stop.is_set():

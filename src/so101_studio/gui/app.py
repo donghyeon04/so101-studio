@@ -136,8 +136,8 @@ def make_root(backend: Backend):
                     else:
                         ui.notify(f"서보 {LEVEL_TEXT[level]}: {describe(key, level)} ({value:.1f})", type="warning" if level == "warn" else "negative")
             bar.refresh()
-            if bar_speed.value != backend.arm.speed:
-                bar_speed.value = backend.arm.speed
+            if backend.arm.speed != shown_speed[0]:  # 다른 화면에서 바뀐 속도만 따라간다. 끄는 중인 값은 덮지 않는다
+                shown_speed[0] = bar_speed.value = backend.arm.speed
             comm_lost = backend.comm_lost()
             for name, (level, detail) in component_states(backend.state.status, time.time(), comm_lost).items():
                 icon_name, icon_color, text = theme.COMPONENT_STYLES[level]
@@ -309,6 +309,7 @@ def make_root(backend: Backend):
             with ui.row().classes("items-center gap-2 no-wrap shrink-0"):
                 ui.label("속도").classes("stat-label")
                 bar_speed = bar.add(ui.slider(min=5, max=100, step=5, value=backend.arm.speed).props('dense label aria-label="속도"').classes("w-28").mark("bar-speed"))
+                shown_speed = [backend.arm.speed]
                 bar_speed.on("change", bar.guard(lambda: run.io_bound(backend.set_speed, float(bar_speed.value))))
                 resume[:] = [ui.button("정지 해제", on_click=resume_arm).props("outline no-caps").mark("resume")]
                 resume[0].visible = False

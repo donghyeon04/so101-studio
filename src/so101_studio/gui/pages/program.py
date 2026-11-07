@@ -17,7 +17,7 @@ NUM_LABEL = {
 
 def build(backend, client_id: str, actions) -> None:
     gate = Controls(backend, client_id, moves=True)
-    state: dict = {"name": "", "steps": [], "sel": None, "running": False}  # sel = (바깥 번호, 반복 안 번호 | None)
+    state: dict = {"name": "", "steps": [], "sel": None}  # sel = (바깥 번호, 반복 안 번호 | None)
 
     def selected() -> dict | None:
         sel = state["sel"]
@@ -84,11 +84,7 @@ def build(backend, client_id: str, actions) -> None:
         ui.notify(f"프로그램 {state['name']}을 저장했습니다", type="positive")
 
     async def start(step_mode: bool) -> None:
-        state["running"] = True
-        try:
-            reason = await run.io_bound(backend.run_program, copy.deepcopy(state["steps"]), name_input.value or "이름 없음", step_mode)
-        finally:
-            state["running"] = False
+        reason = await run.io_bound(backend.run_program, copy.deepcopy(state["steps"]), name_input.value or "이름 없음", step_mode)
         if reason:
             ui.notify(reason, type="negative")
         elif backend.pending:
@@ -211,8 +207,9 @@ def build(backend, client_id: str, actions) -> None:
     def tick() -> None:
         gate.refresh()
         r = backend.program_run
-        next_button.visible = bool(state["running"] and r and r.step_mode)
-        if state["running"] and r:
+        busy = bool(r and r.active)  # 시뮬레이션 먼저 뒤 확인 창으로 시작한 실제 팔 실행도 여기서 보인다
+        next_button.visible = bool(busy and r.step_mode)
+        if busy:
             progress.text = f"실행 중: {r.done + 1}/{r.total} 단계" if r.total else "실행 준비 중"
             if r.index is not None and r.index != state["sel"]:
                 state["sel"] = r.index

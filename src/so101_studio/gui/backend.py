@@ -545,8 +545,10 @@ class Backend:
             return reason
         if not steps:
             return "단계가 없습니다"
+        if step_mode and self.mode == "both":  # 두 팔이 '다음 단계' 신호 하나를 나눠 쓰면 어긋난다
+            return "한 단계씩은 '동시' 실행 방식에서 쓸 수 없습니다"
         self.program_run = programs.Run(step_mode)
-        act = programs.action(steps, wps, self.program_run, lambda arm: arm is self.sim, place_zone=next(iter(self.arm.ws.drop_zones), None))
+        act = programs.action(steps, wps, self.program_run, lambda arm: arm is self.sim)
         reason = self._dispatch(act, f"프로그램 {label}")
         self.program_run.reason = reason
         return reason
