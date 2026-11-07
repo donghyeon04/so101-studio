@@ -684,11 +684,28 @@ class Backend:
         """다음 실행부터 쓸 팔을 local.yaml에 적는다. 실패 이유 또는 None. 설정은 시작할 때 읽어 지금 팔은 그대로다."""
         if name not in self.arm_names():
             return f"팔 파일이 없습니다: {name}"
+        self._set_local("arm", name)
+        return None
+
+    def _set_local(self, key: str, value: str) -> None:
+        """config/local.yaml의 한 줄만 바꾼다(주석은 그대로). 없으면 끝에 더한다."""
         path = Path(self.local_path)
         text = path.read_text(encoding="utf-8") if path.exists() else ""
-        line = f"arm: {name}"
-        text, count = re.subn(r"^arm:.*$", line, text, flags=re.MULTILINE)  # 주석을 지키려고 그 줄만 바꾼다
+        line = f"{key}: {value}"
+        text, count = re.subn(rf"^{key}:.*$", line, text, flags=re.MULTILINE)
         path.write_text(text if count else f"{text.rstrip()}\n{line}\n".lstrip(), encoding="utf-8")
+
+    def gripper_info(self) -> dict | None:
+        """지금 그리퍼 종류와 고를 수 있는 종류 (REQ-038). 팔이 모르면 None."""
+        info = getattr(self.arm, "gripper_info", None)
+        return info() if info else None
+
+    def choose_gripper(self, name: str) -> str | None:
+        """다음 실행부터 쓸 그리퍼 종류를 local.yaml에 적는다(결정 0043-1). 실패 이유 또는 None."""
+        info = self.gripper_info()
+        if not info or name not in info["available"]:
+            return f"그리퍼 종류가 없습니다: {name}"
+        self._set_local("gripper", name)
         return None
 
     def _run_linkwatch(self, progress=None, stop=None) -> tuple[dict | None, str | None]:
