@@ -3,6 +3,7 @@
 import contextlib
 import json
 import logging
+import math
 import re
 import shutil
 import tempfile
@@ -493,12 +494,21 @@ class Backend:
         zone = None if place_xy else next(iter(self.arm.ws.drop_zones))
 
         def run(arm: ArmService):
+            self._tell_known_objects(arm, near=pick_xy)
             r = arm.pick_and_place(obj)  # 집기만. 시뮬레이션 팔은 쥘 물체가 없어 no_object여도 놓기까지 보인다(작업 실행의 dry-run과 같음)
             if r.status == "ok" or (arm is self.sim and r.status == "no_object"):
                 return arm.place(zone=zone, at=place_xy)
             return r
 
         return self._dispatch(run, "집어 옮기기")
+
+    def _tell_known_objects(self, arm: ArmService, near: tuple[float, float] | None = None) -> None:
+        """놓을 때 벌림이 부딪히지 않게 수동 입력 물체를 팔에 알린다(REQ-050 `Skills.known_objects`, (x, y, 반경 mm)). near 둘레 40mm 안의 물체는 지금 집는 것이라 뺀다.
+        shortcut: 작업 시작 때 한 번 찍은 자리라 집어 옮긴 뒤 옛 자리가 남는다(배출 구역과 멀어 놓기를 막지 않음). 물체가 많아지면 놓을 때마다 다시 넘긴다."""
+        if getattr(arm, "skills", None) is None:
+            return
+        arm.skills.known_objects = [(o.x_mm, o.y_mm, max(o.width_mm or 0.0, o.length_mm or 0.0) / 2.0) for o in self.objects()
+                                    if near is None or math.hypot(o.x_mm - near[0], o.y_mm - near[1]) > 40.0]
 
     # ---- 자세 즐겨찾기와 프로그램 (결정 0044). 실패하면 이유 문장, 성공하면 None
     def waypoints(self) -> dict:
@@ -603,6 +613,8 @@ class Backend:
         if self.arm.ctl.state != "idle":  # 그대로 시작하면 동작 충돌로 곧 FAULT로 끝난다
             return MOTION_TEXT["stopped"] if self.arm.ctl.state in ("stopped", "fault") else BUSY_TEXT
         self.state.placed, self.paused, self.state.run_t0 = 0, step_mode, time.time()
+        for arm in self._arms():
+            self._tell_known_objects(arm)
         self.studio.start(step_mode=step_mode)
         return None
 
