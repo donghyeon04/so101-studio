@@ -350,3 +350,38 @@ def test_doctor_shows_the_last_autocal_save(reference, tmp_path, monkeypatch):
     res = dr.doctor(probe=False, config_path=config)
     assert res["autocal"]["saved_at"] == "2026-11-04T09:30:00" and any(c["name"] == "자동 캘리브레이션" and c["state"] == "ok" for c in res["checks"])
     json.dumps(res)
+
+
+def _measure_once_setup(reference, paths, monkeypatch):
+    arm = eeprom_arm()
+    paths.cache.parent.mkdir(parents=True)
+    paths.cache.write_text(json.dumps({n: dict(c) for n, c in reference.items()}), encoding="utf-8")
+    real = acli.measure_only
+    monkeypatch.setattr(acli, "measure_only", lambda *a, **k: real(*a, **k, clock=arm.clock, sleep=arm.sleep))
+    return arm
+
+
+def test_measure_once_returns_the_report_with_run_dir_and_progress_lines(reference, paths, monkeypatch):
+    """REQ-052: GUI 마법사가 부르는 공개 함수. 입력을 기다리지 않고, 보고서에 run_dir를 더하고, 관절을 시작할 때 진행 한 줄을 낸다."""
+    arm = _measure_once_setup(reference, paths, monkeypatch)
+    said: list[str] = []
+    report = acli.measure_once(CFG, out=said.append, opener=opener_for(arm, paths.cache), now=lambda: datetime(2026, 11, 4, 9, 0), config_dir=paths.repo.parent.parent, runs_dir=paths.runs)
+    assert report["kind"] == "autocal-measure" and report["passed"] and report["run_dir"] == str(paths.runs / "20261104-090000-autocal")
+    assert (paths.runs / "20261104-090000-autocal" / "measure.json").is_file()
+    assert any(line.startswith("측정 중(") for line in said) and "합격" in "\n".join(said)
+    assert_untouched(arm)
+
+
+def test_measure_once_stop_ends_with_autocalibration_error_and_restores_registers(reference, paths, monkeypatch):
+    arm = _measure_once_setup(reference, paths, monkeypatch)
+    calls = {"n": 0}
+
+    def stop():
+        calls["n"] += 1
+        return calls["n"] >= 5  # 몇 틱 움직인 뒤 중단 버튼
+
+    with pytest.raises(AutoCalibrationError, match="중단했습니다"):
+        acli.measure_once(CFG, stop=stop, opener=opener_for(arm, paths.cache), now=lambda: datetime(2026, 11, 4, 9, 0), config_dir=paths.repo.parent.parent, runs_dir=paths.runs)
+    assert calls["n"] >= 5
+    assert_untouched(arm)  # 되돌린 뒤 EEPROM·캘리브레이션 레지스터가 처음 그대로
+    assert not (paths.runs / "20261104-090000-autocal" / "measure.json").exists()  # 보고서는 남기지 않는다

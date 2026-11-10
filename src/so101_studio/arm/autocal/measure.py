@@ -95,14 +95,14 @@ def format_table(rows: list[dict]) -> str:
 
 
 def measure_only(bus, calibration_id: str, old_cal: dict | None, *, velocity: int = 200, torque_limit: int | None = None, out=print,
-                 run_dir: Path | None = None, min_volt: float = MIN_VOLT, max_temp: float = MAX_TEMP, clock=time.monotonic, sleep=time.sleep) -> dict:
+                 run_dir: Path | None = None, min_volt: float = MIN_VOLT, max_temp: float = MAX_TEMP, clock=time.monotonic, sleep=time.sleep, stop=None) -> dict:
     """측정만 한다. 보고서 dict를 돌려주고 run_dir/measure.json에 남긴다. 실패하면 AutoCalibrationError(레지스터는 되돌린 뒤)."""
     if problem := vitals_problem(bus, min_volt, max_temp):
         raise AutoCalibrationError(problem)
     saved = snapshot(bus)
-    guarded = GuardedBus(bus, min_volt, max_temp, clock=clock)
+    guarded = GuardedBus(bus, min_volt, max_temp, clock=clock, stop=stop)
     cfg = AutoCalibrationConfig(velocity=velocity, torque_limit=torque_limit)
-    calibrator = FeetechAutoCalibrator(guarded, SO_ARM_PLAN, cfg, clock=clock, sleep=sleep)
+    calibrator = FeetechAutoCalibrator(guarded, SO_ARM_PLAN, cfg, clock=clock, sleep=sleep, progress=out)
     started = time.time()
     try:
         result = calibrator.run()
