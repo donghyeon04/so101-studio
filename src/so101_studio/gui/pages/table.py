@@ -1,4 +1,4 @@
-"""작업대·좌표 페이지 (gui-spec 3절): 위에서 본 작업대, 팔 받침과 배출 구역 배치, 숫자 입력, 저장. 저장하면 팔과 평면 그림에 바로 적용되고, 3D 그림은 다시 시작해야 바뀐다(REQ-034)."""
+"""작업대·좌표 페이지 (gui-spec 3절): 위에서 본 작업대, 팔 받침과 배출 구역 배치, 숫자 입력, 저장. 저장하면 팔·평면 그림·3D에 바로 적용된다(REQ-034)."""
 
 from nicegui import run, ui
 
@@ -48,7 +48,7 @@ def build(backend, client_id: str, actions) -> None:
 
     async def save() -> None:
         reason = await run.io_bound(backend.save_workspace, dict(values), zone)
-        ui.notify(reason or "저장했습니다. 팔에 바로 적용했습니다(3D 그림은 다시 시작하면 바뀝니다)", type="negative" if reason else "positive")
+        ui.notify(reason or "저장했습니다. 팔과 3D에 바로 적용했습니다", type="negative" if reason else "positive")
 
     with actions:
         ui.badge("실측 전 값", color="warning").classes("page-state").mark("unmeasured")
@@ -94,7 +94,7 @@ def build(backend, client_id: str, actions) -> None:
                 with ui.row().classes("w-full no-wrap gap-2"):
                     number("x", "zone_x")
                     number("y", "zone_y")
-            ui.label("저장하면 팔에 바로 적용됩니다. 3D 그림만 앱을 다시 시작해야 바뀝니다").classes("page-body")
+            ui.label("저장하면 팔과 3D에 바로 적용됩니다").classes("page-body")
 
     redraw()
     ui.timer(0.5, controls.refresh)

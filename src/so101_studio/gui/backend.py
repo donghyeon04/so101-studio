@@ -758,6 +758,7 @@ class Backend:
                 arm.reload_workspace(path)
             self.studio.ws = self.studio.task.ws = self.arm.ws
             if self.scene:
+                self.scene.set_workspace(self.arm.ws)  # 작업대·배출 구역·팔 자리를 바로 다시 그린다
                 self.scene.set_parts(getattr(self.arm, "scene", None))
         except RuntimeError as e:
             return f"저장했지만 지금은 적용하지 못했습니다({e}). 동작이 끝난 뒤 다시 저장하거나 앱을 다시 시작하세요"
