@@ -28,7 +28,8 @@ def vitals_problem(bus, min_volt: float = MIN_VOLT, max_temp: float = MAX_TEMP) 
 
 
 class GuardedBus:
-    def __init__(self, bus, min_volt: float = MIN_VOLT, max_temp: float = MAX_TEMP, period_s: float = PERIOD_S, clock=time.monotonic, confirm: int = CONFIRM):
+    def __init__(self, bus, min_volt: float = MIN_VOLT, max_temp: float = MAX_TEMP, period_s: float = PERIOD_S, clock=time.monotonic, confirm: int = CONFIRM, stop=None):
+        self.stop = stop  # stop()이 True면 다음 위치 읽기에서 AutoCalibrationError("중단했습니다"): 엔진의 finally가 레지스터를 되돌린다 (GUI 마법사의 중단 버튼, REQ-052)
         self._bus, self.min_volt, self.max_temp, self.period_s, self._clock, self.confirm = bus, min_volt, max_temp, period_s, clock, confirm
         self._last = clock()
         self._bad = 0  # 연속으로 기준을 넘은 횟수
@@ -39,6 +40,9 @@ class GuardedBus:
 
     def sync_read(self, data_name, motors=None, **kw):
         if data_name == "Present_Position":
+            if self.stop and not self.tripped and self.stop():
+                self.tripped = "중단"  # 이후 정리하는 읽기는 다시 던지지 않는다
+                raise AutoCalibrationError("중단했습니다 (레지스터를 되돌린다)")
             self._check()
         return self._bus.sync_read(data_name, motors, **kw)
 
