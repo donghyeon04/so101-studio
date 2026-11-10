@@ -4,7 +4,7 @@ from nicegui import run, ui
 
 from .. import theme
 from ..backend import ANGLE_AXES, CART_AXES, EDGE_TEXT, JOG_JOINTS, JOINT_TEXT
-from .common import Controls, jog_pads, offer_free_edge, scene_frame
+from .common import HEIGHT_HINT, Controls, jog_pads, offer_free_edge, scene_frame
 
 STEPS = {0: "누르기", 1: "1", 5: "5", 10: "10"}
 DEFAULT_TARGET = {"x": 300.0, "y": 200.0, "h": 40.0, "yaw": 90.0, "pitch": -90.0}
@@ -144,7 +144,7 @@ def build(backend, client_id: str, actions) -> None:
                     obj_l = control(ui.number("길이 (mm)", value=30, min=0, step=5).props("outlined dense").classes("flex-1"))
                     obj_a = control(ui.number("각도 (°)", value=0, step=15).props("outlined dense").classes("flex-1"))
                     obj_h = control(ui.number("높이 (mm)", value=0, min=0, step=5).props("outlined dense").classes("flex-1")
-                                    .tooltip("0이면 설정한 집는 높이로 집습니다").mark("pp-height"))
+                                    .tooltip(HEIGHT_HINT).mark("pp-height"))
 
                 async def pick_place() -> None:
                     if points["pick"] is None:

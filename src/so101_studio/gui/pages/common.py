@@ -8,6 +8,9 @@ from .. import theme
 from ..scene3d import LAYERS
 from ..view_cube import view_cube
 
+HEIGHT_HINT = ("물체 높이를 알면 꼭 넣으세요. 팔 방향과 어긋난 물체는 손을 기울이지 못해 높이를 모르면 턱이 물체 위 모서리를 칠 수 있습니다. "
+               "0이면 설정한 집는 높이로 집습니다")  # REQ-055 sim 근거: 높이를 모르면 384건 중 127건이 위 모서리를 친다
+
 
 class Controls:
     """조작권이 있어야 켜지는 요소를 모으고, 눌렸을 때 서버에서 한 번 더 막는다."""
