@@ -41,6 +41,8 @@ class RobotConfig:
     place_height_mm: float = 30
     place_clearance_mm: float = 30  # 놓을 때 벌림 끝 = 쥔 틈 + 양쪽 이만큼(최대 벌림을 넘으면 최대까지). 부딪히면 줄여 다시 계산한다(최소 10mm) (arm-software-spec 11.3)
     place_open_s: float = 1.0  # 놓을 때 벌림과 손 이동을 끝내는 시간(초). 그리퍼 속도 막대는 놓기 벌림에 쓰지 않는다 (11.3)
+    place_drop_mm: float = 3  # 놓을 때 낮은 턱 끝을 집을 때 높이보다 이만큼 위에 둔다: 물체 바닥이 작업 면 위 이 높이에서 놓인다 (11.3.3)
+    place_release_mm: float = 6  # released_then_tilted의 A 구간: 기울이기 전에 수직으로 먼저 벌리는 틈(양쪽 합) (11.3.3)
     grasp_bias_mm: float = 0.0
     grasp_open_policy: str = "max"
     grasp_tilt_deg: float = 35.0
