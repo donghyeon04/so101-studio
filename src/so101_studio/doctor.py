@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from .core import ports as ports_mod
+from .core.calibration import find_calibration, zero_check
 from .core.config import ArmSelectionError, arm_files, load_robot_ex
 
 PING, READ = 0x01, 0x02
@@ -84,15 +85,6 @@ def probe_servos(device: str) -> dict:
     finally:
         s.close()
     return {"state": "ok", "error": "", "servos": servos, "missing": missing}
-
-
-def find_calibration(calibration_id: str, config_dir: Path) -> tuple[dict | None, str]:
-    """lerobot이 쓰는 캘리브레이션 파일(HF 캐시)을 먼저, 없으면 레포 사본(config/calibration)."""
-    for p in (Path.home() / ".cache/huggingface/lerobot/calibration/robots/so_follower" / f"{calibration_id}.json",
-              config_dir / "calibration" / f"{calibration_id}.json"):
-        if p.exists():
-            return json.loads(p.read_text(encoding="utf-8")), str(p)
-    return None, ""
 
 
 def compare_calibration(cal: dict, servos: list[dict]) -> list[str]:
@@ -176,6 +168,10 @@ def doctor(cfg=None, probe: bool = True, port: str | None = None, progress=None,
     checks.append(_check("캘리브레이션 파일", "ok" if cal else "fail", f"{cfg_now.calibration_id}: {cal_path}" if cal else f"{cfg_now.calibration_id or '(id 없음)'} 파일을 못 찾았다",
                          "" if cal else "lerobot-calibrate --robot.type=so101_follower --robot.port=<포트> --robot.id=<id> (모터에 쓰고 움직이니 직접 실행한다)"))
 
+    zero = zero_check(cfg_now, config_dir) if cfg_now.calibration_id else {"state": "needed", "reason": "캘리브레이션 id가 없다", "date": None, "sha256": None}
+    checks.append(_check("0° 자세 확인", "ok" if zero["state"] == "checked" else "warn",
+                         f"확인됨 ({zero['date']})" if zero["state"] == "checked" else f"확인 필요: {zero['reason']}",
+                         "" if zero["state"] == "checked" else "클램프로 고정하고 전원 스위치 옆에서 so101 calibrate --verify-zero를 한다. 그 전에는 움직이는 명령이 locked다"))
     autocal = None
     rec = Path("runs") / f"autocal-save-{cfg_now.calibration_id}.json"  # so101 calibrate --save가 남긴 기록
     if cfg_now.calibration_id and rec.is_file():
@@ -250,7 +246,7 @@ def doctor(cfg=None, probe: bool = True, port: str | None = None, progress=None,
         arm_result = {"port": dev, "serial": dev_info.get("serial"),
                       "servos": [{k: v for k, v in s.items() if not k.startswith("_")} for s in sv],
                       "calibration_id": cfg_now.calibration_id, "calibration_found": bool(cal), "calibration_mismatch": mismatch}
-    return {"ok": not any(c["state"] == "fail" for c in checks), "checks": checks, "ports": roles, "arm": arm_result, "esp32": None, "autocal": autocal}
+    return {"ok": not any(c["state"] == "fail" for c in checks), "checks": checks, "ports": roles, "arm": arm_result, "esp32": None, "autocal": autocal, "zero_check": zero}
 
 
 def format_report(res: dict) -> str:

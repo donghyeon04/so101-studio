@@ -4,6 +4,7 @@ import importlib
 import sys
 import time
 from dataclasses import asdict, replace
+from pathlib import Path
 
 from ..arm.sim_driver import SimDriver
 from ..core import ports as ports_mod
@@ -114,6 +115,7 @@ def main(argv=None) -> None:
     ap.add_argument("--measure-only", action="store_true", help="calibrate --auto: 서보 EEPROM에 쓰지 않고 측정만 해 기존 캘리브레이션과 비교")
     ap.add_argument("--save", action="store_true", help="calibrate: 합격한 측정 결과를 EEPROM·LeRobot 캐시·config/calibration에 저장")
     ap.add_argument("--from", dest="from_file", help="calibrate --save: 저장할 측정 결과 파일(기본: 가장 최근 runs/*/measure.json)")
+    ap.add_argument("--verify-zero", action="store_true", help="calibrate: 속도 20%%로 전 관절을 0°로 보내고 실물과 3D의 0° 자세를 사람이 확인하면 팔 파일에 calibration_checked를 기록")
     ap.add_argument("--velocity", type=int, default=200, help="calibrate --auto: 끝단 찾기 속도(steps/s, 기본 200)")
     ap.add_argument("--torque-limit", type=int, help="calibrate --auto: 토크 한계(0~1000, 기본 500=50%%)")
     ap.add_argument("--last", type=float, default=60.0, help="incident: 지금부터 거슬러 올라갈 초 (기본 60)")
@@ -146,9 +148,7 @@ def main(argv=None) -> None:
         grasp_bias_mm=cfg.grasp_bias_mm if a.bias is None else a.bias,
         control_hz=cfg.control_hz if a.hz is None else a.hz,
     )
-    if a.command == "calibrate":  # ArmService를 거치지 않는다: connect는 PID·가속을 서보에 쓴다 (REQ-016)
-        from pathlib import Path
-
+    if a.command == "calibrate" and not a.verify_zero:  # ArmService를 거치지 않는다: connect는 PID·가속을 서보에 쓴다 (REQ-016)
         from ..arm.autocal.cli import run_calibrate
 
         sys.exit(run_calibrate(a, cfg, config_dir=Path(a.config).parent))
@@ -166,6 +166,7 @@ def main(argv=None) -> None:
         run_linkwatch(cfg.port)
         return
     svc = ArmService(make_driver(a.sim, cfg), cfg, load_workspace(), a.speed or cfg.speed_pct_default)
+    svc.config_dir = Path(a.config).parent  # 캘리브레이션 사본과 팔 파일을 robot.yaml 옆에서 찾는다
     ok, msg = svc.connect()
     if not ok:
         sys.exit(f"연결 실패: {msg}")
@@ -188,6 +189,10 @@ def main(argv=None) -> None:
             print("작업대 가장자리 검사를 끕니다 (바닥과 관절 한계는 유지). 팔이 작업대 밖으로 나갈 수 있으니 주변을 비우세요.")
     try:
         c, v = a.command, a.values
+        if c == "calibrate":  # --verify-zero (REQ-017). 나머지 calibrate는 위에서 처리했다
+            from ..arm.autocal.verify import run_verify_zero
+
+            sys.exit(run_verify_zero(svc, cfg, config_dir=svc.config_dir))
         nums = lambda n: [float(x) for x in v] if len(v) == n else ap.error(f"{c}: 값 {n}개가 필요하다")
         if c == "status":
             print(status_text(svc.status()))

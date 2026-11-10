@@ -21,6 +21,7 @@ from ..arm.teach import Teach
 from ..arm.trajectory import cfg_move_j, cfg_move_l, smooth_l
 from ..core import frames
 from ..core.blackbox import install_excepthooks
+from ..core.calibration import zero_check
 from ..core.config import GRIPPER_TYPES, RobotConfig, WorkspaceConfig, load_workspace
 from ..core.incident import Incident, create_incident
 from ..core.logging import RunLogger
@@ -73,7 +74,7 @@ class ArmService:
             warnings.warn(f"장면 부품 목록을 못 읽어 빈 장면으로 시작한다: {e}", stacklevel=2)
         self.preset_dir = "config/presets"
         self.proc = proc  # 기록 머리의 proc(cli | gui). 없으면 환경변수 SO101_PROC, 기본 cli
-        self.config_dir = Path("config")  # 사고 묶음에 설정 사본을 담는 곳
+        self.config_dir = Path("config")  # 캘리브레이션 사본·팔 파일을 찾고 사고 묶음에 설정 사본을 담는 곳
         self.incident_after_s = 60.0  # 사고 묶음에서 뒤 60초를 모으는 시간(시험은 0)
         self.install_hooks = not getattr(driver, "simulated", False)  # 처리 안 된 예외 감시. 시뮬레이션은 쓰지 않는다
         self.incidents: list[Incident] = []
@@ -84,6 +85,7 @@ class ArmService:
         self._volt_hist: deque = deque(maxlen=120)  # (시각, 전압 V): 풀림 직전 전압 진단용(2Hz 표본 1분)
         self._probe_t = -1e9
         self._restore_hooks = None
+        self._hard_lock = self._zero_lock = None
         self.logger: RunLogger | None = None
         self.kin = self.safety = self.ctl = self.skills = self.teach = None
         self.port: str | None = None  # 마지막으로 연결한 포트
@@ -129,7 +131,9 @@ class ArmService:
         self._torque_lost = False
         if self.install_hooks:
             self._restore_hooks = install_excepthooks(self._unhandled)
-        self.ctl.locked_reason = self._lock_reason()  # 캘리브레이션 불일치나 팔 파일 없음이면 움직이는 명령을 막고 읽기만 허용한다 (decisions/0027)
+        self._hard_lock = self._lock_reason()  # 캘리브레이션 불일치나 팔 파일 없음 (decisions/0027)
+        self._zero_lock = None if self._hard_lock else self._zero_lock_reason()  # 0° 자세 확인 전 (decisions/0029)
+        self.ctl.locked_reason = self._hard_lock or self._zero_lock  # 움직이는 명령을 막고 읽기만 허용한다
         if self.ctl.locked_reason:
             self._log("locked", {"reason": self.ctl.locked_reason})
         self._torque_on = False  # jog가 토크를 켠 뒤 true. 교시로 토크를 끄면 다시 false (REQ-012)
@@ -148,6 +152,20 @@ class ArmService:
         if not self.cfg.arm_name:
             return "팔 파일이 없다: config/arms/_template.yaml을 복사해 채우기 전에는 움직이지 않는다"
         return None
+
+    def _zero_lock_reason(self) -> str | None:
+        if getattr(self.driver, "simulated", False):
+            return None
+        z = zero_check(self.cfg, self.config_dir)
+        return None if z["state"] == "checked" else f"0° 자세 확인 필요: {z['reason']}. so101 calibrate --verify-zero로 확인하기 전에는 움직이지 않는다"
+
+    def unlock_for_verification(self) -> bool:
+        """so101 calibrate --verify-zero만 쓴다: 0° 자세 확인 때문에 걸린 잠금만 푼다. 캘리브레이션 불일치·팔 파일 없음은 풀지 않는다. 풀렸으면 True."""
+        self.ctl.locked_reason = self._hard_lock
+        return self._hard_lock is None
+
+    def relock_zero(self) -> None:
+        self.ctl.locked_reason = self._hard_lock or self._zero_lock
 
     @property
     def locked_reason(self) -> str | None:
