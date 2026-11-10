@@ -276,13 +276,16 @@ def test_serial_is_opened_with_dtr_and_rts_down(monkeypatch):
     assert events.index(("dtr", False)) < events.index(("open", None)) and events.index(("rts", False)) < events.index(("open", None))
 
 
-def test_doctor_cli_json_in_sim(capsys):
+def test_doctor_cli_json_in_sim(capsys, bus):
+    """`bus` 픽스처로 포트 목록을 가짜 USB 보드 하나로 고정한다: 이 PC에 보드가 꽂혀 있든 아니든(포트 목록 검사는 USB 시리얼이 없으면 fail) 결과가 같아야 한다."""
     from so101_studio.cli import main
 
     with pytest.raises(SystemExit) as e:
         main(["--sim", "doctor", "--json"])
     res = json.loads(capsys.readouterr().out)
-    assert e.value.code == 0 and res["ok"] and set(res) == {"ok", "checks", "ports", "arm", "esp32", "autocal"}
+    failed = [(c["name"], c["text"][:80]) for c in res["checks"] if c["state"] == "fail"]
+    assert e.value.code == 0 and res["ok"], failed  # 실패하면 어느 검사인지 보인다
+    assert set(res) == {"ok", "checks", "ports", "arm", "esp32", "autocal"} and bus["opened"] == []  # sim은 포트를 열지 않는다
 
 
 # ---- 캘리브레이션 불일치·팔 파일 없음: 움직이는 명령 거부, 읽기는 허용
