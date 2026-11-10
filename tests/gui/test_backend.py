@@ -106,3 +106,17 @@ def test_close_during_motion_releases_the_waiting_thread():
     moving.join(timeout=5)
     assert not moving.is_alive()  # 남아 있으면 앱을 꺼도 프로세스가 끝나지 않는다
     assert results and results[0].status == "stopped"
+
+
+def test_manual_objects_are_told_to_the_arm_as_known_obstacles(backend):
+    """놓기 벌림이 수동 입력 물체에 부딪히지 않게 팔(Skills.known_objects)에 알린다. 지금 집는 물체는 뺀다 (REQ-050)."""
+    backend.reset_objects()
+    objs = backend.objects()
+    assert len(objs) >= 2
+    first = objs[0]
+    backend._tell_known_objects(backend.arm, near=(first.x_mm, first.y_mm))
+    known = backend.arm.skills.known_objects
+    assert len(known) == len(objs) - 1 and all(abs(x - first.x_mm) + abs(y - first.y_mm) > 1 for x, y, _ in known)
+    assert all(r > 0 for _, _, r in known)
+    backend._tell_known_objects(backend.arm)
+    assert len(backend.arm.skills.known_objects) == len(objs)
