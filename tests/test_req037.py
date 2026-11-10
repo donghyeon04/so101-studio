@@ -57,7 +57,7 @@ def test_pick_range_is_the_workspace_reach_and_is_separate_from_the_motion_range
     assert down[40]["segments"] and down[40]["max_mm"] >= WS.pick_reach_mm["max"]  # 움직임 범위가 집기 범위를 포함한다
     horiz = {row["height_mm"]: row for row in svc.reach_ranges(0.0)["motion"]}
     assert 330 <= horiz[120]["max_mm"] <= 360  # 0° 자세(완전히 편 팔) 수평 도달 약 353mm (실측 일치)
-    assert down[120]["max_mm"] is None  # 수직으로는 면 위 120mm에 닿지 않는다(table_z -15: 팔 원점에서 면이 가깝다)
+    assert down[120]["max_mm"] is None or down[120]["max_mm"] < down[80]["max_mm"]  # 수직으로는 면 위 120mm에 거의 닿지 않는다(table_z -15: 팔 원점에서 면이 가깝다. REQ-054로 손목 한계를 넓힌 뒤 가까운 곳은 닿는다)
     assert horiz[80]["max_mm"] > down[80]["max_mm"]  # 손끝 방향이 자유로우면 더 멀리 간다
     assert svc.reach_ranges(0.0)["motion"] is svc.reach_ranges(0.0)["motion"]  # 같은 인자는 캐시(같은 계산 결과 객체)
 

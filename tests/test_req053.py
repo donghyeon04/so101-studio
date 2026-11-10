@@ -86,7 +86,7 @@ def test_tilted_grip_opens_symmetrically_at_the_drop_zone_for_a_narrow_object(tm
     assert r.status == "ok" and len(r.path) == 1 and not r.fallback and not r.legacy
     assert r.path[0]["route"] == "tilted" and r.path[0]["yaw_deg"] == pytest.approx(26.6, abs=0.5)
     check_symmetric_open(r.path[0])
-    assert r.path[0]["hover_mm"] < CFG.approach_height_mm  # 전부 기울인 호버는 손목 한계로 낮게만 닿는다
+    assert r.path[0]["hover_mm"] <= CFG.approach_height_mm  # 호버는 approach_height_mm 이하(REQ-054로 손목 한계를 넓힌 뒤 배출 구역도 전부 올라간다)
 
 
 @pytest.mark.slow
