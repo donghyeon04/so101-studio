@@ -54,6 +54,7 @@ JOG_YAW_DEG_S = 60.0
 RUN_MODES = {"sim": "시뮬레이션만", "real": "실제만", "both": "동시", "sim_first": "시뮬레이션 먼저"}
 REASON_EXTRA = {"z_ceiling": "허용 상자보다 높습니다"}  # service.targets에 아직 없는 이유
 BUSY_TEXT = "팔이 아직 움직이고 있습니다"
+CALIBRATING_TEXT = "캘리브레이션 측정 중입니다(팔 연결을 잠시 끊고 포트를 직접 엽니다)"
 NAME_RE = re.compile(r"[0-9A-Za-z가-힣_\- ]{1,40}")  # 자세·프로그램 이름(파일 이름에도 쓴다)
 ESTOP_FAILED_TEXT = "정지 명령을 서보에 쓰지 못했습니다({}). 팔이 계속 움직이면 전원 스위치를 끄세요"
 COMM_LOST_TEXT = "통신이 끊겼습니다. 케이블과 전원을 확인하고 [다시 연결]을 눌러 주세요"
@@ -123,6 +124,7 @@ class Backend:
         self._arm_option = arm_name
         self._first_report = first_report  # 팔을 연결하기 전에 포트를 열어 읽은 점검 결과
         self._linkwatching = False
+        self._calibrating = False  # 캘리브레이션 측정 중(포트를 직접 연다, gui-spec 12.3)
         self._closing = False
         self.state = State()
         self.link = link
@@ -265,6 +267,8 @@ class Backend:
             return None
         if self._linkwatching:
             return LINKWATCH_TEXT
+        if self._calibrating:
+            return CALIBRATING_TEXT
         return self.real.locked_reason or (COMM_LOST_TEXT if self.comm_lost() else None)
 
     def setup_lock(self) -> str | None:
@@ -818,6 +822,41 @@ class Backend:
                     reason = f"토크가 꺼진 서보: {', '.join(torque_off)}. 팔을 받쳐 주세요"
             self._linkwatching = False
         return result, reason
+
+    def calibration_measure(self, out=print, stop=lambda: False) -> tuple[dict | None, str | None]:
+        """캘리브레이션 마법사 1차의 측정(gui-spec 12.3, EEPROM에 쓰지 않음). linkwatch처럼 팔 연결을 끊고(토크 유지) 포트를 직접 연 뒤 다시 연결한다.
+        (보고서, 실패 이유). 블로킹이라 스레드에서 부른다. 측정 엔진은 REQ-052의 `measure_once`."""
+        if self.real is None:
+            return None, "캘리브레이션 측정은 실제 팔에서만 합니다"
+        if self.real.ctl.state != "idle" or self.recording() or self.task_running() or self._linkwatching:
+            return None, BUSY_TEXT
+        try:
+            from ..arm.autocal.cli import measure_once
+            from ..arm.autocal.engine import AutoCalibrationError
+        except ImportError:  # REQ-052가 합쳐지기 전
+            return None, "측정 기능이 아직 없습니다(REQ-052 대기). CLI: so101.cmd calibrate --auto --measure-only"
+        try:
+            port = self._pick_port()
+        except PortChoiceError as e:
+            return None, str(e)
+        report, reason = None, None
+        self._calibrating = True
+        try:
+            self.real.disconnect()
+            try:
+                report = measure_once(replace(self.real.cfg, port=port), out=out, stop=lambda: self._closing or stop(), runs_dir=Path(self.runs_root))
+            except AutoCalibrationError as e:
+                reason = str(e)
+            except Exception as e:  # noqa: BLE001  포트를 못 열어도 팔은 다시 연결해야 한다
+                reason = f"측정을 실행하지 못했습니다: {e}"
+        finally:
+            if not self._closing:
+                problem, torque_off = self._connect_real()
+                reason = reason or problem
+                if torque_off:
+                    reason = f"토크가 꺼진 서보: {', '.join(torque_off)}. 팔을 받쳐 주세요"
+            self._calibrating = False
+        return report, reason
 
     def diagnostic_available(self, name: str) -> bool:
         return name != "linkwatch" or self.real is not None  # 포트를 직접 열어 시뮬레이션에서는 못 쓴다

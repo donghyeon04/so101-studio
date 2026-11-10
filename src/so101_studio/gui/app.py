@@ -15,6 +15,7 @@ from .backend import RUN_MODES, Backend
 from .health import LEVEL_TEXT, describe
 from .pages import (
     arm,
+    calibration,
     esp32,
     logs,
     manual,
@@ -43,7 +44,7 @@ PAGES = (
     ("안내", (("/start", "시작", "G12"),)),
     ("작업", (("/", "작업 공간", "G6"), ("/manual", "직접 조작", "G4"), ("/teach", "교시", "G5"), ("/program", "프로그램", "결정 0044"))),
     ("인식", sensors.menu()),
-    ("장치", (("/arm", "팔", "G8"), ("/esp32", "ESP32 센서 보드", "3단계"))),
+    ("장치", (("/arm", "팔", "G8"), ("/calibration", "캘리브레이션", "결정 0044"), ("/esp32", "ESP32 센서 보드", "3단계"))),
     ("설정", (("/params", "파라미터·프리셋", "G7"), ("/safety", "안전", "G7"), ("/table", "작업대·좌표", "G7"))),
     ("시스템", (("/runs", "실행 기록", "G8"), ("/logs", "로그", "G8"))),
 )
@@ -57,6 +58,7 @@ DESCRIPTIONS = {
     "/camera": "카메라로 물체를 찾는 화면입니다.",
     "/input": "센서 대신 사람이 물체 위치를 알려 주는 인식 방식입니다. 작업 공간 자동 실행이 이 물체들을 집습니다.",
     "/arm": "팔 연결 상태와 점검 결과, 팔 파일, 진단을 봅니다.",
+    "/calibration": "자동 캘리브레이션을 단계별로 측정하고 기존 값과 비교합니다(서보에 쓰지 않음). 실제 팔에서만 켜집니다.",
     "/esp32": "초음파 센서 보드(ESP32)의 연결과 최근 메시지를 봅니다.",
     "/params": "움직임·집기·교시·실행 방식 값을 바꾸고 프리셋으로 저장합니다.",
     "/safety": "안전 모드, 관절 여유, 허용 상자를 정합니다.",
@@ -65,7 +67,7 @@ DESCRIPTIONS = {
     "/logs": "앱과 감시 프로세스의 기록을 한 시간축으로 봅니다.",
     "/start": "지금 모드와 처음 할 순서, 페이지 안내를 봅니다.",
 }
-BUILDERS = {"/": workspace.build, "/manual": manual.build, "/teach": teach.build, "/program": program.build, "/params": params.build, "/safety": safety.build, "/table": table.build, "/arm": arm.build, "/esp32": esp32.build, "/runs": runs.build, "/logs": logs.build, "/start": lambda b, c, a: start.build(b, c, a, PAGES[1:], DESCRIPTIONS), **sensors.pages()}  # 만든 페이지. 나머지는 자리만 있다
+BUILDERS = {"/": workspace.build, "/manual": manual.build, "/teach": teach.build, "/program": program.build, "/params": params.build, "/safety": safety.build, "/table": table.build, "/arm": arm.build, "/calibration": calibration.build, "/esp32": esp32.build, "/runs": runs.build, "/logs": logs.build, "/start": lambda b, c, a: start.build(b, c, a, PAGES[1:], DESCRIPTIONS), **sensors.pages()}  # 만든 페이지. 나머지는 자리만 있다
 COMPONENTS = ("버스", "서보")  # 감시 칸과 센서 칸은 따로 있다 (decisions/0030)
 TOP_STATS = ("센서", "전압", "최고 온도", "속도", "조작권")  # 감시 칸은 아이콘이 있어 따로 그린다. 실행 방식은 오른쪽 고르기 칸이 보인다
 WIDE_ONLY = {"센서", "최고 온도"}  # 1440px 아래에서는 숨긴다. 과열은 서보 칸이 경고로 보인다
