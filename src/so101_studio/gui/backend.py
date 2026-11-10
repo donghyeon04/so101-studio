@@ -927,6 +927,18 @@ class Backend:
         problem, _ = self._connect_real()  # 연결할 때 팔 파일의 확인 기록을 다시 읽어 잠금을 푼다
         return True, problem
 
+    def calibration_home(self) -> str | None:
+        """마법사 5단계에서 기록하지 않고 끝나 팔이 뻗은 채 0° 확인 잠금에 걸렸을 때 내리는 길: 사람이 이 버튼을 눌렀으니 정지 상태면 풀고 홈으로 간다.
+        ArmService.home만 0° 확인 잠금을 잠깐 연다(#233). 캘리브레이션 불일치·팔 파일 없음 잠금은 그대로 막힌다. 실패 이유 또는 None. 스레드에서 부른다."""
+        if self.real is None:
+            return "실제 팔이 연결되어 있지 않습니다"
+        if not self.real_allowed():
+            return "감시 프로세스가 응답하지 않아 실제 팔을 움직일 수 없습니다"
+        if self.real.ctl.state in ("stopped", "fault") and not self.real.resume():
+            return "정지를 풀지 못했습니다(통신 끊김이면 다시 연결하세요)"
+        r = self.real.home()
+        return None if r.status == "ok" else f"홈으로 가지 못했습니다: {reason_text(r.status)}"
+
     def diagnostic_available(self, name: str) -> bool:
         return name != "linkwatch" or self.real is not None  # 포트를 직접 열어 시뮬레이션에서는 못 쓴다
 

@@ -76,7 +76,8 @@ def build(backend, client_id: str, actions) -> None:
             differ = ui.button("다름", color="negative", on_click=lambda: answer("no")).props("outline no-caps").mark("calib-zero-no")
             ui.button("중단", color="negative", on_click=lambda: stop_zero()).props("outline no-caps").mark("calib-zero-stop")
             redo = ui.button("캘리브레이션 다시 하기", on_click=lambda: go(0)).props("outline no-caps").mark("calib-zero-redo")
-    for hidden in (same, differ, redo, measure, compare, save_card, zero_card):  # 첫 tick 전에 눌리지 않게(0° 이동 전 [맞음] 등)
+            lower = ui.button("홈으로 내리기", on_click=lambda: lower_home()).props("outline no-caps").mark("calib-zero-home")  # 0° 확인 잠금 중에도 켠다(controls.add는 잠금에 꺼진다)
+    for hidden in (same, differ, redo, lower, measure, compare, save_card, zero_card):  # 첫 tick 전에 눌리지 않게(0° 이동 전 [맞음] 등)
         hidden.visible = False
 
     log = ui.column().classes("gap-0 w-full").mark("calib-log")
@@ -136,6 +137,10 @@ def build(backend, client_id: str, actions) -> None:
         state["answer"] = text
         state["answered"].set()
 
+    async def lower_home() -> None:
+        reason = await run.io_bound(backend.calibration_home)
+        ui.notify(reason or "홈으로 내렸습니다", type="negative" if reason else "positive")
+
     def stop_zero() -> None:
         """0°로 가는 중이면 세운다(그러면 엔진이 되돌아가지 못한다). 0°에 선 뒤에는 세우지 않고 [다름]처럼 기록하지 않고 되돌아가게 한다."""
         if state["zero"] == "moving":
@@ -191,7 +196,8 @@ def build(backend, client_id: str, actions) -> None:
             z = state["zero"]
             zero_start.enabled = z in ("before", "refused") and not state["busy"] and backend.real is not None and controls.mine
             same.visible = differ.visible = z == "asking"
-            redo.visible = z == "refused"
+            redo.visible = lower.visible = z == "refused"  # 되돌아가지 못했으면(정지·E-STOP 뒤) 잠긴 채라 여기서만 홈으로 내린다
+            lower.enabled = controls.mine and not state["busy"]
             zero_now.text = {"before": "0° 자세로 이동을 누르세요", "moving": "0° 자세로 가는 중...", "asking": "실물이 3D의 0° 자세와 같나요?",
                              "checked": "확인을 기록했습니다. 움직이는 명령이 풀렸습니다",
                              "refused": "기록하지 않았습니다(알림에 팔이 어디로 돌아갔는지 나옵니다). 잠금이 유지됩니다. 어긋나면 캘리브레이션을 다시 하세요"}[z]

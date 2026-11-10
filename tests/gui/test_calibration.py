@@ -175,3 +175,17 @@ def test_zero_step_moves_then_asks_and_records(backend, real_like, monkeypatch):
             assert ok, _one(user, "calib-zero-now").text
 
     asyncio.run(go())
+
+
+def test_lower_home_resumes_after_a_stop_and_uses_arm_home(backend, real_like, monkeypatch):
+    """0°로 가다 세워 되돌아가지 못하면 잠긴 채 남는다: 마법사의 [홈으로 내리기]만 정지를 풀고 ArmService.home(0° 확인 잠금 예외, #233)을 부른다."""
+    from so101_studio.core.types import MotionResult, ToolPose
+
+    calls = []
+    monkeypatch.setattr(backend, "real_allowed", lambda: True)
+    monkeypatch.setattr(backend.sim.ctl, "state", "stopped")
+    monkeypatch.setattr(backend.sim, "resume", lambda: calls.append("resume") or True)
+    monkeypatch.setattr(backend.sim, "home", lambda: calls.append("home") or MotionResult("ok", 1.0, ToolPose(0, 0, 0, 0)))
+    assert backend.calibration_home() is None and calls == ["resume", "home"]
+    monkeypatch.setattr(backend.sim, "home", lambda: MotionResult("locked", 0.0, ToolPose(0, 0, 0, 0)))
+    assert "홈으로 가지 못했습니다" in backend.calibration_home()
