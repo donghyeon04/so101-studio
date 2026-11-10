@@ -24,9 +24,9 @@ from .kinematics import (
     VALUE_TO_Q,
     _rotation,
 )
+from .trajectory import LineTrajectory, QuinticShape
 
 JAW_PIVOT = (20.24, 23.45)  # 가동 턱 회전축 (JAW_TIP_A/B 표의 원 맞춤, 반지름 82.7mm, 잔차 0.05mm 이하): 턱 선분 검사용 (arm-software-spec 11.3.3)
-from .trajectory import LineTrajectory, QuinticShape
 
 
 class Gripper(Protocol):
@@ -95,14 +95,18 @@ class SingleJawGripper:
         return min(mm for _, mm in self.cfg.gripper_width_mm)
 
     # ---- 기하
+    def _tool_rotation(self, pitch_deg: float, yaw_table_deg: float) -> np.ndarray:
+        """도구 프레임 -> 작업대 좌표계 회전."""
+        R = _rotation(pitch_deg, yaw_table_deg - self.kin.base.yaw_deg) @ self.kin._C  # 로봇 좌표계에서의 도구 프레임
+        c, s = math.cos(math.radians(self.kin.base.yaw_deg)), math.sin(math.radians(self.kin.base.yaw_deg))
+        return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]]) @ R
+
     def jaw_tips(self, pitch_deg: float, yaw_table_deg: float, gripper_value: float):
         """기준점(gripper_frame, 고정 턱 면)에서 본 두 턱 끝의 위치 벡터(작업대 좌표계, mm). 자세(pitch, yaw)와 그리퍼 값으로 정해진다."""
         q = VALUE_TO_Q[0] + VALUE_TO_Q[1] * gripper_value
         a_m = float(np.interp(q, JAW_Q_DEG, JAW_TIP_A))
         b_m = float(np.interp(q, JAW_Q_DEG, JAW_TIP_B))
-        R = _rotation(pitch_deg, yaw_table_deg - self.kin.base.yaw_deg) @ self.kin._C  # 로봇 좌표계에서의 도구 프레임
-        c, s = math.cos(math.radians(self.kin.base.yaw_deg)), math.sin(math.radians(self.kin.base.yaw_deg))
-        Rt = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]]) @ R
+        Rt = self._tool_rotation(pitch_deg, yaw_table_deg)
         # 도구 프레임 좌표: 가동 턱 쪽이 -x, 도구 축(턱 끝 방향)이 +z
         f = Rt @ np.array([-(FIXED_TIP[0] + 7.9), 0.0, FIXED_TIP[1] - FRAME_B])
         m = Rt @ np.array([-(a_m + 7.9), 0.0, b_m - FRAME_B])
@@ -111,9 +115,7 @@ class SingleJawGripper:
     def jaw_segments(self, pitch_deg: float, yaw_table_deg: float, gripper_value: float):
         """두 턱 선분(REQ-053): 고정 턱은 기준점 -> 고정 턱 끝, 가동 턱은 회전축 -> 가동 턱 끝. 기준점에서 본 작업대 좌표계 벡터(mm)."""
         f, m = self.jaw_tips(pitch_deg, yaw_table_deg, gripper_value)
-        R = _rotation(pitch_deg, yaw_table_deg - self.kin.base.yaw_deg) @ self.kin._C
-        c, s = math.cos(math.radians(self.kin.base.yaw_deg)), math.sin(math.radians(self.kin.base.yaw_deg))
-        pivot = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]]) @ R @ np.array([-(JAW_PIVOT[0] + 7.9), 0.0, JAW_PIVOT[1] - FRAME_B])
+        pivot = self._tool_rotation(pitch_deg, yaw_table_deg) @ np.array([-(JAW_PIVOT[0] + 7.9), 0.0, JAW_PIVOT[1] - FRAME_B])
         return (np.zeros(3), f), (pivot, m)
 
     def center_offset(self, pitch_deg: float, yaw_table_deg: float, gripper_value: float) -> np.ndarray:

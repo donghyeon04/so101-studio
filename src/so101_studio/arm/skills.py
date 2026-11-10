@@ -1,7 +1,7 @@
 """기능: home, park, pick, place (arm-software-spec.md 6.6). 동작 계획은 MoveJ(관절 보간)와 MoveL(직선)의 조합이다."""
 import math
 import time
-from dataclasses import replace
+from dataclasses import astuple, replace
 from types import SimpleNamespace
 
 import numpy as np
@@ -17,6 +17,7 @@ CLEARANCE_STEP_MM = 5.0
 JAW_HALF_MM = 6.0  # 알려진 물체와의 겹침 판정에서 턱 끝 두께 여유
 BOX_GAP_MM = 2.0  # released_then_tilted: 쥔 물체 상자와 두 턱 선분 사이에 남길 간격 (11.3.3)
 MIN_SYM_ROOM_MM = 20.0  # 대칭 상한 틈 - 쥔 틈이 이보다 작으면(큰 물체) 대칭 경로를 건너뛴다
+NEIGHBOUR_H_MM = 40.0  # 이웃 물체 높이를 모를 때 가정하는 높이: 이보다 낮게 지나는 두 턱 끝은 알려진 물체와의 거리를 본다
 ROUTES = ("tilted", "released_then_tilted", "fixed_tilt")
 
 SEEDS = [JointState(0, -30, 30, 60, 0, 0), JointState(0, -60, 60, 30, 0, 0), JointState(0, 0, 60, 30, 0, 0)]
@@ -230,9 +231,8 @@ class Skills:
         if r.status not in ("ok", "stopped"):
             self._restore_grip_torque()
             return r
-        if contact:
-            self.grip = {"tilted": bool(tilt_ok), "tip_h": float(t), "obj_h": float(obj.height_mm)}  # 놓기가 같은 기울기·높이로 내려가도록 기억한다 (11.3.2)
         if contact:  # 접촉: 목표를 지금 위치에서 예압만큼만 더 닫힌 쪽으로 두고(계속 미는 것을 없앤다), 들고 가는 동안 조임 한계를 낮춘다. 되돌리는 것은 place가 끝난 뒤
+            self.grip = {"tilted": bool(tilt_ok), "tip_h": float(t), "obj_h": float(obj.height_mm)}  # 놓기가 같은 기울기·높이로 내려가도록 기억한다 (11.3.2)
             self.ctl.hold_gripper(max(lo_g, self._q().gripper - self.cfg.grip_preload_units))
             self._set_grip_torque(self.cfg.gripper_hold_torque)
         else:
@@ -240,8 +240,11 @@ class Skills:
         here = self.kin.fk(self._q())
         up = self._line(self._q(), replace(here, z_mm=here.z_mm + self.cfg.approach_height_mm))  # 5. 자세는 그대로 수직으로 상승
         if up is None:
+            self.grip = None  # 집기 실패: 기억을 지운다 (11.3.2)
             return fail
         r = self._run([up])
+        if r.status != "ok":
+            self.grip = None
         if contact or r.status != "ok":
             return r
         self._run([self._gripper(self.cfg.gripper_open)])  # 접근 높이까지 올라온 뒤에 연다(바닥에서는 열지 않는다): 턱 사이에 끼인 것을 푼다
@@ -313,6 +316,7 @@ class Skills:
     def _try_route(self, route: str, env):
         """여유를 줄여 가며 경로를 만들고 안전 검사를 넘는 첫 것을 (궤적 목록, None)으로, 못 넘으면 (None, 이유)."""
         clearance, last, seen = self.cfg.place_clearance_mm, "ik_failed_along_opening_path", set()
+        self.opening_blocked_by = None  # 앞 경로 종류의 값이 남지 않게
         top = env.cap if route == "fixed_tilt" else env.sym
         while True:
             gap1 = min(env.gap0 + 2.0 * clearance, top)
@@ -445,22 +449,65 @@ class Skills:
 
     def _heights(self) -> list[float]:
         """수직 이동 높이 후보: approach_height_mm부터 5mm씩 10mm까지. 전부 기울인 자세는 높이 올릴수록 손목 한계(wrist_flex ±101°)에 막혀(배출 구역은 15mm까지만 닿는다) 닿는 가장 높은 것을 쓴다 (11.3.3의 호버 높이를 현실에 맞춤)."""
-        return [float(h) for h in range(int(self.cfg.approach_height_mm), 9, -5)]
+        return [float(h) for h in range(int(self.cfg.approach_height_mm), 9, -5)] or [float(self.cfg.approach_height_mm)]
 
-    def _descent(self, release: ToolPose):
-        """(호버 관절, 하강 궤적, 호버 높이) 또는 못 풀면 None. 호버는 같은 자세를 위로 올린 것."""
+    def _hits_objects(self, states, held_r: float = 0.0) -> str | None:
+        """낮게 지나는(낮은 턱 끝이 이웃 높이 + 여유보다 낮은) 상태에서 두 턱 끝이, held_r > 0이면 쥔 물체(두 턱 끝 중점, 반지름 held_r)도, 알려진 물체 원(placed·known_objects)에 들어가면 이유 문자열."""
+        circles = [*self.placed, *self.known_objects]
+        for st in circles and states:
+            p = self.kin.fk(st)
+            f, m = self.kin.jaw_tip_offsets(p.pitch_deg, p.yaw_deg, st.gripper)
+            if p.z_mm + float(min(f[2], m[2])) - self.cfg.table_z_mm >= NEIGHBOUR_H_MM + MIN_CLEARANCE_MM:
+                continue
+            tips = [(p.x_mm + float(t[0]), p.y_mm + float(t[1])) for t in (f, m)]
+            mid = ((tips[0][0] + tips[1][0]) / 2, (tips[0][1] + tips[1][1]) / 2)
+            for cx, cy, r in circles:
+                if any(math.hypot(t[0] - cx, t[1] - cy) < r + JAW_HALF_MM for t in tips) or (held_r and math.hypot(mid[0] - cx, mid[1] - cy) < r + held_r + 2.0):
+                    return f"object@({cx:.0f},{cy:.0f})"
+        return None
+
+    def _descent(self, release: ToolPose, held_r: float = 0.0):
+        """(호버 관절, 하강 궤적, 호버 높이) 또는 못 풀면 None. 호버는 같은 자세를 위로 올린 것. 호버로 가는 관절 이동과 하강이 알려진 물체와 부딪히는 높이는 쓰지 않는다(낮은 호버는 검사를 넘을 때만)."""
+        q0 = np.array(astuple(self._q()), float)
         for h in self._heights():
             q_hover = self._ik(replace(release, z_mm=release.z_mm + h))
-            if q_hover is not None and self.kin.ik(release, q_hover) is not None and (down := self._line(q_hover, release)) is not None:
+            if q_hover is None or (down := self._line(q_hover, release)) is None:
+                continue
+            move = [JointState(*(q0 + (np.array(astuple(q_hover), float) - q0) * k)) for k in np.linspace(0.0, 1.0, 9)]
+            if self._hits_objects([*move, *(JointState(*pt) for pt in down.pts)], held_r) is None:
                 return q_hover, down, h
         return None
 
+    def _leave(self, here: ToolPose, held_gap: float, ctx: dict):
+        """놓은 뒤 떠나는 수직 상승: 닿는 가장 높은 높이로 올라가고(수직이라 두 턱 끝의 xy는 그대로여서 물체 검사는 하지 않는다), 물체 높이 + 여유에 모자라고 기울어 있으면
+        기울기를 풀며 마저 올라간다(xy가 바뀌므로 알려진 물체 검사를 한다). 두 번째 구간이 안 되면 낮게 올라간 채 두고 ARM-PLACE-LOW-LIFT 경고를 남긴다. 올라갈 수 없으면 None."""
+        up, lifted = None, 0.0
+        for h in self._heights():
+            if (u := self._line(self._q(), replace(here, z_mm=here.z_mm + h))) is not None:
+                up, lifted = u, h
+                break
+        if up is None:
+            return None
+        r = self._run([up])
+        need = (ctx.get("obj_h") or NEIGHBOUR_H_MM) + MIN_CLEARANCE_MM
+        if r.status != "ok" or lifted >= need or not ctx.get("tilted"):
+            return r
+        p = self.kin.fk(self._q())  # 벌린 틈을 유지한 채 기울기만 풀며 같은 중점 위로 마저 올라간다
+        f, m = self.kin.jaw_tip_offsets(p.pitch_deg, p.yaw_deg, self._q().gripper)
+        mid = (f[:2] + m[:2]) / 2
+        tip_z = p.z_mm + float(min(f[2], m[2])) + (self.cfg.approach_height_mm - lifted)
+        up2 = self._line(self._q(), self._hand_pose(p.x_mm + float(mid[0]), p.y_mm + float(mid[1]), p.yaw_deg, self._q().gripper, False, tip_z))
+        if up2 is None or self._hits_objects(JointState(*pt) for pt in up2.pts) is not None:
+            self.ctl._emit("place_low_lift", "WARN", "ARM-PLACE-LOW-LIFT", {"lift_mm": lifted, "needed_mm": need})
+            return r
+        return self._run([up2])
+
     def place_at(self, x_mm: float, y_mm: float) -> MotionResult:
-        """작업대 점(x_mm, y_mm)에 놓는다. 배출 구역(place)도 이것을 거친다. 집기 기억(self.grip)은 놓기가 끝나면 지운다."""
+        """작업대 점(x_mm, y_mm)에 놓는다. 배출 구역(place)도 이것을 거친다. 집기 기억(self.grip)은 벌림을 시작할 때 지운다: 그 전에 실패하면(하강 중 정지 등) 다시 놓을 때 쓴다."""
         try:
             return self._place_at(x_mm, y_mm)
         finally:
-            self.grip, self._place_ctx = None, None
+            self._place_ctx = None
 
     def _place_at(self, x_mm: float, y_mm: float) -> MotionResult:
         fail = MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0))
@@ -473,13 +520,14 @@ class Skills:
             allowed = self.gripper.tilt_allowed(x_mm, y_mm, yaw)
             tilted = bool(grip["tilted"]) and allowed
             release = self._hand_pose(x_mm, y_mm, yaw, v, tilted, self.cfg.table_z_mm + grip["tip_h"] + self.cfg.place_drop_mm)
-            plan = self._descent(release)
+            plan = self._descent(release, self._gap_mm(v) / 2.0)
             legacy = None if plan else "ik_failed_new_pose"
         if legacy:  # 옛 방식: yaw 0, 기울기 0, 손 기준점 높이 = table_z + place_height_mm. 한쪽만 열리는 그리퍼라 놓는 순간의 두 턱 끝 중간점이 점에 오도록 손 xy를 보정한다 (결정 0033)
-            self.ctl._emit("place_legacy", "INFO", "ARM-PLACE-LEGACY", {"reason": legacy})
+            tilted_grip = bool(grip and grip["tilted"])  # 기울여 쥔 물체가 옛 방식(수직 손, 손 높이 place_height_mm)으로 놓이면 기운 채·높이에서 놓일 수 있다: 경고로 남긴다
+            self.ctl._emit("place_legacy", "WARN" if tilted_grip else "INFO", "ARM-PLACE-LEGACY", {"reason": legacy, "grip_tilted": tilted_grip})
             hand = self._hand_pose(x_mm, y_mm, 0.0, v, False, 0.0)
             release = ToolPose(hand.x_mm, hand.y_mm, self.cfg.table_z_mm + self.cfg.place_height_mm, 0.0)
-            plan = self._descent(release)
+            plan = self._descent(release, self._gap_mm(v) / 2.0)
             if plan is None:
                 return fail
             tilted, allowed = False, False
@@ -491,6 +539,7 @@ class Skills:
             return r
         try:
             self._restore_grip_torque()  # 놓는다: 예압 고정을 풀고 조임 한계를 원래 값으로(이후 닫는 일이 없다)
+            self.grip = None  # 벌림을 시작한다: 집기 기억은 여기서 지운다 (11.3.2)
             held_gap = self._gap_mm(self._q().gripper)
             trajs = self._opening_path()  # 열리는 동안 손을 같이 보내 물체 위치를 지킨다
             if trajs is None:  # ④ 못 풀면 제자리에서 그냥 연다: 조용히 넘어가지 않고 이유를 남긴다 (REQ-036, 11.3)
@@ -508,7 +557,7 @@ class Skills:
             # 그리퍼는 연 채로 둔다(닫기는 호출한 쪽이 호버 높이 이상 올라온 뒤에 한다)
             here = self.kin.fk(self._q())
             self.placed.append((x_mm, y_mm, held_gap / 2.0))  # 다음 놓기의 벌림이 이 물체를 피하도록 알려진 물체로 둔다
-            up = next((u for h in self._heights() if (u := self._line(self._q(), replace(here, z_mm=here.z_mm + h))) is not None), None)
-            return self._run([up]) if up is not None else fail
+            r = self._leave(here, held_gap, self._place_ctx)
+            return r if r is not None else fail
         finally:
             self._restore_grip_torque()  # 예외가 나도 조임 한계를 원래 값으로

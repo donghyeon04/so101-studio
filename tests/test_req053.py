@@ -30,9 +30,9 @@ def run(tmp_path, width, target, angle=0.0, height=40.0, known=(), forget=False)
     sk.known_objects = list(known)
     descent, scan = sk._descent, sk._scan_opening
 
-    def spy_descent(release):
+    def spy_descent(release, *args):
         seen.update(release=release, grip=dict(sk.grip) if sk.grip else None, v=sk._q().gripper)
-        return descent(release)
+        return descent(release, *args)
 
     def spy_scan(trajs, route, env):
         out = scan(trajs, route, env)
@@ -123,7 +123,7 @@ def test_tall_vertical_grip_is_not_tilted_when_the_tilt_would_hit_the_object(tmp
 @pytest.mark.slow
 def test_without_a_grip_memory_it_places_the_old_way_and_says_why(tmp_path):
     r = run(tmp_path, 30, POINT, forget=True)
-    assert r.status == "ok" and r.legacy == [{"reason": "no_grip_memory"}]
+    assert r.status == "ok" and r.legacy == [{"reason": "no_grip_memory", "grip_tilted": False}]
     assert r.path[0]["route"] == "fixed_tilt" and {"route": "tilted", "reason": "legacy_pose"} in r.path[0]["skipped"]
 
 
@@ -140,3 +140,35 @@ def test_two_known_neighbours_70mm_along_the_jaw_axis_do_not_block_the_third_pla
 def test_grip_memory_is_forgotten_after_the_place(tmp_path):
     r = run(tmp_path, 30, POINT)
     assert r.status == "ok" and r.after == (None, None)
+
+
+@pytest.mark.slow
+def test_pick_and_place_through_the_service_keeps_the_grip_memory(tmp_path):
+    block = float(np.interp(30, [p[0] for p in TABLE], [p[1] for p in TABLE]))
+    s = ArmService(SimDriver(CFG.poses["home"], grip_block=block), CFG, WS, speed_pct=30, log_root=str(tmp_path))
+    assert s.connect()[0]
+    ev = []
+    s.ctl.on_event = lambda kind, level, code, data: ev.append((code, data))
+    try:
+        assert s.pick_and_place(DetectedObject("o", 300.0, 150.0, 0.0, 30, 30, 1.0, "manual", 40.0), place_at=POINT).status == "ok"
+    finally:
+        s.disconnect()
+    assert not [d for c, d in ev if c == "ARM-PLACE-LEGACY"] and [d["route"] for c, d in ev if c == "ARM-OPENING-PATH"] == ["tilted"]
+
+
+@pytest.mark.slow
+def test_a_place_that_fails_before_the_opening_keeps_the_grip_memory(tmp_path):
+    block = float(np.interp(30, [p[0] for p in TABLE], [p[1] for p in TABLE]))
+    s = ArmService(SimDriver(CFG.poses["home"], grip_block=block), CFG, WS, speed_pct=30, log_root=str(tmp_path))
+    assert s.connect()[0]
+    sk = s.skills
+    try:
+        assert sk.pick(DetectedObject("o", 300.0, 150.0, 0.0, 30, 30, 1.0, "manual", 40.0)).status == "ok"
+        run_ = sk._run
+        sk._run = lambda trajs: SimpleNamespace(status="stopped", duration_s=0.0, final_tool=None)  # 하강 중 정지
+        assert sk.place_at(*POINT).status == "stopped"
+        sk._run = run_
+        assert sk.grip is not None  # 물체를 아직 쥐고 있으니 다시 놓을 때 새 방식으로 간다
+        assert sk.place_at(*POINT).status == "ok" and sk.grip is None
+    finally:
+        s.disconnect()
