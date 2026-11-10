@@ -117,7 +117,7 @@ def test_remote_browser_never_gets_control_but_can_estop(clean, monkeypatch):
 
     async def check(user):
         await user.should_see(marker="operator-view-only", retries=30)
-        assert "다른 기기" in _one(user, "operator-view-only").text
+        assert await _until(lambda: "다른 기기" in _one(user, "operator-view-only").text)
         await user.should_not_see(marker="operator-buttons", retries=30)
         await user.should_not_see(marker="operator-take", retries=30)
         assert clean.owner is None  # 연결해도 조작권을 가져가지 않았다
