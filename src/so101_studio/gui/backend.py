@@ -917,9 +917,12 @@ class Backend:
         from ..arm.autocal.verify import run_verify_zero
 
         prompts = iter([lambda: "", answer])  # 첫 입력은 CLI의 "준비됐으면 Enter"(마법사는 1단계 체크로 대신한다)
-        code = run_verify_zero(self.real, self.real.cfg, input_fn=lambda _prompt: next(prompts)(), out=out)
-        if code != 0:
-            return False, "확인하지 않았습니다. 움직이는 명령은 계속 잠겨 있습니다"
+        result: dict = {}
+        code = run_verify_zero(self.real, self.real.cfg, input_fn=lambda _prompt: next(prompts)(), out=out, result=result)  # result는 #233
+        if code != 0:  # 기록하지 않으면 엔진이 잠그기 전에 시작 자세(안 되면 home)로 되돌린다
+            back = {"start": "팔은 시작 자세로 돌아갔습니다", "home": "팔은 홈으로 돌아갔습니다",
+                    "failed": "팔이 돌아가지 못했습니다. 팔을 손으로 받치고, 12V를 끄기 전에 CLI에서 so101 home을 다시 해 보세요"}.get(result.get("returned"), "")
+            return False, " ".join(x for x in ("확인을 기록하지 않았습니다. 움직이는 명령은 계속 잠겨 있습니다.", back) if x)
         self.real.disconnect()
         problem, _ = self._connect_real()  # 연결할 때 팔 파일의 확인 기록을 다시 읽어 잠금을 푼다
         return True, problem

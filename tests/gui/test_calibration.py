@@ -140,10 +140,12 @@ def test_verify_zero_asks_after_the_move_and_reconnects_only_when_recorded(backe
         input_fn("준비됐으면 Enter")  # 마법사는 바로 넘긴다
         reply = input_fn("yes를 입력")
         asked.append(reply)
+        kw["result"].update(recorded=reply == "yes", returned=None if reply == "yes" else "start")
         return 0 if reply == "yes" else 1
 
     monkeypatch.setattr(verify, "run_verify_zero", fake)
-    assert backend.calibration_verify_zero(lambda: "no") == (False, "확인하지 않았습니다. 움직이는 명령은 계속 잠겨 있습니다")
+    ok, reason = backend.calibration_verify_zero(lambda: "no")
+    assert not ok and "기록하지 않았습니다" in reason and "시작 자세로 돌아갔습니다" in reason  # 엔진이 알려 준 되돌아간 곳을 전한다
     assert real_like == []
     assert backend.calibration_verify_zero(lambda: "yes") == (True, None)
     assert asked == ["no", "yes"] and real_like == ["disconnect", "connect"]  # 기록한 뒤 다시 연결해 잠금을 푼다

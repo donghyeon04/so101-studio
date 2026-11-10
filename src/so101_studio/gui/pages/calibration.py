@@ -74,7 +74,7 @@ def build(backend, client_id: str, actions) -> None:
             zero_start = controls.add(ui.button("0° 자세로 이동", on_click=controls.guard(lambda: verify())).props("no-caps").mark("calib-zero-move"))
             same = ui.button("맞음", on_click=lambda: answer("yes")).props("no-caps").mark("calib-zero-yes")
             differ = ui.button("다름", color="negative", on_click=lambda: answer("no")).props("outline no-caps").mark("calib-zero-no")
-            ui.button("중단", color="negative", on_click=lambda: (backend.stop_all(), answer("no"))).props("outline no-caps").mark("calib-zero-stop")
+            ui.button("중단", color="negative", on_click=lambda: stop_zero()).props("outline no-caps").mark("calib-zero-stop")
             redo = ui.button("캘리브레이션 다시 하기", on_click=lambda: go(0)).props("outline no-caps").mark("calib-zero-redo")
     for hidden in (same, differ, redo, measure, compare, save_card, zero_card):  # 첫 tick 전에 눌리지 않게(0° 이동 전 [맞음] 등)
         hidden.visible = False
@@ -136,6 +136,12 @@ def build(backend, client_id: str, actions) -> None:
         state["answer"] = text
         state["answered"].set()
 
+    def stop_zero() -> None:
+        """0°로 가는 중이면 세운다(그러면 엔진이 되돌아가지 못한다). 0°에 선 뒤에는 세우지 않고 [다름]처럼 기록하지 않고 되돌아가게 한다."""
+        if state["zero"] == "moving":
+            backend.stop_all()
+        answer("no")
+
     def wait_answer() -> str:
         state["zero"] = "asking"
         end = time.monotonic() + ANSWER_WAIT_S
@@ -188,7 +194,7 @@ def build(backend, client_id: str, actions) -> None:
             redo.visible = z == "refused"
             zero_now.text = {"before": "0° 자세로 이동을 누르세요", "moving": "0° 자세로 가는 중...", "asking": "실물이 3D의 0° 자세와 같나요?",
                              "checked": "확인을 기록했습니다. 움직이는 명령이 풀렸습니다",
-                             "refused": "기록하지 않았습니다. 잠금이 유지됩니다. 어긋나면 캘리브레이션을 다시 하세요"}[z]
+                             "refused": "기록하지 않았습니다(알림에 팔이 어디로 돌아갔는지 나옵니다). 잠금이 유지됩니다. 어긋나면 캘리브레이션을 다시 하세요"}[z]
         if step in (1, 3, 4) and state["lines"] != shown[0]:
             shown[0] = list(state["lines"])
             log.clear()
