@@ -59,4 +59,4 @@
 | REQ-049 | 놓을 때 opening path 기록(ARM-OPENING-PATH): 실물에서 고정 턱이 제자리였음 | GUI(실물 시험) → 팔(2026-11-07) | 기록 | 완료 | #198 합쳐짐 | 실물: hand_move 18.76mm, 눈에 안 띔 → REQ-050 |
 | REQ-050 | 놓기 동작 모양(arm-software-spec 11.3): 벌림 끝 = 쥔 틈+양쪽 30mm, 1.0초, 다 벌린 뒤 수직 상승, 부딪힘이면 여유 줄임, 실제 턱 이동 기록 | 기획·사용자 → 팔(2026-11-07) | 기능 | 완료 | #204 합쳐짐(시뮬레이션 고정 턱 30/30/26mm, 1.0초) | 뒤에 실물 2-2(놓기 5/5, 고정 턱 20mm 이상). 수동 입력 물체를 `Skills.known_objects`에 넣는 일은 GUI·작업 실행 몫으로 남음 |
 | REQ-051 | `so101.cmd gui --share` 인자(store_true, 결정 0047·0049) | GUI → 팔(2026-11-08) | 기능 | 완료 | #209 합쳐짐 | GUI 구현 #212 |
-| REQ-052 | 캘리브레이션 마법사용 `autocal.cli.measure_once(cfg, out, stop, runs_dir)`: 입력 대기 없이 측정, `stop`이면 되돌린 뒤 AutoCalibrationError | GUI → 팔(2026-11-10) | 기능 | 요청 | | GUI 마법사 1차 #215는 그 전까지 "REQ-052 대기" 안내 |
+| REQ-052 | 캘리브레이션 마법사용 `autocal.cli.measure_once(cfg, out, stop, runs_dir)`: 입력 대기 없이 측정, `stop`이면 되돌린 뒤 AutoCalibrationError | GUI → 팔(2026-11-10) | 기능 | 완료 | #214 합쳐짐, GUI 진행 표시 #220 | 마법사 1차가 실제 측정을 부른다(실물 측정은 AC4 때) |
