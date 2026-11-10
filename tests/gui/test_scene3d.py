@@ -203,3 +203,20 @@ def test_scene_parts_on_table_and_on_link(backend3d):
     assert not any("ghost" in n for n in nodes)
     scene.set_parts(None)
     assert not any("part_" in n for n in scene.server.scene._handle_from_node_name)
+
+
+def test_saved_workspace_is_redrawn_without_restart(backend3d):
+    """작업대·좌표를 저장하면 3D의 작업대 크기, 배출 구역, 팔 자리가 바로 바뀐다(다시 시작하지 않아도)."""
+    scene, ws = backend3d.scene, backend3d.arm.ws
+    before = tuple(scene._real_root.position)
+    moved = replace(ws, table_mm={"x": 700.0, "y": 450.0}, robot_base_in_table={**ws.robot_base_in_table, "y_mm": ws.base.y_mm + 11},
+                    drop_zones={"left": {"x_mm": 100, "y_mm": 150}})
+    try:
+        scene.set_workspace(moved)
+        table = scene._layer_nodes["table"][0]
+        assert tuple(table.dimensions[:2]) == pytest.approx((0.7, 0.45))
+        assert scene._real_root.position[1] == pytest.approx(before[1] + 0.011) and scene._preview_root.position[1] == pytest.approx(before[1] + 0.011)
+        assert [z.name for z in scene._layer_nodes["zones"]] == ["/zones/left"]
+    finally:
+        scene.set_workspace(ws)
+    assert tuple(scene._real_root.position) == pytest.approx(before)

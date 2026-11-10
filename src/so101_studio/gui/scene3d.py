@@ -162,34 +162,12 @@ class Scene3D:
         self.layers = dict.fromkeys(LAYERS, True)  # 브라우저가 여럿이어도 3D는 하나라 함께 바뀐다
         self._preview_on = False
         scene = self.server.scene
+        table, grid, zones, axes_robot, root = self._draw_workspace(ws)
         w, h = ws.table_mm["x"] / 1000, ws.table_mm["y"] / 1000
-        table = scene.add_box(
-            "/table", color=theme.rgb(theme.CARD), dimensions=(w, h, TABLE_T_M), position=(w / 2, h / 2, -TABLE_T_M / 2)
-        )
-        grid = scene.add_grid(
-            "/grid", width=w, height=h, cell_size=0.05, section_size=0.1, position=(w / 2, h / 2, 0.0005),
-            cell_color=theme.rgb(theme.LINE), section_color=theme.rgb(theme.CONTROL_BORDER),
-        )
-        zones = []
-        for name, zone in ws.drop_zones.items():
-            zones.append(scene.add_box(
-                f"/zones/{name}", color=theme.rgb(theme.OK), dimensions=(0.08, 0.08, 0.001), opacity=0.35,
-                position=(zone["x_mm"] / 1000, zone["y_mm"] / 1000, 0.001),
-            ))
-
-        base = ws.base
         axes_table = scene.add_frame("/axes/table", axes_length=0.06, axes_radius=0.002)
-        axes_robot = scene.add_frame(
-            "/axes/robot", axes_length=0.06, axes_radius=0.002,
-            position=(base.x_mm / 1000, base.y_mm / 1000, 0.001), wxyz=_yaw(base.yaw_deg),
-        )
         self._tool = scene.add_frame("/axes/tool", axes_length=0.04, axes_radius=0.0015)
-
-        # URDF 원점은 어깨 회전축에서 PAN_AXIS_X_MM 뒤에 있다 (Kinematics.fk와 같은 오프셋)
-        ox, oy = robot_to_table(-PAN_AXIS_X_MM, 0.0, base)
-        root = {"position": (ox / 1000, oy / 1000, -self._table_z / 1000), "wxyz": _yaw(base.yaw_deg)}
         urdf_path = Path(cfg.urdf)
-        real_root = scene.add_frame("/real", show_axes=False, **root)
+        real_root = self._real_root = scene.add_frame("/real", show_axes=False, **root)
         self._real_urdf = _load_urdf(urdf_path)
         self._real = ViserUrdf(self.server, self._real_urdf, root_node_name="/real")
         self._preview_root = scene.add_frame("/preview", show_axes=False, visible=False, **root)
@@ -248,6 +226,42 @@ class Scene3D:
         self._preview_root.visible = self._preview_on and self.layers["preview"]
         if joints is not None:
             self._preview.update_cfg(urdf_cfg(joints, self._names, self._width_mm))
+
+    def _draw_workspace(self, ws):
+        """작업대·격자·배출 구역·로봇 좌표축을 그리고, 팔이 놓일 자리(URDF 원점)를 돌려준다. 같은 이름으로 다시 그리면 바뀐다."""
+        scene = self.server.scene
+        w, h = ws.table_mm["x"] / 1000, ws.table_mm["y"] / 1000
+        table = scene.add_box(
+            "/table", color=theme.rgb(theme.CARD), dimensions=(w, h, TABLE_T_M), position=(w / 2, h / 2, -TABLE_T_M / 2)
+        )
+        grid = scene.add_grid(
+            "/grid", width=w, height=h, cell_size=0.05, section_size=0.1, position=(w / 2, h / 2, 0.0005),
+            cell_color=theme.rgb(theme.LINE), section_color=theme.rgb(theme.CONTROL_BORDER),
+        )
+        zones = [scene.add_box(f"/zones/{name}", color=theme.rgb(theme.OK), dimensions=(0.08, 0.08, 0.001), opacity=0.35,
+                               position=(zone["x_mm"] / 1000, zone["y_mm"] / 1000, 0.001)) for name, zone in ws.drop_zones.items()]
+        base = ws.base
+        axes_robot = scene.add_frame("/axes/robot", axes_length=0.06, axes_radius=0.002,
+                                     position=(base.x_mm / 1000, base.y_mm / 1000, 0.001), wxyz=_yaw(base.yaw_deg))
+        # URDF 원점은 어깨 회전축에서 PAN_AXIS_X_MM 뒤에 있다 (Kinematics.fk와 같은 오프셋)
+        ox, oy = robot_to_table(-PAN_AXIS_X_MM, 0.0, base)
+        root = {"position": (ox / 1000, oy / 1000, -self._table_z / 1000), "wxyz": _yaw(base.yaw_deg)}
+        return table, grid, zones, axes_robot, root
+
+    def set_workspace(self, ws) -> None:
+        """작업대·좌표를 저장한 뒤 다시 그린다(앱을 다시 켜지 않아도 된다). 지운 배출 구역은 지운다."""
+        old_zones = self._layer_nodes["zones"]
+        table, grid, zones, axes_robot, root = self._draw_workspace(ws)
+        for node in old_zones:
+            if node not in zones and node.name not in {z.name for z in zones}:
+                node.remove()
+        for frame in (self._real_root, self._preview_root):
+            frame.position, frame.wxyz = root["position"], root["wxyz"]
+        parts = self._layer_nodes["table"][2]
+        self._layer_nodes.update(table=[table, grid, parts], zones=zones)
+        self._layer_nodes["axes"][1] = axes_robot
+        for name in ("table", "zones", "axes"):
+            self.set_layer(name, self.layers[name])
 
     def set_layer(self, name: str, visible: bool) -> None:
         """묶음 하나를 켜거나 끈다. 자리만 바꾸므로 끈 동안의 자세·물체도 켜면 바로 맞게 보인다."""
