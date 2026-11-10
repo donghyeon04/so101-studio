@@ -67,7 +67,7 @@ def test_object_lines_mark_placed_current_and_waiting():
 
 
 def test_view_only_hides_buttons_and_stage_follows_task_state(clean):
-    """조작권: 연결되면 받고, 다른 화면이 가지면 보기 전용(버튼·E-STOP 숨김), 비면 [조작권 받기]."""
+    """조작권: 연결되면 받고, 다른 화면이 가지면 보기 전용(버튼 숨김, E-STOP은 보임), 비면 [조작권 받기]."""
     async def check(user):
         await user.should_see(marker="operator")
         await user.should_not_see(marker="nav")  # 메뉴·상태줄 틀 없이 그린다
@@ -76,8 +76,8 @@ def test_view_only_hides_buttons_and_stage_follows_task_state(clean):
         await user.should_see(marker="operator-estop", retries=30)
         clean.owner = "someone-else"
         await user.should_not_see(marker="operator-buttons", retries=30)  # 다른 화면이 조작하면 보기 전용
-        await user.should_not_see(marker="operator-estop", retries=30)
         await user.should_see(marker="operator-view-only", retries=30)
+        await user.should_see(marker="operator-estop", retries=30)  # E-STOP은 보기 전용에도 보인다(결정 0047)
         clean.owner = None
         await user.should_see(marker="operator-take", retries=30)
         clean.state.task_state = "CHECK"  # 초음파 확인 단계도 그대로 보인다
@@ -102,3 +102,43 @@ def test_start_moves_the_object_and_the_list_shows_it_placed(clean):
         await user.should_see(f"{keep} ✓ 놓음", retries=30)
 
     in_app(clean, check)
+
+
+def test_remote_browser_never_gets_control_but_can_estop(clean, monkeypatch):
+    """다른 기기(원격)는 연결해도 조작권을 받지 못하고 [조작권 받기]도 없다. E-STOP은 보이고 누르면 세운다(결정 0047, gui-spec 12.6)."""
+    from so101_studio.gui import app as app_module
+    from so101_studio.gui.pages import operator as operator_module
+
+    monkeypatch.setattr(operator_module, "is_remote", lambda ip: True)
+    monkeypatch.setattr(app_module, "is_remote", lambda ip: True)
+    assert clean.claim("remote-client", remote=True) is False and clean.owner is None
+    stopped = []
+    monkeypatch.setattr(clean, "estop", lambda: stopped.append(1))
+
+    async def check(user):
+        await user.should_see(marker="operator-view-only", retries=30)
+        assert await _until(lambda: "다른 기기" in _one(user, "operator-view-only").text)
+        await user.should_not_see(marker="operator-buttons", retries=30)
+        await user.should_not_see(marker="operator-take", retries=30)
+        assert clean.owner is None  # 연결해도 조작권을 가져가지 않았다
+        user.find(marker="operator-estop").click()
+        assert await _until(lambda: stopped == [1])
+
+    in_app(clean, check)
+
+
+def test_share_badge_shows_on_the_local_screen_only_when_sharing(clean, monkeypatch):
+    """--share로 켜면 본 화면 상단에 '공유 중' 배지(누르면 주소). 아니면 없다(gui-spec 12.6)."""
+
+    async def go(sharing):
+        monkeypatch.setattr(clean, "share", sharing)
+        async with user_simulation(gui_app.make_root(clean)) as user:
+            await user.open("/start")
+            await user.should_see(marker="page-title")
+            if sharing:
+                await user.should_see(marker="share-badge")
+            else:
+                await user.should_not_see(marker="share-badge")
+
+    asyncio.run(go(False))
+    asyncio.run(go(True))

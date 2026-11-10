@@ -29,11 +29,12 @@ from .pages import (
     workspace,
 )
 from .pages.common import Controls, jog_pads
+from .share import LOCAL_HOST, SHARE_HOST, is_remote, share_warning
 from .state import EMPTY, component_states, page_state
 from .view_cube import VIEW_CUBE_JS
 from .watchdog_link import BROWSER_HB_JS, WatchdogLink
 
-HOST = "127.0.0.1"  # NiceGUI 기본값 0.0.0.0은 같은 네트워크 어디서나 팔을 조작할 수 있게 한다 (decisions/0023)
+HOST = LOCAL_HOST  # NiceGUI 기본값 0.0.0.0은 같은 네트워크 어디서나 팔을 조작할 수 있게 한다 (decisions/0023). --share일 때만 0.0.0.0(결정 0047)
 DEFAULT_PORT = 8080
 REFRESH_S = 0.1
 
@@ -81,6 +82,7 @@ def make_root(backend: Backend):
     def root() -> None:
         """모든 페이지가 공유하는 틀. /operator는 틀 없이 운영자 화면만 그린다(gui-spec 12.4)."""
         client = ui.context.client
+        remote = is_remote(client.ip)  # 다른 기기(LAN IP로 연 같은 PC 포함)는 늘 보기 전용이다(결정 0047, gui-spec 12.6)
         if client.request is not None and client.request.url.path == "/operator":
             operator.build(backend, client.id)
             return
@@ -128,8 +130,8 @@ def make_root(backend: Backend):
             for name, value in backend.readout().items():
                 if name in stats:
                     stats[name].text = value
-            stats["조작권"].text = "이 브라우저" if backend.owner == client.id else "보기 전용"
-            take.visible = backend.owner is None
+            stats["조작권"].text = "이 브라우저" if backend.owner == client.id else ("보기 전용(다른 기기)" if remote else "보기 전용")
+            take.visible = backend.owner is None and not remote
             if backend.pending and backend.owner == client.id and not pending_dialog.value:
                 pending_text.text = f"시뮬레이션에서 '{backend.pending[0]}'을 마쳤습니다. 실제 팔로 실행할까요?"
                 pending_dialog.open()
@@ -281,9 +283,12 @@ def make_root(backend: Backend):
                 for label in TOP_STATS:
                     stats[label] = _stat(label, wide_only=label in WIDE_ONLY)
                 stats["조작권"].text = "보기 전용"
-                take = ui.button("조작권 받기", on_click=lambda: backend.claim(client.id)).props("outline no-caps").mark("take")
+                take = ui.button("조작권 받기", on_click=lambda: backend.claim(client.id, remote)).props("outline no-caps").mark("take")
                 take.visible = False
             # 자주 쓰는 것을 상단에서 바로 (gui-spec 11절 A2). 원래 페이지의 같은 기능과 같은 상태를 쓴다
+            if backend.share:  # 다른 기기에서 보는 중일 수 있다(결정 0047). 누르면 주소
+                ui.badge("공유 중", color="warning").props('aria-label="공유 중: 누르면 주소"').classes("cursor-pointer").mark("share-badge").on(
+                    "click", lambda: ui.notify(share_warning(backend.web_port), timeout=0, close_button="닫기"))
             with ui.row().classes("items-center gap-2 no-wrap"):
                 ui.label("그리퍼 속도").classes("stat-label")
                 top_grip = ui.slider(min=5, max=100, step=5, value=backend.arm.cfg.gripper_speed_pct,
@@ -331,7 +336,7 @@ def make_root(backend: Backend):
         ).classes("w-full")
 
         # 페이지를 그릴 때 받으면 소켓을 열지 않는 HTTP 요청(curl, 미리 읽기)이 조작권을 가져간다
-        client.on_connect(lambda: backend.claim(client.id))
+        client.on_connect(lambda: backend.claim(client.id, remote))
         client.on_disconnect(lambda: backend.disconnected(client.id))
         ui.timer(REFRESH_S, refresh)
 
@@ -359,12 +364,16 @@ def _first_report(arm_name: str | None, port: str) -> dict | None:
 def main(args) -> None:
     """`python -m so101_studio.gui`와 `so101 gui`(REQ-005)의 입구. --sim이 없으면 실제 팔에 연결한다(토크는 그대로, 움직이지 않는다)."""
     sim = getattr(args, "sim", False)
+    share = bool(getattr(args, "share", False))
+    host = SHARE_HOST if share else LOCAL_HOST
+    # so101.cmd gui의 --port는 서보 시리얼 포트다. 웹 포트는 python -m so101_studio.gui --port(web_port)로만 바꾼다(gui-spec 12.6)
+    web_port = getattr(args, "web_port", None) or DEFAULT_PORT
     link = WatchdogLink(sim=sim)
     try:
         arm_name = getattr(args, "arm", None)
         backend = Backend(
-            speed=getattr(args, "speed", None), link=link, viser_port=getattr(args, "viser_port", scene3d.DEFAULT_PORT),
-            arm_name=arm_name, **({} if sim else real_arm_args(arm_name)),
+            speed=getattr(args, "speed", None), link=link, viser_port=getattr(args, "viser_port", None) or scene3d.DEFAULT_PORT,
+            arm_name=arm_name, viser_host=host, share=share, web_port=web_port, **({} if sim else real_arm_args(arm_name)),
         )
     except (RuntimeError, ArmSelectionError, PortChoiceError) as e:
         link.stop()
@@ -372,7 +381,9 @@ def main(args) -> None:
     link.start(backend.run_dir)  # 실행 폴더는 연결한 뒤에 생긴다
     app.on_startup(lambda: background_tasks.create(link.run(), name="watchdog heartbeat"))
     app.on_shutdown(backend.close)
+    if share:
+        print(share_warning(web_port), flush=True)
     ui.run(
-        make_root(backend), host=HOST, port=getattr(args, "port", DEFAULT_PORT), title="SO-101 Studio",
+        make_root(backend), host=host, port=web_port, title="SO-101 Studio",
         language="ko-KR", reload=False, show="/start",
     )

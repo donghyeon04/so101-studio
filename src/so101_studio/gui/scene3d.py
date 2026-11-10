@@ -151,8 +151,8 @@ def view_path(start, goal) -> tuple:
 
 
 class Scene3D:
-    def __init__(self, cfg, ws, kin, port: int = DEFAULT_PORT):
-        self.server = viser.ViserServer(host=HOST, port=port, label="SO-101 Studio", verbose=False)
+    def __init__(self, cfg, ws, kin, port: int = DEFAULT_PORT, host: str = HOST):
+        self.server = viser.ViserServer(host=host, port=port, label="SO-101 Studio", verbose=False)
         self.server.gui.configure_theme(
             dark_mode=False, show_logo=False, show_share_button=False, brand_color=theme.rgb(theme.ACCENT)
         )
@@ -227,7 +227,12 @@ class Scene3D:
 
     @property
     def url(self) -> str:
-        return f"http://{HOST}:{self.server.get_port()}"
+        return self.url_for(HOST)
+
+    def url_for(self, hostname: str | None) -> str:
+        """그 브라우저가 연 호스트로 3D 주소를 만든다(--share면 다른 기기는 PC의 IP로 연다, gui-spec 12.6)."""
+        host = hostname or HOST
+        return f"http://{'[' + host + ']' if ':' in host else host}:{self.server.get_port()}"
 
     def update_status(self, status) -> None:
         """status_stream 콜백. 실제 팔과 툴 좌표축을 지금 자세로 옮긴다."""

@@ -118,8 +118,9 @@ def test_view_only_browser_can_still_estop(backend):
 
 def test_main_binds_localhost_and_connects_the_real_arm_without_sim(monkeypatch):
     class FakeBackend:
-        def __init__(self, speed=None, link=None, viser_port=None, arm_name=None, **real):
+        def __init__(self, speed=None, link=None, viser_port=None, arm_name=None, viser_host=None, share=False, web_port=None, **real):
             self.speed, self.real, self.link = speed, real, link
+            self.viser_host, self.share = viser_host, share
             self.run_dir = "runs/시험"
 
         def close(self):
@@ -142,9 +143,11 @@ def test_main_binds_localhost_and_connects_the_real_arm_without_sim(monkeypatch)
     monkeypatch.setattr(gui_app.app, "on_shutdown", lambda fn: None)
     monkeypatch.setattr(gui_app, "make_root", lambda backend: backend)
     monkeypatch.setattr(gui_app.ui, "run", lambda root, **k: calls.append((root, k)))
-    gui_app.main(argparse.Namespace(sim=True, port=9000, speed=20))
-    gui_app.main(argparse.Namespace(sim=True))  # so101 gui에는 port가 없다
-    assert [(k["host"], k["port"]) for _, k in calls] == [("127.0.0.1", 9000), ("127.0.0.1", gui_app.DEFAULT_PORT)]
+    gui_app.main(argparse.Namespace(sim=True, web_port=9000, speed=20))  # python -m so101_studio.gui --port 9000
+    gui_app.main(argparse.Namespace(sim=True, port="COM5"))  # so101.cmd gui의 --port는 서보 시리얼 포트라 웹 포트로 쓰지 않는다(gui-spec 12.6)
+    gui_app.main(argparse.Namespace(sim=True, share=True))  # --share면 NiceGUI·Viser 모두 0.0.0.0
+    assert [(k["host"], k["port"]) for _, k in calls] == [("127.0.0.1", 9000), ("127.0.0.1", gui_app.DEFAULT_PORT), ("0.0.0.0", gui_app.DEFAULT_PORT)]
+    assert [c[0].viser_host for c in calls] == ["127.0.0.1", "127.0.0.1", "0.0.0.0"] and calls[2][0].share is True
     assert calls[0][0].speed == 20
     assert calls[0][0].real == {} and calls[0][0].link.sim is True
     assert calls[0][0].link.run_dir == "runs/시험"  # 감시 기록을 실행 폴더에 남긴다
