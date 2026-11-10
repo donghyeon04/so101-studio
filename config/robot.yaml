@@ -14,13 +14,17 @@ tool_jerk_max_mm_s3: 600
 tool_v_max_mm_s: 100
 approach_height_mm: 40         # 수직 하강 자세로 닿는 높이가 최대 약 80mm라 80mm 위 접근은 불가능 (measurements.md T6 사전 조사)
 tip_floor_mm: 5            # 낮은 턱 끝이 작업대 면(table_z_mm)보다 이만큼은 위에 있어야 한다(명령 기준. 처짐 약 4mm가 더해져 실제 끝은 1mm 위까지 내려간다)
-grasp_height_mm: 15        # 낮은 턱 끝의 작업대 면 위 높이. 미정: 시험 물체가 정해지면 확정        # 미정: 시험 물체가 정해지면 확정
+grasp_height_mm: 20        # 낮은 턱 끝의 작업대 면 위 높이. 시험값 15→20 (REQ-033). 근거: 벌어진 턱 사이 간격은 위로 갈수록 좁아져(턱 끝에서 dz 위에서 G - dz*s(G), s = tan(기울기)+tan(벌림각-기울기)),
+                           # 물체 위 모서리를 안 치려면 W <= G - (H - t)*s(G) - 4 (W 폭, H 높이, t 이 값, G 최대 벌림). 58x58x39mm 물체는 G70·t15에서 W<=44라 닿아 밀렸다(실물 집기 2·4회차 실패, 2026-11-06). 실물 확인 전 시험값, 나쁘면 15로 되돌린다
 gripper_margin_mm: 20
 grasp_open_policy: max     # max: 물체 크기와 상관없이 최대로 벌려 틈의 중심을 물체에 맞춘 뒤 닫으며 손을 같이 보냄 | fit: 폭+여유만 벌림
 grasp_tilt_mode: symmetric  # symmetric: 손을 벌림 각도의 절반만큼 기울여 두 턱이 수직에서 ±θ/2로 벌어지게(보기에 대칭인 V자, 닫으면 같이 선다) | equal_tips: 두 턱 끝 높이가 같아지는 각도(약 23°)
 grasp_tilt_deg: 35         # 손목 한계 때문에 이 각도까지만 기울인다(θ=80°이면 완전 대칭은 40°). 0이면 기울이지 않음
 grasp_tilt_tol_deg: 15     # 턱 축이 팔이 뻗은 방향(앞뒤)에서 이만큼 안쪽일 때만 기울인다(5축 팔은 옆으로 기울일 수 없다)
-grasp_max_open_mm: 70      # 최대로 벌릴 틈(mm). 70이면 기울기 24°(손목 한계 안)라 V자가 대칭으로 보인다. 100은 손목 한계 35°에서 잘려 한쪽으로 보임. 물체가 약 60mm까지면 충분
+grasp_min_contact_mm: 8   # 물체 높이(height_mm)로 집는 높이를 정할 때 턱이 물체에 닿는 최소 높이(mm). 더 얕게 닿아야 지나가는 물체는 out_of_bounds로 거부
+replay_a_max_deg_s2: 600  # 교시 재생 변환본(fitted)이 맞추는 관절 가속 한도(°/s²). 추정값, 실물에서 떨림을 보고 고친다
+gripper_speed_pct: 100    # 그리퍼만 움직이는 동작의 속도 배율(1~100, 100 = 지금 속도). GUI 파라미터에서 바로 바꾼다
+grasp_max_open_mm: 90      # 최대로 벌릴 틈(mm). 시험값 70→90 (REQ-033, 위 grasp_height_mm 근거): H=39에서 t20·G90이면 W<=61까지 지난다(G70은 49). 단 G90은 대칭에 필요한 기울기 33°가 손목 한계(grasp_tilt_deg 35) 안이라 거의 대칭이지만, G100은 40°가 필요해 35°에서 잘려 V자가 한쪽으로 보인다(G90도 보일 수 있음). 70은 기울기 24°라 대칭
 contact_lag_units: 4       # 닫는 중 실제 그리퍼 값이 명령보다 이만큼 앞서 멈춰 있으면 물체에 닿은 것으로 본다
 gripper_squeeze_torque: 300  # 닫을 때 조임 힘 한계(0~1000, RAM Torque_Limit). 얇은 물체가 미끄러져 빠지지 않게 낮춤
 gripper_hold_torque: 200     # 들고 옮기는 동안 조임 힘 한계. 그리퍼 Overload_Torque 25% 아래로 둔다(300이면 몇 초 뒤 과부하 보호에 걸린다). 놓은 뒤 원래 값으로 되돌린다
@@ -28,6 +32,8 @@ grip_preload_units: 2        # 접촉 뒤 그리퍼 목표 = 지금 위치에서
 gripper_load_warn_pct: 60    # 그리퍼 부하 감시 기준(%). 넘은 채 gripper_load_s 지나면 조임을 멈추고 WARN, 1초 더 이어지면 열고 fault. 정상 집기 5회 최대값x1.3으로 실측해 바꾼다
 gripper_load_s: 1.0          # 위 기준을 넘고 있어야 하는 시간(초)
 place_height_mm: 30        # 놓을 때 그리퍼 끝 높이
+place_clearance_mm: 30     # 놓을 때 벌림 끝 = 쥔 틈 + 양쪽 이만큼 (최대 벌림까지). 장면 부품·바닥·알려진 물체와 겹치면 줄여 다시 계산(최소 10). 시험값 (arm-software-spec 11.3)
+place_open_s: 1.0          # 놓을 때 벌림과 손 이동을 끝내는 시간(초). 한 턱이 초당 25mm 이상 움직이게. 전원 판정(U3)이 power_reset이면 1.5로 늘려 본다
 gripper_open: 60           # 놓을 때 여는 정도(0~100)
 record_hz: 20            # 교시 기록 주기(Hz)
 record_max_s: 90         # 한 번에 기록하는 최대 시간(초)
@@ -37,3 +43,6 @@ seg_min_s: 0.5           # 이보다 짧은 구간은 이웃에 합침
 poses:                     # 자리표시. park는 센서 시야 밖 자세가 정해지면 바꾼다 (지금은 home과 같음)
   home: [0, -90, 93, 0, 0, 3]
   park: [0, -90, 93, 0, 0, 3]
+  # 초음파(CheckableSource)의 PREPARE·RESCAN 대기 자세 (결정 0039): 팔을 위로 세워 링크 점이 모두 작업대 y 120mm 이하(최대 약 102), 손끝 높이 350mm,
+  # 관절 한계에서 10° 이상 안쪽. 손끝을 원점 위 150mm에 두는 접은 자세는 기구학상 없다(링크가 y 120 안이면 손끝 최저가 약 270mm). 시험: tests/test_radar_clear.py
+  radar_clear: [0, -90, 85, -90, 0, 3]

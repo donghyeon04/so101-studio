@@ -1,10 +1,10 @@
-"""작업대·좌표 페이지 (gui-spec 3절): 위에서 본 작업대, 팔 받침과 배출 구역 배치, 숫자 입력, 저장. 저장한 값은 다시 시작해야 적용된다."""
+"""작업대·좌표 페이지 (gui-spec 3절): 위에서 본 작업대, 팔 받침과 배출 구역 배치, 숫자 입력, 저장. 저장하면 팔·평면 그림·3D에 바로 적용된다(REQ-034)."""
 
 from nicegui import run, ui
 
 from ...core.frames import Pose2D
 from ..sensors.manual_view import plane_svg
-from .common import Controls
+from .common import Controls, nudge_pad
 
 
 def build(backend, client_id: str, actions) -> None:
@@ -48,7 +48,7 @@ def build(backend, client_id: str, actions) -> None:
 
     async def save() -> None:
         reason = await run.io_bound(backend.save_workspace, dict(values), zone)
-        ui.notify(reason or "저장했습니다. 다시 시작하면 적용됩니다", type="negative" if reason else "positive")
+        ui.notify(reason or "저장했습니다. 팔과 3D에 바로 적용했습니다", type="negative" if reason else "positive")
 
     with actions:
         ui.badge("실측 전 값", color="warning").classes("page-state").mark("unmeasured")
@@ -62,10 +62,21 @@ def build(backend, client_id: str, actions) -> None:
             ui.label("작업대를 클릭하면 고른 것이 그 자리로 옮겨집니다").classes("page-body")
         with ui.column().classes("control-column gap-3"):
             with ui.card().classes("w-full gap-2"):
-                ui.label("클릭으로 옮길 것").classes("card-title")
+                ui.label("옮길 것 (클릭이나 패드로)").classes("card-title")
                 target = controls.add(
                     ui.toggle({"base": "팔 받침", "zone": "배출 구역"}, value="zone").props("no-caps spread").classes("w-full").mark("ws-target")
                 )
+                def nudge(dx: float, dy: float, dangle: float) -> None:
+                    if not controls.allowed:
+                        return
+                    prefix = "base" if target.value == "base" else "zone"
+                    fields[prefix + "_x"].value = values[prefix + "_x"] + dx
+                    fields[prefix + "_y"].value = values[prefix + "_y"] + dy
+                    if prefix == "base" and dangle:
+                        fields["base_yaw"].value = (values["base_yaw"] + dangle) % 360
+
+                nudge_pad(nudge, add=controls.add)
+                ui.label("누를 때마다 5mm·5°, 누르고 있으면 계속. 돌리기는 팔 받침만. 저장은 따로 누릅니다").classes("page-body")
             with ui.card().classes("w-full gap-2"):
                 ui.label("작업대 (mm)").classes("card-title")
                 with ui.row().classes("w-full no-wrap gap-2"):
@@ -83,7 +94,7 @@ def build(backend, client_id: str, actions) -> None:
                 with ui.row().classes("w-full no-wrap gap-2"):
                     number("x", "zone_x")
                     number("y", "zone_y")
-            ui.label("저장한 값은 앱을 다시 시작해야 팔과 3D에 적용됩니다").classes("page-body")
+            ui.label("저장하면 팔과 3D에 바로 적용됩니다").classes("page-body")
 
     redraw()
     ui.timer(0.5, controls.refresh)

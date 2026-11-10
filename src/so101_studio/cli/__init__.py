@@ -40,11 +40,17 @@ def run_task(svc: ArmService, a) -> str:
     from ..perception.manual import ManualSource
     from ..service.studio import Studio
 
-    st = Studio(svc, ManualSource(), dry_run=a.dry_run)
+    if getattr(a, "source", "manual") == "ultrasonic":
+        from ..service.ultrasonic import make_ultrasonic_source
+
+        source = make_ultrasonic_source(svc, sim=getattr(a, "sim", False), port=getattr(a, "us_port", None))
+    else:
+        source = ManualSource()
+    st = Studio(svc, source, dry_run=a.dry_run)
     st.bus.subscribe("task", lambda e: print(f"[{e.state}] {e.object_id or ''} {e.result or ''}".rstrip()))
     if a.step:
         st.task.wait_step = lambda: input("  (Enter: 다음 단계) ")
-    svc.driver.set_torque(True)
+    svc.enable_torque()  # 잠겼으면 켜지 않고, 작업은 첫 동작에서 locked로 끝난다
     res = st.start(step_mode=a.step, blocking=True)
     return f"끝: {res['end']}  옮긴 물체 {len(res['picked'])}개 {res['picked']}  실패 {res['failed']}  사이클 {res['cycles']}"
 
@@ -65,7 +71,8 @@ def run_jog(svc: ArmService, a) -> None:
         return msvcrt.getwch() if msvcrt.kbhit() else None
 
     mode = "cartesian" if a.cartesian else "joint"
-    svc.driver.set_torque(True)
+    if not svc.enable_torque():
+        raise RuntimeError(svc.locked_reason)  # 잠긴 팔은 읽기만 된다
     keyboard_loop(svc.ctl, mode, svc.ws.base.yaw_deg, 20.0 if mode == "joint" else 40.0, get_key)
 
 
@@ -80,7 +87,8 @@ def main(argv=None) -> None:
     ap.add_argument("--tilt", type=float, help="pick: 최대 기울기(°)를 이번만 바꿔 시험 (0이면 기울이지 않음)")
     ap.add_argument("--max-open", type=float, help="pick: 최대로 벌릴 틈(mm)을 이번만 바꿔 시험")
     ap.add_argument("--bias", type=float, help="pick: grasp_bias_mm를 이번만 바꿔 시험 (가동 턱 쪽이 +)")
-    ap.add_argument("--source", default="manual", help="run: 인식 방식 (지금은 manual)")
+    ap.add_argument("--source", default="manual", choices=["manual", "ultrasonic"], help="run: 인식 방식")
+    ap.add_argument("--us-port", help="run --source ultrasonic: ESP32 시리얼 포트 (기본: config/ultrasonic.yaml의 port)")
     ap.add_argument("--dry-run", action="store_true", help="run: 물체 없이 동작만 (접촉이 없어도 성공으로 보고 이어간다)")
     ap.add_argument("--step", action="store_true", help="run: 상태가 바뀔 때마다 Enter를 기다린다")
     ap.add_argument("--cartesian", action="store_true", help="jog: 직교 모드(앞뒤·좌우·위아래)")
@@ -93,8 +101,10 @@ def main(argv=None) -> None:
     ap.add_argument("--record-hz", type=int, help="record: 기록 주기 Hz를 이번만 바꾼다 (기본: 설정 record_hz)")
     ap.add_argument("--record-max-s", type=float, help="record: 최대 기록 시간(초)을 이번만 바꾼다 (기본: 설정 record_max_s)")
     ap.add_argument("--seg-speed", help="replay: 구간별 속도 배율 '번호=배율,...' 예: 1=0.5,3=2 (구간 번호는 info로 본다)")
+    ap.add_argument("--share", action="store_true", help="gui: 같은 네트워크의 다른 기기에서 보기 전용으로 보게 연다. 결정 0047")
     ap.add_argument("--free", action="store_true", help="작업대 가장자리 검사를 끈다 (바닥과 관절 한계는 유지). 손으로 움직이는 조종·재생용")
     ap.add_argument("--until-limit", action="store_true", help="replay: 한계나 바닥을 처음 넘는 자세 앞까지만 재생")
+    ap.add_argument("--mode", choices=["original", "fitted"], default="original", help="replay: fitted면 한 주기 이동량·가속 한도를 넘는 구간만 늦춰 재생(info가 미리 보여 준다)")
     ap.add_argument("--trace", action="store_true", help="keys: 명령·실제 관절 위치를 빠르게 기록하고 떨림 요약 (runs/.../trace.csv)")
     ap.add_argument("--speeds", help="shaketest: 시험할 속도들(°/s, 쉼표로). 기본 20,60,200")
     ap.add_argument("--arm", help="팔 파일 이름(config/arms/<이름>.yaml). 기본: local.yaml -> 보드 시리얼 -> 하나뿐이면 그것")
@@ -110,7 +120,7 @@ def main(argv=None) -> None:
     ap.add_argument("--torque-limit", type=int, help="calibrate --auto: 토크 한계(0~1000, 기본 500=50%%)")
     ap.add_argument("--last", type=float, default=60.0, help="incident: 지금부터 거슬러 올라갈 초 (기본 60)")
     ap.add_argument("command", choices=COMMANDS)
-    ap.add_argument("values", nargs="*", help="movej: 관절 6개 / goto: x y z yaw / pick: x y 각도 폭(0이면 크기를 모름) / gripper: 값 / record·replay·seq: 이름")
+    ap.add_argument("values", nargs="*", help="movej: 관절 6개 / goto: x y z yaw (z는 ToolPose 모델 z: 기준점 높이이고 턱 끝의 작업대 위 높이가 아니다. 턱 끝 높이로 보내려면 GUI 좌표 이동이나 keys 좌표 모드) / pick: x y 각도 폭(0이면 크기를 모름) / gripper: 값 / record·replay·seq: 이름")
     a = ap.parse_args(argv)
     if a.command in ("doctor", "find-port", "incident"):
         from ..bringup import run
@@ -249,7 +259,7 @@ def main(argv=None) -> None:
         elif c in ("replay", "seq"):
             seg = {int(k): float(x) for k, x in (p.split("=") for p in a.seg_speed.split(","))} if a.seg_speed else None
             try:
-                res = svc.replay(v[0] if v else ap.error(f"{c}: 이름이 필요하다"), a.speed / 100 if a.speed else 1.0, a.until_limit, seg)
+                res = svc.replay(v[0] if v else ap.error(f"{c}: 이름이 필요하다"), a.speed / 100 if a.speed else 1.0, a.until_limit, seg, a.mode)
             except ValueError as e:
                 sys.exit(f"재생 설정 오류: {e}")
             print(fmt(res))
@@ -257,4 +267,6 @@ def main(argv=None) -> None:
                 kept, total, why = svc.teach.last_cut
                 print(f"한계 앞에서 잘랐습니다: {total}점 중 {kept}점 재생 ({why})")
     finally:
+        from .rest import warn_if_loaded
+        warn_if_loaded(svc)  # 부하가 큰 자세로 끝나면 알린다(움직이지는 않는다)
         svc.disconnect()

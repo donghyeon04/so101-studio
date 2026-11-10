@@ -5,16 +5,18 @@ from collections import deque
 from dataclasses import dataclass, field
 
 from ..core.types import ArmStatus, TaskEvent
+from .health import LIMITS
 
 EMPTY = "—"
 PAGE_STATE = {"idle": "대기", "moving": "실행 중", "teleop": "실행 중", "teach": "실행 중", "stopped": "정지", "fault": "오류"}
 SAFETY_TEXT = {"normal": "보통", "free": "자유", "off": "끔"}
 TASK_TEXT = {
     "IDLE": "대기", "PREPARE": "준비", "SCAN": "스캔", "DECIDE": "판단", "PICK": "집기", "PLACE": "놓기",
+    "CHECK": "확인", "RESCAN": "다시 스캔",
     "DONE": "완료", "STOPPED": "정지", "FAULT": "오류",
 }
 PROGRESS = ("준비", "스캔", "판단", "집기", "놓기", "다시 스캔")
-_PROGRESS_INDEX = {"PREPARE": 0, "SCAN": 1, "DECIDE": 2, "PICK": 3, "PLACE": 4}
+_PROGRESS_INDEX = {"PREPARE": 0, "SCAN": 1, "DECIDE": 2, "CHECK": 2, "PICK": 3, "PLACE": 4, "RESCAN": 5}  # 초음파 확인(CHECK)은 판단 칸에 둔다
 
 
 def progress_index(task_state: str, placed: int) -> int | None:
@@ -30,6 +32,7 @@ class State:
     task_state: str = "IDLE"
     chosen: str | None = None
     placed: int = 0
+    run_t0: float = 0.0  # 이번 작업을 시작한 시각(이벤트 t와 같은 epoch 초). 운영자 화면이 이번 실행의 이벤트만 센다
     events: deque = field(default_factory=lambda: deque(maxlen=200))
 
     def update(self, status: ArmStatus) -> None:
@@ -71,8 +74,8 @@ class LogBook(logging.Handler):
 
 
 STALE_S = 1.0  # 상태가 10Hz로 오므로 이만큼 끊기면 값을 믿지 않는다
-SERVO_WARN_C = 55.0  # doctor의 온도 주의와 같은 기준
-SERVO_WARN_LOAD_PCT = 70.0
+SERVO_WARN_C = LIMITS["temperature"][1]  # 서보 건강 대시보드와 같은 주의 기준 (결정 0043-5)
+SERVO_WARN_LOAD_PCT = LIMITS["load"][1]
 FAULT_TEXT = {"grip_overload": "그리퍼 과부하로 열고 멈췄습니다. 물체와 턱을 확인한 뒤 정지 해제를 눌러 주세요"}
 
 
@@ -86,7 +89,7 @@ def component_states(status: ArmStatus | None, now: float, comm_lost: bool = Fal
     fault = status.fault or ""
     bus = ("error", f"통신 오류: {fault}") if fault.startswith("comm") else ("ok", "상태 수신 중")
     if fault and not fault.startswith("comm"):
-        return {"버스": bus, "서보": ("error", f"오류: {FAULT_TEXT.get(fault, fault)}")}
+        return {"버스": bus, "서보": ("error", getattr(status, "fault_text", None) or f"오류: {FAULT_TEXT.get(fault, fault)}")}
     warned = [f"{name} {status.temperature_c[name]:.0f}°C" for name in status.temperature_c if status.temperature_c[name] >= SERVO_WARN_C]
     warned += [f"{name} 부하 {load:.0f}%" for name, load in status.load_pct.items() if load >= SERVO_WARN_LOAD_PCT]
     return {"버스": bus, "서보": ("warn", ", ".join(warned)) if warned else ("ok", f"서보 {len(status.temperature_c)}개 정상")}

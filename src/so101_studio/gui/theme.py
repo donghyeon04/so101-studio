@@ -59,7 +59,8 @@ BODY_PX = 15
 RADIUS = 10
 GAP = 16
 DRAWER_W = 240
-ESTOP_D = 88
+ESTOP_D = 64  # 아래 조작 막대 안에서 가장 큰 버튼 (결정 0044)
+JOG_PANEL_W = 300
 
 _FONTS = (
     '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?'
@@ -73,7 +74,13 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 .frame-bar {{ background: {CARD}; color: {TEXT}; }}
 .frame-top {{ border-bottom: 1px solid {LINE}; }}
 .frame-bottom {{ border-top: 1px solid {LINE}; }}
-.stat-label {{ color: {MUTED}; font-size: 13px; line-height: 16px; }}
+.page-desc {{ color: {MUTED}; margin-top: -4px; }}
+.joystick {{ width: 120px; height: 120px; position: relative; border-radius: 50%; background: {BG}; border: 1px solid {CONTROL_BORDER}; }}
+.joystick::after {{ content: ""; position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: {ACCENT}; pointer-events: none; }}
+.nudge-pad {{ width: max-content; margin: 0 auto; }}
+.nudge-button {{ width: 40px; height: 40px; }}
+.top-stats {{ scrollbar-width: thin; }}
+.stat-label {{ color: {MUTED}; font-size: 13px; line-height: 16px; white-space: nowrap; }}
 .stat-value {{ font-family: 'IBM Plex Mono', 'IBM Plex Sans KR', Consolas, 'Malgun Gothic', monospace; font-weight: 600; line-height: 20px; white-space: pre; }}
 .page-state {{ font-size: {BODY_PX}px; padding: 4px 10px; }}
 .nav-group {{ color: {MUTED}; font-size: 13px; font-weight: 600; padding: 8px {GAP}px 2px; }}
@@ -110,6 +117,14 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 .segment-bar {{ gap: 2px; }}
 .segment {{ min-width: 0; height: {CONTROL_H}px; line-height: {CONTROL_H}px; text-align: center; overflow: hidden; border-radius: 4px; font-size: 13px; }}
 .control-column {{ width: 380px; flex: none; }}
+.operator-title {{ font-size: 28px; font-weight: 600; line-height: 36px; }}
+.operator-card-title {{ font-size: 22px; font-weight: 600; }}
+.operator-body {{ font-size: 20px; line-height: 30px; }}
+.operator-stage {{ width: 340px; flex: none; }}
+.operator-chip {{ font-size: 22px; line-height: 48px; padding: 0 16px; background: {CARD}; color: {MUTED}; border: 1px solid {LINE}; border-radius: 8px; }}
+.operator-chip.operator-chip-active {{ background: {ACCENT}; color: #ffffff; font-weight: 600; border-color: {ACCENT}; }}
+.operator-button {{ font-size: 20px; min-height: 56px; padding: 0 28px; }}
+.operator-now {{ font-size: 32px; font-weight: 600; line-height: 40px; }}
 .scene-column {{ position: sticky; top: {GAP}px; }}
 .jog-button {{ min-width: {CONTROL_H}px; padding: 0 8px; }}
 .jog-unit {{ width: 24px; }}
@@ -127,8 +142,10 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 .vc-home {{ position: absolute; left: 0; top: 0; pointer-events: auto; color: {MUTED}; }}
 .scene-layers {{ position: absolute; top: 8px; left: 8px; }}
 .q-page-sticky {{ z-index: 5000; }}
+.program-step {{ border-radius: 6px; }}
+.program-step-selected {{ background: {LINE}; outline: 2px solid {ACCENT}; }}
 .estop {{ width: {ESTOP_D}px; height: {ESTOP_D}px; font-weight: 600; border: 3px solid {CARD}; outline: 2px solid {DANGER}; }}
-.nicegui-content {{ padding: {GAP}px; gap: {GAP}px; padding-bottom: {ESTOP_D + 2 * GAP}px; }}
+.nicegui-content {{ padding: {GAP}px; gap: {GAP}px; }}
 .q-field--outlined .q-field__control:before {{ border-color: {CONTROL_BORDER}; }}
 .q-field--outlined.q-field--focused .q-field__control:after {{ border-color: {ACCENT}; border-width: 2px; }}
 :focus-visible {{ outline: 2px solid {ACCENT}; outline-offset: 2px; }}

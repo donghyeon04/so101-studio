@@ -1,6 +1,6 @@
 # 툴링 셋업
 
-상태: 확정 · 갱신 2026-11-02
+상태: 확정 · 갱신 2026-11-06
 
 > 기획 계정과 개발 계정 모두 같은 도구를 갖추기 위한 체크리스트다.
 
@@ -39,6 +39,8 @@
 ## C. 개발 단계 — 로컬 세션 (Windows PC)
 
 ### C-1. 개발 도구 (플러그인 아님, 먼저 설치)
+> 개발하지 않고 써 보기만 하는 팀원은 아래 표 대신 레포 루트의 `설치.cmd`를 한 번 실행하고 `시뮬레이션 실행.cmd`로 켠다 (`decisions/0040`, REQ-029).
+
 | # | 이름 | 용도 | 비고 |
 |---|---|---|---|
 | C1 | Git for Windows | 레포 작업. Windows용 Claude Code도 Git Bash를 쓴다 | |
@@ -46,7 +48,7 @@
 | C3 | LeRobot | 팔 제어, 기구학 (`decisions/0003`) | `pip install "lerobot[feetech,kinematics]"`. `kinematics`가 설치하는 placo는 Windows 휠이 없어 실패할 수 있다 → T1에서 확인 |
 | C4 | USB 시리얼 드라이버 (CH340 또는 CP210x) | 버스 서보 보드와 ESP32의 COM 포트 인식 | 장치 관리자에서 COM 번호 확인 |
 | C5 | ruff, pytest | 코드 형식 검사, `--sim` 단위 테스트 | |
-| C6 | Arduino IDE 2 또는 PlatformIO + ESP32 보드 패키지 | ESP32 스캔 펌웨어 (개발 3단계부터) | 지금은 불필요 |
+| C6 | Arduino IDE 2 또는 PlatformIO + ESP32 보드 패키지 3.x | ESP32 스캔 펌웨어 | Windows 사용자 폴더 이름이 한글이면 펌웨어 링크(xtensa ld)가 실패한다. core를 영문 경로에 설치한다: `ARDUINO_DIRECTORIES_DATA=C:\arduino15`, `ARDUINO_DIRECTORIES_USER=C:\arduino15\user`를 설정한 뒤 core 설치. 상세는 `us-dev-status.md` 알려진 함정 8번 |
 
 ### C-2. Claude Code 플러그인·MCP·스킬
 | # | 이름 | 용도 | 비고 |
@@ -91,6 +93,11 @@
 | `codebase-design`, `prototype`, `pr`, `writing-for-agents` | 자동(상황에 맞으면 에이전트가 부름) | 모듈 설계, 버리는 시안, PR 본문, CLAUDE.md·스킬 쓰기 |
 
 쓰지 않는 것: `setup-matt-pocock-skills`, `grill-with-docs`, `domain-modeling`, `research`, `tdd`, `diagnosing-bugs`, `code-review`, `implement`, `implement-spec`, `triage`, `to-tickets`, `to-spec`, `wayfinder`, `ask-matt`, `teach`, `wizard` (규칙 충돌 또는 Superpowers와 겹침).
+
+### C-6. 사용자 지정 추가 (2026-11-06)
+| # | 이름 | 종류 | 용도 | 설치 |
+|---|---|---|---|---|
+| C19 | **Stageshow** (Benji Taylor, `benjitaylor/skills`, MIT) | 스킬 | 제품 데모 화면을 만들고 영상으로 찍어 다듬는다(빽빽하거나 비거나 갇힌 화면을 고침). 시연 영상과 GUI 화면 다듬기에 쓴다 | Node.js 22.20 이상에서 `npx skills add benjitaylor/skills --skill stageshow`. 레포가 아니라 사용자 범위(`~/.claude/skills/`)에 설치한다. 설치 전에 레포의 `SKILL.md`·`LICENSE`를 읽고 확인한다(2차 자료로만 확인함) |
 
 ## D. 레퍼런스 평가 기준
 

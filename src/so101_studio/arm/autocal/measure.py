@@ -20,7 +20,7 @@ CAL_REGISTERS = ("Homing_Offset", "Min_Position_Limit", "Max_Position_Limit")
 PASS_DEG = 3.0  # 기존 값과의 차이 허용(°): 범위와 0° 위치 모두 (AC4)
 
 GUIDE = """자동 캘리브레이션을 시작하기 전에 확인한다:
-  1. 팔을 시작 자세로 둔다: 접힌 자세(윗팔을 뒤로 젖히고 아래팔을 그 위로 접음), 그리퍼는 닫고 아래로 향하게.
+  1. 팔을 시작 자세로 둔다: 홈 자세가 아니라, 그리퍼가 받침 앞에서 아래로 늘어진 쉬는 자세다(홈에서 시작하면 wrist_flex가 막힌다). 그리퍼는 닫는다.
   2. 팔의 받침을 클램프로 책상에 단단히 고정한다.
   3. 팔 주변 반경 50cm를 비운다. 팔이 앞으로 뻗고 받침이 좌우로 약 100° 돈다.
   4. 전원 스위치 옆에 사람이 있다. 이상하면 바로 끈다 (Ctrl+C도 레지스터를 되돌린다).
@@ -95,14 +95,14 @@ def format_table(rows: list[dict]) -> str:
 
 
 def measure_only(bus, calibration_id: str, old_cal: dict | None, *, velocity: int = 200, torque_limit: int | None = None, out=print,
-                 run_dir: Path | None = None, min_volt: float = MIN_VOLT, max_temp: float = MAX_TEMP, clock=time.monotonic, sleep=time.sleep) -> dict:
+                 run_dir: Path | None = None, min_volt: float = MIN_VOLT, max_temp: float = MAX_TEMP, clock=time.monotonic, sleep=time.sleep, stop=None) -> dict:
     """측정만 한다. 보고서 dict를 돌려주고 run_dir/measure.json에 남긴다. 실패하면 AutoCalibrationError(레지스터는 되돌린 뒤)."""
     if problem := vitals_problem(bus, min_volt, max_temp):
         raise AutoCalibrationError(problem)
     saved = snapshot(bus)
-    guarded = GuardedBus(bus, min_volt, max_temp, clock=clock)
+    guarded = GuardedBus(bus, min_volt, max_temp, clock=clock, stop=stop)
     cfg = AutoCalibrationConfig(velocity=velocity, torque_limit=torque_limit)
-    calibrator = FeetechAutoCalibrator(guarded, SO_ARM_PLAN, cfg, clock=clock, sleep=sleep)
+    calibrator = FeetechAutoCalibrator(guarded, SO_ARM_PLAN, cfg, clock=clock, sleep=sleep, progress=out)
     started = time.time()
     try:
         result = calibrator.run()

@@ -37,7 +37,7 @@ class Recorder(SimDriver):
 
 @pytest.fixture(scope="module")
 def kin():
-    return Kinematics(CFG.urdf, WS.base)
+    return Kinematics(CFG.urdf, WS.base, CFG.joint_limits_deg)  # 실제 ArmService처럼 풀이기가 관절 한계 안에서 푼다
 
 
 def rig(kin, block=None, **cfg_kw):
@@ -63,6 +63,7 @@ def test_pick_unknown_size_closes_until_contact(kin):
     assert d.log[-1].gripper == pytest.approx(BLOCK, abs=0.6)  # 물체에서 멈춘다(끝까지 닫히지 않는다)
 
 
+@pytest.mark.slow
 def test_pick_without_an_object_reports_no_object(kin):
     _d, r = run_pick(kin, block=None)
     assert r.status == "no_object"
@@ -101,6 +102,7 @@ def test_hand_tilts_when_open_and_straightens_while_closing(kin):
     assert abs(kin.fk(at_contact).pitch_deg + 90) < abs(kin.fk(opened).pitch_deg + 90) - 5  # 닫을수록 기울기가 줄어든다
 
 
+@pytest.mark.slow
 def test_no_tilt_when_the_jaw_axis_is_sideways(kin):
     d, _r = run_pick(kin, angle=90)  # 턱이 좌우로 벌어짐: 5축 팔은 옆으로 기울일 수 없다
     top = max(q.gripper for q in d.log)
@@ -119,6 +121,7 @@ def test_jaws_open_perpendicular_to_the_long_axis(kin):
     assert kin.moving_jaw_dir(low) == pytest.approx((0, 1), abs=0.1)  # 각도 0 -> 턱은 작업대 y축을 따라
 
 
+@pytest.mark.slow
 def test_jaw_axis_follows_the_object_angle(kin):
     d, _ = run_pick(kin, angle=45)
     low = min(d.log, key=lambda q: kin.fk(q).z_mm)
@@ -126,6 +129,7 @@ def test_jaw_axis_follows_the_object_angle(kin):
 
 
 @pytest.mark.parametrize("angle", [0, 45, 90, 135])
+@pytest.mark.slow
 def test_pick_returns_to_hover_for_every_angle(kin, angle):
     d, r = run_pick(kin, x=300, y=200, angle=angle)
     assert r.status == "ok"
@@ -141,6 +145,7 @@ def test_known_width_with_fit_policy_opens_only_as_much_as_needed(kin):
     assert gap_of(max(q.gripper for q in d.log)) == pytest.approx(WIDTH + CFG.gripper_margin_mm, abs=3)
 
 
+@pytest.mark.slow
 def test_grasp_bias_shifts_toward_the_moving_jaw(kin):
     def start_of_closing(bias):
         d, ctl, sk = rig(kin, BLOCK, grasp_bias_mm=bias)
@@ -152,11 +157,15 @@ def test_grasp_bias_shifts_toward_the_moving_jaw(kin):
     assert start_of_closing(6).y_mm - start_of_closing(0).y_mm == pytest.approx(6, abs=2)
 
 
+@pytest.mark.slow
 def test_place_opens_gripper_at_zone(kin):
     d, ctl, sk = rig(kin)
+    held = sk._gap_mm(d.read_joints().gripper)
     r = sk.place("right")
     ctl.close()
-    assert r.status == "ok" and d.log[-1].gripper == pytest.approx(CFG.gripper_open, abs=1)
+    cap = sk._gap_mm(CFG.joint_limits_deg["gripper"][1])
+    want = sk.gripper_for_width(min(held + 2 * CFG.place_clearance_mm, cap))  # 쥔 틈 + 양쪽 place_clearance_mm (최대 벌림까지, arm-software-spec 11.3)
+    assert r.status == "ok" and d.log[-1].gripper == pytest.approx(want, abs=1)
 
 
 def test_gripper_for_width_is_clamped_and_monotonic(kin):
@@ -184,6 +193,7 @@ def test_symmetric_tilt_is_half_the_jaw_opening_angle(kin):
 
 # ---- REQ-020 (결정 0033): 예압, RAM 조임 한계, no_object 때 열기, 그리퍼 부하 두 단계, 놓기 보정
 
+@pytest.mark.slow
 def test_contact_sets_goal_to_position_plus_preload_and_torque_limit_goes_300_200_then_original(kin):
     d, ctl, sk = rig(kin, BLOCK)
     d.torque_limit = 777  # 원래 값
@@ -199,14 +209,25 @@ def test_contact_sets_goal_to_position_plus_preload_and_torque_limit_goes_300_20
 
 
 def test_torque_limit_is_ram_not_eeprom():
-    import inspect
+    import types
 
     from so101_studio.arm.driver import ArmDriver
 
-    src = inspect.getsource(ArmDriver.set_gripper_torque_limit)
-    assert '"Torque_Limit"' in src and 'write("Max_Torque_Limit"' not in src
+    class FakeBus:
+        def __init__(self):
+            self.motors = {"gripper": None}
+            self.writes = []
+
+        def write(self, register, motor, value, **kw):
+            self.writes.append((register, motor, value))
+
+    bus, d = FakeBus(), ArmDriver()
+    d._robot = types.SimpleNamespace(bus=bus)
+    d.set_gripper_torque_limit(300)
+    assert bus.writes == [("Torque_Limit", "gripper", 300)]  # RAM(Torque_Limit)만. Max_Torque_Limit(EEPROM)은 쓰지 않는다
 
 
+@pytest.mark.slow
 def test_torque_limit_is_restored_when_place_raises(kin):
     d, ctl, sk = rig(kin, BLOCK)
     d.torque_limit = 900
@@ -218,6 +239,7 @@ def test_torque_limit_is_restored_when_place_raises(kin):
     assert d.torque_limit == 900 and ctl.grip_hold is None
 
 
+@pytest.mark.slow
 def test_no_object_opens_only_after_rising_to_the_approach_height(kin):
     d, ctl, sk = rig(kin, None)
     d.torque_limit = 900
@@ -233,6 +255,7 @@ def test_no_object_opens_only_after_rising_to_the_approach_height(kin):
     assert z_at_open_start > z_min + CFG.approach_height_mm * 0.8  # 바닥(가장 낮은 곳)이 아니라 올라온 높이에서 열기 시작
 
 
+@pytest.mark.slow
 def test_grip_load_two_stages_hold_then_open_and_fault(kin):
     d, ctl, sk = rig(kin, BLOCK)
     assert sk.pick(obj()).status == "ok"
@@ -248,6 +271,7 @@ def test_grip_load_two_stages_hold_then_open_and_fault(kin):
     assert ctl.fault == "grip_overload" and d.read_joints().gripper == pytest.approx(CFG.gripper_open, abs=1)  # 그리퍼를 열었다
 
 
+@pytest.mark.slow
 def test_grip_load_below_limit_does_nothing(kin):
     d, ctl, sk = rig(kin, BLOCK)
     assert sk.pick(obj()).status == "ok"
@@ -257,6 +281,7 @@ def test_grip_load_below_limit_does_nothing(kin):
     assert ctl.state != "fault"
 
 
+@pytest.mark.slow
 def test_place_moves_the_hand_so_the_jaw_midpoint_stays_while_opening(kin):
     d, ctl, sk = rig(kin, BLOCK)
     assert sk.pick(obj()).status == "ok"
@@ -280,6 +305,7 @@ def test_place_moves_the_hand_so_the_jaw_midpoint_stays_while_opening(kin):
     assert np.hypot(a1.x_mm - a0.x_mm, a1.y_mm - a0.y_mm) > 1.0  # 손은 실제로 움직였다(보정이 있었다)
 
 
+@pytest.mark.slow
 def test_opening_command_after_pick_releases_hold_and_restores_limit_but_estop_keeps_them(kin):
     from so101_studio.service.arm_service import ArmService
 
@@ -299,6 +325,7 @@ def test_opening_command_after_pick_releases_hold_and_restores_limit_but_estop_k
     assert d.torque_limit == 800 and ctl.grip_hold is None  # 원래 값으로
 
 
+@pytest.mark.slow
 def test_place_restores_limit_before_opening(kin):
     d, ctl, sk = rig(kin, BLOCK)
     d.torque_limit = 800

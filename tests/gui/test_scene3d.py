@@ -44,6 +44,13 @@ def test_urdf_cfg_follows_urdf_joint_order_and_gripper_mapping():
     assert got == pytest.approx([math.radians(-10), math.radians(50), math.radians(10)])
 
 
+def test_urdf_cfg_parallel_gripper_is_half_gap_in_meters():
+    """REQ-041: 병렬 URDF의 gripper는 직선 관절(m). 값 50이면 폭 42mm -> 오른쪽 +0.021, 왼쪽 -0.021."""
+    q = JointState(0, 0, 0, 0, 0, 50)
+    got = urdf_cfg(q, ("gripper", "gripper_left", "shoulder_pan"), [[0, 0], [100, 84]])
+    assert got == pytest.approx([0.021, -0.021, 0.0])
+
+
 def test_urdf_cfg_covers_every_actuated_joint(backend3d):
     names = backend3d.scene._names
     assert set(names) == set(ARM_JOINTS) | {"gripper"}
@@ -97,6 +104,9 @@ def test_objects_are_drawn_and_replaced(backend3d):
 
 def test_viser_binds_to_localhost_only(backend3d):
     assert backend3d.scene.url.startswith("http://127.0.0.1:")
+    port = backend3d.scene.server.get_port()
+    assert backend3d.scene.url_for("192.168.0.12") == f"http://192.168.0.12:{port}"  # 다른 기기는 연 호스트로 3D를 연다(gui-spec 12.6)
+    assert backend3d.scene.url_for("::1") == f"http://[::1]:{port}" and backend3d.scene.url_for(None) == backend3d.scene.url
     assert backend3d.scene.server._websock_server._host == "127.0.0.1"
 
 
@@ -169,3 +179,44 @@ def test_objects_layer_survives_redrawing_the_objects(backend3d):
         assert scene._objects_root.visible is True
     finally:
         scene.set_layer("objects", True)
+
+
+def test_scene_parts_on_table_and_on_link(backend3d):
+    """결정 0043-4·REQ-040: 작업대 부품은 /parts 아래, 링크 부품은 그 링크 노드 아래(팔을 따라 움직임). 모르는 링크는 건너뛴다."""
+    from types import SimpleNamespace
+
+    import trimesh
+
+    box = trimesh.creation.box((80.0, 60.0, 40.0))
+    T = np.eye(4)
+    T[:3, 3] = (100.0, 200.0, 20.0)
+    parts = [SimpleNamespace(name="station", attach="table", T=T, mesh=box, color="#8a8f98"),
+             SimpleNamespace(name="bracket", attach="wrist_link", T=np.eye(4), mesh=box, color=None),
+             SimpleNamespace(name="ghost", attach="no_such_link", T=np.eye(4), mesh=box, color=None)]
+    scene = backend3d.scene
+    scene.set_parts(SimpleNamespace(parts=parts))
+    nodes = scene.server.scene._handle_from_node_name
+    assert "/parts/part_station" in nodes
+    assert np.allclose(nodes["/parts/part_station"].position, (0.1, 0.2, 0.02))
+    bracket = [n for n in nodes if n.endswith("/wrist_link/part_bracket")]
+    assert len(bracket) == 1 and bracket[0].startswith("/real/")
+    assert not any("ghost" in n for n in nodes)
+    scene.set_parts(None)
+    assert not any("part_" in n for n in scene.server.scene._handle_from_node_name)
+
+
+def test_saved_workspace_is_redrawn_without_restart(backend3d):
+    """작업대·좌표를 저장하면 3D의 작업대 크기, 배출 구역, 팔 자리가 바로 바뀐다(다시 시작하지 않아도)."""
+    scene, ws = backend3d.scene, backend3d.arm.ws
+    before = tuple(scene._real_root.position)
+    moved = replace(ws, table_mm={"x": 700.0, "y": 450.0}, robot_base_in_table={**ws.robot_base_in_table, "y_mm": ws.base.y_mm + 11},
+                    drop_zones={"left": {"x_mm": 100, "y_mm": 150}})
+    try:
+        scene.set_workspace(moved)
+        table = scene._layer_nodes["table"][0]
+        assert tuple(table.dimensions[:2]) == pytest.approx((0.7, 0.45))
+        assert scene._real_root.position[1] == pytest.approx(before[1] + 0.011) and scene._preview_root.position[1] == pytest.approx(before[1] + 0.011)
+        assert [z.name for z in scene._layer_nodes["zones"]] == ["/zones/left"]
+    finally:
+        scene.set_workspace(ws)
+    assert tuple(scene._real_root.position) == pytest.approx(before)

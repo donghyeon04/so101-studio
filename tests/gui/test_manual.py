@@ -12,7 +12,7 @@ pytest.importorskip("nicegui")
 from nicegui.testing import user_simulation
 
 from so101_studio.gui import app as gui_app
-from so101_studio.gui.backend import JOG_JOINTS
+from so101_studio.gui.backend import CART_AXES, JOG_JOINTS
 from so101_studio.gui.scene3d import table_hit
 from so101_studio.service.targets import tip_vector
 
@@ -82,6 +82,22 @@ def test_plan_unreachable_point_gives_reason_and_no_preview(backend):
     assert backend.scene._preview_root.visible is False
     assert "/marks/path" not in backend.scene.server.scene._handle_from_node_name
     backend.scene.clear_target()
+
+
+@pytest.mark.slow
+def test_horizontal_tip_plans_moves_and_draws_reach_rings(backend):
+    """REQ-037: 손끝 각도 0(수평)으로 앞쪽 점에 닿고, 집기 범위와 움직임 범위 호를 3D에 그린다."""
+    nodes = backend.scene.server.scene._handle_from_node_name
+    plan = backend.plan(300, 350, 120, 90, 0)
+    assert plan.ok, plan.text
+    assert "/marks/reach/pick" in nodes and "/marks/reach/motion" in nodes
+    backend.scene.clear_target()
+    assert "/marks/reach/pick" not in nodes
+    assert backend.move_to(300, 350, 120, 90, 0) is None
+    assert backend.arm.status().tool.pitch_deg == pytest.approx(0, abs=5)
+    assert backend.jog_step("cartesian", CART_AXES.index("pitch"), -15) is None  # 아래로 15°
+    assert backend.arm.status().tool.pitch_deg == pytest.approx(-15, abs=5)
+    assert backend.home() is None
 
 
 def test_move_to_reaches_the_point(backend):
@@ -201,10 +217,10 @@ def test_resume_button_appears_only_when_stopped(backend):
         assert await _until(lambda: backend.owner is not None)
         await user.should_not_see(marker="resume")
         backend.estop()
-        await user.should_see(marker="resume")
+        await user.should_see(marker="resume", retries=30)  # 기본 0.3초는 부하가 있으면 상태줄 갱신보다 짧다
         user.find(marker="resume").click()
         assert await _until(lambda: backend.arm.ctl.state == "idle")
-        await user.should_not_see(marker="resume")
+        await user.should_not_see(marker="resume", retries=30)
 
     in_app(backend, check)
 
@@ -212,3 +228,34 @@ def test_resume_button_appears_only_when_stopped(backend):
 def test_jog_joint_table_matches_jointstate_order(backend):
     names = [f.name for f in fields(backend.arm.status().joints)]
     assert list(JOG_JOINTS) == names[:5]
+
+
+def test_joint_to_moves_one_joint_to_the_typed_angle(backend):
+    """결정 0042 7번: 관절 하나를 입력한 각도로."""
+    backend.set_speed(100)
+    assert backend.joint_to(JOG_JOINTS.index("wrist_roll"), 20.0) is None
+    assert abs(backend.arm.status().joints.wrist_roll - 20.0) < 1.0
+    assert backend.joint_to(JOG_JOINTS.index("wrist_roll"), 0.0) is None
+
+
+@pytest.mark.slow
+def test_pick_place_moves_object_to_the_place_point(backend):
+    """gui-spec 11절 B7: 집기 점에서 집어 놓기 점에 놓는다. 범위 밖이면 이유를 돌려준다."""
+    backend.set_speed(100)
+    assert backend.pick_place((300, 200), 0, 30, 30, (330, 180)) is None
+    assert backend.pick_place((300, 200), 0, 58, 58, (330, 180), height_mm=39) is None  # REQ-034 높이 칸
+    assert "집기 점이 집기 범위 밖" in (backend.pick_place((300, 60), 0, 30, 30, None) or "")
+
+
+def test_joystick_vector_moves_then_stops(backend):
+    """G13: 조이스틱 비율을 이어 보내는 동안 움직이고, 끊기면 0.3초 데드맨으로 선다."""
+    assert _wait_for(lambda: backend.arm.ctl.state == "idle")  # 앞 시험의 동작이 끝나기를 기다린다
+    assert backend.move_to(*REACHABLE) is None
+    before = _tip(backend)
+    for _ in range(5):
+        assert backend.jog_vector([0.0, 0.5, 0.0])
+        time.sleep(0.1)
+    backend.jog_release("cartesian")
+    assert _wait_for(lambda: backend.arm.ctl.state == "idle")
+    moved = _tip(backend) - before
+    assert moved[1] > 5 and abs(moved[0]) < 3

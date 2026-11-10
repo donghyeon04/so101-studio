@@ -48,6 +48,7 @@ class DetectedObject:      # 모든 인식 방식의 공통 출력 (decisions/00
     angle_deg: float | None           # 0~180, None = 판단 불가
     width_mm: float; length_mm: float
     confidence: float                 # 0~1
+    height_mm: float = 0.0            # 물체 높이, 0 = 모름 (decisions/0042). 초음파는 확인 실측 높이, 수동 입력은 높이 칸
     source: str                       # "manual" | "ultrasonic" | "camera"
 
 @dataclass
@@ -95,16 +96,20 @@ PPT 흐름도(캘리브레이션 → 스캔 → 판단 → 실행 → 남은 물
 ```
 | 상태 | 하는 일 | 다음 상태 |
 |---|---|---|
-| `PREPARE` | 팔을 센서 시야 밖 대기 자세로(`park`) | `SCAN` |
+| `PREPARE` | 팔을 센서 시야 밖 대기 자세로. 기본 `park`, 초음파를 쓸 때는 `radar_clear`(결정 0039·0041, 위로 세운 자세). 초음파는 첫 사이클과 집기 실패 뒤에만 거치고, `PLACE` 뒤에는 거치지 않는다(아래 `PLACE` 줄) | `SCAN` |
 | `SCAN` | `perception.scan()` | `DECIDE` |
-| `DECIDE` | 도달 범위 밖 물체 제외 → 우선순위(기본: 팔에서 가까운 순) → 1개 선택 | 있으면 `PICK`, 없으면 `DONE` |
+| `DECIDE` | 도달 범위 밖 물체 제외 → 우선순위(기본: 팔에서 가까운 순) → 1개 선택 | 있으면 `PICK`, 없으면 `DONE`. 미리 찾기(prefetch)를 쓰는 초음파는 없을 때 `RESCAN`을 한 번 거친다(`ultrasonic-spec.md` 2절) |
 | `CHECK` | 확인 기능이 있는 인식 방식만(`CheckableSource`, `ultrasonic-spec.md` 8.2절): 팔이 후보 위를 지나가며 손목 센서로 재서 물체를 확정. 물체가 없으면 그 후보를 지움 | 확정 `PICK`, 없음 `DECIDE` |
-| `PICK` | `arm.pick(obj)` | 성공 `PLACE`, 실패 시 재시도 1회 후 건너뛰고 `PREPARE` (재시도는 목표 층) |
-| `PLACE` | `arm.place(zone)` | `PREPARE` (물체를 하나 옮길 때마다 다시 스캔) |
+| `PICK` | `arm.pick(obj)` | 성공 `PLACE`, 실패 시 재시도 1회 후 건너뛰고 `PREPARE` (재시도는 목표 층). 초음파는 건너뛸 때 `note_failure`로 알리고, `give_up`이면 `DONE`(`ultrasonic-spec.md` 8.2절) |
+| `PLACE` | `arm.place(zone)` | `PREPARE` (물체를 하나 옮길 때마다 다시 스캔). 초음파는 `PREPARE` 없이 바로 `SCAN`: 놓는 동안 미리 돌린 레이더 결과를 쓰고, 팔 자리는 그 측정 시각의 링크 점으로 지운다(`ultrasonic-spec.md` 2절, 4절 T5). 팔은 배출 구역에서 바로 다음 확인으로 간다 |
 
 - **단계별 실행 모드(D3):** 상태가 바뀔 때마다 멈추고 `step()`을 기다린다. 시연 때 한 단계씩 설명하는 용도다.
 - **사이클 상한:** 같은 물체를 3회 연속 실패하거나 사이클이 20회를 넘으면 `DONE`으로 끝낸다.
 - 모든 상태 전환은 `TaskEvent`로 발행되고 기록된다.
+
+### 5.1 장면 부품과 프로그램 저장 형식 (2026-11-07, 결정 0043·0044)
+- **장면 부품** `config/scene.yaml`: 직접 설계 부품(레이더 스테이션, 손목 브래킷, 그리퍼 개조, 판 등)마다 STL 파일, 붙는 곳(작업대 또는 팔 링크 이름), 위치·자세. 3D 화면과 충돌 검사가 같은 목록을 읽는다. STEP을 받기 전에는 임시 상자로 둔다. 충돌 검사 이름은 `scene:<부품 이름>`, 작업 면은 `scene_floor`. 구현 REQ-040(#168), 형식 세부는 코드가 기준.
+- **자세 즐겨찾기** `config/waypoints.yaml`: 이름 붙인 관절 자세 목록. **프로그램** `config/programs/<이름>.yaml`: 자세·집기·놓기·기다리기 같은 단계의 순서 목록(블록 프로그래밍의 저장본). 둘 다 사람이 읽을 수 있는 YAML이고 git에 넣는다. 실행은 `ArmService`를 거쳐 안전 검사를 그대로 받는다.
 
 ## 6. PC ↔ ESP32 통신 규약
 - `ultrasonic-spec.md` 7절이 기준이다(결정 0034). USB 시리얼, 한 줄에 JSON 하나, 측정마다 ESP32 시각, 센서 2개(레이더·팔)는 33ms 이상 띄워 번갈아 측정, 팔 센서 우선.

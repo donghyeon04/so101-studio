@@ -8,10 +8,7 @@ from .engine import AutoCalibrationError
 MIN_VOLT = 11.0
 MAX_TEMP = 60.0
 PERIOD_S = 0.25
-# 한 번 읽은 값이 기준을 넘어도 바로 멈추지 않고 이만큼 더 읽어 모두 넘을 때만 멈춘다. 첫 실물 시험에서 실제로는 37°C인 서보를 잘못 읽은 68°C 한 번에
-# 시작하자마자 중단됐다(2026-11-03). 진짜 과열이면 몇십 ms 안에 다시 읽어도 그대로라 안전은 그대로다.
-CONFIRM_READS = 2
-CONFIRM_GAP_S = 0.05
+CONFIRM = 2  # 한 번 잘못 읽힌 값(온도 80°C, 실제 34~39°C)으로 중단하지 않는다: 연속 2회(약 0.5초) 넘을 때만
 
 
 def read_vitals(bus) -> tuple[float, float]:
@@ -31,11 +28,11 @@ def vitals_problem(bus, min_volt: float = MIN_VOLT, max_temp: float = MAX_TEMP) 
 
 
 class GuardedBus:
-    def __init__(self, bus, min_volt: float = MIN_VOLT, max_temp: float = MAX_TEMP, period_s: float = PERIOD_S, clock=time.monotonic,
-                 confirm_reads: int = CONFIRM_READS, confirm_gap_s: float = CONFIRM_GAP_S, sleep=time.sleep):
-        self._bus, self.min_volt, self.max_temp, self.period_s, self._clock = bus, min_volt, max_temp, period_s, clock
-        self.confirm_reads, self.confirm_gap_s, self._sleep = confirm_reads, confirm_gap_s, sleep
+    def __init__(self, bus, min_volt: float = MIN_VOLT, max_temp: float = MAX_TEMP, period_s: float = PERIOD_S, clock=time.monotonic, confirm: int = CONFIRM, stop=None):
+        self.stop = stop  # stop()이 True면 다음 위치 읽기에서 AutoCalibrationError("중단했습니다"): 엔진의 finally가 레지스터를 되돌린다 (GUI 마법사의 중단 버튼, REQ-052)
+        self._bus, self.min_volt, self.max_temp, self.period_s, self._clock, self.confirm = bus, min_volt, max_temp, period_s, clock, confirm
         self._last = clock()
+        self._bad = 0  # 연속으로 기준을 넘은 횟수
         self.tripped: str | None = None
 
     def __getattr__(self, name):  # motors, write, read, sync_write, disable_torque 등은 그대로 넘긴다
@@ -43,6 +40,9 @@ class GuardedBus:
 
     def sync_read(self, data_name, motors=None, **kw):
         if data_name == "Present_Position":
+            if self.stop and not self.tripped and self.stop():
+                self.tripped = "중단"  # 이후 정리하는 읽기는 다시 던지지 않는다
+                raise AutoCalibrationError("중단했습니다 (레지스터를 되돌린다)")
             self._check()
         return self._bus.sync_read(data_name, motors, **kw)
 
@@ -52,11 +52,7 @@ class GuardedBus:
             return
         self._last = now
         problem = vitals_problem(self._bus, self.min_volt, self.max_temp)
-        for _ in range(self.confirm_reads if problem else 0):
-            self._sleep(self.confirm_gap_s)
-            problem = vitals_problem(self._bus, self.min_volt, self.max_temp)  # 다시 읽어도 넘어야 진짜다
-            if not problem:
-                break
-        if problem:
+        self._bad = self._bad + 1 if problem else 0
+        if problem and self._bad >= self.confirm:
             self.tripped = problem
             raise AutoCalibrationError(f"{problem} (자동 캘리브레이션 중단, 레지스터를 되돌린다)")

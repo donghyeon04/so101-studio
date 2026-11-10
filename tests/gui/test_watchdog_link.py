@@ -58,7 +58,7 @@ def _run_for(link, seconds):
 
 def test_server_heartbeat_and_status(fake_watchdog):
     link = _link(fake_watchdog)
-    _run_for(link, 0.7)
+    _run_for(link, 1.0)  # 0.2초 주기. 전체 시험 중 부하에서 0.7초는 3번에 못 미친 적이 있다
     assert fake_watchdog.calls.count("/hb?src=server") >= 3
     assert "/status" in fake_watchdog.calls
     assert link.alive and link.text() == "정상"
@@ -169,3 +169,14 @@ def test_start_spawns_when_nothing_answers(monkeypatch):
     spawned.clear()
     WatchdogLink(sim=False, port=1).start()
     assert "--sim" not in spawned[0]
+
+
+def test_alive_needs_a_recent_tick_when_the_watchdog_reports_it():
+    """감사 2026-11-07: 감시 스레드가 죽어도 HTTP는 답한다. last_tick_age_s가 오래되면 살아 있지 않다고 본다."""
+    link = WatchdogLink(sim=True, port=1)
+    link.status = {"sim": True, "last_tick_age_s": 0.2}
+    assert link.alive
+    link.status = {"sim": True, "last_tick_age_s": 5.0}
+    assert not link.alive
+    link.status = {"sim": True}  # 옛 감시 프로세스(필드 없음)는 응답만으로 판정
+    assert link.alive

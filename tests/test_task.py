@@ -149,6 +149,7 @@ def test_cycle_limit_ends_the_task():
 
 
 # ---- S2 완료 기준: SimDriver + ManualSource로 물체 3개 자동 사이클이 끝까지 돈다
+@pytest.mark.slow
 def test_full_cycle_in_simulation_with_three_objects():
     tbl = sorted((mm, v) for v, mm in CFG.gripper_width_mm)
     block = float(np.interp(30.0, [p[0] for p in tbl], [p[1] for p in tbl]))  # 폭 30mm 물체가 있는 것처럼

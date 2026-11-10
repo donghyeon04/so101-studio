@@ -2,32 +2,112 @@
 
 import json
 import threading
+import time
 
 from nicegui import run, ui
 
 from .. import theme
 from ..backend import BIG_MOVES, DIAGNOSTICS, JOINT_TEXT
+from ..health import EVENT_KINDS, LABELS, LEVEL_TEXT, LIMITS
 from .common import Controls
 
 COLUMNS = [
     {"name": "joint", "label": "서보", "field": "joint", "align": "left"},
     {"name": "position", "label": "위치", "field": "position"},
-    {"name": "temperature", "label": "온도 (°C)", "field": "temperature"},
-    {"name": "load", "label": "부하 (%)", "field": "load"},
-    {"name": "state", "label": "응답", "field": "state", "align": "left"},
+    {"name": "temperature", "label": "온도 °C (최고)", "field": "temperature"},
+    {"name": "load", "label": "부하 % (최고)", "field": "load"},
+    {"name": "state", "label": "상태", "field": "state", "align": "left"},
 ]
+CHARTS = {"temperature": "온도", "load": "부하", "power": "전압·전류"}
 
 
-def servo_rows(status) -> list[dict]:
+def servo_rows(status, health=None) -> list[dict]:
+    """서보 6개 표. health가 있으면 이번 실행 최고값과 3초 이어진 주의·오류 판정을 함께 보인다 (결정 0043-5)."""
     if status is None:
         return []
     joints = vars(status.joints)
-    state = "오류" if status.fault else "정상"
-    return [
-        {"joint": f"{i + 1}. {text}", "position": f"{joints[name]:.1f}", "temperature": f"{status.temperature_c.get(name, 0):.0f}",
-         "load": f"{status.load_pct.get(name, 0):.1f}", "state": state}
-        for i, (name, text) in enumerate(JOINT_TEXT.items())
-    ]
+    rows = []
+    for i, (name, text) in enumerate(JOINT_TEXT.items()):
+        temp, load = status.temperature_c.get(name, 0), status.load_pct.get(name, 0)
+        row = {"joint": f"{i + 1}. {text}", "position": f"{joints[name]:.1f}", "temperature": f"{temp:.0f}", "load": f"{load:.1f}", "state": "오류" if status.fault else "정상"}
+        if health is not None:
+            row["temperature"] += f" ({health.peak.get(f'temperature:{name}', temp):.0f})"
+            row["load"] += f" ({health.peak.get(f'load:{name}', load):.0f})"
+            if not status.fault:
+                levels = {m: health.level(f"{m}:{name}") for m in ("temperature", "load")}
+                worst = "error" if "error" in levels.values() else "warn" if "warn" in levels.values() else "ok"
+                what = [LABELS[m] for m, lv in levels.items() if lv != "ok"]
+                row["state"] = LEVEL_TEXT[worst] + (f": {', '.join(what)}" if what else "")
+        rows.append(row)
+    return rows
+
+
+def chart_options(kind: str, series: dict) -> dict:
+    """최근 5분 추이. 관절별 계열은 관절 이름으로, 전원은 전압과 전류 두 축으로."""
+    axis = {"axisLine": {"lineStyle": {"color": theme.CONTROL_BORDER}}, "axisLabel": {"color": theme.MUTED},
+            "splitLine": {"lineStyle": {"color": theme.LINE}}, "nameTextStyle": {"color": theme.MUTED}}
+    t = series["t"]
+    if kind == "power":
+        y = [{"type": "value", "name": "V", "scale": True, **axis}, {"type": "value", "name": "A", "min": 0, **axis, "splitLine": {"show": False}}]
+        lines = [("전압", series["voltage"], 0, theme.SERIES[0]), ("전류 합", series["current"], 1, theme.SERIES[1])]
+    else:
+        y = [{"type": "value", "name": "°C" if kind == "temperature" else "%", "scale": True, **axis}]
+        lines = [(JOINT_TEXT.get(j, j), v, 0, theme.SERIES[i % len(theme.SERIES)]) for i, (j, v) in enumerate(series[kind].items())]
+    return {
+        "animation": False,
+        "tooltip": {"trigger": "axis"},
+        "legend": {"top": 0, "textStyle": {"color": theme.TEXT}},
+        "grid": {"left": 48, "right": 48, "top": 36, "bottom": 28},
+        "xAxis": {"type": "value", "name": "초", "min": -300, "max": 0, **axis},
+        "yAxis": y,
+        "series": [{"name": name, "type": "line", "showSymbol": False, "lineStyle": {"width": 2}, "color": color, "yAxisIndex": ax,
+                    "data": [[a, b] for a, b in zip(t, values)]} for name, values, ax, color in lines],
+    }
+
+
+def _health_card(backend) -> None:
+    """요약(가장 나쁜 판정과 항목), 이벤트 횟수, 추이 그래프 (결정 0043-5)."""
+    health = backend.health
+    with ui.card().classes("w-full gap-2").mark("health-card"):
+        with ui.row().classes("w-full items-center"):
+            ui.label("서보 건강").classes("card-title")
+            ui.space()
+            pick = ui.toggle(CHARTS, value="temperature").props("no-caps dense").mark("health-chart-pick")
+        with ui.row().classes("items-center gap-1 no-wrap"):
+            icon = ui.icon("check_circle", color="positive").mark("health-icon")
+            summary = ui.label("").classes("page-body").mark("health-summary")
+        limits = " · ".join(f"{LABELS[m]} {'≥' if hi else '<'} {warn:g}{unit}" for m, (unit, warn, _, hi) in LIMITS.items())
+        ui.label(f"주의 기준(3초 이어질 때): {limits}. 오류 기준에 닿으면 팔이 멈춥니다").classes("page-body")
+        events = ui.label("").classes("page-body").mark("health-events")
+        chart = ui.echart(chart_options(pick.value, health.series())).classes("w-full run-chart").mark("health-chart")
+
+    def refresh() -> None:
+        level, texts = health.worst()
+        icon_name, color, text = theme.COMPONENT_STYLES[level]
+        icon.name = icon_name
+        icon.props(f"color={color}")
+        summary.text = f"{text}: {', '.join(texts)}" if texts else "모든 값이 주의 기준 안입니다"
+        counts = backend.health_events()
+        events.text = "이번 실행: " + " · ".join(f"{EVENT_KINDS[k]} {n}회" + (f"(마지막 {_clock(t)}{', ' + why if why else ''})" if n else "") for k, (n, t, why) in counts.items())
+        chart.options.clear()
+        chart.options.update(chart_options(pick.value, health.series()))
+        chart.update()
+
+    pick.on_value_change(lambda _: refresh())
+    refresh()
+    ui.timer(2.0, refresh)
+
+
+def _clock(t: float) -> str:
+    return time.strftime("%H:%M:%S", time.localtime(t))
+
+
+GRIPPER_TEXT = {"single_jaw": "단동식(한쪽 턱만 움직임, 기본)", "parallel": "병렬(두 턱이 대칭으로 움직임)"}
+
+
+def gripper_text(info: dict) -> str:
+    """지금 그리퍼 한 줄."""
+    return f"그리퍼: {GRIPPER_TEXT.get(info['type'], info['type'])} · 최대 벌림 {info['max_open_mm']:g} mm"
 
 
 # 움직이는 명령은 사람이 직접 실행한다 (decisions/0027)
@@ -107,6 +187,17 @@ def _doctor_card(backend, controls: Controls) -> None:
             with ui.row().classes("items-center gap-2"):
                 picker = ui.select(names, value=info["arm"] or names[0], label="팔").classes("w-64").mark("arm-picker")
                 controls.add(ui.button("팔 바꾸기", on_click=controls.guard(choose)).props("outline no-caps").mark("arm-change"))
+        grip = backend.gripper_info()
+        if grip:  # 결정 0043-1: 종류는 local.yaml에 적고 다시 시작하면 적용된다
+            ui.label(gripper_text(grip)).classes("page-body").mark("gripper-type")
+            with ui.row().classes("items-center gap-2"):
+                grip_pick = ui.select({g: GRIPPER_TEXT.get(g, g) for g in grip["available"]}, value=grip["type"], label="그리퍼").classes("w-64").mark("gripper-picker")
+
+                async def choose_gripper() -> None:
+                    reason = backend.choose_gripper(grip_pick.value)
+                    ui.notify(reason or f"{GRIPPER_TEXT.get(grip_pick.value, grip_pick.value)}: 다시 시작하면 적용됩니다", type="negative" if reason else "positive")
+
+                controls.add(ui.button("그리퍼 바꾸기", on_click=controls.guard(choose_gripper)).props("outline no-caps").mark("gripper-change"))
         lock = backend.setup_lock()
         if lock and lock.startswith("0° 자세"):
             ui.label(f"터미널에서 {ZERO_CHECK_STEP}").classes("page-body").mark("zero-check-step")
@@ -169,10 +260,13 @@ def build(backend, client_id: str, actions) -> None:
 
     with ui.row().classes("w-full no-wrap items-start gap-4"):
         with ui.column().classes("flex-1 min-w-0 gap-3"):
-            table = ui.table(rows=servo_rows(backend.state.status), columns=COLUMNS, row_key="joint").props("flat bordered dense hide-bottom").classes("w-full").mark("servo-table")
+            table = ui.table(rows=servo_rows(backend.state.status, backend.health), columns=COLUMNS, row_key="joint").props("flat bordered dense hide-bottom").classes("w-full").mark("servo-table")
+            _health_card(backend)
             with ui.card().classes("w-full gap-1"):
                 ui.label("진단 출력").classes("card-title")
                 output = ui.column().classes("w-full gap-0 diag-output").mark("diag-output")
+                with output:
+                    ui.label("오른쪽 진단 버튼을 누르면 결과가 여기에 나옵니다").classes("page-body")
         with ui.column().classes("control-column gap-3"):
             with ui.card().classes("w-full gap-1"):
                 ui.label("전원").classes("card-title")
@@ -190,7 +284,7 @@ def build(backend, client_id: str, actions) -> None:
     def tick() -> None:
         controls.refresh()
         status = backend.state.status
-        table.rows = servo_rows(status)
+        table.rows = servo_rows(status, backend.health)
         if status:
             power.text = f"{status.voltage_v:.1f} V · {status.current_ma / 1000:.2f} A"
         idle = bool(status and status.state == "idle") and state["running"] is None

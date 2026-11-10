@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 pytest.importorskip("nicegui")
+pytestmark = pytest.mark.slow  # 시험마다 실제·시뮬레이션 두 팔을 새로 만들어 각 8~12초 (결정 0046: 하루 마칠 때 전체에서 돈다)
 
 from nicegui.testing import user_simulation
 

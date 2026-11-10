@@ -12,6 +12,7 @@ from nicegui.testing import user_simulation
 
 from so101_studio.arm.sim_driver import SimDriver
 from so101_studio.core.config import load_robot
+from so101_studio.core.types import ArmStatus, JointState, MotionResult, ToolPose
 from so101_studio.gui import app as gui_app
 from so101_studio.gui import backend as backend_module
 from so101_studio.gui.backend import COMM_LOST_TEXT, OUTSIDE_TEXT, RUN_MODES, Backend
@@ -349,7 +350,7 @@ def test_failed_read_after_reconnect_still_offers_reconnect(twin, monkeypatch):
 
 def test_out_of_bounds_explains_when_starting_outside_the_table(twin, monkeypatch):
     result = SimpleNamespace(status="out_of_bounds", reason="workspace")
-    assert twin._run_on(twin.real, lambda _arm: result) == backend_module.MOTION_TEXT["out_of_bounds"]
+    assert twin._run_on(twin.real, lambda _arm: result) == backend_module.EDGE_TEXT  # 가장자리 거부는 따로 알린다(그 자리에서 끌지 묻는다)
     monkeypatch.setattr(twin.real.safety, "box", lambda: {"x": [0, 1], "y": [0, 1], "z": [0, None]})
     assert twin._run_on(twin.real, lambda _arm: result) == OUTSIDE_TEXT
     floor = SimpleNamespace(status="out_of_bounds", reason="z_floor")  # 밖에서 출발해도 바닥에 걸린 것은 이 문장이 아니다
@@ -393,3 +394,74 @@ def test_page_confirm_dialog_runs_pending_on_real(twin):
             assert _pan(twin.real) == pytest.approx(real + 10, abs=0.5)
 
     asyncio.run(go())
+
+
+def test_sim_first_preview_follows_the_moving_sim_arm_even_after_planning(shared_twin):
+    """gui-spec 11절 B8: 목표를 고른 뒤(계획 중)에도 시뮬레이션 팔이 움직이는 동안은 계산 자세가 그것을 따라간다."""
+    shown = []
+    shared_twin.scene, shared_twin._planning = SimpleNamespace(set_preview=shown.append), True
+    try:
+        shared_twin._on_twin_status(SimpleNamespace(state="idle", joints="goal"))
+        shared_twin._on_twin_status(SimpleNamespace(state="moving", joints="step"))
+        assert shown == ["step"]  # 멈춰 있을 때는 고른 목표 자세를 지킨다
+    finally:
+        shared_twin.scene, shared_twin._planning = None, False
+
+
+def test_table_edge_refusal_is_told_apart_and_can_be_switched_off(shared_twin):
+    """작업대 가장자리(workspace) 거부는 따로 알리고, 그 자리에서 가장자리 검사만 끌 수 있다(자유 모드)."""
+    from so101_studio.core.types import MotionResult, ToolPose
+
+    arm = shared_twin.sim
+    edge = MotionResult("out_of_bounds", 0.0, ToolPose(0, 0, 0, 0), reason="workspace")
+    assert Backend._run_on(arm, lambda a: edge) in (backend_module.EDGE_TEXT, OUTSIDE_TEXT)
+    before = shared_twin.get_safety()
+    try:
+        assert shared_twin.free_table_edge() is None
+        assert shared_twin.get_safety()["mode"] == "free"
+        assert shared_twin.get_safety()["joint_margin_deg"] == before["joint_margin_deg"]
+    finally:
+        shared_twin.set_safety(before["mode"], before["joint_margin_deg"], before["box_mm"])
+
+
+def test_component_states_show_the_fault_sentence():
+    """REQ-034: 원인과 해결법 문장이 오면 상태줄이 그 문장을 보인다."""
+    status = ArmStatus(t=10.0, joints=JointState(0, 0, 0, 0, 0, 0), tool=ToolPose(0, 0, 0, 0), temperature_c={}, load_pct={},
+                       voltage_v=12.0, torque_enabled=True, state="fault", fault="step:elbow_flex", fault_text="elbow_flex가 한 제어 주기에 ...")
+    assert component_states(status, 10.0)["서보"] == ("error", "elbow_flex가 한 제어 주기에 ...")
+
+
+def test_fault_result_shows_the_cause_sentence():
+    result = MotionResult("fault", 0.0, ToolPose(0, 0, 0, 0), reason="서보와의 통신이 0.5초 넘게 끊겼습니다.")
+    assert Backend._run_on(None, lambda arm: result) == "서보와의 통신이 0.5초 넘게 끊겼습니다."
+
+
+def test_estop_reaches_the_arm_even_when_earlier_steps_fail(backend, monkeypatch):
+    """감사 2026-11-07: 기록 저장·작업 정지가 예외를 내도 팔 정지는 반드시 간다."""
+    def broken():
+        raise RuntimeError("기록 저장 실패")
+
+    monkeypatch.setattr(backend, "record_finish", broken)
+    backend.estop()
+    assert backend.arm.ctl.state == "stopped"
+    backend.resume()
+
+
+def test_run_on_shows_the_real_reason_unless_the_arm_is_busy():
+    """감사 2026-11-07: 동작 중이 아닐 때의 RuntimeError(잠김, 연결 안 됨)는 '아직 움직이는 중'으로 바꾸지 않는다."""
+    from so101_studio.gui.backend import BUSY_TEXT
+
+    def fail(_arm):
+        raise RuntimeError("연결되지 않음")
+
+    idle = SimpleNamespace(ctl=SimpleNamespace(busy=False))
+    busy = SimpleNamespace(ctl=SimpleNamespace(busy=True))
+    assert Backend._run_on(idle, fail) == "연결되지 않음"
+    assert Backend._run_on(busy, fail) == BUSY_TEXT
+
+
+def test_estop_reports_when_the_servo_write_failed(backend, monkeypatch):
+    """REQ-043: 팔이 정지 자세를 쓰지 못했다고 하면 화면이 성공 대신 그 이유와 전원을 끄라는 안내를 보인다."""
+    monkeypatch.setattr(backend.arm, "estop", lambda: "SerialException('port gone')")
+    reason = backend.estop()
+    assert reason and "port gone" in reason and "전원 스위치" in reason

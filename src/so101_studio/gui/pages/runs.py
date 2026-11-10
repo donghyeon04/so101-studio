@@ -9,6 +9,9 @@ from .. import theme
 BAND_COLORS = {"켜짐": theme.OK, "꺼짐": theme.MUTED, "대기": theme.CONTROL_BORDER, "실행 중": theme.ACCENT, "정지": theme.WARN, "오류": theme.DANGER}
 
 
+INCIDENTS_SHOWN = 6  # 최근 것만. 많으면 그래프가 화면 아래로 밀린다
+
+
 def band_options(bands: dict, duration: float, mark: float | None = None) -> dict:
     """토크·상태·오류를 굵은 선 띠로 그린다. 값마다 계열을 나눠 범례와 툴팁에 글자가 보인다."""
     names = list(bands)
@@ -88,11 +91,13 @@ def build(backend, client_id: str, actions) -> None:
         items = backend.incidents()
         if not items:
             ui.label("사고 묶음이 없습니다").classes("page-body").mark("incident-empty")
-        for item in items[:20]:
+        for item in items[:INCIDENTS_SHOWN]:
             with ui.row().classes("w-full items-center no-wrap gap-2"):
                 ui.icon("report", color="negative")
                 ui.label(f"{item['name']} {item.get('reason') or ''}").classes("page-body flex-1 min-w-0").mark("incident-name")
                 ui.button(icon="download", on_click=lambda name=item["name"]: download(name)).props('flat round dense aria-label="zip 내려받기"').mark("incident-zip")
+        if len(items) > INCIDENTS_SHOWN:
+            ui.label(f"그 밖에 {len(items) - INCIDENTS_SHOWN}개는 runs/incidents 폴더에 있습니다").classes("page-body")
 
     async def download(name: str) -> None:
         ui.download(await run.io_bound(backend.incident_zip, name))

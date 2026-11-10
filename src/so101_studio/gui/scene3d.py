@@ -1,6 +1,7 @@
 """Viser 3D 장면: URDF 팔 두 개(실제, 계산 자세), 작업대, 물체, 배출 구역, 좌표축 (gui-spec 4·8절).
 장면 좌표는 작업대 좌표를 m로 옮긴 것이고, z = 0이 작업대 면이다."""
 
+import logging
 import math
 import threading
 import time
@@ -22,6 +23,7 @@ DEFAULT_PORT = 8081
 TABLE_T_M = 0.01
 OBJECT_H_M = 0.03
 PREVIEW_ALPHA = 0.4
+PART_ALPHA = 0.85  # 장면 부품: 뒤의 팔·물체가 조금 비치게
 MESH_CELL_M = 0.002
 ALLOWED_TOP_MM = 300.0  # 높이 제한이 없을 때 허용 상자를 그리는 높이
 DEFAULT_PICK_H_MM = 40.0  # 작업대를 클릭했을 때의 높이. 0이면 턱 끝이 작업대에 닿는다
@@ -46,10 +48,17 @@ def table_hit(origin, direction) -> tuple[float, float] | None:
     return (origin[0] + t * direction[0]) * 1000, (origin[1] + t * direction[1]) * 1000
 
 
-def urdf_cfg(q, names) -> np.ndarray:
-    """JointState(도, 그리퍼는 값)를 URDF 관절각(rad)으로. names는 URDF의 관절 순서."""
-    deg = {j: getattr(q, j) for j in ARM_JOINTS} | {"gripper": VALUE_TO_Q[0] + VALUE_TO_Q[1] * q.gripper}
-    return np.radians([deg[n] for n in names])
+def urdf_cfg(q, names, width_mm=None) -> np.ndarray:
+    """JointState(도, 그리퍼는 값)를 URDF 관절값으로. names는 URDF의 관절 순서.
+    width_mm([[값, 폭 mm], ...])를 주면 병렬 그리퍼(REQ-041): gripper는 직선 관절이라 +폭/2(m), gripper_left는 -폭/2."""
+    out = {j: math.radians(getattr(q, j)) for j in ARM_JOINTS}
+    if width_mm:
+        pts = sorted(width_mm)
+        half = float(np.interp(q.gripper, [p[0] for p in pts], [p[1] for p in pts])) / 2000.0
+        out |= {"gripper": half, "gripper_left": -half}
+    else:
+        out["gripper"] = math.radians(VALUE_TO_Q[0] + VALUE_TO_Q[1] * q.gripper)
+    return np.array([out.get(n, 0.0) for n in names])
 
 
 def simplify(mesh, cell_m: float = MESH_CELL_M) -> trimesh.Trimesh:
@@ -70,6 +79,16 @@ def _load_urdf(path: Path) -> yourdfpy.URDF:
     for name, mesh in list(urdf.scene.geometry.items()):
         urdf.scene.geometry[name] = simplify(mesh)
     return urdf
+
+
+def link_node(urdf: yourdfpy.URDF, link: str, root: str) -> str:
+    """URDF 링크가 ViserUrdf 안에서 갖는 장면 노드 이름(viser.extras._urdf와 같은 규칙). 이 노드 아래에 둔 것은 링크를 따라 움직인다."""
+    graph = urdf.scene.graph
+    frames = []
+    while link != graph.base_frame:
+        frames.append(link)
+        link = graph.transforms.parents[link]
+    return root + "/" + "/".join(reversed(frames))
 
 
 def _yaw(deg: float) -> np.ndarray:
@@ -132,45 +151,25 @@ def view_path(start, goal) -> tuple:
 
 
 class Scene3D:
-    def __init__(self, cfg, ws, kin, port: int = DEFAULT_PORT):
-        self.server = viser.ViserServer(host=HOST, port=port, label="SO-101 Studio", verbose=False)
+    def __init__(self, cfg, ws, kin, port: int = DEFAULT_PORT, host: str = HOST):
+        self.server = viser.ViserServer(host=host, port=port, label="SO-101 Studio", verbose=False)
         self.server.gui.configure_theme(
             dark_mode=False, show_logo=False, show_share_button=False, brand_color=theme.rgb(theme.ACCENT)
         )
         self.server.gui.main_panel.minimize()  # 조작은 NiceGUI 쪽에서 한다. 이 패널은 3D를 가리기만 한다
         self._kin, self._table_z = kin, cfg.table_z_mm
+        self._width_mm = cfg.gripper_width_mm if getattr(cfg, "gripper", "single_jaw") == "parallel" else None  # 병렬 URDF는 그리퍼가 직선 관절
         self.layers = dict.fromkeys(LAYERS, True)  # 브라우저가 여럿이어도 3D는 하나라 함께 바뀐다
         self._preview_on = False
         scene = self.server.scene
+        table, grid, zones, axes_robot, root = self._draw_workspace(ws)
         w, h = ws.table_mm["x"] / 1000, ws.table_mm["y"] / 1000
-        table = scene.add_box(
-            "/table", color=theme.rgb(theme.CARD), dimensions=(w, h, TABLE_T_M), position=(w / 2, h / 2, -TABLE_T_M / 2)
-        )
-        grid = scene.add_grid(
-            "/grid", width=w, height=h, cell_size=0.05, section_size=0.1, position=(w / 2, h / 2, 0.0005),
-            cell_color=theme.rgb(theme.LINE), section_color=theme.rgb(theme.CONTROL_BORDER),
-        )
-        zones = []
-        for name, zone in ws.drop_zones.items():
-            zones.append(scene.add_box(
-                f"/zones/{name}", color=theme.rgb(theme.OK), dimensions=(0.08, 0.08, 0.001), opacity=0.35,
-                position=(zone["x_mm"] / 1000, zone["y_mm"] / 1000, 0.001),
-            ))
-
-        base = ws.base
         axes_table = scene.add_frame("/axes/table", axes_length=0.06, axes_radius=0.002)
-        axes_robot = scene.add_frame(
-            "/axes/robot", axes_length=0.06, axes_radius=0.002,
-            position=(base.x_mm / 1000, base.y_mm / 1000, 0.001), wxyz=_yaw(base.yaw_deg),
-        )
         self._tool = scene.add_frame("/axes/tool", axes_length=0.04, axes_radius=0.0015)
-
-        # URDF 원점은 어깨 회전축에서 PAN_AXIS_X_MM 뒤에 있다 (Kinematics.fk와 같은 오프셋)
-        ox, oy = robot_to_table(-PAN_AXIS_X_MM, 0.0, base)
-        root = {"position": (ox / 1000, oy / 1000, -self._table_z / 1000), "wxyz": _yaw(base.yaw_deg)}
         urdf_path = Path(cfg.urdf)
-        real_root = scene.add_frame("/real", show_axes=False, **root)
-        self._real = ViserUrdf(self.server, _load_urdf(urdf_path), root_node_name="/real")
+        real_root = self._real_root = scene.add_frame("/real", show_axes=False, **root)
+        self._real_urdf = _load_urdf(urdf_path)
+        self._real = ViserUrdf(self.server, self._real_urdf, root_node_name="/real")
         self._preview_root = scene.add_frame("/preview", show_axes=False, visible=False, **root)
         self._preview = ViserUrdf(
             self.server, _load_urdf(urdf_path), root_node_name="/preview",
@@ -184,8 +183,10 @@ class Scene3D:
         self._handle.on_update(self._on_drag)
         self._objects_root = None
         marks = scene.add_frame("/marks", show_axes=False)
+        parts = scene.add_frame("/parts", show_axes=False)
+        self._part_nodes: list[str] = []
         self._layer_nodes = {
-            "arm": [real_root], "table": [table, grid], "zones": zones, "axes": [axes_table, axes_robot, self._tool],
+            "arm": [real_root], "table": [table, grid, parts], "zones": zones, "axes": [axes_table, axes_robot, self._tool],
             "marks": [marks], "handle": [self._handle],
         }
         scene.on_click()(self._on_click)
@@ -204,13 +205,18 @@ class Scene3D:
 
     @property
     def url(self) -> str:
-        return f"http://{HOST}:{self.server.get_port()}"
+        return self.url_for(HOST)
+
+    def url_for(self, hostname: str | None) -> str:
+        """그 브라우저가 연 호스트로 3D 주소를 만든다(--share면 다른 기기는 PC의 IP로 연다, gui-spec 12.6)."""
+        host = hostname or HOST
+        return f"http://{'[' + host + ']' if ':' in host else host}:{self.server.get_port()}"
 
     def update_status(self, status) -> None:
         """status_stream 콜백. 실제 팔과 툴 좌표축을 지금 자세로 옮긴다."""
         t = status.tool
         with self.server.atomic():
-            self._real.update_cfg(urdf_cfg(status.joints, self._names))
+            self._real.update_cfg(urdf_cfg(status.joints, self._names, self._width_mm))
             self._tool.position = (t.x_mm / 1000, t.y_mm / 1000, (t.z_mm - self._table_z) / 1000)
             self._tool.wxyz = tf.SO3.from_matrix(self._kin.tool_axes(status.joints)).wxyz
 
@@ -219,7 +225,43 @@ class Scene3D:
         self._preview_on = joints is not None
         self._preview_root.visible = self._preview_on and self.layers["preview"]
         if joints is not None:
-            self._preview.update_cfg(urdf_cfg(joints, self._names))
+            self._preview.update_cfg(urdf_cfg(joints, self._names, self._width_mm))
+
+    def _draw_workspace(self, ws):
+        """작업대·격자·배출 구역·로봇 좌표축을 그리고, 팔이 놓일 자리(URDF 원점)를 돌려준다. 같은 이름으로 다시 그리면 바뀐다."""
+        scene = self.server.scene
+        w, h = ws.table_mm["x"] / 1000, ws.table_mm["y"] / 1000
+        table = scene.add_box(
+            "/table", color=theme.rgb(theme.CARD), dimensions=(w, h, TABLE_T_M), position=(w / 2, h / 2, -TABLE_T_M / 2)
+        )
+        grid = scene.add_grid(
+            "/grid", width=w, height=h, cell_size=0.05, section_size=0.1, position=(w / 2, h / 2, 0.0005),
+            cell_color=theme.rgb(theme.LINE), section_color=theme.rgb(theme.CONTROL_BORDER),
+        )
+        zones = [scene.add_box(f"/zones/{name}", color=theme.rgb(theme.OK), dimensions=(0.08, 0.08, 0.001), opacity=0.35,
+                               position=(zone["x_mm"] / 1000, zone["y_mm"] / 1000, 0.001)) for name, zone in ws.drop_zones.items()]
+        base = ws.base
+        axes_robot = scene.add_frame("/axes/robot", axes_length=0.06, axes_radius=0.002,
+                                     position=(base.x_mm / 1000, base.y_mm / 1000, 0.001), wxyz=_yaw(base.yaw_deg))
+        # URDF 원점은 어깨 회전축에서 PAN_AXIS_X_MM 뒤에 있다 (Kinematics.fk와 같은 오프셋)
+        ox, oy = robot_to_table(-PAN_AXIS_X_MM, 0.0, base)
+        root = {"position": (ox / 1000, oy / 1000, -self._table_z / 1000), "wxyz": _yaw(base.yaw_deg)}
+        return table, grid, zones, axes_robot, root
+
+    def set_workspace(self, ws) -> None:
+        """작업대·좌표를 저장한 뒤 다시 그린다(앱을 다시 켜지 않아도 된다). 지운 배출 구역은 지운다."""
+        old_zones = self._layer_nodes["zones"]
+        table, grid, zones, axes_robot, root = self._draw_workspace(ws)
+        for node in old_zones:
+            if node not in zones and node.name not in {z.name for z in zones}:
+                node.remove()
+        for frame in (self._real_root, self._preview_root):
+            frame.position, frame.wxyz = root["position"], root["wxyz"]
+        parts = self._layer_nodes["table"][2]
+        self._layer_nodes.update(table=[table, grid, parts], zones=zones)
+        self._layer_nodes["axes"][1] = axes_robot
+        for name in ("table", "zones", "axes"):
+            self.set_layer(name, self.layers[name])
 
     def set_layer(self, name: str, visible: bool) -> None:
         """묶음 하나를 켜거나 끈다. 자리만 바꾸므로 끈 동안의 자세·물체도 켜면 바로 맞게 보인다."""
@@ -245,6 +287,31 @@ class Scene3D:
                     dimensions=(o.length_mm / 1000, o.width_mm / 1000, OBJECT_H_M),
                     position=(o.x_mm / 1000, o.y_mm / 1000, OBJECT_H_M / 2), wxyz=_yaw(o.angle_deg or 0.0),
                 )
+
+    def set_parts(self, scene_def) -> None:
+        """장면 부품(결정 0043-4, REQ-040)을 그린다. 작업대 부품은 작업대 좌표에, 링크 부품은 그 링크 노드 아래에 두어 팔을 따라 움직이게 한다.
+        scene_def는 core.scene.Scene(parts: name, attach, T(4x4, mm), mesh(mm), color). None이면 지운다."""
+        scene = self.server.scene
+        with self.server.atomic():
+            for name in self._part_nodes:
+                scene.remove_by_name(name)
+            self._part_nodes = []
+            for part in getattr(scene_def, "parts", None) or []:
+                if part.attach == "table":
+                    parent = "/parts"
+                elif part.attach in self._real_urdf.scene.graph.nodes:
+                    parent = link_node(self._real_urdf, part.attach, "/real")
+                else:
+                    logging.getLogger(__name__).warning("장면 부품 %s: 모르는 링크 %s", part.name, part.attach)
+                    continue
+                T = np.asarray(part.T, float)
+                name = f"{parent}/part_{part.name}"
+                scene.add_mesh_simple(
+                    name, np.asarray(part.mesh.vertices, np.float32) / 1000, np.asarray(part.mesh.faces, np.uint32),
+                    color=theme.rgb(getattr(part, "color", None) or theme.MUTED), opacity=PART_ALPHA,
+                    position=T[:3, 3] / 1000, wxyz=tf.SO3.from_matrix(T[:3, :3]).wxyz,
+                )
+                self._part_nodes.append(name)
 
     def pick(self, x_mm: float, y_mm: float, h_mm: float) -> None:
         """작업대 클릭이나 손잡이로 고른 점을 남긴다. Viser 스레드에서 불리고, 화면 타이머가 picked로 읽는다."""
@@ -306,6 +373,28 @@ class Scene3D:
             position=((x0 + x1) / 2000, (y0 + y1) / 2000, (z0 + z1) / 2000),
         )
 
+    def show_reach(self, ranges: dict | None) -> None:
+        """REQ-037 두 범위를 팔 앞쪽 반원 호로 그린다. 집기 범위(작업대 면, 초록)와 고른 손끝 각도의 높이별 움직임 범위(강조색).
+        ranges는 ArmService.reach_ranges 결과이고 None이면 지운다. 반경은 팔 원점(어깨 회전축) 기준이다."""
+        scene = self.server.scene
+        scene.remove_by_name("/marks/reach")
+        if ranges is None:
+            return
+        base = self._kin.base
+        angles = np.radians(np.linspace(-90.0, 90.0, 37))
+
+        def arc(r_mm: float, z_mm: float) -> np.ndarray:
+            pts = np.array([(*robot_to_table(r_mm * math.cos(a), r_mm * math.sin(a), base), z_mm) for a in angles]) / 1000
+            return np.stack([pts[:-1], pts[1:]], axis=1)
+
+        pick = ranges["pick"]
+        pick_arcs = np.concatenate([arc(pick["min"], 1.0), arc(pick["max"], 1.0)])  # reach_mm 키 {min, max}
+        motion = [arc(r, h["height_mm"]) for h in ranges["motion"] for seg in h["segments"] for r in seg]
+        with self.server.atomic():
+            scene.add_line_segments("/marks/reach/pick", pick_arcs, theme.rgb(theme.OK), thickness=2.0, thickness_units="screen")
+            if motion:
+                scene.add_line_segments("/marks/reach/motion", np.concatenate(motion), theme.rgb(theme.ACCENT), thickness=1.5, thickness_units="screen")
+
     def clear_target(self) -> None:
         scene = self.server.scene
         with self.server.atomic():
@@ -313,6 +402,7 @@ class Scene3D:
             scene.remove_by_name("/marks/path")
             scene.remove_by_name("/marks/trajectory")
             scene.remove_by_name("/allowed")
+            scene.remove_by_name("/marks/reach")
             self.set_preview(None)
 
     def _watch_camera(self, client) -> None:

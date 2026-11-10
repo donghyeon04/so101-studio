@@ -39,12 +39,17 @@ class RobotConfig:
     tip_floor_mm: float = 4.0
     gripper_margin_mm: float = 20
     place_height_mm: float = 30
+    place_clearance_mm: float = 30  # 놓을 때 벌림 끝 = 쥔 틈 + 양쪽 이만큼(최대 벌림을 넘으면 최대까지). 부딪히면 줄여 다시 계산한다(최소 10mm) (arm-software-spec 11.3)
+    place_open_s: float = 1.0  # 놓을 때 벌림과 손 이동을 끝내는 시간(초). 그리퍼 속도 막대는 놓기 벌림에 쓰지 않는다 (11.3)
     grasp_bias_mm: float = 0.0
     grasp_open_policy: str = "max"
     grasp_tilt_deg: float = 35.0
     grasp_tilt_mode: str = "symmetric"
     grasp_tilt_tol_deg: float = 15.0
     grasp_max_open_mm: float = 100
+    grasp_min_contact_mm: float = 8  # 물체 높이로 집는 높이를 정할 때 턱이 물체에 닿아야 하는 최소 높이(mm). 이보다 얕게 닿아야 지나가는 물체는 거부한다
+    replay_a_max_deg_s2: float = 600  # 변환 재생(mode=fitted)이 맞추는 관절 가속 한도(°/s²). 손으로 움직인 기록은 계획 이동(a_max_deg_s2)보다 훨씬 거칠어 따로 둔다
+    gripper_speed_pct: float = 100  # 그리퍼만 움직이는 동작(열기·닫기·놓으며 열기)의 속도 배율 1~100. 바로 적용된다
     contact_lag_units: float = 4.0
     gripper_squeeze_torque: int = 300
     gripper_hold_torque: int = 200  # 들고 옮기는 동안의 조임 한계(RAM Torque_Limit). 그리퍼 Overload_Torque 25% 아래로 둔다 (결정 0033)
@@ -52,6 +57,8 @@ class RobotConfig:
     gripper_load_warn_pct: float = 60  # 그리퍼 부하가 이 값을 gripper_load_s 넘게 넘으면 조임을 멈추고 WARN, 1초 더 이어지면 열고 fault. 실측 전 시작값
     gripper_load_s: float = 1.0
     gripper_open: float = 60
+    gripper: str = "single_jaw"  # 그리퍼 종류: single_jaw(기본) | parallel. 세부 값은 config/grippers/<종류>.yaml이 robot.yaml 위에 겹쳐진다 (결정 0043)
+    gripper_tip_offset_mm: float = 0.0  # 병렬 그리퍼: TCP(두 턱 중앙)에서 턱 끝까지 도구 축 방향 거리. 실물 몫(자리만)
     gripper_width_mm: list[list[float]] = field(default_factory=lambda: [[0, 0], [100, 90]])
     a_max_deg_s2: float = 120
     trajectory_profile: str = "quintic"
@@ -82,10 +89,21 @@ class WorkspaceConfig:
     drop_zones: dict = field(default_factory=dict)
     safety_margin_mm: float = 10
     reach_mm: dict = field(default_factory=lambda: {"min": 90.0, "max": 250.0})
+    drop_zone_ignore_radius_mm: float = 75.0  # 초음파가 배출 구역 둘레 이 반경 안의 후보를 무시한다. 구역 표시(80x80, 반 대각선 약 57mm) + 레이더 오차 여유 (REQ-045)
 
     @property
     def base(self) -> Pose2D:
         return Pose2D(**self.robot_base_in_table)
+
+    def ignore_zones(self) -> list[tuple[float, float, float]]:
+        """모든 배출 구역의 (x, y, 반경 mm). 놓은 물체가 다음 스캔에서 다시 후보가 되어 집히지 않게 인식 소스(ignore_zones)에 넘긴다."""
+        return [(float(z["x_mm"]), float(z["y_mm"]), float(self.drop_zone_ignore_radius_mm)) for z in self.drop_zones.values()]
+
+    @property
+    def pick_reach_mm(self) -> dict:
+        """집기 범위: 로봇 원점에서 손끝을 수직 아래로 내려 집을 수 있는 반경 {min, max}. 작업 실행과 물체 판정(task/policy.reachable, pick_and_place의 범위 검사)이 쓴다.
+        손끝 방향이 자유로운 직접 조작·조그의 움직임 범위와는 다르다(ArmService.reach_ranges). 파일의 키 이름은 호환 때문에 reach_mm다."""
+        return self.reach_mm
 
 
 def _read_yaml(path: Path) -> dict:
@@ -120,9 +138,17 @@ def resolve_arm(arms_dir: Path, local: dict, arm: str | None = None, serials=())
     raise ArmSelectionError(f"팔을 고르지 못했다. --arm <이름>이나 config/local.yaml의 arm으로 고른다 (있는 팔: {sorted(files)})", sorted(files))
 
 
+GRIPPER_TYPES = ("single_jaw", "parallel")
+
+
+def gripper_files(grippers_dir: Path) -> dict[str, Path]:
+    """config/grippers/*.yaml (종류 이름 = 파일 이름)."""
+    return {p.stem: p for p in sorted(grippers_dir.glob("*.yaml"))} if grippers_dir.is_dir() else {}
+
+
 def load_robot_ex(path: str | Path = "config/robot.yaml", arm: str | None = None, serials=(), arms_dir: str | Path | None = None,
                   local_path: str | Path | None = None) -> tuple[RobotConfig, dict]:
-    """robot.yaml <- config/arms/<팔>.yaml <- config/local.yaml 순서로 겹쳐 읽는다(뒤가 앞을 덮고, 키 단위로 통째로 바꾼다).
+    """robot.yaml <- config/arms/<팔>.yaml <- config/grippers/<종류>.yaml <- config/local.yaml 순서로 겹쳐 읽는다(뒤가 앞을 덮고, 키 단위로 통째로 바꾼다).
     arms 폴더와 local.yaml은 robot.yaml 옆에서 찾는다. 둘 다 없으면 robot.yaml만 읽는다(예전과 같다).
     (설정, {"arm": 이름|None, "reason": 이유, "files": [읽은 파일]})."""
     path = Path(path)
@@ -132,10 +158,19 @@ def load_robot_ex(path: str | Path = "config/robot.yaml", arm: str | None = None
     name, reason = resolve_arm(arms_dir, local, arm, serials)
     merged = _read_yaml(path)
     files = [str(path)]
+    arm_yaml = _read_yaml(arm_files(arms_dir)[name]) if name else {}
+    gtype = local.get("gripper") or arm_yaml.get("gripper") or merged.get("gripper") or "single_jaw"
+    if gtype not in GRIPPER_TYPES:
+        raise ValueError(f"알 수 없는 그리퍼 종류: {gtype} (있는 종류: {list(GRIPPER_TYPES)})")
+    gfile = path.parent / "grippers" / f"{gtype}.yaml"
     if name:
-        merged |= _read_yaml(arm_files(arms_dir)[name])
+        merged |= arm_yaml
         files.append(str(arm_files(arms_dir)[name]))
         merged["arm_name"] = name
+    if gfile.exists():  # 순서: robot.yaml <- 팔 <- 그리퍼 <- local. 팔 파일의 폭 표·조임 값은 단동식을 잰 것이라 다른 그리퍼 종류에서는 그리퍼 파일이 이긴다
+        merged |= _read_yaml(gfile)
+        files.append(str(gfile))
+    merged["gripper"] = gtype
     if local_path.exists():
         files.append(str(local_path))
     merged |= {k: v for k, v in local.items() if k != "arm"}

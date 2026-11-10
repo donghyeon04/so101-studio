@@ -89,6 +89,14 @@ class AutoCalibrationError(RuntimeError):
     """The run stopped without a calibration. The servos' registers have been restored."""
 
 
+class CleanupInterrupted(KeyboardInterrupt):
+    """Ctrl-C arrived during the cleanup. failures lists what could not be restored (empty = everything was)."""
+
+    def __init__(self, failures: list[str]):
+        super().__init__("interrupted")
+        self.failures = failures
+
+
 def deg_to_steps(deg: float) -> int:
     return round(deg * FULL_TURN / 360)
 
@@ -391,7 +399,9 @@ class FeetechAutoCalibrator:
         *,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        progress: Callable[[str], None] | None = None,
     ):
+        self._progress = progress or (lambda _text: None)  # 관절을 시작할 때 "측정 중: <관절>" 한 줄 (GUI 진행 막대용)
         self.bus = bus
         self.plan = plan
         self.cfg = config or AutoCalibrationConfig()
@@ -432,6 +442,8 @@ class FeetechAutoCalibrator:
             self._prepare(saved)
             for i, step in enumerate(self.plan.steps, 1):
                 logger.info(f"Auto-calibration step {i}/{len(self.plan.steps)}: {step}")
+                joints = [step.joint] if isinstance(step, Unfold) else list(step.targets) if isinstance(step, Move) else list(step.joints)
+                self._progress(f"측정 중({i}/{len(self.plan.steps)}): {', '.join(joints)}")
                 if isinstance(step, Unfold):
                     self._unfold(step)
                 elif isinstance(step, Move):
@@ -533,7 +545,7 @@ class FeetechAutoCalibrator:
             restore(CALIBRATION_REGISTERS)
         attempt("disabling torque", lambda: self.bus.disable_torque(num_retry=self.cfg.num_retry))
         if interrupted:
-            raise KeyboardInterrupt
+            raise CleanupInterrupted(failures)
         return failures
 
     # --- steps --------------------------------------------------------------------------------------------

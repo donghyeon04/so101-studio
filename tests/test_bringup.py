@@ -52,7 +52,7 @@ def test_real_config_loads_the_same_values_as_before_the_split():
     cfg, info = load_robot_ex("config/robot.yaml")
     assert info["arm"] == "so101_follower_01" and cfg.arm_name == "so101_follower_01"
     assert cfg.calibration_id == "so101_follower_01" and cfg.joint_offsets_deg == {"shoulder_pan": -3.0}
-    assert cfg.joint_limits_deg["elbow_flex"] == [-96, 95] and cfg.table_z_mm == -25 and len(cfg.gripper_width_mm) == 8
+    assert cfg.joint_limits_deg["elbow_flex"] == [-96, 95] and cfg.table_z_mm == -15 and len(cfg.gripper_width_mm) == 8
     assert cfg.port == "COM3" and cfg.board_serial
 
 
@@ -276,13 +276,16 @@ def test_serial_is_opened_with_dtr_and_rts_down(monkeypatch):
     assert events.index(("dtr", False)) < events.index(("open", None)) and events.index(("rts", False)) < events.index(("open", None))
 
 
-def test_doctor_cli_json_in_sim(capsys):
+def test_doctor_cli_json_in_sim(capsys, bus):
+    """`bus` 픽스처로 포트 목록을 가짜 USB 보드 하나로 고정한다: 이 PC에 보드가 꽂혀 있든 아니든(포트 목록 검사는 USB 시리얼이 없으면 fail) 결과가 같아야 한다."""
     from so101_studio.cli import main
 
     with pytest.raises(SystemExit) as e:
         main(["--sim", "doctor", "--json"])
     res = json.loads(capsys.readouterr().out)
-    assert e.value.code == 0 and res["ok"] and set(res) == {"ok", "checks", "ports", "arm", "esp32", "autocal", "zero_check"}
+    failed = [(c["name"], c["text"][:80]) for c in res["checks"] if c["state"] == "fail"]
+    assert e.value.code == 0 and res["ok"], failed  # 실패하면 어느 검사인지 보인다
+    assert set(res) == {"ok", "checks", "ports", "arm", "esp32", "autocal", "zero_check"} and bus["opened"] == []  # sim은 포트를 열지 않는다
 
 
 # ---- 캘리브레이션 불일치·팔 파일 없음: 움직이는 명령 거부, 읽기는 허용
@@ -339,3 +342,10 @@ def test_missing_arm_file_blocks_moves_on_real_hardware_but_not_in_sim(tmp_path)
         assert ok_svc.locked_reason is None and ok_svc.move_joints(JointState(10, -80, 90, 0, 0, 3)).status == "ok"
     finally:
         ok_svc.disconnect()
+
+
+@pytest.mark.parametrize("temp,state", [(49, "ok"), (50, "warn"), (51, "warn")])
+def test_doctor_temperature_warns_from_50_degrees(bus, temp, state):
+    first = next(iter(bus["servos"]["COM3"]))
+    bus["servos"]["COM3"][first][63] = temp  # 서보 하나만 뜨거워도 최고 온도로 본다
+    assert states(dr.doctor(config_path="config/robot.yaml"))["온도"] == state

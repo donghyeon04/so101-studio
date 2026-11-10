@@ -11,7 +11,7 @@ pytest.importorskip("nicegui")
 from nicegui.testing import user_simulation
 
 from so101_studio.gui import app as gui_app
-from so101_studio.gui.pages.teach import chart_options, expected_seconds
+from so101_studio.gui.pages.teach import chart_options, expected_seconds, fit_text
 
 NAME = "wave_safe1"  # 안전 범위 안의 2초짜리 기록
 OUTSIDE = "wave"  # 손으로 작업 영역 밖까지 움직인 기록
@@ -59,6 +59,7 @@ def test_chart_has_six_joint_series_on_one_axis(backend):
     assert len({s["color"] for s in options["series"]}) == 6
 
 
+@pytest.mark.slow
 def test_replay_follows_total_and_segment_speed(backend):
     segments = backend.arm.record_info(NAME)["segments"]
     plain = backend.arm.replay(NAME, 1.0).duration_s
@@ -75,12 +76,14 @@ def test_replay_too_fast_gives_reason_and_stays_put(backend):
     assert backend.arm.status().joints == before
 
 
+@pytest.mark.slow
 def test_outside_record_is_refused_with_advice_then_cut_at_the_limit(backend):
     assert "한계 앞까지만" in backend.replay(OUTSIDE, 1.0)  # 첫 자세까지는 간 뒤 거부된다
     assert backend.replay(OUTSIDE, 1.0, True) is None
     assert "까지 재생했습니다" in backend.replay_cut()
 
 
+@pytest.mark.slow
 def test_finished_full_replay_has_no_cut(backend):
     assert backend.replay(NAME, 1.0) is None
     assert backend.replay_cut() is None
@@ -220,3 +223,40 @@ def test_record_flow_on_the_page(real_like):
 def test_path_kinematics_is_built_before_the_watchdog_starts(backend):
     # 처음 만들 때 파이썬이 1.7초 멈춘다. 기록을 고를 때 만들면 감시 프로세스가 실제 팔 앱을 강제 종료한다
     assert backend._path_kin is not None
+
+
+def test_replay_speed_can_be_typed(backend):
+    """사용자 요청: 막대 말고 배속을 숫자로 넣는다(0.6처럼 0.25 단위가 아닌 값)."""
+    async def go():
+        async with user_simulation(gui_app.make_root(backend)) as user:
+            await user.open("/teach")
+            _one(user, "replay-speed-input").value = 0.6
+            assert await _until(lambda: abs(_one(user, "replay-speed").value - 0.6) < 1e-9)
+
+    asyncio.run(go())
+
+
+def test_fit_text_tells_whether_original_fits():
+    assert "한도 안" in fit_text({"fits_1x": True, "slowed_segments": 0, "slowed_samples": 0, "added_s": 0.0})
+    assert "2곳" in fit_text({"fits_1x": False, "slowed_segments": 2, "slowed_samples": 9, "added_s": 0.4})
+    assert fit_text(None) == ""
+
+
+def test_replay_mode_reaches_the_arm_and_fit_is_previewed(backend, monkeypatch):
+    """REQ-034: 원본·변환본을 골라 재생하고, 고른 배속에서 변환본이 얼마나 늦추는지 미리 본다."""
+    assert backend.replay_fit(NAME, 1.0)["fits_1x"] in (True, False)
+    calls = []
+    monkeypatch.setattr(backend, "replay", lambda *a: calls.append(a) or None)
+
+    async def go():
+        async with user_simulation(gui_app.make_root(backend)) as user:
+            await user.open("/teach")
+            _one(user, "sequence").value = NAME
+            assert await _until(lambda: "한도" in _one(user, "fit-note").text)
+            _one(user, "replay-mode").value = "fitted"
+            assert await _until(lambda: _one(user, "play").enabled)
+            user.find(marker="play").click()
+            assert await _until(lambda: calls)
+
+    asyncio.run(go())
+    assert calls[0][0] == NAME and calls[0][-1] == "fitted"

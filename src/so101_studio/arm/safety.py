@@ -30,6 +30,7 @@ class Safety:
         self.physical = physical_limits or {}
         self.settings = SafetySettings()
         self.max_step_deg, self.z_floor_mm, self.table_z_mm = max_step_deg, z_floor_mm, table_z_mm
+        self.collision = None  # SceneCollision (장면 부품과 팔의 거리). ArmService가 연결한다 (REQ-040)
         self.check_xy = True  # False면 작업대 가장자리 검사를 건너뛰고 바닥(턱 끝 높이)만 본다. 전원·부하 시험이 팔을 끝까지 펼 때만 임시로 끈다
 
     @property
@@ -76,18 +77,35 @@ class Safety:
                 lo, hi = min(lo, getattr(ref, name)), max(hi, getattr(ref, name))
             if not lo <= getattr(q, name) <= hi:
                 return f"joint_limit:{name}"
-        return self._workspace(q, ref)
+        return self._workspace(q, ref) or self._scene(q, ref)
+
+    def _scene(self, q: JointState, ref: JointState | None = None) -> str | None:
+        """장면 부품과 팔 링크 사이 거리가 margin_mm보다 가까우면 'scene:<이름>', 링크에 붙은 부품이 바닥(z_floor_mm)보다 낮으면 'scene_floor:<이름>'.
+        이미 안에서 출발했다면 거리가 줄지 않고 더 낮아지지 않는 움직임은 허용해 빠져나올 수 있게 한다(_workspace와 같다)."""
+        c = self.collision
+        if c is None or c.scene is None:
+            return None
+        d, name, low_name, low_z = c.distance(q)
+        r = c.distance(ref) if ref is not None else None
+        if low_z < c.z_floor_mm and not (r is not None and r[3] < c.z_floor_mm and low_z >= r[3] - 1e-6):
+            return f"scene_floor:{low_name}"
+        if d >= c.scene.margin_mm or (r is not None and d >= r[0] - 1e-6):
+            return None
+        return f"scene:{name}"
 
     def _tip_height(self, q: JointState) -> float:
         """낮은 턱 끝의 작업대 면 위 높이(mm). 기준점(고정 턱 면)은 수직일 때 턱 끝보다 약 7mm 위라 기준점으로 재면 느슨하다."""
         p = self.kin.fk(q)
         f, mt = self.kin.jaw_tip_offsets(p.pitch_deg, p.yaw_deg, q.gripper)
-        return p.z_mm + min(f[2], mt[2], 0.0) - self.table_z_mm
+        h = p.z_mm + min(f[2], mt[2], 0.0) - self.table_z_mm
+        low = getattr(self.kin, "jaw_lowest_z", None)  # 기울기·벌림을 반영한 두 턱 메쉬의 가장 낮은 꼭짓점까지 본다 (REQ-036)
+        return h if low is None else min(h, low(q) - self.table_z_mm)
 
     @staticmethod
     def _outside(v: float, lim) -> float:
-        """범위 [lo, hi] 밖으로 벗어난 거리(안이면 0)."""
-        return max(lim[0] - v, v - lim[1], 0.0)
+        """범위 [lo, hi] 밖으로 벗어난 거리(안이면 0). 한쪽이 None이면 그쪽은 제한 없음."""
+        lo, hi = lim
+        return max(0.0 if lo is None else lo - v, 0.0 if hi is None else v - hi, 0.0)
 
     def _workspace(self, q: JointState, ref: JointState | None = None) -> str | None:
         if self.ws is None or self.kin is None:
@@ -99,11 +117,11 @@ class Safety:
                 # 작업대 밖에서 출발했다면(0° 자세 등) 벗어난 거리가 출발점보다 늘지 않는 점만 허용해 돌아올 수 있게 한다 (decisions/0031)
                 if self._outside(v, box[ax]) > (self._outside(v0, box[ax]) if v0 is not None else 0.0) + 1e-6:
                     return "workspace"
-        floor = box["z"][0]
-        if ref is not None:  # 바닥 한계 아래에서 출발했다면(정지가 바닥 바로 앞에서 걸린 경우 등) 더 낮아지지 않는 동작은 허용해 빠져나올 수 있게 한다
+        floor = box["z"][0]  # None이면 바닥 검사 없음(사용자가 명시)
+        if floor is not None and ref is not None:  # 바닥 한계 아래에서 출발했다면(정지가 바닥 바로 앞에서 걸린 경우 등) 더 낮아지지 않는 동작은 허용해 빠져나올 수 있게 한다
             floor = min(floor, self._tip_height(ref))
         h = self._tip_height(q)
-        if h < floor:
+        if floor is not None and h < floor:
             return "z_floor"
         if box["z"][1] is not None and h > box["z"][1]:
             return "z_ceiling"
@@ -125,6 +143,12 @@ class Safety:
         safe = ensure_safe_goal_position({j: (goal[j], present[j]) for j in goal}, float(self.max_step_deg))
         return "step" if any(abs(safe[j] - goal[j]) > 1e-6 for j in goal) else None
 
+    def step_detail(self, prev: JointState, nxt: JointState) -> dict:
+        """check_step이 거부한 한 주기에서 가장 많이 움직이려 한 관절과 이동량·한계(fault 상세용)."""
+        goal, present = asdict(nxt), asdict(prev)
+        joint = max(goal, key=lambda j: abs(goal[j] - present[j]))
+        return {"joint": joint, "delta_deg": round(abs(goal[joint] - present[joint]), 2), "limit_deg": float(self.max_step_deg)}
+
 
 class HealthMonitor:
     """과열·과부하·통신 끊김 감시. 온도 읽기는 가끔 튀므로(T2) 연속 temp_count번 넘을 때만 fault로 본다."""
@@ -137,7 +161,13 @@ class HealthMonitor:
         self._over_current = 0
         self._hot: dict[str, int] = {}
         self._over_since: dict[str, float] = {}
-        self._comm_down_since: float | None = None
+        self._down: dict[str, float | None] = {"read": None, "write": None}  # 끊김 시계는 읽기와 쓰기를 따로 센다: 쓰기가 성공해도 읽기 실패 시계를 지우지 못한다
+        self._last_ok: dict[str, float | None] = {"read": None, "write": None}
+
+    @property
+    def _comm_down_since(self) -> float | None:
+        """가장 먼저 시작된 끊김 시각(없으면 None)."""
+        return min((v for v in self._down.values() if v is not None), default=None)
 
     def update_health(self, health: dict, now: float) -> str | None:
         for m, t in health["temperature_c"].items():
@@ -154,13 +184,21 @@ class HealthMonitor:
                 return f"overload:{m}"
         return None
 
-    def comm_ok(self, now: float | None = None) -> None:
-        self._comm_down_since = None
-        self._last_ok = now
+    def comm_ok(self, now: float | None = None, kind: str | None = None) -> None:
+        """통신이 됐다. kind가 "read"나 "write"면 그 시계만 지우고, 없으면 둘 다 지운다. 이동 중 제어 틱의 쓰기 성공은 "write"만 지운다:
+        서보가 쓰기는 받는데 읽기가 안 되는 상태를 놓치지 않으려는 것이다 (REQ-032)."""
+        for k in ((kind,) if kind else ("read", "write")):
+            self._down[k] = None
+            self._last_ok[k] = now
 
-    def comm_failed(self, now: float) -> str | None:
-        """끊김 시간은 마지막으로 통신이 된 시각부터 잰다(처음 실패를 본 시각이 아니라): 읽기가 드문 정지 중에도 끊긴 뒤 0.5초쯤에 fault가 난다."""
-        if self._comm_down_since is None:
-            lo = getattr(self, "_last_ok", None)
-            self._comm_down_since = lo if lo is not None and 0 <= now - lo < self.comm_s * 2 else now
-        return "comm_lost" if now - self._comm_down_since >= self.comm_s else None
+    def comm_failed(self, now: float, kind: str = "read") -> str | None:
+        """끊김 시간은 마지막으로 통신이 된 시각부터 잰다(처음 실패를 본 시각이 아니라): 읽기가 드문 정지 중에도 끊긴 뒤 0.5초쯤에 fault가 난다.
+        읽기와 쓰기 중 어느 쪽이든 comm_s 넘게 이어지면 comm_lost."""
+        if self._down[kind] is None:
+            lo = self._last_ok[kind]
+            self._down[kind] = lo if lo is not None and 0 <= now - lo < self.comm_s * 2 else now
+        return self.comm_lost(now)
+
+    def comm_lost(self, now: float) -> str | None:
+        """새 실패를 알리지 않고, 이미 시작된 끊김이 comm_s를 넘었는지만 본다."""
+        return "comm_lost" if any(now - v >= self.comm_s for v in self._down.values() if v is not None) else None

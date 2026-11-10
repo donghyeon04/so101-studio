@@ -23,29 +23,21 @@ def in_app(backend, check) -> None:
     asyncio.run(go())
 
 
-def test_thirteen_pages_in_five_groups():
-    assert len(gui_app.PAGES) == 5
-    assert len(ALL_PAGES) == 13
-    assert len({path for path, _, _ in ALL_PAGES}) == 13
+def test_fifteen_pages_in_six_groups():
+    assert len(gui_app.PAGES) == 6  # 맨 위 "안내"(시작 화면) + 다섯 그룹 (gui-spec 11절)
+    assert len(ALL_PAGES) == 15  # 카메라는 장치를 달 때까지 메뉴에 없고, 프로그램·캘리브레이션이 더해졌다 (결정 0044)
+    assert len({path for path, _, _ in ALL_PAGES}) == 15
 
 
-@pytest.mark.parametrize("path,title,task", ALL_PAGES)
-def test_menu_click_changes_page(backend, path, title, task):
+def test_menu_click_changes_page_and_frame_stays(backend):
+    """모든 페이지를 한 번의 앱 실행에서 차례로 연다(감사 2026-11-07: 페이지마다 앱을 띄우던 것을 합침)."""
     async def check(user):
-        with user.scope(marker="nav"):
-            user.find(title).click()
-        await user.should_see(marker="page-title", content=title)
-        if path not in gui_app.BUILDERS:
-            await user.should_see(f"{task}에서 만든다.")
-
-    in_app(backend, check)
-
-
-def test_frame_stays_on_every_page(backend):
-    async def check(user):
-        for _, title, _ in ALL_PAGES:
+        for path, title, _ in ALL_PAGES:
             with user.scope(marker="nav"):
                 user.find(title).click()
+            await user.should_see(marker="page-title", content=title)
+            if path not in gui_app.BUILDERS:
+                await user.should_see(marker="page-pending")
             for text in ("SO-101 Studio", "시뮬레이션", "조작권", "손끝 좌표", "기록 폴더", "E-STOP"):
                 await user.should_see(text)
 
@@ -126,8 +118,9 @@ def test_view_only_browser_can_still_estop(backend):
 
 def test_main_binds_localhost_and_connects_the_real_arm_without_sim(monkeypatch):
     class FakeBackend:
-        def __init__(self, speed=None, link=None, viser_port=None, arm_name=None, **real):
+        def __init__(self, speed=None, link=None, viser_port=None, arm_name=None, viser_host=None, share=False, web_port=None, **real):
             self.speed, self.real, self.link = speed, real, link
+            self.viser_host, self.share = viser_host, share
             self.run_dir = "runs/시험"
 
         def close(self):
@@ -150,9 +143,11 @@ def test_main_binds_localhost_and_connects_the_real_arm_without_sim(monkeypatch)
     monkeypatch.setattr(gui_app.app, "on_shutdown", lambda fn: None)
     monkeypatch.setattr(gui_app, "make_root", lambda backend: backend)
     monkeypatch.setattr(gui_app.ui, "run", lambda root, **k: calls.append((root, k)))
-    gui_app.main(argparse.Namespace(sim=True, port=9000, speed=20))
-    gui_app.main(argparse.Namespace(sim=True))  # so101 gui에는 port가 없다
-    assert [(k["host"], k["port"]) for _, k in calls] == [("127.0.0.1", 9000), ("127.0.0.1", gui_app.DEFAULT_PORT)]
+    gui_app.main(argparse.Namespace(sim=True, web_port=9000, speed=20))  # python -m so101_studio.gui --port 9000
+    gui_app.main(argparse.Namespace(sim=True, port="COM5"))  # so101.cmd gui의 --port는 서보 시리얼 포트라 웹 포트로 쓰지 않는다(gui-spec 12.6)
+    gui_app.main(argparse.Namespace(sim=True, share=True))  # --share면 NiceGUI·Viser 모두 0.0.0.0
+    assert [(k["host"], k["port"]) for _, k in calls] == [("127.0.0.1", 9000), ("127.0.0.1", gui_app.DEFAULT_PORT), ("0.0.0.0", gui_app.DEFAULT_PORT)]
+    assert [c[0].viser_host for c in calls] == ["127.0.0.1", "127.0.0.1", "0.0.0.0"] and calls[2][0].share is True
     assert calls[0][0].speed == 20
     assert calls[0][0].real == {} and calls[0][0].link.sim is True
     assert calls[0][0].link.run_dir == "runs/시험"  # 감시 기록을 실행 폴더에 남긴다
@@ -180,3 +175,112 @@ def test_main_binds_localhost_and_connects_the_real_arm_without_sim(monkeypatch)
     monkeypatch.setattr(gui_app, "list_serial_ports", lambda: [{**board, "serial": "OTHER"}])  # 다른 보드로 추측해 연결하지 않는다
     with pytest.raises(SystemExit, match="안 보인다"):
         gui_app.main(argparse.Namespace(sim=False))
+
+
+def test_brand_goes_to_start_page(backend):
+    async def go():
+        async with user_simulation(gui_app.make_root(backend)) as user:
+            await user.open("/logs")
+            await user.should_see(marker="page-title", content="로그")
+            user.find(marker="brand").click()
+            await user.should_see(marker="page-title", content="시작")
+
+    asyncio.run(go())
+
+
+def test_every_page_has_a_one_line_description():
+    assert {path for path, _, _ in ALL_PAGES} <= set(gui_app.DESCRIPTIONS)
+
+
+def test_page_shows_its_description(backend):
+    async def go():
+        async with user_simulation(gui_app.make_root(backend)) as user:
+            await user.open("/input")
+            await user.should_see(marker="page-desc", content="센서 대신 사람이")
+
+    asyncio.run(go())
+
+
+def test_start_page_shows_mode_steps_and_guide(backend):
+    async def go():
+        async with user_simulation(gui_app.make_root(backend)) as user:
+            await user.open("/start")
+            await user.should_see(marker="start-mode-title", content="시뮬레이션")
+            await user.should_see("직접 조작에서 팔 움직여 보기")
+            await user.should_see("센서 대신 사람이")  # 페이지 안내도 같은 설명 문구
+            user.find(marker="start-step-/manual").click()
+            await user.should_see(marker="page-title", content="직접 조작")
+
+    asyncio.run(go())
+
+
+def test_top_bar_gripper_speed_applies_now(backend):
+    """결정 0042: 상단 막대가 gripper_speed_pct를 바로 바꾼다."""
+    before = backend.arm.cfg.gripper_speed_pct
+
+    async def go():
+        async with user_simulation(gui_app.make_root(backend)) as user:
+            await user.open("/start")
+            for _ in range(160):
+                if backend.owner is not None:
+                    break
+                await asyncio.sleep(0.05)
+            next(iter(user.find(marker="top-grip-speed").elements)).value = 40
+            for _ in range(60):
+                if backend.arm.cfg.gripper_speed_pct == 40:
+                    break
+                await asyncio.sleep(0.05)
+
+    try:
+        asyncio.run(go())
+        assert backend.arm.cfg.gripper_speed_pct == 40
+    finally:
+        backend.set_params({"gripper_speed_pct": before})
+
+
+def test_top_bar_run_mode_and_doctor(backend):
+    async def go():
+        async with user_simulation(gui_app.make_root(backend)) as user:
+            await user.open("/start")
+            select = next(iter(user.find(marker="top-run-mode").elements))
+            assert select.value == backend.mode == "sim"
+            select.set_value("real")  # 시뮬레이션 앱에는 실제 팔이 없어 바뀌지 않는다
+            await asyncio.sleep(0.3)
+            assert backend.mode == "sim"
+            user.find(marker="top-doctor").click()
+            await user.should_see(marker="doctor-dialog")
+            await user.should_see("점검 (읽기 전용)")
+
+    asyncio.run(go())
+
+
+async def _until(check, timeout=8.0) -> bool:
+    import time
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if check():
+            return True
+        await asyncio.sleep(0.05)
+    return False
+
+
+def test_bottom_bar_speed_home_and_jog_panel(backend):
+    """결정 0044: 아래 막대의 속도·홈, 조그 패널 열기와 그리퍼 버튼. 보기 전용이면 꺼진다."""
+    async def check(user):
+        assert await _until(lambda: backend.owner is not None and next(iter(user.find(marker="bar-home").elements)).enabled)
+        backend.set_speed(40)
+        assert await _until(lambda: next(iter(user.find(marker="bar-speed").elements)).value == 40)
+        assert backend.jog_vector([0.0, 0.5, 0.0])
+        backend.jog_release("cartesian")
+        assert await _until(lambda: backend.arm.ctl.state == "idle")
+        user.find(marker="bar-home").click()
+        assert await _until(lambda: abs(backend.arm.status().joints.shoulder_lift - backend.arm.cfg.poses["home"][1]) < 1.0, 15.0)
+        panel = next(iter(user.find(marker="jog-panel").elements))
+        assert not panel.value
+        user.find(marker="bar-jog").click()
+        assert await _until(lambda: panel.value)
+        await user.should_see(marker="bar-pad-xy")
+        backend.owner = "다른 브라우저"
+        assert await _until(lambda: not next(iter(user.find(marker="bar-grip-open").elements)).enabled)
+
+    in_app(backend, check)

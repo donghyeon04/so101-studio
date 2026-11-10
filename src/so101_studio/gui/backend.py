@@ -3,6 +3,7 @@
 import contextlib
 import json
 import logging
+import math
 import re
 import shutil
 import tempfile
@@ -25,6 +26,8 @@ from ..service.stop_listener import StopListener
 from ..service.studio import Studio
 from ..service.targets import reason_text, tip_vector
 from ..task.policy import reachable
+from . import programs
+from .health import ServoHealth, count_events
 from .scene3d import Scene3D
 from .state import (
     EMPTY,
@@ -42,7 +45,8 @@ JOINT_TEXT = {
     "shoulder_pan": "어깨 회전", "shoulder_lift": "어깨 들기", "elbow_flex": "팔꿈치", "wrist_flex": "손목 굽힘", "wrist_roll": "손목 회전",
     "gripper": "그리퍼",
 }  # JointState 순서
-CART_AXES = ("x", "y", "z", "yaw")  # 작업대 좌표계
+CART_AXES = ("x", "y", "z", "yaw", "pitch")  # 작업대 좌표계. pitch 양수 = 손끝을 수평 쪽으로 든다 (REQ-037)
+ANGLE_AXES = {"yaw", "pitch"}
 DIAGNOSTICS = {"servoinfo": "서보 설정 읽기", "linkwatch": "연결 끊김 찾기", "powertest": "전원 시험", "shaketest": "떨림 시험"}
 RUN_POINTS = 600  # 실행 기록 그래프로 보내는 점의 상한
 SEQUENCE_POINTS = 300  # 화면에 보내는 기록 표본 수의 상한
@@ -51,8 +55,12 @@ JOG_YAW_DEG_S = 60.0
 RUN_MODES = {"sim": "시뮬레이션만", "real": "실제만", "both": "동시", "sim_first": "시뮬레이션 먼저"}
 REASON_EXTRA = {"z_ceiling": "허용 상자보다 높습니다"}  # service.targets에 아직 없는 이유
 BUSY_TEXT = "팔이 아직 움직이고 있습니다"
+CALIBRATING_TEXT = "캘리브레이션 측정 중입니다(팔 연결을 잠시 끊고 포트를 직접 엽니다)"
+NAME_RE = re.compile(r"[0-9A-Za-z가-힣_\- ]{1,40}")  # 자세·프로그램 이름(파일 이름에도 쓴다)
+ESTOP_FAILED_TEXT = "정지 명령을 서보에 쓰지 못했습니다({}). 팔이 계속 움직이면 전원 스위치를 끄세요"
 COMM_LOST_TEXT = "통신이 끊겼습니다. 케이블과 전원을 확인하고 [다시 연결]을 눌러 주세요"
 OUTSIDE_TEXT = "작업대 밖에서 출발했습니다. 안쪽으로만 움직일 수 있습니다"
+EDGE_TEXT = "작업대 가장자리 밖이라 움직이지 않았습니다"  # 이 문구면 화면이 "가장자리 검사를 끄고 다시 하기"를 묻는다
 LINKWATCH_TEXT = "linkwatch를 실행 중입니다. 끝나면 팔을 다시 연결합니다"
 LOG_LEVELS = {"DEBUG": "INFO", "INFO": "INFO", "WARN": "WARNING", "ERROR": "ERROR", "FATAL": "ERROR"}
 MOTION_TEXT = {
@@ -90,6 +98,7 @@ def update_workspace_text(text: str, values: dict, zone: str) -> str:
 class Plan:
     ok: bool
     text: str
+    reason: str | None = None  # 안 닿을 때의 이유 코드(예: workspace = 작업대 가장자리)
 
 
 def with_first_report(report: dict, first: dict | None) -> dict:
@@ -106,16 +115,21 @@ class Backend:
     workspace_path = "config/workspace.yaml"
     arms_path = "config/arms"
     local_path = "config/local.yaml"
+    waypoints_path = "config/waypoints.yaml"  # 자세 즐겨찾기 (결정 0044)
+    programs_dir = "config/programs"
 
     def __init__(self, speed: float | None = None, log_root: str | None = "runs", link: WatchdogLink | None = None,
-                 viser_port: int | None = None, real_driver=None, arm_name: str | None = None, serials=(), port: str | None = None, first_report: dict | None = None):
+                 viser_port: int | None = None, real_driver=None, arm_name: str | None = None, serials=(), port: str | None = None, first_report: dict | None = None,
+                 viser_host: str = "127.0.0.1", share: bool = False, web_port: int = 8080):
         cfg, self.arm_info = load_robot_ex(arm=arm_name, serials=serials)
         self._arm_option = arm_name
         self._first_report = first_report  # 팔을 연결하기 전에 포트를 열어 읽은 점검 결과
         self._linkwatching = False
+        self._calibrating = False  # 캘리브레이션 측정 중(포트를 직접 연다, gui-spec 12.3)
         self._closing = False
         self.state = State()
         self.link = link
+        self.share, self.web_port = share, web_port  # 다른 기기 보기(결정 0047): 상태줄 '공유 중' 배지와 주소
         self.scene: Scene3D | None = None
         self.reach = EMPTY
         self.runs_root = log_root or "runs"
@@ -135,6 +149,7 @@ class Backend:
         self.pending: tuple | None = None  # 시뮬레이션 먼저: 실제 팔로 실행할지 묻는 동작 (이름, action)
         self._planning = False
         self._record_name: str | None = None
+        self.program_run: programs.Run | None = None
         for arm in self._arms():
             ok, msg = arm.connect(port if arm is self.real else None)
             if not ok:
@@ -142,13 +157,16 @@ class Backend:
         # 궤적 계산용으로 따로 둔다(팔의 Kinematics는 다른 스레드도 쓴다). 만드는 동안 파이썬 전체가 1초 넘게 멈춰, 감시 프로세스가 켜진 뒤에 만들면 앱이 강제 종료된다
         self._path_kin = Kinematics(cfg.urdf, self.arm.ws.base, cfg.joint_limits_deg)
         self.arm.status_stream(self.state.update)
+        self.health = ServoHealth()
+        self.arm.status_stream(self.health.update)
         self.source = ManualSource()
         self._make_studio()
         self._reconnect_failed = False
         self.paused = False
         if viser_port is not None:
-            self.scene = Scene3D(cfg, self.arm.ws, self.arm.kin, viser_port)
+            self.scene = Scene3D(cfg, self.arm.ws, self.arm.kin, viser_port, viser_host)
             self.scene.set_objects(self.objects())
+            self.scene.set_parts(getattr(self.arm, "scene", None))  # 장면 부품(REQ-040). 팔이 아직 모르면 그리지 않는다
             self.arm.status_stream(self.scene.update_status)
             if self.real:
                 self.sim.status_stream(self._on_twin_status)
@@ -164,8 +182,10 @@ class Backend:
     def run_dir(self) -> str | None:
         return str(self.arm.logger.dir) if self.arm.logger else None
 
-    def claim(self, client: str) -> bool:
-        """비어 있으면 조작권을 가져간다. 이 브라우저가 조작권을 가졌는지 돌려준다."""
+    def claim(self, client: str, remote: bool = False) -> bool:
+        """비어 있으면 조작권을 가져간다. 이 브라우저가 조작권을 가졌는지 돌려준다. 다른 기기(원격)는 늘 보기 전용이라 거부한다(결정 0047, gui-spec 12.6)."""
+        if remote:
+            return False
         if self.owner is None:
             self.owner = client
             self.arm.log_event("owner", {"client": client})
@@ -186,6 +206,10 @@ class Backend:
         if self.link:
             self.link.rearm()
         return None
+
+    def log_loss(self) -> int:
+        """실행 기록(events·status.jsonl)에 쓰지 못했거나 밀려 버린 줄 수. 늘어나면 화면이 알린다(디스크 가득 참·권한 등)."""
+        return sum(getattr(a.logger, "write_errors", 0) + getattr(a.logger, "dropped_total", 0) for a in self._arms() if getattr(a, "logger", None))
 
     def comm_lost(self) -> bool:
         return bool(self.real and (self._reconnect_failed or self.real.ctl.fault == "comm_lost"))
@@ -244,6 +268,8 @@ class Backend:
             return None
         if self._linkwatching:
             return LINKWATCH_TEXT
+        if self._calibrating:
+            return CALIBRATING_TEXT
         return self.real.locked_reason or (COMM_LOST_TEXT if self.comm_lost() else None)
 
     def setup_lock(self) -> str | None:
@@ -275,12 +301,17 @@ class Backend:
     def _run_on(arm: ArmService, action) -> str | None:
         try:
             result = action(arm)
-        except RuntimeError:  # 컨트롤러가 이미 다른 동작을 실행 중이다
-            return BUSY_TEXT
+        except RuntimeError as e:  # 동작 중일 때만 "아직 움직이는 중", 잠김·연결 안 됨 같은 다른 이유는 그대로 보인다
+            return BUSY_TEXT if arm.ctl is not None and arm.ctl.busy else str(e)
         except ValueError as e:  # 배율 때문에 속도 한계를 넘는 경우 등
             return str(e)
-        if result.reason == "workspace" and Backend._starts_outside(arm):
-            return OUTSIDE_TEXT
+        if result.reason == "workspace":
+            return OUTSIDE_TEXT if Backend._starts_outside(arm) else EDGE_TEXT
+        if result.reason and "_out_of_reach:" in result.reason:  # REQ-031: 팔이 준 반경과 허용 범위를 그대로 보인다
+            kind, detail = result.reason.split(":", 1)
+            return f'{"집기" if kind.startswith("pick") else "놓기"} 점이 집기 범위 밖입니다:{detail}'
+        if result.status == "fault" and result.reason:  # 원인과 해결법 문장 (REQ-034)
+            return result.reason
         return None if result.status == "ok" else MOTION_TEXT.get(result.status, result.status)
 
     @staticmethod
@@ -349,10 +380,11 @@ class Backend:
         for arm in self._arms():
             arm.set_speed(pct)
 
-    def plan(self, x: float, y: float, h: float, yaw: float) -> Plan:
-        """움직이지 않고 (x, y, 높이)에 닿는지 본다. 3D에 점, 계산 자세, 손끝 경로를 그린다."""
+    def plan(self, x: float, y: float, h: float, yaw: float, pitch: float = -90.0) -> Plan:
+        """움직이지 않고 (x, y, 높이)에 손끝 각도 pitch로 닿는지 본다. 3D에 점, 계산 자세, 손끝 경로, 움직임 범위를 그린다."""
         arm = self._model_arm()
-        pose = arm.point_pose(x, y, h, yaw)
+        pitch = min(0.0, max(-90.0, pitch))  # 팔이 받는 범위(-90 아래 ~ 0 수평)
+        pose = arm.point_pose(x, y, h, yaw, pitch=pitch)
         reason, q = arm.preview_tool(pose)
         path = None
         duration = 0.0
@@ -366,7 +398,11 @@ class Backend:
         if self.scene:
             self.scene.set_preview(q if ok else None)
             self.scene.show_target(x, y, h, ok, path)
-        return Plan(ok, text)
+            try:  # 같은 pitch는 팔이 캐시한다. 동작 중이고 캐시가 없으면 이번에는 그리지 않는다
+                self.scene.show_reach(arm.reach_ranges(pitch))
+            except RuntimeError:
+                pass
+        return Plan(ok, text, reason)
 
     def clear_plan(self) -> None:
         self._planning = False
@@ -374,15 +410,16 @@ class Backend:
             self.scene.clear_target()
 
     def _on_twin_status(self, status) -> None:
-        """실제 팔이 있으면 계산 자세 팔은 시뮬레이션 쪽 자세를 보여 준다."""
-        if self.scene and not self._planning:
+        """실제 팔이 있으면 계산 자세 팔은 시뮬레이션 쪽 자세를 보여 준다.
+        시뮬레이션 팔이 움직이는 동안은 고른 목표 자세보다 이것이 먼저다("시뮬레이션 먼저"의 미리보기, gui-spec 11절 B8)."""
+        if self.scene and (not self._planning or status.state != "idle"):
             self.scene.set_preview(status.joints)
 
-    def move_to(self, x: float, y: float, h: float, yaw: float) -> str | None:
+    def move_to(self, x: float, y: float, h: float, yaw: float, pitch: float = -90.0) -> str | None:
         results = []
 
         def run(arm: ArmService):
-            result = arm.move_tool(arm.point_pose(x, y, h, yaw))
+            result = arm.move_tool(arm.point_pose(x, y, h, yaw, pitch=min(0.0, max(-90.0, pitch))))
             results.append(result)
             return result
 
@@ -401,32 +438,147 @@ class Backend:
             velocity = [0.0] * 6
             velocity[index] = sign * self.arm.cfg.joint_v_max_deg_s * speed
         else:
-            velocity = [0.0] * 4
-            velocity[index] = sign * (JOG_YAW_DEG_S if CART_AXES[index] == "yaw" else JOG_TOOL_MM_S) * speed
+            velocity = [0.0] * len(CART_AXES)
+            velocity[index] = sign * (JOG_YAW_DEG_S if CART_AXES[index] in ANGLE_AXES else JOG_TOOL_MM_S) * speed
         moved = False
         for arm in self._targets():
             moved = arm.jog(mode, velocity) or moved
         return moved
 
+    def jog_vector(self, fractions) -> bool:
+        """조이스틱(G13): 직교 축별 -1~1 비율을 한꺼번에. 순서는 CART_AXES. 0.3초 넘게 다시 부르지 않으면 팔이 스스로 멈춘다."""
+        if self.mode != "sim" and self._real_blocked():
+            return False
+        speed = self.arm.speed / 100
+        velocity = [max(-1.0, min(1.0, f)) * (JOG_YAW_DEG_S if axis in ANGLE_AXES else JOG_TOOL_MM_S) * speed
+                    for axis, f in zip(CART_AXES, list(fractions) + [0.0] * len(CART_AXES), strict=False)]
+        moved = False
+        for arm in self._targets():
+            moved = arm.jog("cartesian", velocity) or moved
+        return moved
+
     def jog_release(self, mode: str) -> None:
         """손을 떼면 속도를 0으로 내려 부드럽게 멈춘다."""
         for arm in self._targets():
-            arm.jog(mode, [0.0] * (6 if mode == "joint" else 4))
+            arm.jog(mode, [0.0] * (6 if mode == "joint" else len(CART_AXES)))
 
     def jog_step(self, mode: str, index: int, amount: float) -> str | None:
-        """정해진 간격만큼 움직인다. 관절은 도, 직교는 mm(yaw는 도)."""
+        """정해진 간격만큼 움직인다. 관절은 도, 직교는 mm(yaw·pitch는 도)."""
 
         def run(arm: ArmService):
             q = arm.status().joints
             if mode == "joint":
                 name = JOG_JOINTS[index]
                 return arm.move_joints(replace(q, **{name: getattr(q, name) + amount}))
-            delta = [0.0] * 4
+            delta = [0.0] * len(CART_AXES)
             delta[index] = amount
-            goal = arm.kin.step(q, *delta)
+            goal = arm.kin.step(q, *delta[:4], dpitch_deg=delta[4])
             return arm.move_joints(goal) if goal else MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0))
 
         return self._dispatch(run, "조그 간격 이동")
+
+    def joint_to(self, index: int, target_deg: float) -> str | None:
+        """관절 하나를 입력한 각도로 옮긴다(결정 0042 7번). 관절 이동과 같은 안전 검사를 거친다."""
+
+        def run(arm: ArmService):
+            name = JOG_JOINTS[index]
+            return arm.move_joints(replace(arm.status().joints, **{name: float(target_deg)}))
+
+        return self._dispatch(run, "관절 값 이동")
+
+    def pick_place(self, pick_xy: tuple[float, float], angle_deg: float, width_mm: float, length_mm: float,
+                   place_xy: tuple[float, float] | None, height_mm: float = 0.0) -> str | None:
+        """직접 조작 집어 옮기기(gui-spec 11절 B7, REQ-031). place_xy가 None이면 첫 배출 구역에 놓는다."""
+        obj = DetectedObject("manual-pick", float(pick_xy[0]), float(pick_xy[1]), float(angle_deg), float(width_mm), float(length_mm), 1.0, "manual",
+                             height_mm=float(height_mm))  # 0이면 팔이 설정 높이로 집는다 (REQ-034)
+        zone = None if place_xy else next(iter(self.arm.ws.drop_zones))
+
+        def run(arm: ArmService):
+            self._tell_known_objects(arm, near=pick_xy)
+            r = arm.pick_and_place(obj)  # 집기만. 시뮬레이션 팔은 쥘 물체가 없어 no_object여도 놓기까지 보인다(작업 실행의 dry-run과 같음)
+            if r.status == "ok" or (arm is self.sim and r.status == "no_object"):
+                return arm.place(zone=zone, at=place_xy)
+            return r
+
+        return self._dispatch(run, "집어 옮기기")
+
+    def _tell_known_objects(self, arm: ArmService, near: tuple[float, float] | None = None) -> None:
+        """놓을 때 벌림이 부딪히지 않게 수동 입력 물체를 팔에 알린다(REQ-050 `Skills.known_objects`, (x, y, 반경 mm)). near 둘레 40mm 안의 물체는 지금 집는 것이라 뺀다.
+        shortcut: 작업 시작 때 한 번 찍은 자리라 집어 옮긴 뒤 옛 자리가 남는다(배출 구역과 멀어 놓기를 막지 않음). 물체가 많아지면 놓을 때마다 다시 넘긴다."""
+        if getattr(arm, "skills", None) is None:
+            return
+        arm.skills.known_objects = [(o.x_mm, o.y_mm, max(o.width_mm or 0.0, o.length_mm or 0.0) / 2.0) for o in self.objects()
+                                    if near is None or math.hypot(o.x_mm - near[0], o.y_mm - near[1]) > 40.0]
+
+    # ---- 자세 즐겨찾기와 프로그램 (결정 0044). 실패하면 이유 문장, 성공하면 None
+    def waypoints(self) -> dict:
+        return programs.load_waypoints(Path(self.waypoints_path))
+
+    def save_waypoint(self, name: str) -> str | None:
+        """지금 자세(움직일 팔 기준)를 이름으로 저장한다. 같은 이름이면 덮어쓴다(즐겨찾기 표시는 유지)."""
+        name = name.strip()
+        if not NAME_RE.fullmatch(name):
+            return "이름은 한글·영문·숫자·_-·공백, 40자까지입니다"
+        st = self._model_arm().status()
+        wps = self.waypoints()
+        wps[name] = programs.pose_entry(st.joints, st.tool, wps.get(name, {}).get("favorite", False))
+        programs.save_waypoints(Path(self.waypoints_path), wps)
+        return None
+
+    def set_favorite(self, name: str, favorite: bool) -> None:
+        wps = self.waypoints()
+        if name in wps:
+            wps[name]["favorite"] = bool(favorite)
+            programs.save_waypoints(Path(self.waypoints_path), wps)
+
+    def delete_waypoint(self, name: str) -> None:
+        wps = self.waypoints()
+        if wps.pop(name, None) is not None:
+            programs.save_waypoints(Path(self.waypoints_path), wps)
+
+    def goto_waypoint(self, name: str) -> str | None:
+        wps = self.waypoints()
+        if name not in wps:
+            return f"저장된 자세 '{name}'이 없습니다"
+        joints = JointState(**{k: float(v) for k, v in wps[name]["joints"].items()})
+        return self._dispatch(lambda arm: arm.move_joints(joints), f"자세 {name}로 이동")
+
+    def program_names(self) -> list[str]:
+        return programs.program_names(Path(self.programs_dir))
+
+    def load_program(self, name: str) -> list:
+        return programs.load_program(Path(self.programs_dir), name)
+
+    def save_program(self, name: str, steps: list) -> str | None:
+        name = name.strip()
+        if not NAME_RE.fullmatch(name):
+            return "이름은 한글·영문·숫자·_-·공백, 40자까지입니다"
+        reason = programs.validate(steps, self.waypoints())
+        if reason:
+            return reason
+        programs.save_program(Path(self.programs_dir), name, steps)
+        return None
+
+    def run_program(self, steps: list, label: str, step_mode: bool = False) -> str | None:
+        """프로그램 전체를 동작 하나로 실행 방식대로 보낸다(시뮬레이션 먼저면 끝난 뒤 실제 팔 확인). 블로킹이라 스레드에서 부른다."""
+        wps = self.waypoints()
+        reason = programs.validate(steps, wps)
+        if reason:
+            return reason
+        if not steps:
+            return "단계가 없습니다"
+        if step_mode and self.mode == "both":  # 두 팔이 '다음 단계' 신호 하나를 나눠 쓰면 어긋난다
+            return "한 단계씩은 '동시' 실행 방식에서 쓸 수 없습니다"
+        self.program_run = programs.Run(step_mode)
+        act = programs.action(steps, wps, self.program_run, lambda arm: arm is self.sim)
+        reason = self._dispatch(act, f"프로그램 {label}")
+        self.program_run.reason = reason
+        return reason
+
+    def stop_program(self) -> None:
+        if self.program_run:
+            self.program_run.stop.set()
+        self.stop_all()
 
     # ---- 작업
     def objects(self) -> list[DetectedObject]:
@@ -460,7 +612,9 @@ class Backend:
             return self._real_blocked()
         if self.arm.ctl.state != "idle":  # 그대로 시작하면 동작 충돌로 곧 FAULT로 끝난다
             return MOTION_TEXT["stopped"] if self.arm.ctl.state in ("stopped", "fault") else BUSY_TEXT
-        self.state.placed, self.paused = 0, step_mode
+        self.state.placed, self.paused, self.state.run_t0 = 0, step_mode, time.time()
+        for arm in self._arms():
+            self._tell_known_objects(arm)
         self.studio.start(step_mode=step_mode)
         return None
 
@@ -490,11 +644,11 @@ class Backend:
         if self.scene:
             self.scene.set_objects(self.objects(), self.state.chosen)
 
-    def add_object(self, x: float, y: float, angle: float = 0.0, width: float = 30.0, length: float = 100.0) -> str:
+    def add_object(self, x: float, y: float, angle: float = 0.0, width: float = 30.0, length: float = 100.0, height: float = 0.0) -> str:
         """클릭한 자리에 물체를 놓고 id를 돌려준다."""
         self._next_object += 1
         object_id = f"added-{self._next_object}"
-        self.source.add(DetectedObject(object_id, x, y, angle, width, length, 1.0, "manual"))
+        self.source.add(DetectedObject(object_id, x, y, angle, width, length, 1.0, "manual", height_mm=height))
         self._changed_objects()
         return object_id
 
@@ -502,6 +656,15 @@ class Backend:
         old = next(o for o in self.objects() if o.id == object_id)
         self.source.remove(object_id)
         self.source.add(replace(old, x_mm=x, y_mm=y))
+        self._changed_objects()
+
+    def nudge_object(self, object_id: str, dx: float, dy: float, dangle: float = 0.0) -> None:
+        """고른 물체를 조금 옮기고 돌린다(G16). 각도는 0~180으로 감는다(물체는 180° 돌리면 같다)."""
+        old = next((o for o in self.objects() if o.id == object_id), None)
+        if old is None:
+            return
+        self.source.remove(object_id)
+        self.source.add(replace(old, x_mm=old.x_mm + dx, y_mm=old.y_mm + dy, angle_deg=((old.angle_deg or 0.0) + dangle) % 180))
         self._changed_objects()
 
     def remove_object(self, object_id: str) -> None:
@@ -522,6 +685,11 @@ class Backend:
     # ---- 설정
     def get_safety(self) -> dict:
         return self.arm.get_safety()
+
+    def free_table_edge(self) -> str | None:
+        """작업대 가장자리 검사만 끈다(자유 모드). 관절 한계·바닥·한 주기 이동량 검사는 그대로다 (decisions/0015)."""
+        cur = self.get_safety()
+        return self.set_safety("free", cur["joint_margin_deg"], cur["box_mm"])
 
     def set_safety(self, mode: str, margin: float, box: dict | None) -> str | None:
         """안전 설정을 바꾼다. 잘못된 값이면 이유를 돌려주고 아무것도 바꾸지 않는다."""
@@ -572,7 +740,7 @@ class Backend:
         return None
 
     def save_workspace(self, values: dict, zone: str) -> str | None:
-        """작업대·좌표를 파일에 저장한다. 주석은 그대로 둔다. 다시 시작해야 적용된다."""
+        """작업대·좌표를 파일에 저장하고 팔·작업 실행에 바로 적용한다. 주석은 그대로 둔다."""
         if min(values["table_x"], values["table_y"]) <= 0:
             return "작업대 크기는 0보다 커야 합니다"
         if not (0 <= values["base_x"] <= values["table_x"] and 0 <= values["base_y"] <= values["table_y"]):
@@ -583,15 +751,32 @@ class Backend:
             return "가장자리 여유가 작업대보다 큽니다"
         path = Path(self.workspace_path)
         path.write_text(update_workspace_text(path.read_text(encoding="utf-8"), values, zone), encoding="utf-8")
+        try:  # 바로 적용한다 (REQ-034). 동작·작업 중이면 파일만 저장하고 다음 시작에 적용된다
+            if self.task_running():
+                raise RuntimeError("작업 실행 중")
+            for arm in self._arms():
+                arm.reload_workspace(path)
+            self.studio.ws = self.studio.task.ws = self.arm.ws
+            if self.scene:
+                self.scene.set_workspace(self.arm.ws)  # 작업대·배출 구역·팔 자리를 바로 다시 그린다
+                self.scene.set_parts(getattr(self.arm, "scene", None))
+        except RuntimeError as e:
+            return f"저장했지만 지금은 적용하지 못했습니다({e}). 동작이 끝난 뒤 다시 저장하거나 앱을 다시 시작하세요"
         return None
 
     # ---- 장치·시스템
     def run_doctor(self) -> dict:
         """읽기 전용 점검. 블로킹이므로 스레드에서 부른다."""
         try:  # 연결 중에는 포트를 열 수 없다. 서보 응답·전압은 연결 전에 읽은 값으로 채운다
-            return with_first_report(doctor(probe=False, arm=self._arm_option), self._first_report)
+            report = with_first_report(doctor(probe=False, arm=self._arm_option), self._first_report)
         except Exception as e:  # noqa: BLE001  점검이 실패해도 페이지는 살아 있어야 한다
             return {"ok": False, "checks": [{"name": "점검", "state": "fail", "text": f"점검하지 못했습니다: {e}", "fix": ""}], "ports": [], "arm": None, "esp32": None}
+        if self.real is None:  # 시뮬레이션은 포트를 쓰지 않으니 포트가 없어도 실패가 아니다
+            for c in report["checks"]:
+                if c["name"] == "포트 목록" and c["state"] == "fail":
+                    c.update(state="skip", text=f"시뮬레이션이라 포트를 쓰지 않습니다. {c['text']}", fix="")
+            report["ok"] = all(c["state"] != "fail" for c in report["checks"])
+        return report
 
     def arm_names(self) -> list[str]:
         return list(arm_files(Path(self.arms_path)))
@@ -600,11 +785,28 @@ class Backend:
         """다음 실행부터 쓸 팔을 local.yaml에 적는다. 실패 이유 또는 None. 설정은 시작할 때 읽어 지금 팔은 그대로다."""
         if name not in self.arm_names():
             return f"팔 파일이 없습니다: {name}"
+        self._set_local("arm", name)
+        return None
+
+    def _set_local(self, key: str, value: str) -> None:
+        """config/local.yaml의 한 줄만 바꾼다(주석은 그대로). 없으면 끝에 더한다."""
         path = Path(self.local_path)
         text = path.read_text(encoding="utf-8") if path.exists() else ""
-        line = f"arm: {name}"
-        text, count = re.subn(r"^arm:.*$", line, text, flags=re.MULTILINE)  # 주석을 지키려고 그 줄만 바꾼다
+        line = f"{key}: {value}"
+        text, count = re.subn(rf"^{key}:.*$", line, text, flags=re.MULTILINE)
         path.write_text(text if count else f"{text.rstrip()}\n{line}\n".lstrip(), encoding="utf-8")
+
+    def gripper_info(self) -> dict | None:
+        """지금 그리퍼 종류와 고를 수 있는 종류 (REQ-038). 팔이 모르면 None."""
+        info = getattr(self.arm, "gripper_info", None)
+        return info() if info else None
+
+    def choose_gripper(self, name: str) -> str | None:
+        """다음 실행부터 쓸 그리퍼 종류를 local.yaml에 적는다(결정 0043-1). 실패 이유 또는 None."""
+        info = self.gripper_info()
+        if not info or name not in info["available"]:
+            return f"그리퍼 종류가 없습니다: {name}"
+        self._set_local("gripper", name)
         return None
 
     def _run_linkwatch(self, progress=None, stop=None) -> tuple[dict | None, str | None]:
@@ -634,6 +836,41 @@ class Backend:
             self._linkwatching = False
         return result, reason
 
+    def calibration_measure(self, out=print, stop=lambda: False) -> tuple[dict | None, str | None]:
+        """캘리브레이션 마법사 1차의 측정(gui-spec 12.3, EEPROM에 쓰지 않음). linkwatch처럼 팔 연결을 끊고(토크 유지) 포트를 직접 연 뒤 다시 연결한다.
+        (보고서, 실패 이유). 블로킹이라 스레드에서 부른다. 측정 엔진은 REQ-052의 `measure_once`."""
+        if self.real is None:
+            return None, "캘리브레이션 측정은 실제 팔에서만 합니다"
+        if self.real.ctl.state != "idle" or self.recording() or self.task_running() or self._linkwatching:
+            return None, BUSY_TEXT
+        try:
+            from ..arm.autocal.cli import measure_once
+            from ..arm.autocal.engine import AutoCalibrationError
+        except ImportError:  # REQ-052가 합쳐지기 전
+            return None, "측정 기능이 아직 없습니다(REQ-052 대기). CLI: so101.cmd calibrate --auto --measure-only"
+        try:
+            port = self._pick_port()
+        except PortChoiceError as e:
+            return None, str(e)
+        report, reason = None, None
+        self._calibrating = True
+        try:
+            self.real.disconnect()
+            try:
+                report = measure_once(replace(self.real.cfg, port=port), out=out, stop=lambda: self._closing or stop(), runs_dir=Path(self.runs_root))
+            except AutoCalibrationError as e:
+                reason = str(e)
+            except Exception as e:  # noqa: BLE001  포트를 못 열어도 팔은 다시 연결해야 한다
+                reason = f"측정을 실행하지 못했습니다: {e}"
+        finally:
+            if not self._closing:
+                problem, torque_off = self._connect_real()
+                reason = reason or problem
+                if torque_off:
+                    reason = f"토크가 꺼진 서보: {', '.join(torque_off)}. 팔을 받쳐 주세요"
+            self._calibrating = False
+        return report, reason
+
     def diagnostic_available(self, name: str) -> bool:
         return name != "linkwatch" or self.real is not None  # 포트를 직접 열어 시뮬레이션에서는 못 쓴다
 
@@ -650,8 +887,8 @@ class Backend:
             return self.arm.run_diagnostic(name, progress, stop, **kw), None
         except ValueError as e:
             return None, str(e)
-        except RuntimeError:
-            return None, BUSY_TEXT
+        except RuntimeError as e:
+            return None, BUSY_TEXT if self.arm.ctl is not None and self.arm.ctl.busy else str(e)
 
     def run_names(self) -> list[str]:
         """실행 기록 폴더 이름. 최근 것이 먼저다."""
@@ -691,6 +928,11 @@ class Backend:
                 text = f"{rec.get('kind')}: {json.dumps(rec.get('data'), ensure_ascii=False, default=str)}"
                 records.append(LogRecord(rec["t"] / 1e9, LOG_LEVELS.get(rec["level"], "INFO"), text, rec["proc"], rec.get("code"), rec["file"].split("/")[0]))
         return sorted(records, key=lambda r: r.t)
+
+    def health_events(self) -> dict:
+        """이번 실행의 통신 끊김·토크 풀림·오류 정지 횟수 (결정 0043-5)."""
+        # shortcut: 부를 때마다 events.jsonl 전체를 읽는다, 실행이 아주 길어 느려지면 logs()처럼 이어 읽기로 바꾼다
+        return count_events(logread.read_events(self.run_dir) if self.run_dir else [])
 
     def incidents(self) -> list[dict]:
         return logread.list_incidents(self.runs_root)
@@ -761,6 +1003,7 @@ class Backend:
             self.real.record_stop(name)
         except Exception as e:  # noqa: BLE001  통신이 끊겼으면 저장·토크 켜기가 실패한다. 부르는 쪽의 비상 정지까지 막으면 안 된다
             self.real.log_event("record_stop_failed", {"name": name, "error": repr(e)}, level="ERROR")
+            logging.getLogger(__name__).error("기록 저장·토크 켜기 실패(%s): 팔을 받치고 다시 연결하세요", e)  # 로그 화면·알림에 보인다
             return None
         return name
 
@@ -769,11 +1012,23 @@ class Backend:
         teach = self.real.teach
         return teach.max_s if teach.truncated else None
 
-    def replay(self, name: str, speed: float, until_limit: bool = False, segment_speeds: dict[int, float] | None = None) -> str | None:
-        reason = self._dispatch(lambda arm: arm.replay(name, speed, until_limit, segment_speeds), f"{name} 재생")
+    def replay(self, name: str, speed: float, until_limit: bool = False, segment_speeds: dict[int, float] | None = None,
+               mode: str = "original") -> str | None:
+        """mode: original(기록 그대로) | fitted(속도·가속 한도에 맞게 늦춘 변환본, REQ-034)."""
+        reason = self._dispatch(lambda arm: arm.replay(name, speed, until_limit, segment_speeds, mode), f"{name} 재생")
+        advice = "기록에 허용 범위 밖 자세가 있어 재생하지 않았습니다(첫 자세까지는 이동합니다). 한계 앞까지만 재생을 켜 보세요"
+        if reason == EDGE_TEXT and not until_limit:  # EDGE_TEXT로 시작하면 화면이 가장자리 검사를 끌지 묻는다
+            return f"{EDGE_TEXT}. {advice}"
         if reason in (MOTION_TEXT["out_of_bounds"], OUTSIDE_TEXT) and not until_limit:
-            return "기록에 허용 범위 밖 자세가 있어 재생하지 않았습니다(첫 자세까지는 이동합니다). 한계 앞까지만 재생을 켜 보세요"
+            return advice
         return reason
+
+    def replay_fit(self, name: str, speed: float, segment_speeds: dict[int, float] | None = None) -> dict | None:
+        """이 배속으로 원본 재생이 한도 안인지와 변환본이 늦추는 정도. 계산할 수 없으면 None."""
+        try:
+            return self.arm.record_info(name, speed, segment_speeds).get("fit")
+        except (ValueError, FileNotFoundError, KeyError):
+            return None
 
     def replay_cut(self) -> str | None:
         """한계 앞까지만 재생했을 때 어디서 잘렸는지."""
@@ -791,13 +1046,26 @@ class Backend:
             self.record_finish()  # 토크가 꺼진 채 조작하던 화면이 사라지면 지금 자세를 잡는다
             self.stop_task()
 
-    def estop(self) -> None:
-        self.record_finish()  # 기록 중에는 토크가 꺼져 있어 정지 명령만으로는 팔이 서지 않는다
-        self.paused = False
-        self.studio.stop()
-        self.pending = None
+    def estop(self) -> str | None:
+        """앞 단계가 실패해도 모든 팔에 정지가 간다(감사 2026-11-07: 예외 하나로 실제 팔이 정지를 못 받던 순서).
+        서보에 정지 자세를 쓰지 못한 팔이 있으면 그 이유(화면이 경고로 보인다), 모두 됐으면 None."""
+        failed = []
+        try:
+            self.record_finish()  # 기록 중에는 토크가 꺼져 있어 정지 명령만으로는 팔이 서지 않는다
+            self.paused = False
+            self.studio.stop()
+            self.pending = None
+        except Exception:  # 정지 준비가 실패해도 아래 팔 정지는 반드시 한다
+            logging.getLogger(__name__).exception("E-STOP 준비 단계 실패")
         for arm in self._arms():
-            arm.estop()  # Studio.estop은 실행 기록에 남기지 않는다
+            try:
+                err = arm.estop()  # Studio.estop은 실행 기록에 남기지 않는다. REQ-043부터 서보에 못 쓰면 이유를 돌려준다
+            except Exception as e:  # 한 팔이 실패해도 다음 팔은 세운다
+                logging.getLogger(__name__).exception("E-STOP 실패")
+                err = repr(e)
+            if err:
+                failed.append(f"{'실제 팔' if arm is self.real else '시뮬레이션'}: {err}")
+        return ESTOP_FAILED_TEXT.format("; ".join(failed)) if failed else None
 
     def close(self) -> None:
         self._closing = True

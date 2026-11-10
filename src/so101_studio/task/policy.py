@@ -13,7 +13,7 @@ def radial_mm(obj: DetectedObject, ws: WorkspaceConfig) -> float:
 
 def reachable(obj: DetectedObject, ws: WorkspaceConfig) -> bool:
     """수직 하강으로 닿는 반경(measurements.md T6 사전 조사: 약 80~260mm)을 여유를 두고 쓴다."""
-    return ws.reach_mm["min"] <= radial_mm(obj, ws) <= ws.reach_mm["max"]
+    return ws.pick_reach_mm["min"] <= radial_mm(obj, ws) <= ws.pick_reach_mm["max"]
 
 
 def choose(objects: list[DetectedObject], ws: WorkspaceConfig) -> DetectedObject | None:

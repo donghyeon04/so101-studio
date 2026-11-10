@@ -24,6 +24,10 @@ REASONS = {
 
 
 def reason_text(reason: str) -> str:
+    if reason.startswith("scene_floor:"):
+        return f"장면의 링크 부품 {reason.split(':', 1)[1]}이 작업대 면에 닿습니다"
+    if reason.startswith("scene:"):
+        return f"장면 부품 {reason.split(':', 1)[1]}에 너무 가깝습니다 (config/scene.yaml의 margin_mm 안)"
     return "관절 한계를 넘습니다 (" + reason.split(":", 1)[1] + ")" if reason.startswith("joint_limit") else REASONS.get(reason, reason)
 
 
@@ -42,15 +46,16 @@ def tip_vector(kin, pitch_deg: float, yaw_deg: float, gripper: float, tcp: str) 
 
 
 def point_to_pose(x: float, y: float, h: float, yaw: float, frame: str, base: frames.Pose2D, table_z: float = 0.0,
-                  tip: np.ndarray | None = None) -> ToolPose:
-    """(frame 기준 x, y, 작업대 면 위 높이 h)인 끝점을 수직 하강 자세로 가져가는 ref 기준 ToolPose. GUI가 점을 찍을 때도 이것을 쓴다."""
+                  tip: np.ndarray | None = None, pitch_deg: float = -90.0) -> ToolPose:
+    """(frame 기준 x, y, 작업대 면 위 높이 h)인 끝점을 pitch 자세(기본 -90 = 수직 아래, 0 = 수평)로 가져가는 ref 기준 ToolPose. GUI가 점을 찍을 때도 이것을 쓴다.
+    tip은 그 pitch·yaw에서 ref에서 끝점까지의 벡터(tip_vector)여야 한다."""
     tip = np.zeros(3) if tip is None else tip
     tx, ty = to_table(x, y, FRAMES[frame], base)
-    return ToolPose(tx - tip[0], ty - tip[1], h + table_z - tip[2], yaw, -90.0)
+    return ToolPose(tx - tip[0], ty - tip[1], h + table_z - tip[2], yaw, pitch_deg)
 
 
 def parse_target(line: str, frame: str, base: frames.Pose2D, current: ToolPose, table_z: float = 0.0,
-                 tip: np.ndarray | None = None, axes: np.ndarray | None = None, default_yaw: float = 90.0) -> ToolPose:
+                 tip: np.ndarray | None = None, axes: np.ndarray | None = None, default_yaw: float = 90.0, pitch_deg: float = -90.0) -> ToolPose:
     """'x y h [yaw]'는 절대 좌표(h = 작업대 면 위 높이), 'd dx dy dz [dyaw]'는 지금 끝 위치에서의 상대 이동(해당 좌표계의 축 방향).
     yaw는 작업대 기준 도(생략하면 default_yaw, 상대 이동이면 현재 yaw). tool 좌표계는 상대 이동만 가능하며 axes(도구 축 3x3)가 필요하다."""
     tok = line.replace(",", " ").split()
@@ -65,7 +70,7 @@ def parse_target(line: str, frame: str, base: frames.Pose2D, current: ToolPose, 
     if not relative:
         if frame == "tool":
             raise ValueError("tool 좌표계는 상대 이동만 됩니다: d dx dy dz")
-        return point_to_pose(v[0], v[1], v[2], v[3] if len(v) == 4 else default_yaw, frame, base, table_z, tip)
+        return point_to_pose(v[0], v[1], v[2], v[3] if len(v) == 4 else default_yaw, frame, base, table_z, tip, pitch_deg)
     v = (v + [0.0] * 4)[:4]
     if frame == "tool":
         dx, dy, dz = axes @ np.array(v[:3])
@@ -73,4 +78,4 @@ def parse_target(line: str, frame: str, base: frames.Pose2D, current: ToolPose, 
     o = frames.robot_to_table(0, 0, base) if frame == "robot" else (0, 0)
     dx, dy = (a - b for a, b in zip(to_table(v[0], v[1], frame, base), o, strict=True))
     return replace(current, x_mm=current.x_mm + dx, y_mm=current.y_mm + dy, z_mm=current.z_mm + v[2],
-                   yaw_deg=current.yaw_deg + v[3], pitch_deg=-90.0)
+                   yaw_deg=current.yaw_deg + v[3], pitch_deg=pitch_deg)

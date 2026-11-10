@@ -195,7 +195,8 @@ class KeysSession:
                 return nxt
 
     def run(self) -> None:
-        self.svc.driver.set_torque(True)
+        if not self.svc.enable_torque():
+            raise RuntimeError(self.svc.locked_reason)  # 잠긴 팔은 읽기만 된다
         mode = "joint"
         while mode != "quit":
             mode = getattr(self, mode + "_mode")()

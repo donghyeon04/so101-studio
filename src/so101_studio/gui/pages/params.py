@@ -28,6 +28,7 @@ CARDS = (
         "place_height_mm": ("놓는 높이 (mm)", "놓을 때 그리퍼 끝 높이"),
         "gripper_margin_mm": ("그리퍼 여유 (mm)", "물체 폭에 더해 벌리는 여유"),
         "gripper_open": ("놓을 때 벌림 (0~100)", "놓을 때 여는 정도"),
+        "gripper_speed_pct": ("그리퍼 속도 (%)", "열고 닫는 속도. 상단 막대와 같은 값"),
         "gripper_acceleration": ("그리퍼 가속 한계", "접촉 감지를 이 값에서 맞췄다"),
         "gripper_squeeze_torque": ("조임 힘 (0~1000)", "얇은 물체가 미끄러지지 않게 낮춘 값"),
         "gripper_hold_torque": ("옮길 때 조임 힘 (0~1000)", "집은 뒤 놓을 때까지 쓰는 조임 한계"),
@@ -41,6 +42,7 @@ CARDS = (
         "grasp_tilt_mode": ("기울임 방식", "symmetric 또는 equal_tips"),
         "grasp_tilt_deg": ("기울임 한계 (°)", "손목 한계 때문에 이 각도까지만 기울인다"),
         "grasp_tilt_tol_deg": ("기울임 허용 각 (°)", "턱 축이 앞뒤 방향에서 이만큼 안쪽일 때만 기울인다"),
+        "grasp_min_contact_mm": ("최소 접촉 높이 (mm)", "물체 높이로 집을 때 턱이 이만큼은 물체에 닿아야 한다"),
     }),
     ("교시", {
         "record_hz": ("기록 주기 (Hz)", "손으로 움직인 자세를 읽는 주기"),
@@ -48,9 +50,10 @@ CARDS = (
         "seg_pause_deg_s": ("멈춤 기준 (°/s)", "이 속도 미만이면 멈춤 구간"),
         "seg_fast_deg_s": ("빠름 기준 (°/s)", "이 속도 이상이면 빠른 구간"),
         "seg_min_s": ("최소 구간 (초)", "이보다 짧은 구간은 이웃에 합친다"),
+        "replay_a_max_deg_s2": ("변환본 가속 한도 (°/s²)", "변환본 재생이 맞추는 관절 가속"),
     }),
 )
-HIDDEN = {"speed_pct_default", "watchdog_hotkey"}
+HIDDEN = {"speed_pct_default", "watchdog_hotkey", "arm_name", "board_serial", "measured_on"}  # 팔 파일의 신원 값은 여기서 바꾸지 않는다
 
 
 def build(backend, client_id: str, actions) -> None:

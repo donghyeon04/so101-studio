@@ -9,6 +9,7 @@ import time
 
 from ..arm.trajectory import move_j
 from ..core.types import JointState
+from .rest import go_rest, prepare_rest
 
 SETTLE_S = 1.0
 SAMPLE_GAP_S = 0.006  # 읽기 사이 간격. 첫 거친 시험(0.0005s)에서 이동량 한계 경고와 함께 멈췄고, 읽기가 버스를 점유해 쓰기가 밀린 것으로 추정
@@ -32,14 +33,15 @@ class _Aborted(Exception):
 
 
 def run_powertest(svc, repeats: int = 3, speed_pct: float = 100.0, out=print, stop=lambda: False) -> dict:
-    svc.driver.set_torque(True)
+    if not svc.enable_torque():
+        raise RuntimeError(svc.locked_reason)  # 잠긴 팔은 읽기만 된다
     # 200°/s는 주기당 4°라 평소 한계(5°)에 여유가 없다. 이 시험 동안만 8°로 올리고, 작업대 가장자리 검사는 끈다
     with svc.safety.relaxed(check_xy=False, max_step_deg=8.0):
         return _powertest(svc, repeats, speed_pct, out, stop)
 
 
 def _powertest(svc, repeats: int, speed_pct: float, out, stop_req) -> dict:
-    start = svc.driver.read_joints()
+    start = prepare_rest(svc, out)  # 한계 밖(쉬는 자세)에서 시작했으면 먼저 home으로: 끝에 처음 자세로 돌아오는 이동이 거부되지 않게 (REQ-047)
     rest_acc = svc.driver.acceleration
     targets, skipped = [], []
     here = start
@@ -55,7 +57,11 @@ def _powertest(svc, repeats: int, speed_pct: float, out, stop_req) -> dict:
 
     def sample() -> None:
         while not stop.is_set():
-            v, cur, load = svc.driver.read_power()
+            try:
+                v, cur, load = svc.driver.read_power()
+            except Exception as e:  # noqa: BLE001  통신이 끊기면 표본 수집만 멈춘다: comm_lost 처리는 제어 스레드 몫이다 (결정 0031)
+                out(f"경고: 부하 표본을 읽지 못해 수집을 멈춘다: {e!r}")
+                return
             m = max(cur, key=cur.get)
             lm = max(load, key=load.get)
             rows.append((time.perf_counter(), v, sum(cur.values()), m, cur[m], lm, load[lm]))
@@ -72,8 +78,7 @@ def _powertest(svc, repeats: int, speed_pct: float, out, stop_req) -> dict:
             for q in [*targets, start]:
                 if stop_req():
                     out("중단 요청: 시작 자세로 돌아간다")
-                    results.append(svc._run([move_j(svc.driver.read_joints(), start, V_MAX_DEG_S * speed_pct / 100, A_MAX_DEG_S2)]).status)
-                    raise _Aborted
+                    raise _Aborted  # 돌아가기는 아래 finally가 한다
                 traj = move_j(svc.driver.read_joints(), q, V_MAX_DEG_S * speed_pct / 100, A_MAX_DEG_S2)
                 results.append(svc._run([traj]).status)
                 time.sleep(0.2)
@@ -82,6 +87,7 @@ def _powertest(svc, repeats: int, speed_pct: float, out, stop_req) -> dict:
     finally:
         svc.driver.set_acceleration(rest_acc)
         mark["t1"] = time.perf_counter()
+        mark["return"] = go_rest(svc, start, out)  # 끝나든 중단되든 실패하든 편 자세로 남기지 않는다 (REQ-047)
         time.sleep(0.5)
         stop.set()
         th.join(timeout=2)
@@ -103,7 +109,7 @@ def _powertest(svc, repeats: int, speed_pct: float, out, stop_req) -> dict:
     hz = len(rows) / (rows[-1][0] - rows[0][0])
     res = {"baseline_v": v0, "min_v": low[1], "drop_v": v0 - low[1], "peak_total_ma": peak[2], "peak_motor": peak[3],
            "peak_motor_ma": max(r[4] for r in move), "peak_load_pct": hot[6], "peak_load_motor": hot[5], "sample_hz": hz,
-           "moves": results, "skipped": skipped, "csv": str(path)}
+           "moves": results, "return": mark.get("return"), "skipped": skipped, "csv": str(path)}
     if "fault" in results:
         out(f"중간에 멈춤(fault): {svc.ctl.fault}")
     out(f"실행한 자세 {len(targets)}개 x {repeats}회, 건너뜀 {skipped or '없음'}, 결과 {sorted(set(results))}")

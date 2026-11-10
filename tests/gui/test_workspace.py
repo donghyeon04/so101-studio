@@ -15,7 +15,7 @@ from so101_studio.gui import app as gui_app
 from so101_studio.gui import sensors
 from so101_studio.gui.backend import Backend
 from so101_studio.gui.sensors.manual_view import plane_svg
-from so101_studio.gui.state import PROGRESS, State, progress_index
+from so101_studio.gui.state import PROGRESS, TASK_TEXT, State, progress_index
 
 
 @pytest.fixture
@@ -64,6 +64,9 @@ def test_progress_index_follows_states():
     assert PROGRESS[progress_index("PLACE", 1)] == "놓기"
     assert PROGRESS[progress_index("SCAN", 1)] == "다시 스캔"
     assert progress_index("DONE", 2) is None
+    assert PROGRESS[progress_index("CHECK", 0)] == "판단"  # 초음파 확인 (REQ-025)
+    assert PROGRESS[progress_index("RESCAN", 0)] == "다시 스캔"
+    assert TASK_TEXT["CHECK"] == "확인"
 
 
 def test_state_tracks_chosen_and_placed():
@@ -78,10 +81,10 @@ def test_state_tracks_chosen_and_placed():
 
 
 def test_registry_has_manual_page_and_pending_sensors():
-    assert [path for path, _, _ in sensors.menu()] == ["/ultrasonic", "/camera", "/input"]
-    assert "/input" in sensors.pages()
-    assert sensors.pending_titles() == ["초음파 A·B", "카메라"]
-    assert [v.name for v in sensors.mini_views()] == ["manual"]
+    assert [path for path, _, _ in sensors.menu()] == ["/ultrasonic", "/input"]  # 카메라는 장치를 달 때까지 숨김 (결정 0044)
+    assert {"/input", "/ultrasonic"} <= set(sensors.pages())
+    assert sensors.pending_titles() == ["카메라"]
+    assert [v.name for v in sensors.mini_views()] == ["ultrasonic", "manual"]
 
 
 def test_plane_flips_y_and_marks_selection():
@@ -97,7 +100,10 @@ def test_add_move_remove_reset_objects(clean):
     count = len(clean.objects())
     object_id = clean.add_object(310, 180, 30, 40, 80)
     added = next(o for o in clean.objects() if o.id == object_id)
-    assert (added.x_mm, added.y_mm, added.angle_deg, added.width_mm, added.length_mm) == (310, 180, 30, 40, 80)
+    assert (added.x_mm, added.y_mm, added.angle_deg, added.width_mm, added.length_mm, added.height_mm) == (310, 180, 30, 40, 80, 0)
+    tall = clean.add_object(330, 200, 0, 58, 58, 39)  # REQ-034: 높이를 넘기면 팔이 그 높이에 맞춰 집는다
+    assert next(o for o in clean.objects() if o.id == tall).height_mm == 39
+    clean.remove_object(tall)
     clean.move_object(object_id, 320, 190)
     moved = next(o for o in clean.objects() if o.id == object_id)
     assert (moved.x_mm, moved.y_mm, moved.width_mm) == (320, 190, 40)
@@ -108,6 +114,7 @@ def test_add_move_remove_reset_objects(clean):
     assert len(clean.objects()) == count
 
 
+@pytest.mark.slow
 def test_two_objects_are_moved_in_turn_and_events_follow(clean):
     clean.set_speed(100)
     first, second = _keep_two(clean)
@@ -146,6 +153,7 @@ def test_stop_during_step_mode_ends_the_thread(clean):
     assert _wait(lambda: not clean.task_running(), 15.0)
 
 
+@pytest.mark.slow
 def test_pause_holds_then_continue_runs(clean):
     clean.set_speed(100)
     _keep_two(clean)
@@ -172,7 +180,7 @@ def test_stop_ends_task_and_estop_needs_resume(clean):
     assert _wait(lambda: clean.task_running(), 2.0)
     clean.estop()
     assert _wait(lambda: not clean.task_running(), 15.0)
-    assert clean.arm.ctl.state in ("stopped", "fault")
+    assert clean.arm.ctl.state == "stopped"  # E-STOP은 fault가 아니라 정지 상태여야 한다
     assert clean.start_task() == "정지 상태입니다. 정지 해제를 눌러 주세요"
 
 
@@ -262,3 +270,12 @@ def test_backend_without_scene_still_runs_objects():
         backend.add_object(300, 200)
     finally:
         backend.close()
+
+
+def test_nudge_object_moves_and_turns(clean):
+    """G16: 고른 물체를 5mm·5°씩 옮기고 돌린다. 각도는 0~180으로 감는다."""
+    object_id = clean.add_object(310, 180, 178, 40, 80)
+    clean.nudge_object(object_id, 5, -5, 5)
+    o = next(o for o in clean.objects() if o.id == object_id)
+    assert (o.x_mm, o.y_mm, o.angle_deg) == (315, 175, 3)
+    clean.remove_object(object_id)

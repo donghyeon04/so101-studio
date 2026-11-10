@@ -12,6 +12,7 @@ STOP_PORT = 8091
 HB_S = 0.2
 STATUS_EVERY = 5  # heartbeat 5번에 한 번(1초) 상태를 읽는다
 TIMEOUT_S = 0.15
+TICK_STALE_S = 1.5  # 감시 루프가 이만큼 돌지 않았으면 죽은 것으로 본다(필드는 REQ-043부터, 없으면 응답만으로 판정)
 
 BROWSER_HB_JS = f"""
 <script>
@@ -65,7 +66,10 @@ class WatchdogLink:
     def alive(self) -> bool:
         """감시가 응답하는가. 아니면 실제 팔 명령을 막는다.
         GUI가 강제로 꺼지면 감시 프로세스가 남는다. 남은 것이 --sim이면 기록만 하므로 실제 팔에서는 없는 것으로 친다."""
-        return self.status is not None and self.status.get("sim", self.sim) == self.sim
+        if self.status is None or self.status.get("sim", self.sim) != self.sim:
+            return False
+        age = self.status.get("last_tick_age_s")  # 감시 스레드가 죽으면 HTTP는 답해도 이 값이 커진다 (REQ-043)
+        return age is None or age <= TICK_STALE_S
 
     def rearm(self) -> None:
         """정지 해제 뒤 부른다. 감시 프로세스의 작동 상태는 다시 등록해야 풀린다."""

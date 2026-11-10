@@ -23,8 +23,8 @@ def register(name: str, title: str, path: str, page_fn=None, mini_view_fn=None, 
 
 
 def menu() -> tuple:
-    """사이드바 인식 그룹: (경로, 제목, 채우는 작업)."""
-    return tuple((s.path, s.title, s.task) for s in SENSORS.values())
+    """사이드바 인식 그룹: (경로, 제목, 채우는 작업). 아직 만들지 않은 방식(카메라)은 그 장치를 달 때까지 숨긴다 (결정 0044)."""
+    return tuple((s.path, s.title, s.task) for s in SENSORS.values() if s.page_fn)
 
 
 def pages() -> dict:
@@ -41,8 +41,8 @@ def pending_titles() -> list[str]:
 
 
 # 메뉴 순서는 gui-spec 3절을 따른다
-register("ultrasonic", "초음파 A·B", "/ultrasonic", task="3단계")
+register("ultrasonic", "초음파", "/ultrasonic", task="3단계")
 register("camera", "카메라", "/camera", task="4단계")
-from . import manual_view
+from . import manual_view, ultrasonic_view
 
-__all__ = ["SENSORS", "SensorView", "manual_view", "menu", "mini_views", "pages", "pending_titles", "register"]
+__all__ = ["SENSORS", "SensorView", "manual_view", "menu", "mini_views", "pages", "pending_titles", "register", "ultrasonic_view"]

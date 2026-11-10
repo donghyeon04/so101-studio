@@ -553,8 +553,9 @@ def test_failed_restore_writes_no_calibration():
 def test_ctrl_c_during_the_cleanup_restores_the_rest_first():
     arm = make_arm()
     arm.failing.append(("shoulder_pan", "Torque_Limit", 1000, KeyboardInterrupt))
-    with pytest.raises(KeyboardInterrupt):
+    with pytest.raises(KeyboardInterrupt) as exc:
         run(arm)
+    assert any("interrupted" in f for f in exc.value.failures)  # CLI가 되돌리지 못한 것을 알릴 수 있다(REQ-043)
     pan = arm.joints["shoulder_pan"]
     assert pan.regs["Torque_Limit"] == 500
     pan.regs["Torque_Limit"] = 1000  # the interrupted write aside, everything is restored
