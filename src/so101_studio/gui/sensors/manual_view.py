@@ -5,7 +5,7 @@ import html
 from nicegui import run, ui
 
 from .. import theme
-from ..pages.common import Controls, nudge_pad
+from ..pages.common import HEIGHT_HINT, Controls, nudge_pad
 
 
 def plane_svg(table_mm: dict, objects, zones: dict, base, reach_mm: dict, selected: str | None = None) -> str:
@@ -133,7 +133,7 @@ def page(backend, client_id: str, actions) -> None:
                     width = controls.add(ui.number("폭 (mm)", value=30, min=5, max=110, step=5).props("outlined dense").classes("flex-1").mark("new-width"))
                     length = controls.add(ui.number("길이 (mm)", value=100, min=5, max=300, step=5).props("outlined dense").classes("flex-1").mark("new-length"))
                     height = controls.add(ui.number("높이 (mm)", value=0, min=0, max=200, step=5).props("outlined dense").classes("flex-1")
-                                          .tooltip("0이면 설정한 집는 높이로 집습니다").mark("new-height"))
+                                          .tooltip(HEIGHT_HINT).mark("new-height"))
             with ui.card().classes("w-full gap-2"):
                 ui.label("고른 물체 조금씩").classes("card-title")
 
