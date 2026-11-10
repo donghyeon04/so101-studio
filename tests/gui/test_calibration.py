@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+from pathlib import Path
 
 import pytest
 
@@ -110,14 +111,20 @@ def test_save_needs_yes_and_uses_the_cli_engine_with_port_released(backend, real
     seen = {}
 
     def fake(a, cfg, *, input_fn, out, runs_dir, **kw):
-        seen.update(save=a.save, port=cfg.port, answer=input_fn("yes를 입력"))
+        seen.update(save=a.save, port=cfg.port, answer=input_fn("yes를 입력"), config_dir=kw.get("config_dir"))
         assert backend.move_lock()  # 저장하는 동안 움직이는 버튼은 잠긴다
         return 0
 
     monkeypatch.setattr(autocal_cli, "run_calibrate", fake)
     assert backend.calibration_save("네") == (False, "yes를 입력해야 저장합니다") and real_like == []
     assert backend.calibration_save(" YES ") == (True, None)
-    assert seen == {"save": True, "port": "COM9", "answer": "yes"} and real_like == ["disconnect", "connect"]
+    assert seen == {"save": True, "port": "COM9", "answer": "yes", "config_dir": Path(backend.real.config_dir)}  # 저장 위치는 팔 설정 폴더(현재 폴더가 아님)
+    assert real_like == ["disconnect", "connect"]
+    backend._calibrating = True  # 다른 탭이 측정·저장 중이면 같은 포트를 열지 않는다
+    try:
+        assert backend.calibration_save("yes")[1] == "팔이 아직 움직이고 있습니다" and backend.calibration_measure()[1] == "팔이 아직 움직이고 있습니다"
+    finally:
+        backend._calibrating = False
     monkeypatch.setattr(autocal_cli, "run_calibrate", lambda *a, **kw: 1)
     ok, reason = backend.calibration_save("yes")
     assert not ok and "저장하지 못했" in reason

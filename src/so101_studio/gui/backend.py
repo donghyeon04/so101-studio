@@ -15,6 +15,7 @@ from pathlib import Path
 from ..arm.kinematics import Kinematics
 from ..arm.sim_driver import SimDriver
 from ..core import logread
+from ..core.calibration import find_calibration
 from ..core.config import arm_files, load_robot_ex, load_workspace
 from ..core.ports import PortChoiceError, list_serial_ports, pick_port
 from ..core.types import DetectedObject, JointState, MotionResult, ToolPose
@@ -841,7 +842,7 @@ class Backend:
         """캘리브레이션 마법사(gui-spec 12.3): linkwatch처럼 팔 연결을 끊고(토크 유지) work(cfg)로 포트를 직접 쓴 뒤 다시 연결한다. (결과, 실패 이유)."""
         if self.real is None:
             return None, f"캘리브레이션 {what}은 실제 팔에서만 합니다"
-        if self.real.ctl.state != "idle" or self.recording() or self.task_running() or self._linkwatching:
+        if self.real.ctl.state != "idle" or self.recording() or self.task_running() or self._linkwatching or self._calibrating:  # 다른 탭의 측정·저장이 같은 포트를 쓰는 중
             return None, BUSY_TEXT
         from ..arm.autocal.engine import AutoCalibrationError
 
@@ -885,8 +886,7 @@ class Backend:
         status = repeat_status(Path(self.runs_root), cal_id)
         if not status["passed"]:
             return None
-        old_path = Path(self.real.config_dir) / "calibration" / f"{cal_id}.json"
-        old = json.loads(old_path.read_text(encoding="utf-8")) if old_path.is_file() else None
+        old, _ = find_calibration(cal_id, Path(self.real.config_dir))  # 엔진처럼 LeRobot 캐시를 먼저 본다: 표와 실제로 덮어쓰는 기준이 같다
         return compare(old, status["median"])
 
     def calibration_save(self, confirm: str, out=print) -> tuple[bool, str | None]:
@@ -900,7 +900,7 @@ class Backend:
 
         def work(cfg):
             a = Namespace(sim=False, auto=False, measure_only=False, save=True, from_file=None, config=str(Path(self.real.config_dir) / "robot.yaml"))
-            return cli.run_calibrate(a, cfg, input_fn=lambda _prompt: "yes", out=out, runs_dir=Path(self.runs_root))
+            return cli.run_calibrate(a, cfg, input_fn=lambda _prompt: "yes", out=out, config_dir=Path(self.real.config_dir), runs_dir=Path(self.runs_root))
 
         code, reason = self._with_port(work, "저장")
         return code == 0, reason or (None if code == 0 else "저장하지 못했거나 저장 뒤 대조가 맞지 않습니다. 아래 기록을 보세요")
