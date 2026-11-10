@@ -145,11 +145,10 @@ def _doctor_card(backend, controls: Controls) -> None:
         state_icon.name, color, _ = theme.DOCTOR_STYLES[worst]
         state_icon.props(f"color={color}")
         state_text.text = summary
-        zero = report.get("zero_check")  # shortcut: REQ-017(#41)이 합쳐지기 전에는 없다, 합쳐지면 없는 경우를 뺀다
-        if zero:
-            zero_icon.name, color, _ = theme.DOCTOR_STYLES["ok" if zero["state"] == "checked" else "warn"]
-            zero_icon.props(f"color={color}")
-            zero_text.text = f"0° 자세 확인: 확인됨 ({zero['date']})" if zero["state"] == "checked" else f"0° 자세 확인: 필요 ({zero['reason']})"
+        zero = report["zero_check"]
+        zero_icon.name, color, _ = theme.DOCTOR_STYLES["ok" if zero["state"] == "checked" else "warn"]
+        zero_icon.props(f"color={color}")
+        zero_text.text = f"0° 자세 확인: 확인됨 ({zero['date']})" if zero["state"] == "checked" else f"0° 자세 확인: 필요 ({zero['reason']})"
         problems.clear()
         details.clear()
         with problems:

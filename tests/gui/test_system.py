@@ -89,7 +89,8 @@ def test_doctor_card_shows_result_without_opening_ports(backend, monkeypatch):
 
     def fake(**kw):
         calls.append(kw)
-        return {"ok": False, "ports": [], "arm": None, "esp32": None, "checks": [
+        return {"ok": False, "ports": [], "arm": None, "esp32": None,
+                "zero_check": {"state": "checked", "reason": "", "date": "2026-11-10", "sha256": "ab"}, "checks": [
             {"name": "numpy", "state": "ok", "text": "numpy 2.2.6", "fix": ""},
             {"name": "팔 파일", "state": "fail", "text": "팔 파일 없음", "fix": "USB 케이블을 확인한다"},
             {"name": "서보 응답", "state": "skip", "text": "탐침하지 않았다", "fix": ""},
@@ -101,7 +102,7 @@ def test_doctor_card_shows_result_without_opening_ports(backend, monkeypatch):
         assert await _until(lambda: _one(user, "doctor-state").text == "정상 1 · 실패 1 · 건너뜀 1")
         await user.should_see("고치기: USB 케이블을 확인한다")
         assert "so101_follower_01" in _one(user, "arm-file").text
-        assert "준비 중" in _one(user, "zero-check").text  # REQ-017 임시
+        assert "확인됨 (2026-11-10)" in _one(user, "zero-check").text
         await user.should_not_see(marker="new-arm-steps")
 
     in_app(backend, "/arm", check)
@@ -135,6 +136,7 @@ def test_doctor_failure_is_reported_as_a_check(backend, monkeypatch):
     monkeypatch.setattr(backend_module, "doctor", broken)
     report = backend.run_doctor()
     assert report["ok"] is False and "없음" in report["checks"][0]["text"]
+    assert report["zero_check"]["state"] == "needed"  # 0° 카드는 늘 이 필드를 읽는다
 
 
 def test_choose_arm_keeps_local_comments_and_refuses_unknown(backend, tmp_path, monkeypatch):
@@ -431,7 +433,8 @@ def test_top_bar_and_banner_follow_comm_loss_without_reload(backend, monkeypatch
 
 
 def _doctor_with(backend, monkeypatch, **fields):
-    report = {"ok": True, "checks": [{"name": "포트", "state": "ok", "text": "COM3", "fix": ""}], "ports": [], **fields}
+    report = {"ok": True, "checks": [{"name": "포트", "state": "ok", "text": "COM3", "fix": ""}], "ports": [],
+              "zero_check": {"state": "needed", "reason": "확인 기록이 없다", "date": None, "sha256": None}, **fields}
     monkeypatch.setattr(backend, "run_doctor", lambda: report)
 
 
