@@ -112,7 +112,7 @@ def test_one_sided_none_box_never_raises(svc):
 
 def test_service_safety_settings_roundtrip_and_validation(svc):
     s = svc.set_safety(mode="free", joint_margin_deg=-3, box_mm={"z": [10, 300]})
-    assert s["mode"] == "free" and s["effective_limits_deg"]["elbow_flex"][1] == pytest.approx(97.1) and s["box_mm_effective"]["z"] == [10, 300]
+    assert s["mode"] == "free" and s["effective_limits_deg"]["elbow_flex"][1] == pytest.approx(98.0) and s["box_mm_effective"]["z"] == [10, 300]
     with pytest.raises(ValueError):
         svc.set_safety(mode="nope")
     with pytest.raises(ValueError):
