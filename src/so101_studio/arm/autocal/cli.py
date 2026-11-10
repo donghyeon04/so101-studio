@@ -53,15 +53,25 @@ def run_calibrate(a, cfg, *, input_fn=input, out=print, opener=open_robot, now=d
         return 1
 
 
+def measure_once(cfg, *, velocity: int = 200, torque_limit: int | None = None, out=print, stop=lambda: False, runs_dir: Path = Path("runs"),
+                 config_dir: Path | None = None, opener=open_robot, now=datetime.now) -> dict:
+    """측정만 한 번 한다(EEPROM에 쓰지 않는다): open_robot -> 기존 캘리브레이션과 비교 -> 버스를 닫는다. 입력을 기다리지 않는다(준비 확인은 부르는 쪽 몫: CLI는 Enter, GUI 마법사는 체크).
+    보고서 dict에 "run_dir"을 더해 돌려준다. stop()이 True가 되면 다음 위치 읽기에서 AutoCalibrationError("중단했습니다")로 끝나고 레지스터는 되돌려진다. 전압·온도 중단도 AutoCalibrationError(이유 문장).
+    out은 진행 문장(관절을 시작할 때 "측정 중(i/n): <관절>", 요약, 표)을 받는다 (REQ-052)."""
+    repo_path = (config_dir or Path("config")) / "calibration" / f"{cfg.calibration_id}.json"
+    run_dir = runs_dir / f"{now():%Y%m%d-%H%M%S}-autocal"
+    robot = opener(cfg)
+    try:
+        report = measure_only(robot.bus, cfg.calibration_id, _old_calibration(robot, repo_path), velocity=velocity, torque_limit=torque_limit, out=out, run_dir=run_dir, stop=stop)
+    finally:
+        robot.bus.disconnect(disable_torque=False)
+    return {**report, "run_dir": str(run_dir)}
+
+
 def _measure(a, cfg, input_fn, out, opener, now, repo_path, runs_dir) -> int:
     out(GUIDE)
     input_fn("준비됐으면 Enter(시작), 그만두려면 Ctrl+C... ")
-    robot = opener(cfg)
-    try:
-        report = measure_only(robot.bus, cfg.calibration_id, _old_calibration(robot, repo_path), velocity=a.velocity, torque_limit=a.torque_limit,
-                              out=out, run_dir=runs_dir / f"{now():%Y%m%d-%H%M%S}-autocal")
-    finally:
-        robot.bus.disconnect(disable_torque=False)
+    report = measure_once(cfg, velocity=a.velocity, torque_limit=a.torque_limit, out=out, runs_dir=runs_dir, config_dir=repo_path.parent.parent, opener=opener, now=now)
     return 0 if report["passed"] else 1
 
 
