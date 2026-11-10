@@ -22,6 +22,14 @@ COMPARE = """팔이 0° 자세로 섰다. 실물과 3D(URDF) 모델의 0° 자�
   - 관절마다 방향과 기울기가 같아야 한다(특히 shoulder_pan의 정면, wrist_roll, gripper)."""
 
 
+def _moved(svc, start: JointState | None) -> bool:
+    try:
+        now = svc.driver.read_joints()
+        return start is None or any(abs(getattr(now, j) - getattr(start, j)) > 1.0 for j in ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll"))
+    except Exception:  # noqa: BLE001  읽지 못하면 움직였다고 본다
+        return True
+
+
 def _go_back(svc, start: JointState | None, out) -> str:
     """기록하지 않고 끝날 때: 잠그기 전에 시작 자세로(안 되면 home으로) 같은 속도로 돌아간다. 잠기면 home도 거부되고 12V를 끄면 뻗은 팔이 떨어진다.
     "start"(시작 자세) | "home" | "failed"를 돌려주고 한 줄 출력한다."""
@@ -60,11 +68,9 @@ def run_verify_zero(svc, cfg, *, input_fn=input, out=print, config_dir: Path | N
         start = svc.driver.read_joints()
     except Exception:  # noqa: BLE001  못 읽으면 되돌아갈 때 home으로 간다
         start = None
-    moved = False
     try:
         # 0° 자세는 팔이 앞으로 곧게 뻗어 끝이 작업대 가장자리 밖으로 나간다(약 y 400mm, 작업대는 390mm까지). 이 이동 동안만 작업대 가장자리 검사를 끈다
         # (관절 한계와 바닥 검사는 그대로, powertest와 같다). 그래서 반경 50cm를 비우라고 안내한다
-        moved = True
         with svc.safety.relaxed(check_xy=False):
             r = svc.move_joints(JointState(0, 0, 0, 0, 0, GRIPPER_ZERO), speed_pct=SPEED_PCT)
         if r.status != "ok":
@@ -80,10 +86,10 @@ def run_verify_zero(svc, cfg, *, input_fn=input, out=print, config_dir: Path | N
             return 1
         arm_file = config_dir / "arms" / f"{cfg.arm_name}.yaml"
         record_checked(arm_file, sha, today())
-        out(f"기록했다: {arm_file} calibration_checked (캘리브레이션 파일 해시 {sha[:12]}…). 다음에 연결할 때부터 움직인다")
+        out(f"기록했다: {arm_file} calibration_checked (캘리브레이션 파일 해시 {sha[:12]}…). 다음에 연결할 때부터 움직인다. 팔은 0° 자세(작업대 밖으로 뻗음)로 남아 있으니 so101 home으로 돌아간다")
         result["recorded"] = True
         return 0
     finally:
-        if moved and not result["recorded"]:
+        if not result["recorded"] and _moved(svc, start):  # 팔이 실제로 시작 자세에서 벗어났을 때만(이동이 바로 거부됐으면 되돌아갈 일이 없다)
             result["returned"] = _go_back(svc, start, out)  # 잠그기 전에: 잠기면 home도 거부된다
         svc.relock_zero()

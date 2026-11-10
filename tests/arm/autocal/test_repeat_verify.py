@@ -402,3 +402,26 @@ def test_deg_to_steps_helper_matches_the_boundary_math():
     with pytest.raises(AutoCalibrationError):
         raise AutoCalibrationError("x")
     assert time.time() > 0
+
+
+def test_home_is_allowed_while_only_the_zero_check_lock_is_on(tmp_path, conf):
+    # --verify-zero가 기록 없이 끝난 뒤에도 home은 된다(뻗은 채 12V를 끄는 것 말고 내릴 길이 있어야 한다). 다른 움직임은 계속 locked
+    svc = service(tmp_path, conf)
+    try:
+        assert "0° 자세 확인 필요" in svc.locked_reason
+        assert svc.home().status == "ok" and "0° 자세 확인 필요" in svc.locked_reason  # 끝난 뒤 다시 잠겨 있다
+        assert svc.move_joints(JointState(0, 0, 0, 0, 0, 10)).status == "locked"
+    finally:
+        svc.disconnect()
+
+
+def test_verify_zero_does_not_walk_back_when_the_move_was_refused_without_moving(tmp_path, conf):
+    svc = service(tmp_path, conf)
+    said, result = [], {}
+    svc.move_joints = lambda goal, speed_pct=None: type("R", (), {"status": "locked"})()
+    answers = iter([""])
+    try:
+        assert verify.run_verify_zero(svc, CFG0, input_fn=lambda _: next(answers), out=said.append, config_dir=conf, result=result) == 1
+    finally:
+        svc.disconnect()
+    assert result == {"recorded": False, "returned": None} and not any("돌아갔다" in line for line in said)
