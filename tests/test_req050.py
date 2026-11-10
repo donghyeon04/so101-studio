@@ -22,7 +22,9 @@ def run(tmp_path, width, known=()):
     s.ctl.on_event = lambda kind, level, code, data: ev.append((code, data))
     s.skills.known_objects = list(known)
     try:
-        r = s.pick_and_place(DetectedObject("o", 300, 200, 0, width, width, 1.0, "manual", 39), "right")
+        assert s.skills.pick(DetectedObject("o", 300, 200, 0, width, width, 1.0, "manual", 39)).status == "ok"
+        s.skills.grip = None  # REQ-053 이후 기울여 집은 기억이 있으면 대칭 V자로 가므로, 여기서는 첫판(③ fixed_tilt: 수직 손으로 옆으로만)을 시험한다
+        r = s.skills.place("right")
         final = s.driver.read_joints()
     finally:
         s.disconnect()
