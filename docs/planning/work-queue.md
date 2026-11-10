@@ -31,5 +31,6 @@
 순서와 조건은 `measurements.md` "실물 시험 순서": 1 놓기 재시험(REQ-053 뒤) → ~~2 전원~~ ~~3 AC4·#41~~(11-10 끝) → 4 작업대 조립 뒤 runbook 2-A → 5 병렬 그리퍼 → 6~8 초음파. 9 남은 G10 실물은 생략(사용자).
 
 ## 열린 PR·브랜치
-- 사용자에게 물을 것(아침): `physical_limits_deg` 제안값을 쓸지, 배출 구역 다시 집기 `no_object`(tilt_ok=False)를 기획에 올릴지(`runs/handoff-20261110.md`).
+- 11-11 사용자 결정: `physical_limits_deg` 제안값 사용(REQ-054), 배출 구역은 반경 90~250mm에서 바꿀 수 있게, 약 200mm보다 먼 넓은 물체의 ③fixed_tilt는 구조 한계로 받아들임.
+- 아직 물을 것: #229(REQ-053)·#228(마법사 2차) 합치기, 배출 구역 다시 집기 `no_object`(tilt_ok=False)를 기획에 올릴지, 호버 높이를 approach_height_mm보다 낮게 쓰는 것.
 - `planning-inbox`: 기획 요청함 기록용, 합치지 않음.
