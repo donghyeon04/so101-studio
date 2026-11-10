@@ -22,8 +22,32 @@ COMPARE = """팔이 0° 자세로 섰다. 실물과 3D(URDF) 모델의 0° 자�
   - 관절마다 방향과 기울기가 같아야 한다(특히 shoulder_pan의 정면, wrist_roll, gripper)."""
 
 
-def run_verify_zero(svc, cfg, *, input_fn=input, out=print, config_dir: Path | None = None, today=date.today) -> int:
+def _go_back(svc, start: JointState | None, out) -> str:
+    """기록하지 않고 끝날 때: 잠그기 전에 시작 자세로(안 되면 home으로) 같은 속도로 돌아간다. 잠기면 home도 거부되고 12V를 끄면 뻗은 팔이 떨어진다.
+    "start"(시작 자세) | "home" | "failed"를 돌려주고 한 줄 출력한다."""
+    try:
+        with svc.safety.relaxed(check_xy=False):  # 0° 자세에서 돌아오는 길도 작업대 가장자리 검사를 끈다
+            if start is not None:
+                r = svc.move_joints(start, speed_pct=SPEED_PCT)
+                if r.status == "ok":
+                    out("시작 자세로 돌아갔다")
+                    return "start"
+                out(f"시작 자세로 돌아가지 못했다: {r.status}. home으로 간다")
+            r = svc.home()
+        if r.status == "ok":
+            out("home으로 돌아갔다")
+            return "home"
+        out(f"돌아가지 못했다: {r.status}. 팔이 0° 자세(작업대 밖으로 뻗음)에 있다. 손으로 받치고 12V를 끄기 전에 so101 home을 다시 시도한다")
+    except Exception as e:  # noqa: BLE001  잠그는 일을 막지 않는다
+        out(f"돌아가지 못했다: {type(e).__name__}: {e}. 팔이 0° 자세(작업대 밖으로 뻗음)에 있을 수 있다")
+    return "failed"
+
+
+def run_verify_zero(svc, cfg, *, input_fn=input, out=print, config_dir: Path | None = None, today=date.today, result: dict | None = None) -> int:
+    """종료 코드 0(기록함) 또는 1. result dict를 주면 {"recorded": bool, "returned": "start"|"home"|"failed"|None}를 채운다(0° 이동을 했고 기록하지 않았을 때만 returned가 있다)."""
     config_dir = config_dir or svc.config_dir
+    result = result if result is not None else {}
+    result.update(recorded=False, returned=None)
     if not cfg.arm_name:
         out("팔 파일이 없어 확인을 기록할 곳이 없다. config/arms/_template.yaml을 복사해 팔 파일을 만든다")
         return 1
@@ -33,8 +57,14 @@ def run_verify_zero(svc, cfg, *, input_fn=input, out=print, config_dir: Path | N
     out(GUIDE)
     input_fn("준비됐으면 Enter(시작), 그만두려면 Ctrl+C... ")
     try:
+        start = svc.driver.read_joints()
+    except Exception:  # noqa: BLE001  못 읽으면 되돌아갈 때 home으로 간다
+        start = None
+    moved = False
+    try:
         # 0° 자세는 팔이 앞으로 곧게 뻗어 끝이 작업대 가장자리 밖으로 나간다(약 y 400mm, 작업대는 390mm까지). 이 이동 동안만 작업대 가장자리 검사를 끈다
         # (관절 한계와 바닥 검사는 그대로, powertest와 같다). 그래서 반경 50cm를 비우라고 안내한다
+        moved = True
         with svc.safety.relaxed(check_xy=False):
             r = svc.move_joints(JointState(0, 0, 0, 0, 0, GRIPPER_ZERO), speed_pct=SPEED_PCT)
         if r.status != "ok":
@@ -51,6 +81,9 @@ def run_verify_zero(svc, cfg, *, input_fn=input, out=print, config_dir: Path | N
         arm_file = config_dir / "arms" / f"{cfg.arm_name}.yaml"
         record_checked(arm_file, sha, today())
         out(f"기록했다: {arm_file} calibration_checked (캘리브레이션 파일 해시 {sha[:12]}…). 다음에 연결할 때부터 움직인다")
+        result["recorded"] = True
         return 0
     finally:
+        if moved and not result["recorded"]:
+            result["returned"] = _go_back(svc, start, out)  # 잠그기 전에: 잠기면 home도 거부된다
         svc.relock_zero()
