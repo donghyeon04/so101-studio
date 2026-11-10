@@ -212,6 +212,7 @@ class Skills:
         """고정 턱 1개 + 가동 턱 1개. URDF 기하(결정 0009, 0010, 0011): 기준점(gripper_frame)은 고정 턱 안쪽 면 위에 있고 가동 턱은 +m 쪽이다.
         (1) 틈을 최대로 벌리고(기본), 두 턱 끝의 중간점이 물체에 오도록 손 위치를 정해 내려간다(NVIDIA 포럼의 grasp_center 방식),
         (2) 턱 축이 팔이 뻗은 방향이면 손을 기울여 V자를 대칭에 가깝게 만들고, 닫을수록 기울기를 푼다,
+        기울인 계획이 손목 한계로 안 풀리면(ik_fail) 높이를 알 때만 수직으로 틈·높이를 다시 계산해 한 번 더 한다 (REQ-055),
         (3) 닫을 때 중간점이 물체 중심에 머물도록 손을 같이 보낸다(F1 Hand '닫으며 중심 쪽으로 이동'),
         (4) 그리퍼가 명령보다 앞서 멈추면(접촉) 그 자리에서 정지한다. 물체 크기를 몰라도 된다."""
         self.placed = [o for o in self.placed if math.hypot(o[0] - obj.x_mm, o[1] - obj.y_mm) > 40.0]  # 집어 간 물체는 더 이상 장애물이 아니다
@@ -221,10 +222,14 @@ class Skills:
         m = (math.cos(math.radians(yaw)), math.sin(math.radians(yaw)))
         tilt_ok = self._tilt_ok(obj, yaw)
         plan = self._plan_pick(obj, yaw, m, tilt_ok)
-        if tilt_ok and isinstance(plan, MotionResult) and plan.status == "ik_fail":  # 기울인 계획이 안 풀리면(멀리서는 손목 한계) 수직으로 틈·높이를 다시 계산해 한 번 더 (REQ-055)
-            self.ctl._emit("pick_tilt_unreachable", "WARN", "ARM-PICK-TILT-UNREACHABLE", {"reason": "tilt_unreachable", "x_mm": obj.x_mm, "y_mm": obj.y_mm, "width_mm": obj.width_mm, "height_mm": obj.height_mm})
-            tilt_ok = False
-            plan = self._plan_pick(obj, yaw, m, False)
+        if tilt_ok and isinstance(plan, MotionResult) and plan.status == "ik_fail":
+            info = {"x_mm": obj.x_mm, "y_mm": obj.y_mm, "width_mm": obj.width_mm, "height_mm": obj.height_mm}
+            if obj.height_mm > 0:  # 기울인 계획이 안 풀리면(멀리서는 손목 한계) 수직으로 틈·높이를 다시 계산해 한 번 더 (REQ-055)
+                self.ctl._emit("pick_tilt_unreachable", "WARN", "ARM-PICK-TILT-UNREACHABLE", {"reason": "tilt_unreachable", **info})
+                tilt_ok = False
+                plan = self._plan_pick(obj, yaw, m, False)
+            else:  # 높이를 모르면 수직으로 바꾸지 않는다: 위 모서리를 칠 수 있다(처리는 설계 결정 대기, REQ-055 C). ik_fail 그대로
+                self.ctl._emit("pick_tilt_unreachable", "WARN", "ARM-PICK-TILT-UNREACHABLE", {"reason": "tilt_unreachable_height_unknown", **info})
         if isinstance(plan, MotionResult):
             return plan
         v0, t, q_hover, down, closing = plan.v0, plan.t, plan.q_hover, plan.down, plan.closing
