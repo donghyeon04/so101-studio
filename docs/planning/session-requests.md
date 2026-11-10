@@ -1,6 +1,6 @@
 # 세션 간 요청 대장
 
-상태: 초안 · 갱신 2026-11-07
+상태: 초안 · 갱신 2026-11-10
 
 절차와 양식은 `docs/guides/session-workflow.md`에 있다. GUI 세션(총괄)이 번호를 매기고 행과 상태를 관리한다(`decisions/0036`). 자세한 내용은 요청 메시지와 PR에 두고, 여기에는 한 줄만 남긴다.
 
@@ -60,3 +60,4 @@
 | REQ-050 | 놓기 동작 모양(arm-software-spec 11.3): 벌림 끝 = 쥔 틈+양쪽 30mm, 1.0초, 다 벌린 뒤 수직 상승, 부딪힘이면 여유 줄임, 실제 턱 이동 기록 | 기획·사용자 → 팔(2026-11-07) | 기능 | 완료 | #204 합쳐짐(시뮬레이션 고정 턱 30/30/26mm, 1.0초) | 뒤에 실물 2-2(놓기 5/5, 고정 턱 20mm 이상). 수동 입력 물체를 `Skills.known_objects`에 넣는 일은 GUI·작업 실행 몫으로 남음 |
 | REQ-051 | `so101.cmd gui --share` 인자(store_true, 결정 0047·0049) | GUI → 팔(2026-11-08) | 기능 | 완료 | #209 합쳐짐 | GUI 구현 #212 |
 | REQ-052 | 캘리브레이션 마법사용 `autocal.cli.measure_once(cfg, out, stop, runs_dir)`: 입력 대기 없이 측정, `stop`이면 되돌린 뒤 AutoCalibrationError | GUI → 팔(2026-11-10) | 기능 | 완료 | #214 합쳐짐, GUI 진행 표시 #220 | 마법사 1차가 실제 측정을 부른다(실물 측정은 AC4 때) |
+| REQ-053 | 대칭 V자 놓기(arm-software-spec 11.3 개정, EGM Stage 9 반영): 놓는 yaw=`_jaw_yaw`, 내려갈 때 기울기 `tilt(지금 그리퍼 값)`·낮은 턱 끝 t_g+3mm, 여는 경로 ①tilted ②released_then_tilted ③fixed_tilt ④경로 없음(FALLBACK은 ④만), 단계별 `check_goal`·물체 검사, 대칭 상한 틈, 기록 키, 새 설정 `place_drop_mm`·`place_release_mm` | 기획·사용자 → 팔(2026-11-10) | 기능 | 요청 | 설계서 #223 합쳐짐 | 완료 기준 11.3.4(`--sim` 먼저, 그다음 runbook 2-2). REQ-050을 대체 |
