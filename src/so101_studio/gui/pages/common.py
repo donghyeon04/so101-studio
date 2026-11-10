@@ -63,7 +63,7 @@ def _layer_menu(scene) -> None:
 
 
 def _request_host() -> str | None:
-    """이 브라우저가 앱을 연 호스트 이름(시험처럼 요청이 없으면 None)."""
+    """이 브라우저가 앱을 연 호스트 이름(시험처럼 요청이 없으면 None). --share일 때만 쓴다: 아니면 Viser는 127.0.0.1에만 있어 localhost(::1)로 열면 못 닿는다."""
     try:
         return ui.context.client.request.url.hostname
     except (RuntimeError, AttributeError):
@@ -72,7 +72,7 @@ def _request_host() -> str | None:
 
 def scene_frame(backend, classes: str = "scene3d") -> None:
     with ui.element("div").classes("scene-wrap"):
-        ui.element("iframe").props(f'src={backend.scene.url_for(_request_host())} title="3D 보기"').classes(classes).mark("scene3d")
+        ui.element("iframe").props(f'src={backend.scene.url_for(_request_host()) if getattr(backend, "share", False) else backend.scene.url} title="3D 보기"').classes(classes).mark("scene3d")
         view_cube(backend.scene)
         _layer_menu(backend.scene)
 
