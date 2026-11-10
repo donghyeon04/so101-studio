@@ -1,4 +1,4 @@
-"""캘리브레이션 마법사 1차 (gui-spec 12.3): 시뮬레이션은 설명만, 실제 팔이면 준비 체크 → 측정(연결을 끊고 다시 연결) → 비교표."""
+"""캘리브레이션 마법사 (gui-spec 12.3): 시뮬레이션은 설명만, 실제 팔이면 준비 체크 → 측정(연결을 끊고 다시 연결) → 비교표 → 저장(yes) → 0° 확인."""
 
 import asyncio
 import time
@@ -75,7 +75,6 @@ def test_simulation_shows_steps_only(backend):
             await user.open("/calibration")
             await user.should_see(marker="calib-sim", retries=30)
             assert await _until(lambda: not _one(user, "calib-next").enabled)
-            await user.should_see(marker="calib-later")
 
     asyncio.run(go())
 
@@ -98,5 +97,72 @@ def test_wizard_prepares_measures_and_compares(backend, real_like, monkeypatch):
             await user.should_see(marker="calib-verdict", retries=30)
             assert await _until(lambda: "합격" in _one(user, "calib-verdict").text)
             await user.should_see(marker="calib-row-shoulder_pan", retries=30)
+            user.find(marker="calib-to-save").click()  # 1회 합격이면 3단계 표 그대로 저장 단계에 보인다
+            await user.should_see(marker="calib-save-row-shoulder_pan", retries=30)
+            assert await _until(lambda: not _one(user, "calib-save-run").enabled)  # yes를 넣기 전에는 꺼져 있다
+            user.find(marker="calib-yes").type("yes")
+            assert await _until(lambda: _one(user, "calib-save-run").enabled)
+
+    asyncio.run(go())
+
+
+def test_save_needs_yes_and_uses_the_cli_engine_with_port_released(backend, real_like, monkeypatch):
+    seen = {}
+
+    def fake(a, cfg, *, input_fn, out, runs_dir, **kw):
+        seen.update(save=a.save, port=cfg.port, answer=input_fn("yes를 입력"))
+        assert backend.move_lock()  # 저장하는 동안 움직이는 버튼은 잠긴다
+        return 0
+
+    monkeypatch.setattr(autocal_cli, "run_calibrate", fake)
+    assert backend.calibration_save("네") == (False, "yes를 입력해야 저장합니다") and real_like == []
+    assert backend.calibration_save(" YES ") == (True, None)
+    assert seen == {"save": True, "port": "COM9", "answer": "yes"} and real_like == ["disconnect", "connect"]
+    monkeypatch.setattr(autocal_cli, "run_calibrate", lambda *a, **kw: 1)
+    ok, reason = backend.calibration_save("yes")
+    assert not ok and "저장하지 못했" in reason
+
+
+def test_verify_zero_asks_after_the_move_and_reconnects_only_when_recorded(backend, real_like, monkeypatch):
+    from so101_studio.arm.autocal import verify
+
+    monkeypatch.setattr(backend, "real_allowed", lambda: True)
+    asked = []
+
+    def fake(svc, cfg, *, input_fn, out, **kw):
+        input_fn("준비됐으면 Enter")  # 마법사는 바로 넘긴다
+        reply = input_fn("yes를 입력")
+        asked.append(reply)
+        return 0 if reply == "yes" else 1
+
+    monkeypatch.setattr(verify, "run_verify_zero", fake)
+    assert backend.calibration_verify_zero(lambda: "no") == (False, "확인하지 않았습니다. 움직이는 명령은 계속 잠겨 있습니다")
+    assert real_like == []
+    assert backend.calibration_verify_zero(lambda: "yes") == (True, None)
+    assert asked == ["no", "yes"] and real_like == ["disconnect", "connect"]  # 기록한 뒤 다시 연결해 잠금을 푼다
+
+
+def test_zero_step_moves_then_asks_and_records(backend, real_like, monkeypatch):
+    def fake(answer, out=print):
+        out("팔이 0° 자세로 섰다")
+        return answer() == "yes", None
+
+    monkeypatch.setattr(backend, "calibration_verify_zero", fake)
+
+    async def go():
+        async with user_simulation(gui_app.make_root(backend)) as user:
+            await user.open("/calibration")
+            await user.should_see(marker="calib-prepare", retries=30)
+            assert await _until(lambda: backend.owner is not None and backend.arm.ctl.state == "idle")
+            for i in range(3):
+                _one(user, f"calib-check-{i}").value = True
+            assert await _until(lambda: _one(user, "calib-zero-only").enabled)
+            user.find(marker="calib-zero-only").click()
+            await user.should_see(marker="calib-zero-move", retries=30)
+            user.find(marker="calib-zero-move").click()
+            await user.should_see(marker="calib-zero-yes", retries=30)  # 선 뒤에만 [맞음]·[다름]이 보인다
+            user.find(marker="calib-zero-yes").click()
+            ok = await _until(lambda: "기록했습니다" in _one(user, "calib-zero-now").text)
+            assert ok, _one(user, "calib-zero-now").text
 
     asyncio.run(go())

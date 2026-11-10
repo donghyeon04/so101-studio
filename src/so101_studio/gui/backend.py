@@ -837,40 +837,92 @@ class Backend:
             self._linkwatching = False
         return result, reason
 
-    def calibration_measure(self, out=print, stop=lambda: False) -> tuple[dict | None, str | None]:
-        """캘리브레이션 마법사 1차의 측정(gui-spec 12.3, EEPROM에 쓰지 않음). linkwatch처럼 팔 연결을 끊고(토크 유지) 포트를 직접 연 뒤 다시 연결한다.
-        (보고서, 실패 이유). 블로킹이라 스레드에서 부른다. 측정 엔진은 REQ-052의 `measure_once`."""
+    def _with_port(self, work, what: str):
+        """캘리브레이션 마법사(gui-spec 12.3): linkwatch처럼 팔 연결을 끊고(토크 유지) work(cfg)로 포트를 직접 쓴 뒤 다시 연결한다. (결과, 실패 이유)."""
         if self.real is None:
-            return None, "캘리브레이션 측정은 실제 팔에서만 합니다"
+            return None, f"캘리브레이션 {what}은 실제 팔에서만 합니다"
         if self.real.ctl.state != "idle" or self.recording() or self.task_running() or self._linkwatching:
             return None, BUSY_TEXT
-        try:
-            from ..arm.autocal.cli import measure_once
-            from ..arm.autocal.engine import AutoCalibrationError
-        except ImportError:  # REQ-052가 합쳐지기 전
-            return None, "측정 기능이 아직 없습니다(REQ-052 대기). CLI: so101.cmd calibrate --auto --measure-only"
+        from ..arm.autocal.engine import AutoCalibrationError
+
         try:
             port = self._pick_port()
         except PortChoiceError as e:
             return None, str(e)
-        report, reason = None, None
+        result, reason = None, None
         self._calibrating = True
         try:
             self.real.disconnect()
             try:
-                report = measure_once(replace(self.real.cfg, port=port), out=out, stop=lambda: self._closing or stop(), runs_dir=Path(self.runs_root))
+                result = work(replace(self.real.cfg, port=port))
             except AutoCalibrationError as e:
                 reason = str(e)
             except Exception as e:  # noqa: BLE001  포트를 못 열어도 팔은 다시 연결해야 한다
-                reason = f"측정을 실행하지 못했습니다: {e}"
+                reason = f"{what}을 실행하지 못했습니다: {e}"
         finally:
             if not self._closing:
-                problem, torque_off = self._connect_real()
+                problem, torque_off = self._connect_real()  # 저장 뒤에는 새 캘리브레이션을 읽고 0° 확인 잠금이 걸린다
                 reason = reason or problem
                 if torque_off:
                     reason = f"토크가 꺼진 서보: {', '.join(torque_off)}. 팔을 받쳐 주세요"
             self._calibrating = False
-        return report, reason
+        return result, reason
+
+    def calibration_measure(self, out=print, stop=lambda: False) -> tuple[dict | None, str | None]:
+        """마법사 2단계 측정(EEPROM에 쓰지 않음, 엔진 `measure_once` REQ-052). (보고서, 실패 이유). 블로킹이라 스레드에서 부른다."""
+        from ..arm.autocal import cli
+
+        return self._with_port(lambda cfg: cli.measure_once(cfg, out=out, stop=lambda: self._closing or stop(), runs_dir=Path(self.runs_root)), "측정")
+
+    def calibration_repeat_rows(self) -> list[dict] | None:
+        """반복 합격이면 저장될 중앙값과 기존 파일(config/calibration)의 차이표, 아니면 None. 저장 전에 보여 준다(결정 0029)."""
+        if self.real is None:
+            return None
+        from ..arm.autocal.measure import compare
+        from ..arm.autocal.repeat import repeat_status
+
+        cal_id = self.real.cfg.calibration_id
+        status = repeat_status(Path(self.runs_root), cal_id)
+        if not status["passed"]:
+            return None
+        old_path = Path(self.real.config_dir) / "calibration" / f"{cal_id}.json"
+        old = json.loads(old_path.read_text(encoding="utf-8")) if old_path.is_file() else None
+        return compare(old, status["median"])
+
+    def calibration_save(self, confirm: str, out=print) -> tuple[bool, str | None]:
+        """마법사 4단계 저장: `calibrate --save`와 같은 엔진(1회 합격이면 그 측정, 아니면 3회 반복 합격의 중앙값, 결정 0029). confirm이 yes일 때만 쓴다.
+        (저장했는지, 실패 이유). 저장 뒤 다시 연결하면 0° 확인 전까지 움직임이 잠긴다."""
+        if confirm.strip().lower() != "yes":
+            return False, "yes를 입력해야 저장합니다"
+        from argparse import Namespace
+
+        from ..arm.autocal import cli
+
+        def work(cfg):
+            a = Namespace(sim=False, auto=False, measure_only=False, save=True, from_file=None, config=str(Path(self.real.config_dir) / "robot.yaml"))
+            return cli.run_calibrate(a, cfg, input_fn=lambda _prompt: "yes", out=out, runs_dir=Path(self.runs_root))
+
+        code, reason = self._with_port(work, "저장")
+        return code == 0, reason or (None if code == 0 else "저장하지 못했거나 저장 뒤 대조가 맞지 않습니다. 아래 기록을 보세요")
+
+    def calibration_verify_zero(self, answer, out=print) -> tuple[bool, str | None]:
+        """마법사 5단계: `calibrate --verify-zero`의 엔진으로 속도 20% 0° 자세 이동 → answer()가 돌려주는 사람의 판단("yes"면 기록).
+        answer는 팔이 0°에 선 뒤 불린다(블로킹). 기록되면 다시 연결해 잠금을 푼다. (확인됐는지, 실패 이유)."""
+        if self.real is None:
+            return False, "0° 확인은 실제 팔에서만 합니다"
+        if self.real.ctl.state != "idle" or self.recording() or self.task_running() or self._linkwatching or self._calibrating:
+            return False, BUSY_TEXT
+        if not self.real_allowed():
+            return False, "감시 프로세스가 응답하지 않아 실제 팔을 움직일 수 없습니다"
+        from ..arm.autocal.verify import run_verify_zero
+
+        prompts = iter([lambda: "", answer])  # 첫 입력은 CLI의 "준비됐으면 Enter"(마법사는 1단계 체크로 대신한다)
+        code = run_verify_zero(self.real, self.real.cfg, input_fn=lambda _prompt: next(prompts)(), out=out)
+        if code != 0:
+            return False, "확인하지 않았습니다. 움직이는 명령은 계속 잠겨 있습니다"
+        self.real.disconnect()
+        problem, _ = self._connect_real()  # 연결할 때 팔 파일의 확인 기록을 다시 읽어 잠금을 푼다
+        return True, problem
 
     def diagnostic_available(self, name: str) -> bool:
         return name != "linkwatch" or self.real is not None  # 포트를 직접 열어 시뮬레이션에서는 못 쓴다
