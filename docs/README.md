@@ -82,3 +82,4 @@
 | `docs/decisions/0047-gui-share-view-and-estop.md` | 결정 | 확정 | GUI 다른 기기 보기는 `gui --share`일 때만, 원격 브라우저는 조작권 없음, E-STOP은 모든 화면·브라우저에 |
 | `docs/decisions/0048-egm-design-review.md` | 결정 | 확정 | EGM 플러그인은 설계서 구현 전 Stage 9 리뷰와 하루 마칠 때 drift-report만, 산출물은 runs/egm, 코드 테스트 규칙(0045·0046)은 그대로 |
 | `docs/decisions/0049-share-on-real-arm-and-remote-rule.md` | 결정 | 확정 | `--share`는 실물에서도, 원격은 접속한 쪽 IP가 루프백이 아닌 브라우저, `so101.cmd gui --share`는 팔 세션 REQ |
+| `docs/decisions/0050-sts-firmware-and-references.md` | 결정 | 확정 | STS32XX 대체 펌웨어 보류(전원 보강 뒤 예비 서보로), SO-ARM100 #132 전원 근거·어깨 급전 분기, MuJoCo는 menagerie robotstudio_so101, 서보 레지스터는 FTServo_Python 참고 |
