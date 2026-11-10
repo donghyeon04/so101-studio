@@ -104,7 +104,8 @@ def build(backend, client_id: str, actions) -> None:
         elif step == 1:
             start_button.enabled = not state["busy"] and backend.real is not None and controls.mine
             lines = state["lines"]
-            now.text = "측정 중..." if state["busy"] else (state["reason"] or "측정 전")
+            step_line = next((line for line in reversed(lines) if line.startswith("측정 중(")), None)  # 엔진이 단계마다 보내는 "측정 중(i/n): 관절"(REQ-052)
+            now.text = (step_line or "측정 중...") if state["busy"] else (state["reason"] or "측정 전")
             if lines != shown[0]:
                 shown[0] = list(lines)
                 log.clear()
