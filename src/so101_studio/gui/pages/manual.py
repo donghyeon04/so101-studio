@@ -87,7 +87,14 @@ def build(backend, client_id: str, actions) -> None:
                 edge_button = ui.button("작업대 가장자리 검사 끄기", on_click=lambda: offer_free_edge(backend, mark_dirty)).props(
                     "outline no-caps dense color=warning").mark("edge-offer")
                 edge_button.visible = False
-                move_button = ui.button("이동", on_click=guarded(move)).props("no-caps").classes("w-full").mark("move")
+                with ui.row().classes("w-full no-wrap gap-2"):
+                    move_button = ui.button("이동", on_click=guarded(move)).props("no-caps").classes("flex-1").mark("move")
+                    ui.button("점 처음 자리로", icon="restart_alt", on_click=lambda: reset_target()).props("outline no-caps").tooltip(
+                        f"점을 x {DEFAULT_TARGET['x']:.0f}, y {DEFAULT_TARGET['y']:.0f}, 높이 {DEFAULT_TARGET['h']:.0f}, 아래 방향으로 되돌린다(팔은 움직이지 않는다)").mark("target-reset")
+
+                def reset_target() -> None:  # 3D 손잡이를 실수로 멀리 끌었을 때. 입력칸을 바꾸면 계산과 3D 점이 따라온다
+                    for key, value in DEFAULT_TARGET.items():
+                        fields[key].value = value
 
             with ui.card().classes("w-full gap-2"):
                 ui.label("조그").classes("card-title")

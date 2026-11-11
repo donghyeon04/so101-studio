@@ -14,12 +14,14 @@ STATUS_EVERY = 5  # heartbeat 5번에 한 번(1초) 상태를 읽는다
 TIMEOUT_S = 0.15
 TICK_STALE_S = 1.5  # 감시 루프가 이만큼 돌지 않았으면 죽은 것으로 본다(필드는 REQ-043부터, 없으면 응답만으로 판정)
 
-BROWSER_HB_JS = f"""
+def browser_hb_js(port: int = PORT) -> str:
+    """브라우저 heartbeat 스크립트. 감시 프로세스 포트를 따른다(시험용 서버가 다른 감시 프로세스에 heartbeat를 보내지 않게)."""
+    return f"""
 <script>
 // Worker를 쓴다. 숨겨진 탭의 setInterval은 브라우저가 1초 이상으로 늦춰 감시가 끊김으로 본다
 window.so101Hb = (on) => {{
   if (on && !window.so101HbWorker) {{
-    const url = `http://${{location.hostname}}:{PORT}/hb?src=browser`;
+    const url = `http://${{location.hostname}}:{port}/hb?src=browser`;
     const code = `setInterval(() => fetch(${{JSON.stringify(url)}}).catch(() => {{}}), {int(HB_S * 1000)})`;
     window.so101HbWorker = new Worker(URL.createObjectURL(new Blob([code])));
   }} else if (!on && window.so101HbWorker) {{
@@ -29,6 +31,9 @@ window.so101Hb = (on) => {{
 }};
 </script>
 """
+
+
+BROWSER_HB_JS = browser_hb_js()
 
 
 class WatchdogLink:
