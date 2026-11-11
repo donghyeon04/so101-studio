@@ -210,6 +210,8 @@ def main(argv=None) -> None:
             x, y, angle, width, *rest = nums(len(v)) if len(v) in (4, 5) else ap.error("pick: 값 4개(x y 각도 폭) 또는 5개(x y 각도 폭 높이)가 필요하다")
             r = svc.pick_and_place(DetectedObject("cli", x, y, angle, width, width, 1.0, "manual", rest[0] if rest else 0.0), a.place)
             print(f"{r.status}  마지막 동작 {r.duration_s:.2f} s")
+            if r.status == "height_required":
+                print(f"{r.reason}. 5번째 값으로 높이(mm)를 넣는다: pick {x:g} {y:g} {angle:g} {width:g} <높이>")
         elif c == "place":
             print(fmt(svc.place(a.place or ap.error("place: --place <구역 이름>이 필요하다"))))
         elif c == "run":
