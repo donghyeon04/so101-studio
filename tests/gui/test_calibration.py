@@ -1,7 +1,8 @@
-"""캘리브레이션 마법사 1차 (gui-spec 12.3): 시뮬레이션은 설명만, 실제 팔이면 준비 체크 → 측정(연결을 끊고 다시 연결) → 비교표."""
+"""캘리브레이션 마법사 (gui-spec 12.3): 시뮬레이션은 설명만, 실제 팔이면 준비 체크 → 측정(연결을 끊고 다시 연결) → 비교표 → 저장(yes) → 0° 확인."""
 
 import asyncio
 import time
+from pathlib import Path
 
 import pytest
 
@@ -75,7 +76,6 @@ def test_simulation_shows_steps_only(backend):
             await user.open("/calibration")
             await user.should_see(marker="calib-sim", retries=30)
             assert await _until(lambda: not _one(user, "calib-next").enabled)
-            await user.should_see(marker="calib-later")
 
     asyncio.run(go())
 
@@ -98,5 +98,94 @@ def test_wizard_prepares_measures_and_compares(backend, real_like, monkeypatch):
             await user.should_see(marker="calib-verdict", retries=30)
             assert await _until(lambda: "합격" in _one(user, "calib-verdict").text)
             await user.should_see(marker="calib-row-shoulder_pan", retries=30)
+            user.find(marker="calib-to-save").click()  # 1회 합격이면 3단계 표 그대로 저장 단계에 보인다
+            await user.should_see(marker="calib-save-row-shoulder_pan", retries=30)
+            assert await _until(lambda: not _one(user, "calib-save-run").enabled)  # yes를 넣기 전에는 꺼져 있다
+            user.find(marker="calib-yes").type("yes")
+            assert await _until(lambda: _one(user, "calib-save-run").enabled)
 
     asyncio.run(go())
+
+
+def test_save_needs_yes_and_uses_the_cli_engine_with_port_released(backend, real_like, monkeypatch):
+    seen = {}
+
+    def fake(a, cfg, *, input_fn, out, runs_dir, **kw):
+        seen.update(save=a.save, port=cfg.port, answer=input_fn("yes를 입력"), config_dir=kw.get("config_dir"))
+        assert backend.move_lock()  # 저장하는 동안 움직이는 버튼은 잠긴다
+        return 0
+
+    monkeypatch.setattr(autocal_cli, "run_calibrate", fake)
+    assert backend.calibration_save("네") == (False, "yes를 입력해야 저장합니다") and real_like == []
+    assert backend.calibration_save(" YES ") == (True, None)
+    assert seen == {"save": True, "port": "COM9", "answer": "yes", "config_dir": Path(backend.real.config_dir)}  # 저장 위치는 팔 설정 폴더(현재 폴더가 아님)
+    assert real_like == ["disconnect", "connect"]
+    backend._calibrating = True  # 다른 탭이 측정·저장 중이면 같은 포트를 열지 않는다
+    try:
+        assert backend.calibration_save("yes")[1] == "팔이 아직 움직이고 있습니다" and backend.calibration_measure()[1] == "팔이 아직 움직이고 있습니다"
+    finally:
+        backend._calibrating = False
+    monkeypatch.setattr(autocal_cli, "run_calibrate", lambda *a, **kw: 1)
+    ok, reason = backend.calibration_save("yes")
+    assert not ok and "저장하지 못했" in reason
+
+
+def test_verify_zero_asks_after_the_move_and_reconnects_only_when_recorded(backend, real_like, monkeypatch):
+    from so101_studio.arm.autocal import verify
+
+    monkeypatch.setattr(backend, "real_allowed", lambda: True)
+    asked = []
+
+    def fake(svc, cfg, *, input_fn, out, **kw):
+        input_fn("준비됐으면 Enter")  # 마법사는 바로 넘긴다
+        reply = input_fn("yes를 입력")
+        asked.append(reply)
+        kw["result"].update(recorded=reply == "yes", returned=None if reply == "yes" else "start")
+        return 0 if reply == "yes" else 1
+
+    monkeypatch.setattr(verify, "run_verify_zero", fake)
+    ok, reason = backend.calibration_verify_zero(lambda: "no")
+    assert not ok and "기록하지 않았습니다" in reason and "시작 자세로 돌아갔습니다" in reason  # 엔진이 알려 준 되돌아간 곳을 전한다
+    assert real_like == []
+    assert backend.calibration_verify_zero(lambda: "yes") == (True, None)
+    assert asked == ["no", "yes"] and real_like == ["disconnect", "connect"]  # 기록한 뒤 다시 연결해 잠금을 푼다
+
+
+def test_zero_step_moves_then_asks_and_records(backend, real_like, monkeypatch):
+    def fake(answer, out=print):
+        out("팔이 0° 자세로 섰다")
+        return answer() == "yes", None
+
+    monkeypatch.setattr(backend, "calibration_verify_zero", fake)
+
+    async def go():
+        async with user_simulation(gui_app.make_root(backend)) as user:
+            await user.open("/calibration")
+            await user.should_see(marker="calib-prepare", retries=30)
+            assert await _until(lambda: backend.owner is not None and backend.arm.ctl.state == "idle")
+            for i in range(3):
+                _one(user, f"calib-check-{i}").value = True
+            assert await _until(lambda: _one(user, "calib-zero-only").enabled)
+            user.find(marker="calib-zero-only").click()
+            await user.should_see(marker="calib-zero-move", retries=30)
+            user.find(marker="calib-zero-move").click()
+            await user.should_see(marker="calib-zero-yes", retries=30)  # 선 뒤에만 [맞음]·[다름]이 보인다
+            user.find(marker="calib-zero-yes").click()
+            ok = await _until(lambda: "기록했습니다" in _one(user, "calib-zero-now").text)
+            assert ok, _one(user, "calib-zero-now").text
+
+    asyncio.run(go())
+
+
+def test_lower_home_resumes_after_a_stop_and_uses_arm_home(backend, real_like, monkeypatch):
+    """0°로 가다 세워 되돌아가지 못하면 잠긴 채 남는다: 마법사의 [홈으로 내리기]만 정지를 풀고 ArmService.home(0° 확인 잠금 예외, #233)을 부른다."""
+    from so101_studio.core.types import MotionResult, ToolPose
+
+    calls = []
+    monkeypatch.setattr(backend, "real_allowed", lambda: True)
+    monkeypatch.setattr(backend.sim.ctl, "state", "stopped")
+    monkeypatch.setattr(backend.sim, "resume", lambda: calls.append("resume") or True)
+    monkeypatch.setattr(backend.sim, "home", lambda: calls.append("home") or MotionResult("ok", 1.0, ToolPose(0, 0, 0, 0)))
+    assert backend.calibration_home() is None and calls == ["resume", "home"]
+    monkeypatch.setattr(backend.sim, "home", lambda: MotionResult("locked", 0.0, ToolPose(0, 0, 0, 0)))
+    assert "홈으로 가지 못했습니다" in backend.calibration_home()
