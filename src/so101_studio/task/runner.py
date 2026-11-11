@@ -103,6 +103,18 @@ class TaskRunner:
         res = probe.result()
         return res, "ok" if res else getattr(probe, "status", "empty")
 
+    def _recheck_height(self, obj):
+        """높이를 모르거나(height_required) 수직 집기가 no_object였던 후보를 한 번 더 CHECK한다. (새 물체 또는 None, 작업을 끝낼 결과 dict 또는 None)."""
+        self._emit("CHECK", obj.id, reason="height_recheck")
+        if self._stopped():
+            return None, self._end("STOPPED")
+        t0 = time.time()
+        res, status = self._check(obj)
+        if status == "aborted":
+            return None, (self._end("STOPPED") if self._stopped() else self._fault("check"))
+        self._emit("CHECK", obj.id, result=status, duration_s=time.time() - t0, reason="height_recheck")
+        return res, None
+
     def run(self, step_mode: bool = False) -> dict:
         self._step_mode, self._stop = step_mode, False
         self.picked, self.failed, self.cycles = [], [], 0
@@ -178,6 +190,11 @@ class TaskRunner:
                     return self._end("STOPPED")
                 if self.skills.ctl.state == "fault":
                     return self._fault("pick")
+                if chk and (r.status == "height_required" or (r.status == "no_object" and getattr(self.skills, "last_pick_tilted", None) is False)):
+                    obj2, ended = self._recheck_height(obj)  # 수직으로만 집는 후보는 한 번 더 CHECK해 높이를 다시 잰다 (결정 0052)
+                    if ended is not None:
+                        return ended
+                    obj = obj2 or obj
                 r = self.skills.pick(obj)
             if not self._ok(r):
                 fails[obj.id] = fails.get(obj.id, 0) + 1

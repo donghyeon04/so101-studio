@@ -123,7 +123,10 @@ class ArmService:
         self.collision.set_scene(self.scene, self.ws)
         self.safety.collision = self.collision
         self.ctl = MotionController(self.driver, self.kin, self.safety, self.cfg.control_hz)
+        old = self.skills
         self.skills = Skills(self.ctl, self.kin, self.cfg, self.ws, self.speed)
+        if old is not None:  # 다시 연결하며 Skills를 새로 만들어도 집기 기억과 알려진 물체는 넘긴다 (11.3.3)
+            self.skills.grip, self.skills.placed, self.skills.known_objects = old.grip, old.placed, old.known_objects
         self.teach = Teach(self.ctl, self.cfg)
         self.ctl.on_event = self._ctl_event
         self._health = self.driver.read_health()

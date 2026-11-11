@@ -1,0 +1,175 @@
+"""REQ-056 (결정 0052, arm-software-spec 6.6·11.3.3): height_required, 초음파 CHECK 다시, 놓은 뒤 상승 최소(low_lift), ② 상자 폭, 집기 기억 넘김."""
+import numpy as np
+import pytest
+from test_task import OK
+from test_task_check import StubProbe, StubSource, UsSkills, cand, run, runner
+
+from so101_studio.arm.sim_driver import SimDriver
+from so101_studio.core.config import load_robot, load_workspace
+from so101_studio.core.types import DetectedObject, MotionResult, ToolPose
+from so101_studio.service.arm_service import ArmService
+
+CFG = load_robot("config/robot.yaml")
+WS = load_workspace("config/workspace.yaml")
+TABLE = sorted((mm, v) for v, mm in CFG.gripper_width_mm)
+POINT = (300.0, 200.0)
+
+
+def make(tmp_path, grip_width):
+    block = float(np.interp(grip_width, [p[0] for p in TABLE], [p[1] for p in TABLE]))
+    s = ArmService(SimDriver(CFG.poses["home"], grip_block=block), CFG, WS, speed_pct=30, log_root=str(tmp_path))
+    assert s.connect()[0]
+    ev = []
+    s.ctl.on_event = lambda kind, level, code, data: ev.append((level, code, data))
+    return s, ev
+
+
+# ---- 1. height_required
+@pytest.mark.slow
+def test_vertical_pick_without_a_height_is_refused_without_moving(tmp_path):
+    s, _ = make(tmp_path, 30)
+    try:
+        before = s.driver.read_joints()
+        r = s.skills.pick(DetectedObject("o", 300.0, 150.0, 60.0, 30, 30, 1.0, "manual", 0.0))  # 각도 60: 턱 축이 팔 방향과 어긋나 기울이지 못한다
+        after = s.driver.read_joints()
+    finally:
+        s.disconnect()
+    assert r.status == "height_required" and "높이가 필요" in r.reason and after == before
+
+
+@pytest.mark.slow
+def test_tilted_plan_that_cannot_be_reached_without_a_height_also_asks_for_the_height(tmp_path):
+    s, ev = make(tmp_path, 58)
+    try:
+        r = s.skills.pick(DetectedObject("o", 300.0, 300.0, 0.0, 58, 58, 1.0, "manual", 0.0))
+    finally:
+        s.disconnect()
+    assert r.status == "height_required" and [d["reason"] for _, c, d in ev if c == "ARM-PICK-TILT-UNREACHABLE"] == ["tilt_unreachable_height_unknown"]
+
+
+def test_cli_pick_prints_how_to_give_the_height(monkeypatch, capsys):
+    from so101_studio import cli
+
+    monkeypatch.setattr(ArmService, "pick_and_place", lambda self, obj, zone=None, place_at=None: MotionResult("height_required", 0.0, ToolPose(0, 0, 0, 0), reason="이유 문장"))
+    cli.main(["--sim", "pick", "300", "150", "60", "30"])
+    out = capsys.readouterr().out
+    assert "height_required" in out and "이유 문장" in out and "5번째 값" in out and "pick 300 150 60 30 <높이>" in out
+
+
+# ---- 2. 초음파 작업 실행: CHECK 다시 1회
+class HeightSkills(UsSkills):
+    """pick이 처음에는 height_required, 그 뒤에는 다시 CHECK한 물체에 높이가 있으면 ok."""
+
+    def __init__(self, status="height_required", tilted=None):
+        super().__init__(pick_status="ok")
+        self.first, self.last_pick_tilted = status, tilted
+
+    def pick(self, o):
+        self.calls.append(f"pick:{o.id}:{o.height_mm:g}")
+        if o.height_mm > 0 or self.first == "ok":
+            return OK
+        return MotionResult(self.first, 0.0, ToolPose(0, 0, 0, 0))
+
+
+class HeightProbe(StubProbe):
+    height = 0.0
+
+    def result(self):
+        r = super().result()
+        return r and DetectedObject(r.id, r.x_mm, r.y_mm, r.angle_deg, r.width_mm, r.length_mm, r.confidence, "ultrasonic", self.height)
+
+
+class HeightSource(StubSource):
+    """첫 CHECK는 높이를 못 재고(0), 다시 CHECK하면 40mm를 잰다."""
+
+    def start_check(self, c):
+        self.calls.append(f"check:{c.id}")
+        p = HeightProbe(self, c)
+        p.height = 0.0 if self.calls.count(f"check:{c.id}") == 1 else 40.0
+        self.probes.append(p)
+        return p
+
+
+def test_height_required_triggers_one_more_check_then_picks_with_the_measured_height():
+    src, sk = HeightSource([[cand(1)], []]), HeightSkills()
+    res, seen = run(runner(src, skills=sk))
+    assert src.calls.count("check:us-1") == 2 and sk.calls.count("pick:us-1:40") >= 1 and res["picked"] == ["us-1"] and not src.failures
+    assert any(e.state == "CHECK" and e.detail.get("reason") == "height_recheck" for e in seen)
+
+
+def test_height_still_unknown_after_the_recheck_is_a_failure():
+    src, sk = StubSource([[cand(1)], [cand(2)], []]), UsSkills(pick_status="height_required")
+    res, _ = run(runner(src, skills=sk))
+    assert src.calls.count("check:us-1") == 2 and src.failures and res["failed"][0] == "us-1"  # 다시 CHECK 1회 뒤 note_failure
+
+
+@pytest.mark.parametrize("tilted,checks", [(False, 2), (True, 1), (None, 1)])
+def test_vertical_no_object_rechecks_once_but_a_tilted_one_does_not(tilted, checks):
+    src, sk = StubSource([[cand(1)], [cand(2)], []]), UsSkills(pick_status="no_object")
+    sk.last_pick_tilted = tilted
+    run(runner(src, skills=sk))
+    assert src.calls.count("check:us-1") == checks
+
+
+# ---- 3. 놓은 뒤 상승 최소
+@pytest.mark.slow
+def test_place_stops_with_low_lift_when_it_cannot_rise_enough(tmp_path, monkeypatch):
+    s, ev = make(tmp_path, 30)
+    try:
+        sk = s.skills
+        assert sk.pick(DetectedObject("o", 300.0, 150.0, 0.0, 30, 30, 1.0, "manual", 40.0)).status == "ok"
+        descent = sk._descent
+
+        def descent_then_no_heights(*a):  # 내려간 뒤에는 올라갈 수 있는 높이가 없다
+            out = descent(*a)
+            monkeypatch.setattr(sk, "_heights", list)
+            monkeypatch.setattr(sk, "_lift_heights", lambda need: [])
+            return out
+
+        monkeypatch.setattr(sk, "_descent", descent_then_no_heights)
+        r = sk.place_at(*POINT)
+    finally:
+        s.disconnect()
+    assert r.status == "stopped" and r.reason.startswith("low_lift")
+    assert [(lv, d["needed_mm"]) for lv, c, d in ev if c == "ARM-PLACE-LOW-LIFT"] == [("ERROR", 50.0)]  # 물체 높이 40 + 10
+
+
+@pytest.mark.slow
+def test_normal_place_rises_at_least_object_height_plus_10(tmp_path):
+    s, ev = make(tmp_path, 30)
+    try:
+        sk = s.skills
+        assert sk.pick(DetectedObject("o", 300.0, 150.0, 0.0, 30, 30, 1.0, "manual", 40.0)).status == "ok"
+        assert sk.place_at(*POINT).status == "ok"
+        z_end = s.kin.fk(s.driver.read_joints()).z_mm
+    finally:
+        s.disconnect()
+    assert not [1 for _, c, _ in ev if c == "ARM-PLACE-LOW-LIFT"] and z_end >= CFG.table_z_mm + 40.0  # 손이 물체 높이 위로 올라갔다
+
+
+# ---- 4. ② 상자 폭은 물체 폭 우선, 5. 집기 기억 넘김
+@pytest.mark.slow
+def test_box_width_uses_the_object_width_so_a_tall_vertical_grip_can_be_placed_by_route_2(tmp_path):
+    # 폭 30mm 물체를 틈 50mm에서 쥐고 있다(실물처럼 쥔 틈이 물체보다 넓다): 상자를 물체 폭으로 보면 높이 40mm도 ②로 놓인다
+    s, ev = make(tmp_path, 50)
+    try:
+        sk = s.skills
+        assert sk.pick(DetectedObject("o", 300.0, 150.0, 60.0, 30, 30, 1.0, "manual", 40.0)).status == "ok"
+        assert sk.grip["obj_w"] == 30.0 and sk.grip["held_gap"] == pytest.approx(50.0, abs=3.0)
+        assert sk.place_at(*POINT).status == "ok"
+    finally:
+        s.disconnect()
+    routes = [d["route"] for _, c, d in ev if c == "ARM-OPENING-PATH"]
+    assert routes == ["released_then_tilted"]
+
+
+@pytest.mark.slow
+def test_a_new_skills_object_inherits_the_grip_memory_on_reconnect(tmp_path):
+    s, _ = make(tmp_path, 30)
+    try:
+        assert s.skills.pick(DetectedObject("o", 300.0, 150.0, 0.0, 30, 30, 1.0, "manual", 40.0)).status == "ok"
+        old, grip = s.skills, dict(s.skills.grip)
+        s.connect()  # 다시 연결하면 Skills를 새로 만든다
+        assert s.skills is not old and s.skills.grip == grip
+    finally:
+        s.disconnect()
