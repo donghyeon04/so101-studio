@@ -22,7 +22,7 @@ def build(backend, client_id: str, actions) -> None:
     def redraw() -> None:
         table = {"x": values["table_x"], "y": values["table_y"]}
         plane.content = plane_svg(
-            table, [], {zone: {"x_mm": values["zone_x"], "y_mm": values["zone_y"]}},
+            table, [], {zone: {**ws.drop_zones[zone], "x_mm": values["zone_x"], "y_mm": values["zone_y"]}},
             Pose2D(values["base_x"], values["base_y"], values["base_yaw"]), ws.reach_mm,
         )
         plane._props["size"] = [table["x"], table["y"]]

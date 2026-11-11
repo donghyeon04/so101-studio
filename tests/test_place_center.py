@@ -23,7 +23,6 @@ def svc(tmp_path):
 @pytest.mark.slow
 def test_place_puts_jaw_midpoint_on_drop_zone(svc):
     zone = next(iter(WS.drop_zones))
-    z = WS.drop_zones[zone]
     assert svc.skills._run([svc.skills._gripper(15.0)]).status == "ok"  # 물체를 쥔 값(열린 값과 다르게)
     seen = {}
     orig = svc.skills._closing_path
@@ -34,7 +33,7 @@ def test_place_puts_jaw_midpoint_on_drop_zone(svc):
 
     svc.skills._closing_path = spy
     assert svc.place(zone).status == "ok"
-    assert math.dist(seen["center"], (z["x_mm"], z["y_mm"])) < 1.0
+    assert math.dist(seen["center"], WS.zone_slots(zone)[0]) < 1.0  # 배출 구역은 로봇 원점에 가장 가까운 빈 칸 (11.3.5)
     dx, dy = svc.skills.last_place_correction_mm
     assert math.hypot(dx, dy) > 5.0  # 보정이 실제로 있었다(손끝을 그대로 내리면 중간점은 그만큼 빗나간다)
 
