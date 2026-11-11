@@ -71,7 +71,7 @@
 | C14 | **Viser** (`viser[urdf]`) | GUI와 3D 화면. URDF 표시는 yourdfpy가 맡는다 | so101 환경에서 먼저 `pip install --dry-run "viser[urdf]"`로 numpy가 다시 설치되지 않는지 확인한 뒤 `pip install "viser[urdf]"`. 설치 후 `conda list numpy`에서 채널이 conda-forge인지 확인한다 |
 | C14b | **NiceGUI** | 앱 틀(사이드바, 페이지, 카드, 그래프, 상태줄). 3D는 C14 Viser를 페이지 안에 넣는다 (`decisions/0023`) | C14와 같은 방법으로 `pip install --dry-run nicegui` 확인 후 `pip install nicegui`. Context7 ID는 `/zauberzeug/nicegui` |
 | C15 | **NiceGUI `llms.md`** + **Context7** (C8) | NiceGUI 구현 기준 문서는 `llms.md`, Context7은 보조(`/zauberzeug/nicegui`, Viser는 `/viser-project/viser`) | C8과 같음 |
-| C16 | **앱 내장 브라우저** (기본) / **Playwright CLI** (예비) | 실행한 GUI(`http://localhost:8080`)를 열어 화면 확인. Viser 3D(WebGL)가 내장 브라우저에 안 나오면 Playwright CLI로 스크린샷 | 내장 브라우저는 설치 불필요. Playwright CLI: `npm install -g @playwright/cli@latest` 후 `playwright-cli install --skills`. Playwright MCP는 쓰지 않는다 (`decisions/0025`) |
+| C16 | **앱 내장 브라우저** (기본) / **Playwright CLI** (예비) | 실행한 GUI(`http://localhost:8080`)를 열어 화면 확인. Viser 3D(WebGL)가 내장 브라우저에 안 나오면 Playwright CLI로 스크린샷 | 내장 브라우저는 설치 불필요. Playwright CLI: `npm install -g @playwright/cli@latest` 후 `playwright-cli install --skills`. Playwright MCP는 쓰지 않는다 (`decisions/0025`). `playwright-cli` 스킬은 레포에 넣지 않고 사용자 전역 `~/.claude/skills/playwright-cli/`에 둔다(2026-11-11) |
 | C17 | **design 플러그인** | `/critique`(비전문가 관점 검토), `/ux-copy`(버튼·설명 문구), `/accessibility`(대비·글자 크기) | `/plugin marketplace add anthropics/knowledge-work-plugins` 후 `/plugin install design@knowledge-work-plugins` |
 | C18 | **frontend-design 스킬** (Anthropic 공식) | 색, 글자, 배치 원칙. Viser에서는 브랜드 색, `add_html` 설명 카드, plotly 그래프에 적용 | `/plugin install frontend-design@claude-plugins-official`. 목록에 없으면 `/plugin marketplace add anthropics/skills` 후 설치 |
 
