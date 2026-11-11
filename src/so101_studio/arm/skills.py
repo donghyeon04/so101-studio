@@ -515,15 +515,29 @@ class Skills:
         f, m = self.kin.jaw_tip_offsets(p.pitch_deg, p.yaw_deg, st.gripper)
         return p.z_mm + float(min(f[2], m[2]))
 
-    def _can_leave(self, st: JointState, need: float) -> bool:
-        """이 끝 자세에서 놓은 뒤 need(mm)만큼 올라갈 수 있는가: 같은 기울기로 곧게(IK가 풀리면), 아니면 기울기를 풀며(_leave의 두 번째 구간) 올라가는 자세가 풀리는가."""
-        p = self.kin.fk(st)
-        if self.kin.ik(replace(p, z_mm=p.z_mm + need), st) is not None:
-            return True
-        f, m = self.kin.jaw_tip_offsets(p.pitch_deg, p.yaw_deg, st.gripper)
+    def _untilt_goal(self, q_from: JointState, rise: float) -> JointState | None:
+        """q_from에서 벌린 틈을 유지한 채 기울기를 풀며 같은 중점 위로 rise(mm) 올라가는 목표 자세. 기울기 변화가 커서 직선(MoveL)은 해가 튀므로 관절 보간으로 가는데,
+        q_from에서 가까운 해로 풀고, 한 관절이 SWING_MAX_DEG보다 크게 돌거나 지나는 9점에서 턱 끝이 시작 높이 아래로 3mm 넘게 내려가거나 알려진 물체·check_goal에 걸리면 None."""
+        p = self.kin.fk(q_from)
+        f, m = self.kin.jaw_tip_offsets(p.pitch_deg, p.yaw_deg, q_from.gripper)
         mid = (f[:2] + m[:2]) / 2
-        up = self._hand_pose(p.x_mm + float(mid[0]), p.y_mm + float(mid[1]), p.yaw_deg, st.gripper, False, p.z_mm + float(min(f[2], m[2])) + need)
-        return self.kin.ik(up, st) is not None
+        up = self._hand_pose(p.x_mm + float(mid[0]), p.y_mm + float(mid[1]), p.yaw_deg, q_from.gripper, False, p.z_mm + float(min(f[2], m[2])) + rise)
+        goal = self.kin.ik(up, q_from)
+        if goal is None:
+            return None
+        goal = replace(goal, gripper=q_from.gripper)
+        q0, q1 = np.array(astuple(q_from), float), np.array(astuple(goal), float)
+        states = [JointState(*(q0 + (q1 - q0) * k)) for k in np.linspace(0.0, 1.0, 9)]
+        low = [self._low_tip_z(st) for st in states]
+        if (float(np.max(np.abs((q1 - q0)[:5]))) > SWING_MAX_DEG or min(low) < low[0] - 3.0
+                or self._hits_objects(states) is not None or any(self.ctl.safety.check_goal(b, a) for a, b in itertools.pairwise(states))):
+            return None
+        return goal
+
+    def _can_leave(self, st: JointState, need: float) -> bool:
+        """이 끝 자세에서 놓은 뒤 need(mm)만큼 올라갈 수 있는가: 같은 기울기로 곧게(IK가 풀리면), 아니면 _leave의 두 번째 구간과 같은 검사(_untilt_goal)를 넘는 기울기 풀기가 있는가."""
+        p = self.kin.fk(st)
+        return self.kin.ik(replace(p, z_mm=p.z_mm + need), st) is not None or self._untilt_goal(st, need) is not None
 
     def _lift_heights(self, need: float) -> list[float]:
         """놓은 뒤 상승 높이 후보: max(approach_height_mm, need)에서 5mm씩 need까지 (11.3.3)."""
@@ -557,19 +571,8 @@ class Skills:
         p = self.kin.fk(self._q())
         if abs(p.pitch_deg + 90.0) < 1.0:  # 지금 손이 수직이면 기울기를 풀 것이 없다(②로 벌리면 놓은 자세와 달리 기울어 있을 수 있어 실제 pitch로 본다)
             return self._low_lift(lifted, need)  # 벌린 틈을 유지한 채 기울기만 풀며 같은 중점 위로 마저 올라간다
-        f, m = self.kin.jaw_tip_offsets(p.pitch_deg, p.yaw_deg, self._q().gripper)
-        mid = (f[:2] + m[:2]) / 2
-        tip_z = p.z_mm + float(min(f[2], m[2])) + (need - lifted)
-        goal = self.kin.ik(self._hand_pose(p.x_mm + float(mid[0]), p.y_mm + float(mid[1]), p.yaw_deg, self._q().gripper, False, tip_z), self._q())  # 지금 자세에서 푼다: 다른 해가 나오면 놓은 물체 옆에서 크게 휘두른다
+        goal = self._untilt_goal(self._q(), need - lifted)
         if goal is None:
-            return self._low_lift(lifted, need)
-        goal = replace(goal, gripper=self._q().gripper)
-        q0 = np.array(astuple(self._q()), float)  # 기울기 변화가 커서 직선(MoveL)은 해가 튄다: 관절 보간으로 가되 지나는 자세를 알려진 물체와 대조한다
-        states = [JointState(*(q0 + (np.array(astuple(goal), float) - q0) * k)) for k in np.linspace(0.0, 1.0, 9)]
-        swing = float(np.max(np.abs((np.array(astuple(goal), float) - q0)[:5])))
-        low = [self._low_tip_z(st) for st in states]
-        if (swing > SWING_MAX_DEG or min(low) < low[0] - 3.0  # 크게 휘두르거나 지나는 길에서 턱 끝이 지금 높이 아래로 내려가면 쓰지 않는다
-                or self._hits_objects(states) is not None or any(self.ctl.safety.check_goal(b, a) for a, b in itertools.pairwise(states))):  # 지나는 자세의 바닥·작업 영역·장면 검사도
             return self._low_lift(lifted, need)
         return self._run([self._joint_move(goal)])
 
@@ -581,7 +584,10 @@ class Skills:
             self._place_ctx = None
 
     def _place_at(self, x_mm: float, y_mm: float) -> MotionResult:
-        self.placed = [o for o in self.placed if math.hypot(o[0] - x_mm, o[1] - y_mm) > SAME_SPOT_MM]  # 같은 자리에 다시 놓는 것(배출 구역)은 이전 물체를 피할 수 없다: 새 물체가 놓이면 다시 더한다
+        same = [o for o in self.placed if math.hypot(o[0] - x_mm, o[1] - y_mm) <= SAME_SPOT_MM]
+        if same:  # 같은 자리에 이미 놓은 물체가 있다(배출 구역은 점 하나): 피할 수 없어 위에 놓게 된다. 설계 결정 전까지 막지 않고 경고만 남긴다 (REQ-056 후속, [기획 요청])
+            self.ctl._emit("place_same_spot", "WARN", "ARM-PLACE-SAME-SPOT", {"x_mm": x_mm, "y_mm": y_mm, "count": len(same)})
+            self.placed = [o for o in self.placed if o not in same]
         fail = MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0))
         v = self._q().gripper
         grip, plan, legacy = self.grip, None, None

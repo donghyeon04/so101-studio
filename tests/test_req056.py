@@ -231,3 +231,16 @@ def test_height_required_applies_only_to_the_single_jaw_gripper():
     sk = object.__new__(Skills)
     sk.gripper = SimpleNamespace(name="parallel", tilt_allowed=lambda *a: False)
     assert sk.gripper.name != "single_jaw"  # 병렬은 height_required 조건(단동식만)에 걸리지 않는다
+
+
+@pytest.mark.slow
+def test_placing_on_a_spot_that_already_has_an_object_warns_and_does_not_avoid_it(tmp_path):
+    s, ev = make(tmp_path, 30)
+    try:
+        sk = s.skills
+        assert sk.pick(DetectedObject("o", 300.0, 150.0, 0.0, 30, 30, 1.0, "manual", 40.0)).status == "ok"
+        sk.placed = [(POINT[0] + 5.0, POINT[1], 15.0)]  # 같은 자리에 먼저 놓은 물체
+        assert sk.place_at(*POINT).status == "ok"
+    finally:
+        s.disconnect()
+    assert [d["count"] for lv, c, d in ev if c == "ARM-PLACE-SAME-SPOT" and lv == "WARN"] == [1]
