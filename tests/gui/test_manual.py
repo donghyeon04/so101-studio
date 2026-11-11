@@ -277,7 +277,7 @@ def test_manual_input_marks_objects_that_need_a_height_and_applies_it(backend):
     from so101_studio.core.types import TaskEvent
 
     backend.reset_objects()
-    target = backend.objects()[0].id
+    target = backend.add_object(260.0, 240.0, 45.0, 30.0, 100.0, 0.0)  # 높이 없는 물체(기본 물체는 #244부터 높이가 있다)
     backend.state.events.append(TaskEvent(time.time(), "PICK", target, "height_required"))
     try:
         assert backend.height_needed() == {target}
