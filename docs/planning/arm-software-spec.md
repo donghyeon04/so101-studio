@@ -313,10 +313,10 @@ LeRobot 공식 SO-101 절차를 따른다. 순서를 바꾸지 않는다.
 MuJoCo 물리 시뮬레이션(결정 0053, 13절). REQ-056이 끝난 뒤 위에서부터:
 | # | 작업 | 완료 기준 | 관련 | 결과 |
 |---|---|---|---|---|
-| M1 | 모델 가져오기: menagerie `robotstudio_so101`을 `assets/mujoco/`에, 관절 이름·0°·그리퍼 대응 맞추기, 받침 충돌 메쉬 확인 | 13절 완료 기준 (d) | 0053-2 | |
-| M2 | `MuJoCoDriver`와 엔진 고르기(`--sim-engine mujoco`) | (c)(e) | 0053-1 | |
-| M3 | 접촉·작업대·물체 상자 | (a)(b) | 0053-3·5 | |
-| M4 | 보기: 디버그 뷰어 옵션, GUI 3D에 물체 자세(GUI REQ) | 13절 6번 | 0044 | |
+| M1 | 모델 가져오기: menagerie `robotstudio_so101`을 `assets/mujoco/so101/`에, `gripper_frame` site, 관절 대응표, 받침 충돌 메쉬 확인(13.4) | 13.7 (d) | 0053 | |
+| M2 | `MuJoCoDriver`·`make_sim_driver`·인자, 백그라운드 물리, diagnostics 검사 바꾸기(13.1~13.3), GUI 인자 전달(GUI REQ) | 13.7 (c)(e) | 0053-1 | |
+| M3 | 접촉 값·장면·물체·시나리오·`sim_state()`·`physical_objects` 규칙(13.4~13.6, `Studio`) | 13.7 (a)(b) | 0053 | |
+| M4 | `--sim-viewer`, GUI 3D에 물체 자세·GUI의 `no_object` 규칙(GUI REQ) | 13.7 M4 | 0053 | |
 
 T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작업 공간 확정)를 한다. T8~T11은 센서를 기다리는 동안 할 수 있다. 팔 이외의 작업(C1, S1~S3)과 전체 순서는 `system-architecture.md` 11절에 있다.
 
@@ -437,61 +437,112 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
 - shoulder_pan 가동 범위가 239°로 PR #4826의 SO-101 값(194°)보다 큰 이유(받침 스토퍼 차이 또는 수동 기록 오류). AC4 전에 실물로 확인.
 - 보드(CH343)가 USB 시리얼 번호를 주는지 실물 확인(`doctor`). 주지 않으면 팔 고르기는 `local.yaml`의 `arm`이나 선택 메뉴로 한다.
 
-## 13. MuJoCo 물리 시뮬레이션 (결정 0053, 2026-11-11)
+## 13. MuJoCo 물리 시뮬레이션 (결정 0053, 2026-11-11, EGM Stage 9 K1~K9 반영)
 **목표**: 지금 기구학 시뮬레이션(`SimDriver`)이 `ok`로 넘기는 접촉 실패(턱이 윗모서리를 침, 물체 밀림·쓰러짐·미끄러짐)를 `--sim`에서 보이게 한다. 첫 목표는 11-10 실물 실패의 재현이다.
 
-1. **고르기**:
-   - CLI·GUI 공통 인자 `--sim-engine {kinematic,mujoco}`(기본 `kinematic`)를 둔다. `--sim`일 때만 뜻이 있다.
-   - `--sim mujoco`로 하지 않는 이유: `--sim`은 지금 값 없는 표시라 `so101 --sim status`의 `status`를 값으로 읽게 된다.
-   - 드라이버를 만드는 곳(`cli/__init__.py`, `gui/backend.py`, `service/diagnostics.py`)은 `make_sim_driver(engine, cfg, home)` 하나를 부른다. GUI의 실물 모드에서 계산 자세용 시뮬레이션도 같은 엔진을 쓴다.
-   - `mujoco`가 설치되지 않았으면 "`pip install -e .[mujoco]`"를 안내하고 끝난다.
-2. **인터페이스**: `SimDriver`와 같은 메서드를 갖는다. 이름이 다르거나 빠진 것이 없어야 한다.
-   - `connect`, `disconnect`, `read_joints`, `write_joints`, `torque_enabled`, `set_torque`, `set_acceleration`, `set_gripper_torque_limit`, `gripper_torque_limit`, `read_health`, `read_power`, `read_servo_info`, `probe_reset`
-   - 위치 명령은 액추에이터 목표(관절 위치 서보)로 보내고, 읽기는 MuJoCo 관절값이다(도 단위, 그리퍼는 `VALUE_TO_Q`로 값 0~100).
-   - 토크 끄기는 액추에이터 힘을 0으로 한다(팔이 중력으로 처진다).
-   - 그리퍼 조임 한계(`Torque_Limit` 0~1000)는 그리퍼 액추에이터 `forcerange`를 비율로 줄인다.
-   - **상태 값**:
-     - 부하 %: 관절 액추에이터 힘 / 그 관절 `forcerange` × 100
-     - 전류: 각 관절 |힘|에 비례한 근사값의 합(서보 모델이 없으므로 표시용)
-     - 전압: 12.0V 고정(전원 모델 없음)
-     - 온도: 30°C 고정
-     - `probe_reset`: `SimDriver`와 같이 늘 정상
-   - **시뮬레이션 전용 읽기**: `sim_state()`(인터페이스 밖, 있으면 쓰는 것)가 물체 자세와 턱-물체 접촉 목록(어느 geom, 힘)을 돌려준다. 시험과 GUI가 쓴다.
-3. **시간**:
-   - 물리 스텝은 2ms(500Hz)다. 제어 주기 50Hz의 `write_joints` 한 번마다 10스텝을 진행한다(lockstep).
-   - 따라서 시뮬레이션 시간은 제어 루프를 따라가고, 실시간 속도는 컨트롤러 루프가 정한다. 빠르게 돌리기(실시간보다 빨리)는 이번 범위에 넣지 않는다.
-   - 읽기만 할 때는 스텝을 진행하지 않는다.
-4. **모델**:
-   - menagerie `robotstudio_so101`을 `assets/mujoco/so101/`에 둔다. 라이선스 파일도 같이 둔다.
-   - 관절 이름은 우리 `JointState` 이름에 맞춘다.
-   - 0°가 우리 URDF(`assets/so101_new_calib.urdf`)와 같은지 FK로 대조한다. 다르면 오프셋을 모델 쪽에 넣는다.
-   - 받침 충돌 메쉬가 없으면 받침 상자를 더한다.
-   - 접촉 시작값(시험값): 턱 geom `condim="4"`, `<option cone="elliptic" impratio="10" integrator="implicitfast" timestep="0.002"/>`, 턱 마찰 `1.0 0.02 0.001`.
-   - 서보 kp·kv·forcerange·armature는 menagerie 기본값으로 시작한다. 실물 `status.jsonl`(명령과 실제 위치)로 맞추는 것은 나중이다(M3 뒤 별도 REQ).
-5. **장면**:
-   - 작업대는 `table_z_mm` 높이의 평면이다.
-   - 장면 부품(`config/scene.yaml`)은 정적 상자 또는 메쉬로 둔다.
-   - 물체는 `config/manual_objects.yaml`의 물체(폭·길이·높이)를 질량 30g 상자로 놓는다(시험값). 시험은 시나리오 파일로 물체를 바꿀 수 있다.
-   - 초음파 가상 ESP32의 demo 배치와 같은 물체를 놓는 것은 나중이다(초음파 세션과 맞출 때).
-6. **보기**:
-   - 사용자 화면은 지금처럼 GUI 3D(Viser) 하나다. 팔은 관절값으로 그대로 그려진다.
-   - 물체 자세는 `sim_state()`로 그리고, 이는 GUI REQ로 나중에 한다. M1~M3 동안에는 물체가 3D에 안 보일 수 있다.
-   - MuJoCo 뷰어는 접촉을 볼 때만 `--sim-viewer` 옵션으로 따로 띄운다(`mujoco.viewer.launch_passive`, 디버그용).
-7. **설치**:
-   - `pyproject.toml`에 선택 의존성 `mujoco = ["mujoco"]`(Windows 휠, Python 3.12, 2026-11 기준 4.0.0 설치 확인)를 둔다.
-   - `environment.yml`은 기본에 넣지 않고 주석으로 `pip install -e .[mujoco]`를 안내한다.
-   - 시험은 `pytest.importorskip("mujoco")`로 없으면 건너뛰고, 10초 넘는 것은 `slow`로 표시한다.
+### 13.1 파일과 고르기 (K7·K9)
+| 파일 | 내용 | 맡는 세션 |
+|---|---|---|
+| `arm/mujoco_driver.py` | `MuJoCoDriver` | 팔 |
+| `arm/sim_driver.py` | `make_sim_driver(engine, cfg, ws, home, scenario=None, viewer=False)`. `engine="kinematic"`이면 지금 `SimDriver`를 돌려준다 | 팔 |
+| `cli/__init__.py` | 인자 `--sim-engine {kinematic,mujoco}`(기본 kinematic), `--sim-scenario <이름>`, `--sim-viewer`. 지금의 `make_driver(sim, cfg)`를 `make_driver(args, cfg, ws)`로 넓혀 `make_sim_driver`를 부른다 | 팔 |
+| `service/diagnostics.py` | `isinstance(driver, SimDriver)`를 `getattr(driver, "simulated", False)`로 바꾼다(MuJoCo에서 linkwatch가 실제 포트를 열지 않게) | 팔 |
+| `assets/mujoco/so101/` | menagerie `robotstudio_so101` 원본 파일, 라이선스, 우리가 더한 것(13.4)은 `so101_studio.xml`이 원본을 include | 팔 |
+| `config/sim_scenarios/<이름>.yaml` | 물체 시나리오(13.5) | 팔 |
+| `tests/test_mujoco_driver.py`, `tests/test_mujoco_scenarios.py` | (c)(d)(e), (a)(b). `pytest.importorskip("mujoco")`, 10초 넘으면 `slow` | 팔 |
+| `gui/__main__.py`, `gui/app.py`, `gui/backend.py` | 같은 세 인자를 받아 `Backend`가 `SimDriver`를 직접 만들지 않고 `make_sim_driver`를 부른다(`backend.py:147`) | **GUI REQ**(M2와 같이) |
+- `--sim mujoco`로 하지 않는 이유: `--sim`은 값 없는 표시라 `so101 --sim status`의 `status`를 값으로 읽게 된다.
+- `mujoco`가 설치되지 않았는데 `mujoco`를 고르면 "`pip install -e .[mujoco]`"를 안내하고 끝난다.
+- 결정 0053의 "GUI는 고치지 않는다"는 "**드라이버를 만드는 곳과 인자 전달만** 고친다"로 좁힌다. 화면은 바꾸지 않는다.
 
-**완료 기준**
-- (a) **재현**:
-  - 반경 225mm에 폭 58mm·높이 39mm 상자를 기울이지 못하는 각도로 둔다.
-  - 결정 0052 이전 동작(높이 없이 `grasp_height_mm`로 수직 집기)으로 집으면 턱이 상자 윗면에 닿는 접촉이 `sim_state()`에 보이고, 집기 결과는 `ok`가 아니다.
-  - 높이를 주면 같은 자리에서 `ok`다.
+### 13.2 드라이버 규약 (K3·K5)
+- `SimDriver`의 하위 클래스로 만들지 않는다. 시험 전용 속성(`grip_block`, `grip_load`, `torque_limit_writes`, `simulated_reset`, `simulated_status`)은 갖지 않는다.
+- **속성**: `connected`, `acceleration`(10), `simulated = True`, `locked_reason = None`, `event_sink = None`, `expect_torque`, `torque_limit`(1000), 그리고 새로 `physical_objects = True`(13.6).
+  - `simulated`가 없으면 `ArmService`가 모든 동작을 잠근다(`arm_service.py` 잠금 검사).
+- **메서드**(`SimDriver`와 같은 이름·반환 모양):
+  - `connect`, `disconnect`, `read_joints`, `write_joints`, `torque_enabled`, `set_torque`, `set_acceleration`, `set_gripper_torque_limit`, `gripper_torque_limit`, `read_servo_info`({관절: {"Acceleration": 값}})
+  - `read_health`: 7키. `temperature_c`, `load_pct`, `voltage_v`, `current_ma`, `current_ma_by_joint`, `torque`(관절별 0/1, 호출하는 쪽이 키로 직접 읽음), `status_bits`(모두 0).
+  - `read_power`: (전압 V, 서보별 전류 mA, 서보별 부하 %).
+  - `probe_reset`: 8키 `ping`, `torque`, `acceleration`, `torque_limit`, `status`, `voltage_dv`, `ids`, `expected_acceleration`. 늘 정상이다(리셋 흔적 없음).
+- **위치·토크**:
+  - `write_joints`는 액추에이터 목표만 바꾸고 바로 돌아온다. 물리 진행은 13.3이 한다.
+  - 읽기는 MuJoCo 관절값이다(도 단위, 그리퍼는 `VALUE_TO_Q`로 값 0~100).
+  - 토크 끄기는 그 관절 액추에이터 힘을 0으로 한다(팔이 중력으로 처진다).
+  - 그리퍼 `Torque_Limit` v(0~1000)는 그리퍼 액추에이터 `forcerange`를 원래 값 × v/1000으로 줄인다.
+- **상태 값**(서보 모델이 없으므로 근사):
+  - 부하 %: |액추에이터 힘| / **원래(줄이기 전)** `forcerange` × 100.
+    - 쥔 그리퍼는 조임 한계로 힘이 잘리므로, 운반 중(200)은 20% 이하, 닫는 중(300)은 30% 이하다. `gripper_load_warn_pct` 60 아래라 집을 때마다 경고·fault가 나지 않는다.
+  - 전류: 관절별 부하 % × 10mA(부하 100% = 1000mA), 합이 `current_ma`. 과전류 감시(4000mA)는 그대로 둔다.
+  - 전압 12.0V, 온도 30°C 고정.
+  - **감시는 MuJoCo에서도 끄지 않는다.** 정상 동작에서 부하·전류 감시가 걸리면 모델의 서보 값(kp·forcerange)이 실물과 다른 것으로 보고 모델을 고친다(M3 뒤 실물 맞추기).
+
+### 13.3 시간 (K1)
+- **물리는 드라이버 안의 백그라운드 스레드가 벽시계에 맞춰 계속 돌린다.** `connect`에서 시작하고 `disconnect`에서 멈춘다.
+  - 물리 스텝은 2ms다. 스레드는 시뮬레이션 시간이 벽시계를 따라잡을 만큼 스텝을 진행하고 쉰다.
+  - 100ms 넘게 밀리면 따라잡지 않고 버리며, 버린 횟수를 센다(13.7 (e)).
+- 그래서 제어 주기(`control_hz`, `--hz`)와 상관이 없다. `write_joints`를 부르지 않는 동안(쉬는 중, 토크 끈 교시, 놓은 뒤, `estop`·fault·`hold_gripper` 같은 틱 밖 호출)에도 물리가 흐른다. 토크를 끄면 팔이 처지고, 놓은 물체는 가라앉는다.
+- 모든 읽기·쓰기는 스레드와 잠금 하나로 맞춘다.
+- 시험에서 시간을 직접 다루고 싶으면 `MuJoCoDriver(..., realtime=False)`와 `advance(seconds)`를 쓴다. 이때는 스레드 없이 그 시간만큼 스텝한다. `ArmService` 위 시험은 실시간 모드를 쓴다.
+
+### 13.4 모델과 좌표 (K4)
+- **월드 좌표 = URDF `base_link` 프레임**(우리 기구학 모델 좌표와 같음, m 단위).
+  - 우리 로봇 원점(pan 축)은 `base_link`에서 x로 `PAN_AXIS_X_MM`(38.8mm) 앞이다.
+  - 작업대 점은 기구학이 쓰는 같은 변환(`frames.table_to_robot` 뒤 `PAN_AXIS_X_MM` 더하기)으로 월드에 옮긴다. 새 변환 함수를 만들지 않고 `kinematics`의 것을 부른다.
+  - 작업대 면은 월드 z = `table_z_mm`/1000인 평면이다.
+- **관절 대응**:
+  - 관절 이름은 우리 `JointState` 이름에 맞춘다.
+  - 0°·부호가 우리 URDF와 다르면 모델을 고치지 않고 **드라이버의 관절 대응표**(부호, 오프셋 도)로 맞춘다.
+  - 그리퍼 값 v ↔ 관절각은 `VALUE_TO_Q`(q = −10 + 1.214 v)를 쓴다.
+- **더하는 것**(`so101_studio.xml`):
+  - gripper_link에 site `gripper_frame`. 위치는 기구학의 gripper_frame 점과 같다(gripper_link 좌표 x = −7.9mm, 아래로 98.1mm, `kinematics.py` 주석의 값).
+  - 받침 충돌 메쉬가 없으면 받침 상자.
+  - 접촉 시작값(시험값): 턱 geom `condim="4"`, 마찰 `1.0 0.02 0.001`, `<option cone="elliptic" impratio="10" integrator="implicitfast" timestep="0.002"/>`.
+  - geom 이름은 `jaw_fixed`, `jaw_moving`, `table`, 물체 `obj:<이름>`, 장면 부품 `scene:<이름>`.
+- 서보 kp·kv·forcerange·armature는 menagerie 기본값으로 시작한다. 실물 `status.jsonl`(명령과 실제 위치)로 맞추는 것은 M3 뒤 별도 REQ다.
+
+### 13.5 장면과 물체 (K4·K8)
+- `connect`에서 `MjSpec`으로 원본 모델에 작업대·장면 부품·물체를 더해 컴파일한다(생성자는 인자만 받는다).
+- **장면 부품**(`config/scene.yaml`):
+  - `attach`가 작업대면 월드에 고정된 body, 링크면 그 링크 body의 자식이다.
+  - `collide: false`면 보이기만 하는 geom(`contype=0 conaffinity=0`)이다.
+  - `margin_mm`는 물리에 쓰지 않는다(안전 검사가 이미 쓴다).
+  - STL이 있으면 메쉬, 없으면 `box_mm` 상자다.
+- **물체**: 시나리오가 없으면 `config/manual_objects.yaml`의 물체를 쓴다. 각 물체는 폭·길이·높이 상자, 질량 30g, 마찰 1.0이다(시험값).
+  - **높이가 없는(0) 물체**: 상자 높이 40mm(시연 물체 높이)로 놓고 `SIM-OBJECT-HEIGHT-DEFAULT`(WARN)을 남긴다. 계획 쪽에 넘기는 물체 높이는 그대로 0이라 결정 0052가 그대로 적용된다.
+- **시나리오 파일** `config/sim_scenarios/<이름>.yaml`:
+  ```yaml
+  objects:
+    - {name: box58, x_mm: 300, y_mm: 200, angle_deg: 0, width_mm: 58, length_mm: 58, height_mm: 39, mass_g: 30}
+  ```
+  작업대 좌표 mm·도. `--sim-scenario <이름>`으로 고르고, 시험은 경로를 직접 넘긴다.
+- 초음파 가상 ESP32의 demo 배치와 같은 물체를 놓는 것은 나중이다(초음파 세션과 맞출 때).
+
+### 13.6 시뮬레이션 전용 읽기와 GUI 규칙 (K6·K7)
+- `sim_state()`(인터페이스 밖, `MuJoCoDriver`에만 있다)는 아래 모양이다.
+  ```
+  {"t_s": 시뮬레이션 시간,
+   "objects": {이름: {"x_mm", "y_mm", "z_mm"(작업대 좌표, 상자 바닥 가운데), "yaw_deg", "tilt_deg"(상자 위쪽 축과 연직 사이 각)}},
+   "contacts": [{"a": geom 이름, "b": geom 이름, "force_n": 법선 힘, "pos_mm": [x, y, z](작업대 좌표)}],
+   "held": 두 턱에 모두 닿아 있는 물체 이름 또는 None}
+  ```
+  - M2는 `objects`·`contacts`를 빈 값으로, M3에서 채운다.
+- **`no_object`를 성공으로 치는 규칙**: GUI 집어 옮기기(`backend.py`), 프로그램(`programs.py`), 작업 실행 dry-run(`Studio(dry_run=...)`)은 시뮬레이션 팔에 쥘 물체가 없어서 `no_object`를 성공으로 친다.
+  - 드라이버의 `physical_objects`가 참이면(MuJoCo) 이 규칙을 쓰지 않고 실물과 같이 실패로 본다. 숨기려던 것이 바로 MuJoCo로 보려는 실패이기 때문이다.
+  - `Studio`는 팔 세션, `backend.py`·`programs.py`는 GUI REQ다.
+
+### 13.7 완료 기준
+- (a) **재현**(K2):
+  - 시나리오: 로봇 원점에서 정면(로봇 x축) 225mm, 작업대 좌표로는 `robot_base_in_table`에서 +y로 225mm에 폭 58·길이 58·높이 39mm 상자, `angle_deg` 45(턱 축이 팔 방향과 45° 어긋나 기울일 수 없음)를 둔다.
+  - 옛 동작은 **일부러 낮게 준 높이**로 일으킨다. 계획에 넘기는 물체 `height_mm`를 15로 주면(실제 39), 턱이 실제 상자보다 낮게 내려가려다 윗면을 친다. 결정 0052 이후에는 높이를 모르면 움직이지 않으므로 이것이 같은 물리를 정상 경로로 재현하는 방법이다. 시험 전용 플래그는 만들지 않는다.
+  - 기대: `sim_state()["contacts"]`에 하강 중 `jaw_fixed` 또는 `jaw_moving`과 `obj:box58`의 접촉이 있고, 접촉점 z가 상자 윗면(39mm) 근처다(±5mm). 집기 결과는 `ok`가 아니다(`no_object` 또는 `stopped`).
+  - 대조: 같은 자리에서 `height_mm` 39를 주면 `ok`이고 `held`가 `box58`이다.
 - (b) **집어 옮기기**:
-  - (300, 200)에서 폭 30·45·58mm(높이 40mm) 상자를 집어 배출 구역에 놓는다.
-  - 옮기는 동안 상자가 턱 사이에서 3mm 넘게 미끄러지지 않는다.
-  - 놓은 뒤 상자 중심이 놓는 점에서 5mm 안이고, 기울기가 10° 아래다(쓰러짐 없음).
-  - 숫자는 `sim_state()`로 낸다.
+  - (300, 200)에 폭 30·45·58mm(길이 같음, 높이 40mm, `height_mm` 40, `angle_deg` 0) 상자를 하나씩 집어 기본 배출 구역에 놓는다.
+  - 미끄러짐: 들어 올린 뒤부터 내려놓기 직전까지 `gripper_frame` site에 대한 상자 중심의 상대 위치 변화가 3mm 이하다.
+  - 놓은 뒤 1.0초 기다려(가라앉음) 잰다. 상자 바닥 가운데가 놓는 점에서 5mm 안이고 `tilt_deg` 10 아래다.
 - (c) **기본값 유지**: `--sim-engine`을 주지 않으면 지금 `SimDriver`이고, 지금 시험이 모두 그대로 통과한다.
-- (d) **모델 대조**: 무작위 관절 자세 10개에서 우리 FK의 손 기준점과 MuJoCo의 같은 점이 2mm 안이다. 그리퍼 값 0·50·100에서 턱 각도가 `VALUE_TO_Q`와 1° 안이다.
-- (e) **속도**: 노트북에서 제어 한 주기(10스텝)가 평균 10ms 안이다(50Hz를 지킬 여유).
+- (d) **모델 대조**:
+  - 씨앗 0으로 관절 한계(`joint_limits_deg`)에서 5° 안쪽의 무작위 자세 10개를 고른다. 각 자세에서 우리 FK의 gripper_frame 점과 MuJoCo `gripper_frame` site가 2mm 안이다.
+  - 그리퍼 값 0·50·100에서 MuJoCo 그리퍼 관절각이 `VALUE_TO_Q`와 1° 안이다(중력 없이, 정지 상태).
+- (e) **속도**: 개발 노트북에서 60초 동안 실시간 모드로 돌렸을 때 버린 시간(13.3)이 0이고, 2ms 스텝 하나의 평균 계산 시간이 1ms 안이다(`time.perf_counter`, 표본 30,000스텝).
+- M4: `--sim-viewer`로 MuJoCo 뷰어가 떠서 팔과 물체가 움직이는 것이 보이고, GUI 3D에 `sim_state()`의 물체가 그려진다(GUI REQ).
