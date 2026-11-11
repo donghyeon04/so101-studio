@@ -120,7 +120,7 @@ def main(argv=None) -> None:
     ap.add_argument("--torque-limit", type=int, help="calibrate --auto: 토크 한계(0~1000, 기본 500=50%%)")
     ap.add_argument("--last", type=float, default=60.0, help="incident: 지금부터 거슬러 올라갈 초 (기본 60)")
     ap.add_argument("command", choices=COMMANDS)
-    ap.add_argument("values", nargs="*", help="movej: 관절 6개 / goto: x y z yaw (z는 ToolPose 모델 z: 기준점 높이이고 턱 끝의 작업대 위 높이가 아니다. 턱 끝 높이로 보내려면 GUI 좌표 이동이나 keys 좌표 모드) / pick: x y 각도 폭(0이면 크기를 모름) / gripper: 값 / record·replay·seq: 이름")
+    ap.add_argument("values", nargs="*", help="movej: 관절 6개 / goto: x y z yaw (z는 ToolPose 모델 z: 기준점 높이이고 턱 끝의 작업대 위 높이가 아니다. 턱 끝 높이로 보내려면 GUI 좌표 이동이나 keys 좌표 모드) / pick: x y 각도 폭 [높이](폭·높이 0이면 모름. 팔 방향과 어긋난 물체는 높이를 모르면 위 모서리를 칠 수 있다) / gripper: 값 / record·replay·seq: 이름")
     a = ap.parse_args(argv)
     if a.command in ("doctor", "find-port", "incident"):
         from ..bringup import run
@@ -207,8 +207,8 @@ def main(argv=None) -> None:
         elif c == "gripper":
             print(fmt(svc.set_gripper(nums(1)[0], a.width)))
         elif c == "pick":
-            x, y, angle, width = nums(4)
-            r = svc.pick_and_place(DetectedObject("cli", x, y, angle, width, width, 1.0, "manual"), a.place)
+            x, y, angle, width, *rest = nums(len(v)) if len(v) in (4, 5) else ap.error("pick: 값 4개(x y 각도 폭) 또는 5개(x y 각도 폭 높이)가 필요하다")
+            r = svc.pick_and_place(DetectedObject("cli", x, y, angle, width, width, 1.0, "manual", rest[0] if rest else 0.0), a.place)
             print(f"{r.status}  마지막 동작 {r.duration_s:.2f} s")
         elif c == "place":
             print(fmt(svc.place(a.place or ap.error("place: --place <구역 이름>이 필요하다"))))
