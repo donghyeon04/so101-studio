@@ -326,7 +326,7 @@ def test_drop_zone_is_not_a_candidate_and_follows_reload(tmp_path):
     assert any(math.hypot(o.x_mm - zone["x_mm"], o.y_mm - zone["y_mm"]) < 40 for o in src.scan().objects)  # 넘기기 전에는 후보(시험이 의미 있다)
     st.task.refresh_ignore_zones()
     st.task.refresh_ignore_zones()  # 두 번 불러도 겹치지 않는다
-    mine = (zone["x_mm"], zone["y_mm"], WS.drop_zone_ignore_radius_mm)
+    mine = (zone["x_mm"], zone["y_mm"], math.hypot(zone["w_mm"] / 2, zone["h_mm"] / 2) + WS.safety_margin_mm)  # 사각형 구역: 반 대각선 + 안전 여유 (11.3.5)
     assert src.ignore_zones == [(10.0, 10.0, 5.0), mine]
     assert src.scan().objects == []  # 구역 안이라 무시
     st.task.ws = dataclasses.replace(WS, drop_zones={"right": {"x_mm": 100.0, "y_mm": 300.0}})  # reload_workspace가 하는 일

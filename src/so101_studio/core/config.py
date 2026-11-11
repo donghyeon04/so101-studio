@@ -1,4 +1,5 @@
 """config/*.yaml 읽기 (draccus, LeRobot과 같은 방식)."""
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -98,8 +99,24 @@ class WorkspaceConfig:
         return Pose2D(**self.robot_base_in_table)
 
     def ignore_zones(self) -> list[tuple[float, float, float]]:
-        """모든 배출 구역의 (x, y, 반경 mm). 놓은 물체가 다음 스캔에서 다시 후보가 되어 집히지 않게 인식 소스(ignore_zones)에 넘긴다."""
-        return [(float(z["x_mm"]), float(z["y_mm"]), float(self.drop_zone_ignore_radius_mm)) for z in self.drop_zones.values()]
+        """모든 배출 구역의 (x, y, 반경 mm). 놓은 물체가 다음 스캔에서 다시 후보가 되어 집히지 않게 인식 소스(ignore_zones)에 넘긴다.
+        사각형 구역은 사각형 전체를 덮는 반경(반 대각선) + safety_margin_mm (11.3.5), 점 구역은 drop_zone_ignore_radius_mm."""
+        return [(float(z["x_mm"]), float(z["y_mm"]),
+                 math.hypot(z["w_mm"] / 2.0, z["h_mm"] / 2.0) + float(self.safety_margin_mm) if "w_mm" in z and "h_mm" in z else float(self.drop_zone_ignore_radius_mm))
+                for z in self.drop_zones.values()]
+
+    def zone_slots(self, name: str) -> list[tuple[float, float]] | None:
+        """사각형 배출 구역(`{x_mm, y_mm, w_mm, h_mm, slot_mm}`)의 칸 가운데, 로봇 원점에 가까운 순서 (arm-software-spec 11.3.5). 칸은 사각형 가운데를 중심으로 slot_mm 간격 격자이고
+        집기 범위(reach_mm) 밖의 칸은 뺀다. 옛 점 형식(x_mm·y_mm만)이면 None."""
+        z = self.drop_zones[name]
+        if not all(k in z for k in ("w_mm", "h_mm", "slot_mm")):
+            return None
+        s = float(z["slot_mm"])
+        nx, ny = int(z["w_mm"] // s) + 1, int(z["h_mm"] // s) + 1
+        b = self.base
+        pts = [(float(z["x_mm"]) + (i - (nx - 1) / 2) * s, float(z["y_mm"]) + (j - (ny - 1) / 2) * s) for i in range(nx) for j in range(ny)]
+        pts = [p for p in pts if self.reach_mm["min"] <= math.hypot(p[0] - b.x_mm, p[1] - b.y_mm) <= self.reach_mm["max"]]
+        return sorted(pts, key=lambda p: math.hypot(p[0] - b.x_mm, p[1] - b.y_mm))
 
     @property
     def pick_reach_mm(self) -> dict:

@@ -43,7 +43,7 @@ def test_opening_path_is_used_and_keeps_jaw_midpoint_on_the_point(svc, target):
     assert not [e for e in svc.events if e[0] == "ARM-OPENING-PATH-FALLBACK"]
     path = seen[-1]
     assert path is not None and len(path.pts) > 5
-    goal = (WS.drop_zones["right"]["x_mm"], WS.drop_zones["right"]["y_mm"]) if target == "zone" else target
+    goal = WS.zone_slots("right")[0] if target == "zone" else target  # 배출 구역은 비어 있는 칸 가운데 로봇 원점에 가장 가까운 칸 (11.3.5)
     assert max(math.dist(midpoint(svc, row), goal) for row in path.pts) < 1.0  # 매 단계 턱 중간점이 놓을 점 1mm 안
 
 
