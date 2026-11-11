@@ -12,6 +12,12 @@
 5. 기획 세션 레퍼런스 — 끝: EGM 플러그인 사용 규칙(결정 0048, #206). 전체 시험 한 번 뒤 압축.
 6. 압축 뒤 첫 작업: 결정 0047 GUI 구현(`gui --share`, 원격 브라우저 조작권 거부, 운영자 화면 E-STOP 항상). 설계서 새 절을 구현하기 전에는 결정 0048대로 새로 연 짧은 세션에서 `/egm:egm-review` Stage 9.
 
+## 2026-11-11 인계(리뷰 준비 세션 → 총괄): MuJoCo부터 총괄이 맡는다
+1. 진행 중: 팔 세션 #241 후속(`so101-studio-arm41`, `dev/arm-req-056-followup`). A 수동 데모 기본 물체 높이(먼저), B 병렬 그리퍼 height_required 제외, C 상승 관절 이동 휘두름(안전), _scan_opening 상승 검사를 need_lift로, 다시 CHECK가 empty면 재시도 안 함, 수동 height_required는 재시도·실패 셈 안 함, 작은 것 2건. PR이 오면 code-review 뒤 합친다.
+2. 정리(MuJoCo 전, 사용자 요청 "문서·폴더·git 다 정리"): 후속 PR 뒤 `so101-studio-arm41` worktree 제거, main에 합쳐진 원격·로컬 브랜치 삭제(`claude/hopeful-hamilton-amqaac`·`planning-inbox` 유지), `so101-studio-us`를 최신 main으로, `so101-studio`의 `.playwright-mcp/`·`.claude/skills/playwright-cli/` 처리, `runs/handoff-20261110.md`와 메모리 handoff 삭제, 상태 문서 갱신. 지우는 것은 목록을 보이고 사용자 확인.
+3. MuJoCo: 기획이 결정 0053·arm-software-spec 13절·M1~M4를 `claude/hopeful-hamilton-amqaac`(9636ce2)에 올렸다. 사용자가 새 세션에서 EGM Stage 9(13절, M1~M4). 꼭 고칠 것이 있으면 기획 반영 뒤, 없으면 PR로 합치고 M1부터 팔 REQ(REQ-058~)를 낸다. 요지: `--sim-engine {kinematic,mujoco}`, `make_sim_driver` 한 곳, SimDriver 메서드 13개 + `sim_state()`, 2ms·write_joints당 10스텝, menagerie `robotstudio_so101`, 완료 기준 13절 (a)~(e).
+4. 실물: runbook 2-2(놓기 재시험)는 사용자가 팔 옆에 있을 때. 넓힌 관절 한계로 처음 움직이니 30% 이하.
+
 ## 사용자 결정 대기
 | # | 내용 | 메모 |
 |---|---|---|
