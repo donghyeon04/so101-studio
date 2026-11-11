@@ -4,6 +4,7 @@ import html
 
 from nicegui import run, ui
 
+from ...core.config import WorkspaceConfig
 from .. import theme
 from ..backend import MOTION_TEXT
 from ..pages.common import HEIGHT_HINT, Controls, nudge_pad
@@ -22,10 +23,14 @@ def plane_svg(table_mm: dict, objects, zones: dict, base, reach_mm: dict, select
         parts.append(f'<circle cx="{bx}" cy="{by}" r="{r}" fill="none" stroke="{theme.MUTED}" stroke-dasharray="8 6"/>')
     parts.append(f'<circle cx="{bx}" cy="{by}" r="10" fill="{theme.MUTED}"/>')
     parts.append(f'<text x="{bx + 16}" y="{by + 6}" font-size="18" fill="{theme.MUTED}">팔</text>')
-    for zone in zones.values():
+    ws = WorkspaceConfig(table_mm, {"x_mm": base.x_mm, "y_mm": base.y_mm, "yaw_deg": base.yaw_deg}, zones, reach_mm=reach_mm)
+    for name, zone in zones.items():
         x, y = zone["x_mm"], h - zone["y_mm"]
-        parts.append(f'<rect x="{x - 40}" y="{y - 40}" width="80" height="80" fill="{theme.OK}" fill-opacity="0.2" stroke="{theme.OK}"/>')
-        parts.append(f'<text x="{x - 34}" y="{y - 20}" font-size="16" fill="{theme.OK}">배출</text>')
+        zw, zh = zone.get("w_mm", 80), zone.get("h_mm", 80)  # 옛 점 형식은 80x80 표시(11.3.5)
+        parts.append(f'<rect x="{x - zw / 2}" y="{y - zh / 2}" width="{zw}" height="{zh}" fill="{theme.OK}" fill-opacity="0.2" stroke="{theme.OK}"/>')
+        parts.append(f'<text x="{x - zw / 2}" y="{y - zh / 2 - 6}" font-size="16" fill="{theme.OK}">배출</text>')
+        for i, (sx, sy) in enumerate(ws.zone_slots(name) or []):  # 팔이 놓는 칸(가까운 순 번호)
+            parts.append(f'<circle cx="{sx}" cy="{h - sy}" r="6" fill="{theme.OK}"/><text x="{sx + 8}" y="{h - sy + 5}" font-size="13" fill="{theme.OK}">{i + 1}</text>')
     for o in objects:
         x, y = o.x_mm, h - o.y_mm
         color = theme.ACCENT if o.id == selected else theme.MUTED

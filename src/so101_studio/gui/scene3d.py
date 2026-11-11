@@ -238,7 +238,7 @@ class Scene3D:
             "/grid", width=w, height=h, cell_size=0.05, section_size=0.1, position=(w / 2, h / 2, 0.0005),
             cell_color=theme.rgb(theme.LINE), section_color=theme.rgb(theme.CONTROL_BORDER),
         )
-        zones = [scene.add_box(f"/zones/{name}", color=theme.rgb(theme.OK), dimensions=(0.08, 0.08, 0.001), opacity=0.35,
+        zones = [scene.add_box(f"/zones/{name}", color=theme.rgb(theme.OK), dimensions=(zone.get("w_mm", 80) / 1000, zone.get("h_mm", 80) / 1000, 0.001), opacity=0.35,
                                position=(zone["x_mm"] / 1000, zone["y_mm"] / 1000, 0.001)) for name, zone in ws.drop_zones.items()]
         base = ws.base
         axes_robot = scene.add_frame("/axes/robot", axes_length=0.06, axes_radius=0.002,

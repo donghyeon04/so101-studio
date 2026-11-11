@@ -270,6 +270,11 @@ def test_height_required_and_low_lift_get_their_own_text(backend):
     assert Backend._run_on(backend.sim, lambda arm: MotionResult("height_required", 0.0, zero, reason="높이가 필요합니다")) == MOTION_TEXT["height_required"]
     text = Backend._run_on(backend.sim, lambda arm: MotionResult("stopped", 0.0, zero, reason="low_lift: 49mm 이상 올라가야 하는데 15mm만"))
     assert "충분히 올라가지 못해" in text and "49mm" in text and text != MOTION_TEXT["stopped"]
+    for status, reason, words in (("ik_fail", "known_object: 놓을 자리가 알려진 물체와 겹친다 (object@(350,200))", "겹칩니다"),
+                                  ("stopped", "drop_zone_full: 칸 3개가 모두 찼다", "칸이 모두 차서"),
+                                  ("stopped", "low_hover: hover가 55mm 이상이어야", "10mm를 지키며")):  # REQ-058
+        text = Backend._run_on(backend.sim, lambda arm, s=status, r=reason: MotionResult(s, 0.0, zero, reason=r))
+        assert words in text and reason.split(":", 1)[1].strip() in text  # 팔이 준 세부 내용도 그대로 보인다
 
 
 def test_manual_input_marks_objects_that_need_a_height_and_applies_it(backend):
@@ -294,3 +299,15 @@ def test_manual_input_marks_objects_that_need_a_height_and_applies_it(backend):
     finally:
         backend.state.events.clear()
         backend.reset_objects()
+
+
+def test_plane_draws_rectangle_zone_and_its_slots():
+    """사각형 배출 구역(11.3.5)은 크기대로 그리고, 팔이 쓰는 칸(WorkspaceConfig.zone_slots)을 번호와 함께 찍는다. 옛 점 형식은 80x80."""
+    from so101_studio.core.frames import Pose2D
+    from so101_studio.gui.sensors.manual_view import plane_svg
+
+    base, reach = Pose2D(300, 50, 90), {"min": 90, "max": 250}
+    svg = plane_svg({"x": 600, "y": 400}, [], {"right": {"x_mm": 480, "y_mm": 150, "w_mm": 100, "h_mm": 80, "slot_mm": 75}}, base, reach)
+    assert 'width="100" height="80"' in svg and svg.count('r="6"') == 3  # 기본 4칸 중 집기 범위 안 3칸
+    old = plane_svg({"x": 600, "y": 400}, [], {"right": {"x_mm": 500, "y_mm": 150}}, base, reach)
+    assert 'width="80" height="80"' in old and 'r="6"' not in old

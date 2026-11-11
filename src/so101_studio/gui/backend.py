@@ -74,7 +74,12 @@ MOTION_TEXT = {
     "locked": "실제 팔이 잠겨 있어 움직이지 않았습니다. 장치 > 팔에서 이유를 확인해 주세요",
     "height_required": "물체 높이가 필요해 집지 않았습니다. 턱 축이 팔 방향과 어긋나 손을 수직으로 내리는데, 높이를 모르면 턱이 물체 위 모서리를 칩니다. 높이 칸에 물체 높이를 넣어 주세요",  # 결정 0052
 }
-LOW_LIFT_TEXT = "놓은 뒤 충분히 올라가지 못해 그 자리에서 멈췄습니다({}). 벌린 턱이 놓은 물체 바로 옆에 있으니 조그로 천천히 위로 올리세요(정지 해제 버튼이 보일 때만 먼저 누릅니다). 배출 구역을 팔 쪽으로 옮기면 덜 일어납니다"  # 11.3.3
+REASON_TEXT = {  # 팔이 reason 앞에 붙이는 이름 -> 원인과 할 일 (arm-software-spec 11.3.3·11.3.5, REQ-057·058)
+    "low_lift": "놓은 뒤 충분히 올라가지 못해 그 자리에서 멈췄습니다({}). 벌린 턱이 놓은 물체 바로 옆에 있으니 조그로 천천히 위로 올리세요(정지 해제 버튼이 보일 때만 먼저 누릅니다). 배출 구역을 팔 쪽으로 옮기면 덜 일어납니다",
+    "low_hover": "놓을 자리 둘레 물체가 높아 그 위로 10mm를 지키며 내려갈 수 없어 놓지 않았습니다({}). 물체를 쥔 채이니 놓기 점을 옮기거나 둘레 물체를 치우세요",
+    "drop_zone_full": "배출 구역 칸이 모두 차서 놓지 않았습니다({}). 물체를 쥔 채이니 배출 구역을 비운 뒤 다시 하세요",
+    "known_object": "놓을 자리가 알려진 물체와 겹칩니다({}). 놓기 점을 물체에서 떼거나 그 물체를 치우세요",
+}
 
 
 def _num(value: float) -> str:
@@ -320,8 +325,9 @@ class Backend:
         if result.reason and "_out_of_reach:" in result.reason:  # REQ-031: 팔이 준 반경과 허용 범위를 그대로 보인다
             kind, detail = result.reason.split(":", 1)
             return f'{"집기" if kind.startswith("pick") else "놓기"} 점이 집기 범위 밖입니다:{detail}'
-        if result.reason and result.reason.startswith("low_lift:"):  # 놓은 뒤 상승 최소 미달: 일반 "정지 상태" 대신 원인과 할 일 (REQ-057)
-            return LOW_LIFT_TEXT.format(result.reason.split(":", 1)[1].strip())
+        kind, _, detail = (result.reason or "").partition(":")
+        if detail and kind in REASON_TEXT:  # 일반 "정지 상태"·"닿지 않는 점" 대신 원인과 할 일
+            return REASON_TEXT[kind].format(detail.strip())
         if result.status == "fault" and result.reason:  # 원인과 해결법 문장 (REQ-034)
             return result.reason
         return None if result.status == "ok" else MOTION_TEXT.get(result.status, result.status)
