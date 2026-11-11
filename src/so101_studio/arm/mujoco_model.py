@@ -135,9 +135,9 @@ def _add_object(spec, o: SimObject, base, table_z_mm: float) -> None:
 
     height = o.height_mm if o.height_mm > 0 else DEFAULT_OBJECT_HEIGHT_MM
     x, y, z = table_to_model_mm(o.x_mm, o.y_mm, height / 2.0, base, table_z_mm)  # 상자 가운데 높이(바닥이 작업 면에 닿게)
-    b = spec.worldbody.add_body(name=o.name, pos=[x / 1000, y / 1000, z / 1000], quat=list(_quat_z(o.angle_deg - base.yaw_deg)))
+    b = spec.worldbody.add_body(name=f"obj:{o.name}", pos=[x / 1000, y / 1000, z / 1000], quat=list(_quat_z(o.angle_deg - base.yaw_deg)))
     b.add_freejoint()
-    b.add_geom(name=f"{o.name}_box", type=mujoco.mjtGeom.mjGEOM_BOX, size=[o.length_mm / 2000, o.width_mm / 2000, height / 2000], mass=o.mass_g / 1000.0,
+    b.add_geom(name=f"obj:{o.name}_box", type=mujoco.mjtGeom.mjGEOM_BOX, size=[o.length_mm / 2000, o.width_mm / 2000, height / 2000], mass=o.mass_g / 1000.0,
                friction=[1.0, 0.005, 0.0001], rgba=[0.9, 0.4, 0.1, 1.0])
 
 

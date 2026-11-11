@@ -67,7 +67,7 @@ def test_jaw_collision_geoms_get_the_contact_values_and_the_global_options(model
 
 
 def test_objects_and_scene_parts_are_in_the_world_and_names_must_differ(model):
-    box = model.body("box")
+    box = model.body("obj:box")
     x, y, h = model_to_table_mm(*(model.body_pos[box.id] * 1000.0), WS.base, CFG.table_z_mm)
     assert (x, y) == pytest.approx((300.0, 200.0), abs=1e-6) and h == pytest.approx(19.5)  # 상자 가운데 높이 = 39/2
     assert model.body("scene:radar_station").id > 0
