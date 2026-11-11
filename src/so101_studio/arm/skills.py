@@ -227,6 +227,7 @@ class Skills:
         (3) 닫을 때 중간점이 물체 중심에 머물도록 손을 같이 보낸다(F1 Hand '닫으며 중심 쪽으로 이동'),
         (4) 그리퍼가 명령보다 앞서 멈추면(접촉) 그 자리에서 정지한다. 물체 크기를 몰라도 된다."""
         self.placed = [o for o in self.placed if math.hypot(o[0] - obj.x_mm, o[1] - obj.y_mm) > 40.0]  # 집어 간 물체는 더 이상 장애물이 아니다
+        self.known_objects = [o for o in self.known_objects if math.hypot(o[0] - obj.x_mm, o[1] - obj.y_mm) > 40.0]  # 알려 준 물체도 같다(GUI 자동 실행은 집는 물체까지 알려 준다)
         self.grip = None
         yaw = self._jaw_yaw((obj.angle_deg or 0.0) + 90.0)
         lo_g = self.cfg.joint_limits_deg["gripper"][0]  # 턱 축이 물체 긴 변에 수직이 되도록 (spec 6.6: 물체 각도 + 90°)
@@ -505,7 +506,9 @@ class Skills:
     def _hits_objects(self, states, held_r: float = 0.0) -> str | None:
         """낮게 지나는(낮은 턱 끝이 이웃 높이 + 여유보다 낮은) 상태에서 두 턱 끝이, held_r > 0이면 쥔 물체(두 턱 끝 중점, 반지름 held_r)도, 알려진 물체 원(placed·known_objects)에 들어가면 이유 문자열."""
         circles = [*self.placed, *self.known_objects]
-        for st in circles and states:
+        states = list(states)
+        already = set()  # 첫 자세에서 이미 겹쳐 있는 물체는 새 충돌이 아니다(들어올린 자세가 낮아 집은 물체 자신이나 바로 옆 물체와 겹쳐 시작할 수 있다): 그 원은 이 경로에서 뺀다
+        for i, st in enumerate(states if circles else []):
             p = self.kin.fk(st)
             f, m = self.kin.jaw_tip_offsets(p.pitch_deg, p.yaw_deg, st.gripper)
             if p.z_mm + float(min(f[2], m[2])) - self.cfg.table_z_mm >= NEIGHBOUR_H_MM + MIN_CLEARANCE_MM:
@@ -514,7 +517,10 @@ class Skills:
             mid = ((tips[0][0] + tips[1][0]) / 2, (tips[0][1] + tips[1][1]) / 2)
             for cx, cy, r in circles:
                 if any(math.hypot(t[0] - cx, t[1] - cy) < r + JAW_HALF_MM for t in tips) or (held_r and math.hypot(mid[0] - cx, mid[1] - cy) < r + held_r + 2.0):
-                    return f"object@({cx:.0f},{cy:.0f})"
+                    if i == 0:
+                        already.add((cx, cy, r))
+                    elif (cx, cy, r) not in already:
+                        return f"object@({cx:.0f},{cy:.0f})"
         return None
 
     def _hover_need(self, target: tuple[float, float] | None) -> float:

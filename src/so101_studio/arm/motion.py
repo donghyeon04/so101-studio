@@ -113,6 +113,8 @@ class MotionController:
             else:
                 self._jog = None
                 self._last = traj.sample(0)  # 새 궤적은 실제 위치에서 시작한다. 서보가 뒤처져 있어도 'step' fault로 오인하지 않게 기준을 옮긴다
+                if self.grip_hold is not None:  # 쥔 채면 매 틱 그리퍼는 hold 값으로 덮이므로 기준도 hold 값이다(쥔 압력으로 hold가 실제보다 8~9단위 낮아 첫 틱이 13° 한 주기로 잡히던 것, 11-12 실물)
+                    self._last = replace(self._last, gripper=self.grip_hold)
                 self._job, self.state = (traj, handle, now, "move"), "moving"
         return handle
 
@@ -403,7 +405,7 @@ class MotionController:
                 q = replace(q, gripper=self.grip_hold)
         self._tick_ref = (handle, t)
         if self.safety.check_step(self._last, q):
-            self._fault("step", self.safety.step_detail(self._last, q))
+            self._fault("step", {**self.safety.step_detail(self._last, q), "gripper_held": self.grip_hold is not None})
             return
         self._last = q  # 쓰기 실패도 시도한 위치로 센다(통신 끊김이 'step' fault로 오인되지 않게)
         self.driver.write_joints(q)
