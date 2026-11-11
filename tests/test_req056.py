@@ -245,3 +245,17 @@ def test_placing_on_a_spot_that_already_has_an_object_warns_and_does_not_avoid_i
     finally:
         s.disconnect()
     assert [d["count"] for lv, c, d in ev if c == "ARM-PLACE-SAME-SPOT" and lv == "WARN"] == [1]
+
+
+@pytest.mark.slow
+def test_place_point_inside_a_known_object_fails_with_the_object_as_the_reason(tmp_path):
+    # GUI 직접 조작: 기본 수동 물체(길이 100mm -> 반지름 50) (350,200) 옆 (330,180)에 놓으면 겹친다: 닿지 않는 점이 아니라 알려진 물체와 겹침이라고 알린다
+    s, _ = make(tmp_path, 30)
+    try:
+        s.skills.known_objects = [(350.0, 200.0, 50.0)]
+        assert s.pick_and_place(DetectedObject("o", 300.0, 200.0, 0.0, 30, 30, 1.0, "manual", 0.0)).status == "ok"
+        r = s.place(at=(330.0, 180.0))
+        free = s.place(at=(420.0, 120.0))
+    finally:
+        s.disconnect()
+    assert r.status == "ik_fail" and "known_object" in r.reason and "(350,200)" in r.reason and free.status in ("ok", "ik_fail", "out_of_bounds")

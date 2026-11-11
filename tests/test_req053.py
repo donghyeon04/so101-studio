@@ -15,7 +15,7 @@ from so101_studio.service.arm_service import ArmService
 CFG = load_robot("config/robot.yaml")
 WS = load_workspace("config/workspace.yaml")
 TABLE = sorted((mm, v) for v, mm in CFG.gripper_width_mm)
-ZONE = (WS.drop_zones["right"]["x_mm"], WS.drop_zones["right"]["y_mm"])
+ZONE = (500.0, 150.0)  # 배출 구역을 칸으로 나누기 전 기본 점(반경 224mm): 손목 한계 시험용 먼 점. 기본 구역(11.3.5)의 칸은 더 가깝다
 POINT = (300.0, 200.0)
 
 
@@ -46,7 +46,7 @@ def run(tmp_path, width, target, angle=0.0, height=40.0, known=(), forget=False)
         assert sk.pick(obj).status == "ok"
         if forget:
             sk.grip = None
-        r = sk.place_at(*target) if target != ZONE else sk.place("right")
+        r = sk.place_at(*target)
         after = (sk.grip, sk._place_ctx)
     finally:
         s.disconnect()
@@ -133,7 +133,8 @@ def test_two_known_neighbours_70mm_along_the_jaw_axis_do_not_block_the_third_pla
     neighbours = [(ZONE[0] + s * 70.0 * ux, ZONE[1] + s * 70.0 * uy, 29.0) for s in (-1, 1)]  # 폭 58mm
     r = run(tmp_path, 30, ZONE, known=neighbours)
     assert r.status == "ok" and len(r.path) == 1 and not r.fallback
-    assert r.path[0]["route"] == "tilted" and r.path[0]["clearance_mm"] >= 10.0
+    # 이웃(높이를 모르면 40mm 가정)이 100mm 안에 있으면 hover 바닥이 50mm 위여야 한다(11.3.3): 기울인 hover는 그 높이에 닿지 않아 옛 방식(수직)으로 내려가 ③이 된다
+    assert r.path[0]["route"] in ("tilted", "fixed_tilt") and r.path[0]["clearance_mm"] >= 10.0 and r.path[0]["hover_mm"] >= 47.0
 
 
 @pytest.mark.slow

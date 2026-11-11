@@ -10,7 +10,7 @@ from so101_studio.service.arm_service import ArmService
 CFG = load_robot("config/robot.yaml")
 WS = load_workspace("config/workspace.yaml")
 TABLE = sorted((mm, v) for v, mm in CFG.gripper_width_mm)
-ZONE = WS.drop_zones["right"]
+ZONE = {"x_mm": 500.0, "y_mm": 150.0}  # 칸으로 나누기 전 기본 점(11.3.5 이전)
 
 
 def run(tmp_path, width, known=()):
@@ -24,7 +24,7 @@ def run(tmp_path, width, known=()):
     try:
         assert s.skills.pick(DetectedObject("o", 300, 200, 0, width, width, 1.0, "manual", 39)).status == "ok"
         s.skills.grip = None  # REQ-053 이후 기울여 집은 기억이 있으면 대칭 V자로 가므로, 여기서는 첫판(③ fixed_tilt: 수직 손으로 옆으로만)을 시험한다
-        r = s.skills.place("right")
+        r = s.skills.place_at(ZONE["x_mm"], ZONE["y_mm"])
         final = s.driver.read_joints()
     finally:
         s.disconnect()
