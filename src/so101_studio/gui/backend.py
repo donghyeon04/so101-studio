@@ -87,13 +87,20 @@ def update_workspace_text(text: str, values: dict, zone: str) -> str:
         (r"^table_mm: \{.*?\}", f"table_mm: {{x: {_num(values['table_x'])}, y: {_num(values['table_y'])}}}"),
         (r"^robot_base_in_table: \{.*?\}",
          f"robot_base_in_table: {{x_mm: {_num(values['base_x'])}, y_mm: {_num(values['base_y'])}, yaw_deg: {_num(values['base_yaw'])}}}"),
-        (rf"^  {re.escape(zone)}: \{{.*?\}}", f"  {zone}: {{x_mm: {_num(values['zone_x'])}, y_mm: {_num(values['zone_y'])}}}"),
         (r"^safety_margin_mm: \S+", f"safety_margin_mm: {_num(values['margin'])}"),
     )
     for pattern, replacement in rules:
         text, count = re.subn(pattern, replacement, text, flags=re.MULTILINE)
         if count != 1:
             raise ValueError(f"workspace 파일에서 찾지 못한 항목: {pattern}")
+
+    def zone_line(m: re.Match) -> str:  # 배출 구역은 가운데 x·y만 바꾸고 w_mm·h_mm·slot_mm 같은 다른 키는 그대로 둔다(arm-software-spec 11.3.5)
+        line = re.sub(r"\bx_mm: [^,}]+", f"x_mm: {_num(values['zone_x'])}", m.group(0), count=1)
+        return re.sub(r"\by_mm: [^,}]+", f"y_mm: {_num(values['zone_y'])}", line, count=1)
+
+    text, count = re.subn(rf"^  {re.escape(zone)}: \{{.*?\}}", zone_line, text, flags=re.MULTILINE)
+    if count != 1:
+        raise ValueError(f"workspace 파일에서 찾지 못한 배출 구역: {zone}")
     return text
 
 
