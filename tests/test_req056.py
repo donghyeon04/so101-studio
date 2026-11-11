@@ -280,3 +280,29 @@ def test_leave_from_the_real_arm_end_pose_rises_at_least_the_needed_height(tmp_p
     finally:
         s.disconnect()
     assert r.status == "ok" and rise >= 49.0 - 1.0 and not [1 for _, c, _ in ev if c == "ARM-PLACE-LOW-LIFT"]
+
+
+@pytest.mark.slow
+def test_untilt_checks_the_interpolation_densely_and_names_the_check_that_rejected(tmp_path, monkeypatch):
+    import so101_studio.arm.skills as skills_mod
+    from so101_studio.core.types import JointState
+
+    s, ev = make(tmp_path, 58)
+    try:
+        sk = s.skills
+        assert sk._run([sk._joint_move(JointState(65.4, 13.7, 11.9, 102.7, -1.0, 56.1))]).status == "ok"
+        seen = []
+        orig = sk._hits_objects
+        monkeypatch.setattr(sk, "_hits_objects", lambda states, held_r=0.0: seen.append(len(list(states))) or orig(states, held_r))
+        goal = sk._untilt_goal(sk._q(), 49.0)
+        assert goal is not None and sk.untilt_rejected is None and seen and seen[0] >= 12  # 58° 도는 관절을 5°마다 -> 12자세 이상
+        monkeypatch.setattr(skills_mod, "SWING_MAX_DEG", 10.0)
+        assert sk._untilt_goal(sk._q(), 49.0) is None and sk.untilt_rejected.startswith("swing:")
+        monkeypatch.setattr(skills_mod, "SWING_MAX_DEG", 90.0)
+        sk.known_objects = [(sk.kin.fk(sk._q()).x_mm, sk.kin.fk(sk._q()).y_mm, 300.0)]  # 발밑에 아주 큰 물체: 지나는 길이 걸린다
+        assert sk._untilt_goal(sk._q(), 49.0) is None and sk.untilt_rejected.startswith("object:")
+        monkeypatch.setattr(sk, "_leave_plan", lambda q, need: None)
+        sk._low_lift(0.0, 49.0)
+    finally:
+        s.disconnect()
+    assert [d["rejected_by"] for _, c, d in ev if c == "ARM-PLACE-LOW-LIFT"]  # 이벤트에 거절한 검사가 남는다

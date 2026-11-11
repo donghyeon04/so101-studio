@@ -20,6 +20,7 @@ BOX_GAP_MM = 2.0  # released_then_tilted: 쥔 물체 상자와 두 턱 선분 �
 MIN_SYM_ROOM_MM = 20.0  # 대칭 상한 틈 - 쥔 틈이 이보다 작으면(큰 물체) 대칭 경로를 건너뛴다
 HEIGHT_REQUIRED_REASON = "턱 축이 팔 방향과 어긋나 수직으로 집어야 해서 물체 높이가 필요합니다"  # 결정 0052
 HOVER_NEIGHBOUR_R_MM = 100.0  # 놓는 점 둘레 이 반경 안의 알려진 물체 높이를 hover 높이 규칙에 쓴다 (11.3.3)
+SWING_STEP_DEG = 5.0  # 기울기 풀기 보간에서 가장 크게 도는 관절이 이만큼 돌 때마다 한 자세씩 검사한다
 SWING_MAX_DEG = 90.0  # 기울기를 풀며 올라가는 관절 이동에서 한 관절이 이보다 크게 돌면 크게 휘두르는 것으로 보고 멈춘다
 SAME_SPOT_MM = 30.0  # 놓을 자리에서 이 안에 있는 놓은 물체는 같은 자리(배출 구역에 쌓는 것)로 보고 피하지 않는다
 LIFT_MARGIN_MM = 10.0  # 놓은 뒤 상승의 최소 = 물체 높이 + 이 값 (11.3.3)
@@ -44,6 +45,7 @@ class Skills:
         self.opening_blocked_by: str | None = None
         self.placed_height: dict[tuple[float, float], float] = {}  # 놓은 물체 (x, y) -> 높이(mm). 모르면 NEIGHBOUR_H_MM
         self.hover_need_mm = 0.0  # 마지막 _descent의 hover 높이 하한
+        self.untilt_rejected: str | None = None  # 마지막 _untilt_goal이 거절한 이유(ik | swing:<도> | dip:<mm> | object:<..> | check_goal:<..>)
         self.descent_blocked_by: str | None = None  # 마지막 _descent가 알려진 물체 때문에 거른 이유(object@(x,y))
         self.opening_skipped: list[dict] = []  # 건너뛰었거나 못 쓴 여는 경로와 이유 (11.3.3)
         self.last_pick_tilted: bool | None = None  # 마지막 pick이 기울여 집으려 했는지(수직 집기 no_object를 작업 실행이 알아본다, 결정 0052)
@@ -557,21 +559,34 @@ class Skills:
         f, m = self.kin.jaw_tip_offsets(p.pitch_deg, p.yaw_deg, q_from.gripper)
         mid = (f[:2] + m[:2]) / 2
         up = self._hand_pose(p.x_mm + float(mid[0]), p.y_mm + float(mid[1]), p.yaw_deg, q_from.gripper, False, p.z_mm + float(min(f[2], m[2])) + rise)
+        self.untilt_rejected = None
         goal = self.kin.ik(up, q_from)
         if goal is None:
+            self.untilt_rejected = "ik"
             return None
         goal = replace(goal, gripper=q_from.gripper)
         q0, q1 = np.array(astuple(q_from), float), np.array(astuple(goal), float)
-        states = [JointState(*(q0 + (q1 - q0) * k)) for k in np.linspace(0.0, 1.0, 9)]
+        swing = float(np.max(np.abs((q1 - q0)[:5])))
+        if swing > SWING_MAX_DEG:
+            self.untilt_rejected = f"swing:{swing:.0f}deg"
+            return None
+        n = max(9, math.ceil(swing / SWING_STEP_DEG) + 1)  # 가장 크게 도는 관절이 SWING_STEP_DEG마다 한 자세씩 지나도록 촘촘히 본다
+        states = [JointState(*(q0 + (q1 - q0) * k)) for k in np.linspace(0.0, 1.0, n)]
         low = [self._low_tip_z(st) for st in states]
-        if (float(np.max(np.abs((q1 - q0)[:5]))) > SWING_MAX_DEG or min(low) < low[0] - 3.0
-                or self._hits_objects(states) is not None or any(self.ctl.safety.check_goal(b, a) for a, b in itertools.pairwise(states))):
+        if min(low) < low[0] - 3.0:
+            self.untilt_rejected = f"dip:{low[0] - min(low):.0f}mm"
+        elif (why := self._hits_objects(states)) is not None:
+            self.untilt_rejected = f"object:{why}"
+        elif (why := next((w for a, b in itertools.pairwise(states) if (w := self.ctl.safety.check_goal(b, a))), None)) is not None:
+            self.untilt_rejected = f"check_goal:{why}"
+        if self.untilt_rejected:
             return None
         return goal
 
     def _leave_plan(self, q_from: JointState, need: float):
         """q_from에서 need(mm) 올라가는 계획 (곧게 올라가는 궤적 또는 None, 기울기를 푸는 목표 또는 None, 곧게 올라가는 높이). 못 올라가면 None.
         곧게 need 이상 올라가면 (궤적, None, 높이). 아니면 올라갈 수 있는 만큼 곧게 올라간 뒤(없으면 0) 기울기를 풀며 마저 올라간다(_untilt_goal). _leave와 열림 경로 검사(_can_leave)가 같은 계획을 쓴다."""
+        self.untilt_rejected = None
         p = self.kin.fk(q_from)
         for h in self._lift_heights(need):
             if (u := self._line(q_from, replace(p, z_mm=p.z_mm + h))) is not None:
@@ -583,6 +598,7 @@ class Skills:
                 break
         q_mid = q_from if up is None else JointState(*up.pts[-1])
         if abs(self.kin.fk(q_mid).pitch_deg + 90.0) < 1.0:  # 이미 수직이면 풀 기울기가 없다
+            self.untilt_rejected = "already_vertical"
             return None
         goal = self._untilt_goal(q_mid, need - lifted)
         return None if goal is None else (up, goal, lifted)
@@ -599,7 +615,7 @@ class Skills:
 
     def _low_lift(self, lifted: float, need: float) -> MotionResult:
         """올라갈 수 있는 높이가 최소(need)에 못 미침: 다음 수평 이동을 하지 않고 그 자리에서 멈춘다 (11.3.3)."""
-        self.ctl._emit("place_low_lift", "ERROR", "ARM-PLACE-LOW-LIFT", {"lift_mm": lifted, "needed_mm": need})
+        self.ctl._emit("place_low_lift", "ERROR", "ARM-PLACE-LOW-LIFT", {"lift_mm": lifted, "needed_mm": need, "rejected_by": self.untilt_rejected or "no_straight_lift"})  # 어느 검사가 기울기 풀기를 거절했는지
         return MotionResult("stopped", 0.0, ToolPose(0, 0, 0, 0), reason=f"low_lift: 놓은 뒤 {need:.0f}mm 이상 올라가야 하는데 {lifted:.0f}mm만 올라갈 수 있다")
 
     def _leave(self, here: ToolPose, held_gap: float, ctx: dict) -> MotionResult:
