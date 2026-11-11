@@ -1,6 +1,6 @@
 # GUI 개발 현황
 
-상태: 초안 · 2026-11-07 밤 (로컬 총괄이 총정리하며 다시 씀. 지난 단계별 기록은 git 기록에 있다)
+상태: 초안 · 2026-11-11 밤 (로컬 총괄. 지난 단계별 기록은 git 기록에 있다)
 
 GUI 세션(총괄)의 인수인계 문서다. 기준 설계는 `planning/gui-spec.md`, 세션 절차는 `guides/session-workflow.md`, 할 일은 `planning/work-queue.md`.
 
