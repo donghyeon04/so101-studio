@@ -132,7 +132,8 @@ def test_workspace_text_keeps_comments_and_changes_values():
     data = yaml.safe_load(out)
     assert data["table_mm"] == {"x": 700, "y": 450}
     assert data["robot_base_in_table"] == {"x_mm": 320, "y_mm": 60, "yaw_deg": 90}
-    assert data["drop_zones"]["right"] == {"x_mm": 520, "y_mm": 170}
+    zone = data["drop_zones"]["right"]
+    assert (zone["x_mm"], zone["y_mm"]) == (520, 170)  # 사각형 구역이면 w_mm·h_mm·slot_mm도 남는다(아래 시험)
     assert data["safety_margin_mm"] == 12
     assert data["reach_mm"] == {"min": 90, "max": 250}
 
@@ -158,7 +159,8 @@ def test_save_workspace_writes_and_validates(clean, tmp_path, monkeypatch):
 
 def test_table_page_shows_values_and_saves(clean, tmp_path, monkeypatch):
     path = tmp_path / "workspace.yaml"
-    path.write_text(pathlib.Path("config/workspace.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+    real_before = pathlib.Path("config/workspace.yaml").read_text(encoding="utf-8")
+    path.write_text(real_before, encoding="utf-8")
     monkeypatch.setattr(clean, "workspace_path", str(path))
 
     async def check(user):
@@ -176,7 +178,7 @@ def test_table_page_shows_values_and_saves(clean, tmp_path, monkeypatch):
         for arm in clean._arms():
             arm.reload_workspace("config/workspace.yaml")
         clean.studio.ws = clean.studio.task.ws = clean.arm.ws
-    assert "x_mm: 500" in pathlib.Path("config/workspace.yaml").read_text(encoding="utf-8")  # 진짜 파일은 그대로다
+    assert pathlib.Path("config/workspace.yaml").read_text(encoding="utf-8") == real_before  # 진짜 파일은 그대로다
 
 
 def test_cards_cover_known_params(clean):
@@ -248,3 +250,11 @@ def test_table_pad_moves_the_chosen_item(clean, tmp_path, monkeypatch):
         assert await _until(lambda: _one(user, "ws-zone_y").value == before + 5)
 
     in_app(clean, "/table", check)
+
+
+def test_workspace_text_keeps_rectangle_zone_keys():
+    """사각형 배출 구역(11.3.5, REQ-058)은 가운데 x·y만 바꾸고 w_mm·h_mm·slot_mm는 그대로 둔다."""
+    text = "drop_zones:\n  right: {x_mm: 480, y_mm: 150, w_mm: 100, h_mm: 80, slot_mm: 75}\n"
+    text = "table_mm: {x: 600, y: 400}\nrobot_base_in_table: {x_mm: 300, y_mm: 50, yaw_deg: 90}\n" + text + "safety_margin_mm: 10\n"
+    data = yaml.safe_load(update_workspace_text(text, VALUES, "right"))
+    assert data["drop_zones"]["right"] == {"x_mm": 520, "y_mm": 170, "w_mm": 100, "h_mm": 80, "slot_mm": 75}
