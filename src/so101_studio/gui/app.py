@@ -1,6 +1,7 @@
 """NiceGUI 앱: 공통 틀(위쪽 상태줄, 사이드바, 아래쪽 상태줄, E-STOP)과 페이지 등록."""
 
 import logging
+import os
 import sys
 import time
 
@@ -387,5 +388,6 @@ def main(args) -> None:
         print(share_warning(web_port), flush=True)
     ui.run(
         make_root(backend), host=host, port=web_port, title="SO-101 Studio",
-        language="ko-KR", reload=False, show="/start",
+        language="ko-KR", reload=False,
+        show=False if (getattr(args, "no_browser", False) or os.environ.get("SO101_GUI_NO_BROWSER")) else "/start",  # 세션이 띄울 때는 기본 브라우저에 탭을 열지 않는다(먼저 붙은 탭이 조작권을 가져간다)
     )

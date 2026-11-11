@@ -174,9 +174,7 @@ def build(backend, client_id: str, actions) -> None:
 
     async def refresh_plan() -> None:
         seq, x, y, h = backend.scene.picked
-        if seq != plan_state["seq"]:  # 3D에서 고른 점을 입력칸에 옮긴다
-            if plan_state.get("planned") is not None and owner():
-                ui.notify(f"3D에서 점이 바뀌었습니다: x {x:.0f}, y {y:.0f}. 다시 계산합니다", type="info")
+        if seq != plan_state["seq"]:  # 3D에서 고른 점을 입력칸에 옮긴다. 알림은 띄우지 않는다: 손잡이를 끄는 동안 수십 번 쌓여 화면을 가린다(입력칸과 닿는지 줄이 바로 바뀐다)
             plan_state["seq"] = seq
             for key, value in (("x", x), ("y", y), ("h", h)):
                 target[key] = round(value, 1)

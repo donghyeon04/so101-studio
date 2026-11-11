@@ -168,7 +168,7 @@ def jog_pads(backend, gate: Controls, prefix: str = "") -> None:
     with ui.row().classes("w-full no-wrap items-end justify-around gap-2 mb-2").mark(f"{prefix}joystick"):
         for key, label, opts in (("xy", "앞뒤·좌우", {}), ("z", "높이", {"lockY": True})):
             with ui.column().classes("items-center gap-1"):
-                ui.joystick(color=theme.ACCENT, size=96, on_move=lambda e, k=key: move(k, e),
-                            on_end=lambda _e: end(), **opts).classes("joystick").mark(f"{prefix}pad-{key}")
+                ui.joystick(color=theme.ACCENT, size=96, mode="static", restOpacity=0.6, on_move=lambda e, k=key: move(k, e),  # 기본 dynamic은 누른 자리에 조이스틱을 새로 만들어 받침 원과 겹친다
+                            on_end=lambda _e: end(), **opts).classes("jog-pad").mark(f"{prefix}pad-{key}")
                 ui.label(f"{label} (눌러 끌기)").classes("stat-label")
     ui.timer(0.1, keep)
