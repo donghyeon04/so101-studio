@@ -85,3 +85,4 @@
 | `docs/decisions/0050-sts-firmware-and-references.md` | 결정 | 확정 | STS32XX 대체 펌웨어 보류(전원 보강 뒤 예비 서보로), SO-ARM100 #132 전원 근거·어깨 급전 분기, MuJoCo는 menagerie robotstudio_so101, 서보 레지스터는 FTServo_Python 참고 |
 | `docs/decisions/0051-home-allowed-under-zero-lock.md` | 결정 | 확정 | 0° 확인 잠금만 걸렸을 때는 home 이동 허용, 캘리브레이션 불일치·팔 파일 없음 잠금은 그대로 |
 | `docs/decisions/0052-height-required-for-vertical-pick.md` | 결정 | 확정 | 수직으로만 집을 수 있고 높이를 모르면 집지 않고 높이 요구(height_required), 초음파는 CHECK 다시 1회, 부하로 높이 재기는 나중 |
+| `docs/decisions/0053-mujoco-sim-driver.md` | 결정 | 확정 | MuJoCo는 SimDriver와 같은 메서드의 MuJoCoDriver로 드라이버 자리에, menagerie robotstudio_so101에서 시작, 미끄럼 방지 접촉 조합, 학습용 프레임워크는 쓰지 않음 |
