@@ -72,7 +72,9 @@ MOTION_TEXT = {
     "fault": "오류로 멈췄습니다",
     "timeout": "시간 안에 끝나지 않았습니다",
     "locked": "실제 팔이 잠겨 있어 움직이지 않았습니다. 장치 > 팔에서 이유를 확인해 주세요",
+    "height_required": "물체 높이가 필요해 집지 않았습니다. 턱 축이 팔 방향과 어긋나 손을 수직으로 내리는데, 높이를 모르면 턱이 물체 위 모서리를 칩니다. 높이 칸에 물체 높이를 넣어 주세요",  # 결정 0052
 }
+LOW_LIFT_TEXT = "놓은 뒤 충분히 올라가지 못해 그 자리에서 멈췄습니다({}). 벌린 턱이 놓은 물체 바로 옆에 있으니 조그로 천천히 위로 올린 뒤 정지 해제를 누르세요. 배출 구역을 팔 쪽으로 옮기면 덜 일어납니다"  # 11.3.3
 
 
 def _num(value: float) -> str:
@@ -311,6 +313,8 @@ class Backend:
         if result.reason and "_out_of_reach:" in result.reason:  # REQ-031: 팔이 준 반경과 허용 범위를 그대로 보인다
             kind, detail = result.reason.split(":", 1)
             return f'{"집기" if kind.startswith("pick") else "놓기"} 점이 집기 범위 밖입니다:{detail}'
+        if result.reason and result.reason.startswith("low_lift:"):  # 놓은 뒤 상승 최소 미달: 일반 "정지 상태" 대신 원인과 할 일 (REQ-057)
+            return LOW_LIFT_TEXT.format(result.reason.split(":", 1)[1].strip())
         if result.status == "fault" and result.reason:  # 원인과 해결법 문장 (REQ-034)
             return result.reason
         return None if result.status == "ok" else MOTION_TEXT.get(result.status, result.status)
@@ -667,6 +671,20 @@ class Backend:
         self.source.remove(object_id)
         self.source.add(replace(old, x_mm=old.x_mm + dx, y_mm=old.y_mm + dy, angle_deg=((old.angle_deg or 0.0) + dangle) % 180))
         self._changed_objects()
+
+    def set_object_height(self, object_id: str, height: float) -> None:
+        """수동 입력 물체의 높이를 고친다(결정 0052: 수직으로 집는 물체는 높이가 있어야 집는다)."""
+        old = next((o for o in self.objects() if o.id == object_id), None)
+        if old is None:
+            return
+        self.source.remove(object_id)
+        self.source.add(replace(old, height_mm=float(height)))
+        self._changed_objects()
+
+    def height_needed(self) -> set[str]:
+        """작업 실행에서 마지막 집기가 height_required였고 아직 높이가 없는 물체 id (REQ-057)."""
+        last = {e.object_id: e.result for e in list(self.state.events) if e.state == "PICK" and e.result}
+        return {o.id for o in self.objects() if last.get(o.id) == "height_required" and not o.height_mm}
 
     def remove_object(self, object_id: str) -> None:
         self.source.remove(object_id)

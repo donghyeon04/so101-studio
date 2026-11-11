@@ -5,6 +5,7 @@ import html
 from nicegui import run, ui
 
 from .. import theme
+from ..backend import MOTION_TEXT
 from ..pages.common import HEIGHT_HINT, Controls, nudge_pad
 
 
@@ -78,8 +79,8 @@ def page(backend, client_id: str, actions) -> None:
     def rows() -> list[dict]:
         return [
             {"id": o.id, "x": round(o.x_mm), "y": round(o.y_mm), "angle": round(o.angle_deg or 0), "width": round(o.width_mm),
-             "length": round(o.length_mm), "height": round(o.height_mm) or "-", "reach": reachable_text(backend, o)}
-            for o in backend.objects()
+             "length": round(o.length_mm), "height": "높이 필요" if o.id in needed else (round(o.height_mm) or "-"), "reach": reachable_text(backend, o)}
+            for needed in [backend.height_needed()] for o in backend.objects()
         ]
 
     def refresh_table() -> None:
@@ -102,6 +103,11 @@ def page(backend, client_id: str, actions) -> None:
 
     async def plane_clicked(e) -> None:  # guard는 이벤트 인자를 넘기지 않는다
         await controls.guard(lambda: clicked(e))()
+
+    async def apply_height() -> None:
+        if state["selected"] and (height.value or 0) > 0:
+            backend.set_object_height(state["selected"], float(height.value))
+            refresh_table()
 
     async def remove() -> None:
         if state["selected"]:
@@ -134,6 +140,8 @@ def page(backend, client_id: str, actions) -> None:
                     length = controls.add(ui.number("길이 (mm)", value=100, min=5, max=300, step=5).props("outlined dense").classes("flex-1").mark("new-length"))
                     height = controls.add(ui.number("높이 (mm)", value=0, min=0, max=200, step=5).props("outlined dense").classes("flex-1")
                                           .tooltip(HEIGHT_HINT).mark("new-height"))
+                need_text = ui.label("").classes("page-body text-negative").mark("height-needed")
+                apply_button = controls.add(ui.button("고른 물체에 이 높이", on_click=controls.guard(lambda: apply_height())).props("outline no-caps dense").mark("apply-height"))
             with ui.card().classes("w-full gap-2"):
                 ui.label("고른 물체 조금씩").classes("card-title")
 
@@ -153,6 +161,11 @@ def page(backend, client_id: str, actions) -> None:
         controls.refresh()
         table.rows = rows()
         remove_button.enabled = bool(controls.allowed and state["selected"])
+        apply_button.enabled = bool(controls.allowed and state["selected"] and (height.value or 0) > 0)
+        needed = sorted(backend.height_needed())  # 결정 0052: 수직으로 집는데 높이를 몰라 집지 않은 물체 (REQ-057)
+        need_text.text = f"{', '.join(needed)}: {MOTION_TEXT['height_required']}. 표에서 고르고 높이를 넣은 뒤 [고른 물체에 이 높이]" if needed else ""
+        need_text.visible = bool(needed)
+        height.props(add="error" if needed else "", remove="" if needed else "error")
 
     ui.timer(0.5, tick)
 
