@@ -314,7 +314,7 @@ MuJoCo 물리 시뮬레이션(결정 0053, 13절). REQ-056이 끝난 뒤 M1부�
 
 | # | 작업 | 완료 기준 | 근거 | 결과 |
 |---|---|---|---|---|
-| M1 | 모델 가져오기(13.4), `arm/mujoco_model.py`(`load_model`, `JOINT_MAP`, 좌표 변환), 설치 확인(13.8·13.9) | 13.7 (d) | 0053, 13.1 | |
+| M1 | 모델 가져오기(13.4), `arm/mujoco_model.py`(`load_model`, `JOINT_MAP`, 좌표 변환), 설치 확인(13.8·13.9) | 13.7 (d) | 0053, 13.1 | ✅ #260(관절 range 바꾸기는 M2에서) |
 | M2 | `MuJoCoDriver`(13.2·13.3), `make_sim_driver`, CLI 인자·`--dry-run` 거부, diagnostics 검사, `reload_workspace` 거부. `sim_state()`는 빈 값 | 13.7 (c)(e) | 0053, 13.1 | |
 | M3 | 장면·물체·시나리오(13.5), `sim_state()` 채우기(13.6) | 13.7 (a)(b) | 0053, 13.1 | |
 | M4 | `--sim-viewer`, GUI 인자 전달·`no_object` 규칙·물체 표시(13.6, GUI REQ) | 13.7 (f) | 0053, 13.1 | |
@@ -461,7 +461,7 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
 | 파일 | 내용 | 단계 | 세션 |
 |---|---|---|---|
 | `arm/mujoco_model.py` | 모델 읽기(`load_model(scene, objects)` → `MjModel`, MjSpec으로 장면·물체·턱 접촉값을 더함), 관절 대응표 `JOINT_MAP`, 좌표 변환 `table_to_model_mm`·`model_to_table_mm` | M1 | 팔 |
-| `assets/mujoco/so101/` | menagerie `robotstudio_so101` 원본 그대로와 라이선스, 우리 것 `so101_studio.xml`(원본 include + `gripper_frame` site, 받침 상자) | M1 | 팔 |
+| `assets/mujoco/so101/` | menagerie `robotstudio_so101`에서 `load_model`이 실제로 읽는 파일만(MJCF·쓰는 메쉬)과 `LICENSE`(Apache-2.0), 가져온 menagerie 커밋을 적은 `SOURCE.md`. 원본 파일은 고치지 않는다. 우리가 더하는 것은 XML이 아니라 `load_model`(MjSpec)이 한다(13.4) | M1 | 팔 |
 | `arm/mujoco_driver.py` | `MuJoCoDriver` | M2 | 팔 |
 | `arm/sim_driver.py` | `make_sim_driver(cfg, ws, scene, scenario=None, viewer=False)` → `MuJoCoDriver`. 지금 `SimDriver`와 `cli/__init__.py`의 `make_driver(sim, cfg)`는 그대로 둔다 | M2 | 팔 |
 | `cli/__init__.py` | 인자 `--sim-engine {kinematic,mujoco}`(기본 kinematic), `--sim-scenario`, `--sim-viewer`. 168행에서 `a.sim and a.sim_engine == "mujoco"`일 때만 `make_sim_driver`를 부르고, 아니면 지금처럼 `make_driver` | M2 | 팔 |
@@ -516,15 +516,21 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
   - `table_z_mm`는 `cfg.table_z_mm`(팔 파일까지 겹친 값), `base`는 `ws.base`다.
 - **관절 대응표** `JOINT_MAP = {우리 관절: (MuJoCo 관절 이름, 부호 ±1, 오프셋 도)}`:
   - M1의 산출물로 `arm/mujoco_model.py` 상수에 둔다. 모델 파일은 고치지 않는다.
-  - 값은 M1이 menagerie 관절 이름을 보고 (d) 시험을 통과하도록 정한다.
+  - M1 결과: 관절 이름이 우리와 같고, 모두 부호 +1·오프셋 0이다. (d) 10자세 최대 차이 0.003mm.
   - 그리퍼 값 v ↔ MuJoCo 그리퍼 관절각은 `VALUE_TO_Q`(q = −10 + 1.214 v 도)에 부호·오프셋을 적용한 값이다.
-- **더하는 것**(`so101_studio.xml`, 원본은 고치지 않음):
-  - gripper body에 site `gripper_frame`을 둔다. 위치·방향은 우리 URDF `gripper_frame_joint`의 origin을 그대로 쓴다(`xyz="-0.0079 -0.000218121 -0.0981274" rpy="0 3.14159 0"`, gripper_link 좌표).
-  - 받침 충돌 geom이 원본에 없으면 받침 상자를 둔다. 크기는 우리 URDF base 메쉬의 경계 상자다.
+- **더하는 것**: XML include로는 원본의 중첩 body 안에 site를 넣을 수 없어서, 모두 `load_model`이 MjSpec으로 더한다. 원본 파일은 고치지 않는다(M1 #260).
+  - gripper body에 site `gripper_frame`을 둔다. 위치·방향은 우리 URDF `gripper_frame_joint`의 origin을 그대로 쓴다(`xyz="-0.0079 -0.000218121 -0.0981274" rpy="0 3.14159 0"`, gripper_link 좌표). 원본의 `gripperframe` site는 위치가 우리 URDF와 달라 쓰지 않는다.
+  - 받침: 원본에 충돌 geom이 없다. base body에 visual 메쉬의 경계 상자를 충돌 geom(`BASE_BOX`)으로 더한다.
+  - **관절 범위**: 원본 range는 우리 한계보다 좁다(예: pan ±110° vs ±120.3°, wrist_flex ±95° vs ±103.6°). `load_model`이 각 관절 range를 **`physical_limits_deg`(실물 AC4 측정, REQ-054)로 바꾼다**.
+    - 이유: 시뮬레이션의 기계적 끝은 실물과 같아야 한다. 좁은 range를 두면 우리 안전 한계(`joint_limits_deg`, 실물보다 1° 안쪽) 근처 명령이 MuJoCo에서만 막혀, 실물에는 없는 실패가 생긴다.
+    - 안전 검사는 지금처럼 `joint_limits_deg`로 하므로 정상 명령은 MuJoCo range에 닿지 않는다.
+    - 그리퍼 range는 `VALUE_TO_Q`로 값 0~100에 해당하는 각도를 덮도록 한다.
+    - `physical_limits_deg`가 없는 팔 파일이면 원본 range를 쓰고 `SIM-JOINT-RANGE-DEFAULT`(WARN)를 남긴다.
 - **턱 접촉**:
   - `load_model`이 MjSpec으로 고정 턱 body(그리퍼 body)와 가동 턱 body의 **충돌 geom을 찾아** 값만 고친다: `condim=4`, `friction="1.0 0.02 0.001"`.
   - 전역 옵션은 `cone="elliptic" impratio="10" integrator="implicitfast" timestep="0.002"`이다(시험값).
-  - 접촉을 보고할 때는 geom 이름 대신 **body의 역할 이름**을 쓴다: `jaw_fixed`, `jaw_moving`, `arm`(나머지 팔 body), `table`, `obj:<이름>`, `scene:<이름>`.
+  - 접촉을 보고할 때는 geom 이름 대신 **body의 역할 이름**을 쓴다: `jaw_fixed`(그리퍼 body), `jaw_moving`(가동 턱 body), `arm`(나머지 팔 body), `table`, `obj:<이름>`, `scene:<이름>`.
+  - 물체와 장면 부품은 **body 이름 자체를** `obj:<이름>`·`scene:<이름>`으로 만들어, 역할 이름을 따로 표로 두지 않는다. 그 아래 geom 이름은 자유다.
 - 서보 kp·kv·forcerange·armature는 menagerie 기본값으로 시작한다. 공개 값은 kp 17.8~998로 약 56배 갈린다. 실물 `status.jsonl`로 맞추는 것은 M3 뒤 별도 REQ다.
 
 ### 13.5 장면과 물체
@@ -589,10 +595,20 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
   - 개발 노트북(Windows)에서 실시간 모드로 60초(쉬기 30초 + `home`↔`park` 왕복 30초) 동안 `dropped_count`가 0이고 `step_ms_avg`가 1ms 안이다.
 - (f) **보기**(M4): `--sim-viewer`로 MuJoCo 뷰어가 떠서 팔과 물체가 움직이는 것이 보이고, GUI 3D에 `sim_state()`의 물체가 그려진다(GUI REQ).
 
-### 13.8 설치
-- `pip install -e .[mujoco]`(Windows 휠, Python 3.12).
-- 설치한 뒤 `python -c "import numpy; print(numpy.__version__)"`가 2.2.6(conda 설치본)이어야 한다. pip가 numpy를 바꾸려 하면 `pip install --no-deps "mujoco>=4.0,<5"`로 설치하고, 빠진 의존성(absl-py, etils, glfw, pyopengl)만 따로 설치한다. M1이 실제로 해 보고 이 절을 고친다.
-- `mujoco`를 import하지 못하면: CLI는 "`pip install -e .[mujoco]`로 설치하세요"를 출력하고 종료 코드 2로 끝난다. GUI는 M4에서 같은 문장을 띄운다.
+### 13.8 설치 (M1 #260에서 확인)
+- `mujoco` 4.0.0은 실제 내용이 `mujoco-core`·`mujoco-studio`에 있는 메타 휠이다. 그냥 `pip install`하면 pip가 numpy를 바꿀 수 있다. 그래서 **`--no-deps`로 필요한 것만** 설치한다:
+  ```
+  pip install --no-deps "mujoco>=4.0,<5" mujoco-core mujoco-studio glfw pyopengl
+  ```
+  정확한 버전 고정은 #260의 명령을 그대로 따르고, `docs/guides/tooling-setup.md` 설치 목록에도 같은 줄을 둔다.
+- 설치한 뒤 `python -c "import numpy; print(numpy.__version__)"`가 2.2.6(conda 설치본)이어야 한다(#260에서 확인).
+- `pyproject.toml`의 선택 의존성 `[mujoco]`는 목록 표시용으로 남긴다. 설치 안내에는 `pip install -e .[mujoco]`를 쓰지 않는다(numpy를 바꿀 수 있음).
+- `mujoco`를 import하지 못하면: CLI는 "MuJoCo가 설치되지 않았습니다. docs/guides/tooling-setup.md의 MuJoCo 줄로 설치하세요"를 출력하고 종료 코드 2로 끝난다. GUI는 M4에서 같은 문장을 띄운다.
 
-### 13.9 아직 확인하지 못한 것 (M1이 확인하고 이 절을 고친다)
-menagerie `robotstudio_so101`의 관절 이름, 받침 충돌 geom 유무, 라이선스, `mujoco` 4.x의 Windows 휠과 numpy 2.2.6 공존.
+### 13.9 확인 결과 (M1 #260)
+- 관절 이름: menagerie와 같다(`JOINT_MAP` 모두 부호 +1·오프셋 0).
+- 받침 충돌 geom: 없다 → `BASE_BOX`를 더함.
+- `gripper_frame`: 원본 site 위치가 달라 URDF origin으로 따로 더함.
+- 라이선스: Apache-2.0.
+- Windows 휠: 메타 휠이라 13.8처럼 설치하고, numpy 2.2.6이 유지됨을 확인.
+- 관절 range: 원본이 좁아 `physical_limits_deg`로 바꿈(13.4).
