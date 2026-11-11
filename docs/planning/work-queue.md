@@ -1,46 +1,36 @@
 # 작업 대기열 (총괄이 유지)
 
-상태: 초안 · 2026-11-07 밤 다시 씀 (GUI 세션 = 총괄이 단계마다 갱신)
+상태: 초안 · 2026-11-11 밤 다시 씀 (GUI 세션 = 총괄이 단계마다 갱신. 지난 단계 기록은 git 기록에 있다)
 
-> 대화가 압축되거나 세션이 바뀌어도 이 문서부터 읽고 이어 간다. 사용자 결정이 필요한 것은 "사용자 결정 대기"에 쌓고, 그 밖의 일은 기다리지 않고 진행한다. 2026-11-07 새벽 큰 지시(D1~D6)는 결정 0043·0044·0045·0046으로 모두 정해졌고 원문은 git 기록에 있다.
+> 대화가 압축되거나 세션이 바뀌어도 이 문서부터 읽고 이어 간다. 사용자 결정이 필요한 것은 "사용자 결정 대기"에 쌓고, 그 밖의 일은 기다리지 않고 진행한다.
 
-## 지금 순서 (2026-11-07 밤 사용자 지시)
-1. 실물 시험 마무리 — 완료(`measurements.md` 2026-11-07 두 절).
-2. 전체 총정리(코드·문서·PR·브랜치·폴더) — 완료: 합쳐진 브랜치 정리, 임시·팔 worktree 정리, 바탕화면은 세 폴더만.
-3. 새 세션용 문서화 — 이 문서·`project-status.md`·`gui-dev-status.md`·절차서 갱신.
-4. 기획 세션에 총정리 보고(사용자가 붙여 넣을 프롬프트, 총괄이 만든다).
-5. 기획 세션 레퍼런스 — 끝: EGM 플러그인 사용 규칙(결정 0048, #206). 전체 시험 한 번 뒤 압축.
-6. 압축 뒤 첫 작업: 결정 0047 GUI 구현(`gui --share`, 원격 브라우저 조작권 거부, 운영자 화면 E-STOP 항상). 설계서 새 절을 구현하기 전에는 결정 0048대로 새로 연 짧은 세션에서 `/egm:egm-review` Stage 9.
-
-## 2026-11-11 인계(리뷰 준비 세션 → 총괄): MuJoCo부터 총괄이 맡는다
-1. 진행 중: 팔 세션 #241 후속(`so101-studio-arm41`, `dev/arm-req-056-followup`). A 수동 데모 기본 물체 높이(먼저), B 병렬 그리퍼 height_required 제외, C 상승 관절 이동 휘두름(안전), _scan_opening 상승 검사를 need_lift로, 다시 CHECK가 empty면 재시도 안 함, 수동 height_required는 재시도·실패 셈 안 함, 작은 것 2건. PR이 오면 code-review 뒤 합친다.
-2. 정리 결과(11-11, 기획 결정 4a~f): 합쳐진 브랜치 원격 44·로컬 43 삭제(남김: main, claude/hopeful-hamilton-amqaac, planning-inbox, 팔 작업 중 브랜치), `.playwright-mcp/` 삭제·무시(#249), playwright-cli 스킬은 사용자 전역으로, 인계 메모 삭제, so101-studio-us 최신 main. 남은 것: `so101-studio-arm41` worktree 제거(팔 세션이 REQ-058을 거기서 하는 중, EGM이 끝나 so101-studio로 돌아온 뒤).
-2-0. (원래 계획) 정리(MuJoCo 전, 사용자 요청 "문서·폴더·git 다 정리"): 후속 PR 뒤 `so101-studio-arm41` worktree 제거, main에 합쳐진 원격·로컬 브랜치 삭제(`claude/hopeful-hamilton-amqaac`·`planning-inbox` 유지), `so101-studio-us`를 최신 main으로, `so101-studio`의 `.playwright-mcp/`·`.claude/skills/playwright-cli/` 처리, `runs/handoff-20261110.md`와 메모리 handoff 삭제, 상태 문서 갱신. 지우는 것은 목록을 보이고 사용자 확인.
-3-2. 11-11 저녁: 설계서(#251, 5ce84b8)를 사용자 승인으로 합쳤다. EGM Stage 9 2라운드는 FAIL(Blocker R1 make_driver 호출처, R2 처음 토크·목표값, R3 (a) 기대 결과, 그 밖 R4~R14, `runs/egm/2026-11-11-mujoco-r2/`)이라 팔 M1 REQ는 기획이 보완한 뒤 낸다(사용자 결정). REQ-058 ①②는 시작.
-3-1. MuJoCo 진행 순서(사용자 지시 11-11): 기획이 EGM K1~K9를 반영(85845e5) → 사용자가 Stage 9 한 번 더 → 꼭 고칠 것이 없거나 기획이 반영하면 `claude/hopeful-hamilton-amqaac`를 합친다 → REQ-056 후속(#244) 뒤 팔 세션에 M1부터 REQ(REQ-058~). GUI REQ 두 개(총괄 몫): ① M2와 같이 `gui/__main__`·`app`·`backend`에 `--sim-engine`·`--sim-scenario`·`--sim-viewer` 전달, `make_sim_driver` 사용 ② M4에서 `sim_state` 물체 표시와 `physical_objects`일 때 `no_object`를 실패로(`backend.py`·`programs.py`). `Studio`의 같은 규칙은 팔 M3. 정리 목록과 남은 질문(#244 배출 자리 규칙 등)은 기획 세션에 묻는다.
-3. MuJoCo: 기획이 결정 0053·arm-software-spec 13절·M1~M4를 `claude/hopeful-hamilton-amqaac`(9636ce2)에 올렸다. 사용자가 새 세션에서 EGM Stage 9(13절, M1~M4). 꼭 고칠 것이 있으면 기획 반영 뒤, 없으면 PR로 합치고 M1부터 팔 REQ(REQ-058~)를 낸다. 요지: `--sim-engine {kinematic,mujoco}`, `make_sim_driver` 한 곳, SimDriver 메서드 13개 + `sim_state()`, 2ms·write_joints당 10스텝, menagerie `robotstudio_so101`, 완료 기준 13절 (a)~(e).
-4. 실물: runbook 2-2(놓기 재시험)는 사용자가 팔 옆에 있을 때. 넓힌 관절 한계로 처음 움직이니 30% 이하.
+## 지금 순서 (2026-11-11 밤)
+1. 전체 테스트(총괄, main 최신) → 통과하면 실물 시험.
+2. 실물(팔만, 사용자가 팔 옆): ① doctor·홈·park 30%(넓힌 관절 한계 REQ-054 첫 이동) ② 놓기 재시험 5회 runbook 2-2(REQ-053 대칭 V자, (300,200)→(420,170)과 배출 구역, 영상, 첫 회에 집기 높이 한 점 자로 확인 — 5mm 넘게 다르면 2-6 세 점 다시) ③ GUI 캘리브레이션 마법사 첫 실물(측정, 0° 확인의 [다름] 되돌아가기·[홈으로 내리기], 저장은 선택) ④ `follow_path` 첫 실물(순서표 7번, 30% 직선·원, `read_ms_max` < 20ms).
+3. 팔 세션: REQ-058(배출 구역 칸 11.3.5, 낮은 hover 11.3.3) PR → 총괄 검토 → 이어서 REQ-059(MuJoCo M1, 13.9 확인 보고).
+4. MuJoCo: M1 보고로 기획이 13절을 고친다 → 사용자가 새 세션에서 Stage 9 → M2(팔) + GUI REQ ①(인자 전달) → M3(팔) → M4(팔) + GUI REQ ②(물체 표시, `physical_objects`일 때 `no_object` 실패). M1~M3는 CLI·시험만.
+5. 정리 남은 것: `so101-studio-arm41` worktree 제거(팔 세션이 REQ-058을 커밋·push하고 `so101-studio`로 돌아온 뒤). `so101-studio`에 남은 staged 문서 4개는 main과 같은 내용이라 버려도 된다.
 
 ## 사용자 결정 대기
 | # | 내용 | 메모 |
 |---|---|---|
-| U1 | ~~결정 0047 승인~~ 끝(#202) | GUI 구현 남음 |
-| U2 | 놓기 모양: 11-10 재시험 영상에서 한쪽만 벌어짐 → 11.3 대칭 V자 놓기로 개정(#223, EGM Stage 9 반영) | REQ-053 합쳐짐(#229, 11-11) → 실물 2-2 다시(리뷰 준비 세션이 사용자와) |
-| U3 | ~~서보 6개 동시 풀림 대책~~ 11-10 확인 시험 통과(풀림 0, 최저 11.6V, #225) | 다시 풀리면 `hardware.md` 판정별 단계. 보강 3(어댑터) 구매는 사용자 |
-| U4 | OpenRB VIN 12V 여부, STEP 파일, 작업대 조립 일정 | 사용자·하드웨어 담당 |
+| U4 | OpenRB VIN 12V 여부, STEP 파일, 작업대 조립(로보나인 브래킷) 일정 | 작업대 runbook 2-A, 초음파 B1~, 장면 부품 편집기가 여기에 걸림 |
+| U5 | 병렬 그리퍼 교체 시점 | runbook 2-10 |
 
 ## 세션별 다음 일
 | 세션 | 다음 일 | 기다리는 것 |
 |---|---|---|
-| 팔 | REQ-053(대칭 V자 놓기) `--sim`까지 | 실물 2-2는 합친 뒤 사용자와 |
-| GUI(총괄) | 실물 없이 할 일은 끝. 남은 것: 마법사 2차 끝(#228), 장면 부품 편집기(STEP 뒤), 초음파 화면 실제 기록(B1 때), MuJoCo(마지막). 끝: 0047(#212), 마법사 1차(#215), known_objects(#217), 3D 다시 그리기(#218) | `gui-dev-status.md` "남은 GUI 일" |
+| 팔 | REQ-058 → REQ-059(M1) | - |
+| GUI(총괄) | 실물 시험 진행, REQ-058 뒤 GUI 작업대 화면을 새 배출 구역 형식에 맞추기, 겹침 이유(known_object) 문구, MuJoCo GUI REQ 둘(M2·M4 때). 그 밖: 장면 부품 편집기(STEP 뒤), 초음파 화면 실제 기록(B1 때) | `gui-dev-status.md` |
 | 초음파 | 부품 도착 뒤 B1~B4 → R1 → A0·A1 → I1 | 부품, OpenRB VIN 확인 |
 
 ## 실물로만 할 일
-순서와 조건은 `measurements.md` "실물 시험 순서": 1 놓기 재시험(REQ-053 뒤) → ~~2 전원~~ ~~3 AC4·#41~~(11-10 끝) → 4 작업대 조립 뒤 runbook 2-A → 5 병렬 그리퍼 → 6~8 초음파. 9 남은 G10 실물은 생략(사용자).
+`measurements.md` "실물 시험 순서": 1 놓기 재시험 → (2 전원·3 AC4 11-10 끝) → 4 작업대 조립 뒤 runbook 2-A → 5 병렬 그리퍼 → 6~8 초음파. 9 남은 G10은 생략(사용자). REQ-058 합친 뒤 배출 구역 칸·낮은 hover·low_lift 실물.
+
+## 최근 결정 (11-10~11)
+- 0051 0° 확인 잠금에서 home 허용, 0052 수직으로만 집는 물체는 높이가 있어야 집는다, 0053 MuJoCo는 `MuJoCoDriver`.
+- REQ-054 관절 한계를 새 캘리브레이션 실제 범위로. 배출 구역은 반경 90~250mm에서 바꿀 수 있고, 약 200mm보다 먼 넓은 물체의 ③fixed_tilt는 구조 한계로 받아들임.
+- 같은 배출 자리 두 번째 물체: #244는 ③(ARM-PLACE-SAME-SPOT 경고), 칸 나누기는 REQ-058. 40mm 아래 hover는 정식 규칙(low_hover).
 
 ## 열린 PR·브랜치
-- 11-11 사용자 결정: `physical_limits_deg` 제안값 사용(REQ-054), 배출 구역은 반경 90~250mm에서 바꿀 수 있게, 약 200mm보다 먼 넓은 물체의 ③fixed_tilt는 구조 한계로 받아들임.
-- 11-11 합침: #233(0° 확인 되돌아가기·0° 잠금에서 home 허용, 결정 0029 보완 승인), #228(마법사 2차), #236(REQ-055). 기획 요청 2건(결정 0029 보완 기록, 높이 모를 때 수직 집기)은 사용자가 기획 세션에 붙여 넣음.
-- 아직 물을 것: 호버 높이를 approach_height_mm보다 낮게 쓰는 것(REQ-053). 실물: runbook 2-2(놓기, 새 관절 한계·table_z 확인 포함), 마법사 저장·0° 확인 첫 실물.
-- `planning-inbox`: 기획 요청함 기록용, 합치지 않음.
+- 원격: `main`, `planning-inbox`(기획 요청함 기록용, 합치지 않음), 팔 작업 브랜치(`dev/arm-req-058`).

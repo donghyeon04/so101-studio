@@ -242,8 +242,8 @@ def test_joint_to_moves_one_joint_to_the_typed_angle(backend):
 def test_pick_place_moves_object_to_the_place_point(backend):
     """gui-spec 11절 B7: 집기 점에서 집어 놓기 점에 놓는다. 범위 밖이면 이유를 돌려준다."""
     backend.set_speed(100)
-    assert backend.pick_place((300, 200), 0, 30, 30, (330, 180)) is None
-    assert backend.pick_place((300, 200), 0, 58, 58, (330, 180), height_mm=39) is None  # REQ-034 높이 칸
+    assert backend.pick_place((300, 200), 0, 30, 30, (420, 120)) is None  # 놓기 점은 기본 수동 물체(350,200, 반지름 50)와 겹치지 않게(#229부터 알려진 물체를 피한다)
+    assert backend.pick_place((300, 200), 0, 58, 58, (420, 120), height_mm=39) is None  # REQ-034 높이 칸
     assert "집기 점이 집기 범위 밖" in (backend.pick_place((300, 60), 0, 30, 30, None) or "")
 
 

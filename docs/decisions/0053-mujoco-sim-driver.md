@@ -1,6 +1,6 @@
 # 0053. MuJoCo 물리 시뮬레이션은 드라이버 자리에 끼우는 `MuJoCoDriver`로 한다
 
-상태: 확정 · 2026-11-11 (사용자 승인, `researching-references`로 후보 13개 비교, 로컬 총괄. 합치기 전 EGM Stage 9 K1~K9 반영). 0044의 마지막 순서(MuJoCo)와 0050 R3를 구체화한다.
+상태: 확정 · 2026-11-11 (사용자 승인, `researching-references`로 후보 13개 비교, 로컬 총괄. 합치기 전 EGM Stage 9 반영. 2라운드 정정은 `arm-software-spec.md` 13절이 기준: GUI는 M4에서만 바뀜, kp 범위는 약 56배). 0044의 마지막 순서(MuJoCo)와 0050 R3를 구체화한다.
 
 ## 맥락
 - 지금 `SimDriver`는 기구학만 본다. 그리퍼는 정해진 폭에서 멈추는 것으로 접촉을 흉내 낸다.
