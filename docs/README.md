@@ -88,3 +88,4 @@
 | `docs/decisions/0053-mujoco-sim-driver.md` | 결정 | 확정 | MuJoCo는 SimDriver와 같은 메서드의 MuJoCoDriver로 드라이버 자리에, menagerie robotstudio_so101에서 시작, 미끄럼 방지 접촉 조합, 학습용 프레임워크는 쓰지 않음 |
 | `docs/decisions/0054-gui-visual-tests.md` | 결정 | 확정 | GUI 화면 버그는 Playwright 화면 시험 묶음(사진 비교·배치 점검·몽키)으로, 시험 서버는 실제 팔 GUI와 다른 포트 |
 | `docs/decisions/0055-numeric-input-ui.md` | 결정 | 확정 | 숫자 입력은 값 정보표 하나(허용·추천·기본)와 입력 방식 규칙(목록·슬라이더+칸·칸+간격 버튼), gui-spec 새 절 뒤 구현 |
+| `docs/decisions/0056-egm-run-by-coordinator.md` | 결정 | 확정 | EGM 설계서 점검(Stage 9·drift-report)은 총괄이 egm-synthesizer 하위 에이전트로 직접 돌린다(0048 실행 방식 대체) |
