@@ -6,6 +6,7 @@ dependencies = ["pyyaml", "ruckig", "pyserial", "scipy", "trimesh"]
 
 [project.optional-dependencies]
 gui = ["viser[urdf]", "nicegui"]
+mujoco = ["mujoco>=4.0,<5"]  # 물리 시뮬레이션 (결정 0053, arm-software-spec 13). numpy가 conda 2.2.6에서 바뀌면 `pip install --no-deps` 로 설치한다(13.8)
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
