@@ -124,6 +124,7 @@ def test_place_stops_with_low_lift_when_it_cannot_rise_enough(tmp_path, monkeypa
             out = descent(*a)
             monkeypatch.setattr(sk, "_heights", list)
             monkeypatch.setattr(sk, "_lift_heights", lambda need: [])
+            monkeypatch.setattr(sk, "_untilt_goal", lambda *a: None)  # 기울기를 풀며 올라가는 길도 없다
             return out
 
         monkeypatch.setattr(sk, "_descent", descent_then_no_heights)
@@ -173,3 +174,74 @@ def test_a_new_skills_object_inherits_the_grip_memory_on_reconnect(tmp_path):
         assert s.skills is not old and s.skills.grip == grip
     finally:
         s.disconnect()
+
+
+# ---- 후속 (리뷰 반영)
+def test_manual_height_required_is_skipped_once_with_its_reason_and_not_retried():
+    from so101_studio.core.types import ScanResult
+
+    class Manual:  # 확인 기능(start_check)이 없는 인식 방식
+        name, give_up = "manual", False
+
+        def connect(self): ...
+        def scan(self): return ScanResult([cand(1)], 0.0)
+        def notify_picked(self, oid): ...
+
+    sk = UsSkills(pick_status="height_required")
+    res, seen = run(runner(Manual(), skills=sk))
+    assert sk.calls.count("pick:us-1") == 1 and "us-1" in res["skipped"] and res["end"] == "no_objects"
+    assert any(e.state == "PICK" and e.result == "height_required" and "reason" in e.detail for e in seen)
+
+
+def test_recheck_that_finds_nothing_does_not_pick_the_same_candidate_again():
+    src, sk = StubSource([[cand(1)], []], exists={"us-1": True}), UsSkills(pick_status="no_object")
+    sk.last_pick_tilted = False
+
+    counter = {"n": 0}
+
+    def second_check_empty(c, orig=src.start_check):
+        counter["n"] += 1
+        if counter["n"] == 2:
+            src.exists["us-1"] = False  # 다시 CHECK에는 물체가 없다
+        return orig(c)
+
+    src.start_check = second_check_empty
+    run(runner(src, skills=sk))
+    assert sk.calls.count("pick:us-1") == 1 and src.failures  # 재시도 없이 실패로 센다
+
+
+@pytest.mark.slow
+def test_opening_end_that_cannot_lift_enough_is_not_used(tmp_path, monkeypatch):
+    s, ev = make(tmp_path, 30)
+    try:
+        sk = s.skills
+        assert sk.pick(DetectedObject("o", 300.0, 150.0, 0.0, 30, 30, 1.0, "manual", 40.0)).status == "ok"
+        monkeypatch.setattr(sk, "_can_leave", lambda st, need: False)  # 어떤 끝 자세에서도 필요한 만큼 못 올라간다고 하면 경로를 다 거른다
+        sk.place_at(*POINT)
+    finally:
+        s.disconnect()
+    fb = [d for _, c, d in ev if c == "ARM-OPENING-PATH-FALLBACK"]
+    assert fb and fb[0]["reason"] == "clearance"
+
+
+def test_height_required_applies_only_to_the_single_jaw_gripper():
+    from types import SimpleNamespace
+
+    from so101_studio.arm.skills import Skills
+
+    sk = object.__new__(Skills)
+    sk.gripper = SimpleNamespace(name="parallel", tilt_allowed=lambda *a: False)
+    assert sk.gripper.name != "single_jaw"  # 병렬은 height_required 조건(단동식만)에 걸리지 않는다
+
+
+@pytest.mark.slow
+def test_placing_on_a_spot_that_already_has_an_object_warns_and_does_not_avoid_it(tmp_path):
+    s, ev = make(tmp_path, 30)
+    try:
+        sk = s.skills
+        assert sk.pick(DetectedObject("o", 300.0, 150.0, 0.0, 30, 30, 1.0, "manual", 40.0)).status == "ok"
+        sk.placed = [(POINT[0] + 5.0, POINT[1], 15.0)]  # 같은 자리에 먼저 놓은 물체
+        assert sk.place_at(*POINT).status == "ok"
+    finally:
+        s.disconnect()
+    assert [d["count"] for lv, c, d in ev if c == "ARM-PLACE-SAME-SPOT" and lv == "WARN"] == [1]

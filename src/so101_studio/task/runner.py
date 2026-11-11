@@ -21,6 +21,7 @@ class TaskRunner:
         self.accept_no_object = accept_no_object  # 물체 없이 동작만 보일 때(dry-run): 접촉이 없어도(no_object) 성공으로 보고 이어간다
         self.bus = bus or EventBus()
         self.state = "IDLE"
+        self.skipped: dict[str, str] = {}  # 다시 집어도 소용없어 건너뛴 물체 -> 이유 (height_required)
         self._stop = False
         self._step_mode = False
         self._trail: PoseTrail | None = None
@@ -47,11 +48,11 @@ class TaskRunner:
         return r.status == "ok" or (self.accept_no_object and r.status == "no_object")
 
     def _end(self, end: str) -> dict:
-        return {"picked": self.picked, "failed": self.failed, "cycles": self.cycles, "end": end}
+        return {"picked": self.picked, "failed": self.failed, "cycles": self.cycles, "end": end, "skipped": dict(self.skipped)}
 
     def _fault(self, where: str) -> dict:
         self._emit("FAULT", result=where, detail_state=self.skills.ctl.state)
-        return {"picked": self.picked, "failed": self.failed, "cycles": self.cycles, "end": "FAULT"}
+        return {"picked": self.picked, "failed": self.failed, "cycles": self.cycles, "end": "FAULT", "skipped": dict(self.skipped)}
 
     def _wait_pose(self, chk: bool):
         """대기 자세로 이동: 초음파면 레이더를 가리지 않는 radar_clear, 그 밖의 인식 방식은 park (결정 0039)."""
@@ -103,6 +104,11 @@ class TaskRunner:
         res = probe.result()
         return res, "ok" if res else getattr(probe, "status", "empty")
 
+    def _skip(self, obj, r) -> None:
+        """다시 집어도 소용없는 이유(height_required)로 이 물체를 건너뛴다: 이유를 PICK 이벤트에 남기고 이번 작업에서는 다시 고르지 않는다 (GUI가 보인다)."""
+        self.skipped[obj.id] = getattr(r, "reason", None) or r.status
+        self._emit("PICK", obj.id, result=r.status, duration_s=r.duration_s, reason=self.skipped[obj.id])
+
     def _recheck_height(self, obj):
         """높이를 모르거나(height_required) 수직 집기가 no_object였던 후보를 한 번 더 CHECK한다. (새 물체 또는 None, 작업을 끝낼 결과 dict 또는 None)."""
         self._emit("CHECK", obj.id, reason="height_recheck")
@@ -117,7 +123,7 @@ class TaskRunner:
 
     def run(self, step_mode: bool = False) -> dict:
         self._step_mode, self._stop = step_mode, False
-        self.picked, self.failed, self.cycles = [], [], 0
+        self.picked, self.failed, self.cycles, self.skipped = [], [], 0, {}
         self.source.connect()
         chk = hasattr(self.source, "start_check")
         if chk:
@@ -149,7 +155,7 @@ class TaskRunner:
                 if chk and self.source.give_up:
                     self._emit("DONE", result="give_up")
                     return self._end("give_up")
-                objs = [o for o in scan.objects if o.id not in dropped]
+                objs = [o for o in scan.objects if o.id not in dropped and o.id not in self.skipped]
                 obj = choose(objs, self.ws)
                 self._emit("DECIDE", detail_n=len(objs), scan_s=scan.duration_s, **explain(objs, self.ws, obj))
                 if obj is None:
@@ -184,6 +190,7 @@ class TaskRunner:
             if self._stopped():
                 return self._end("STOPPED")
             r = self.skills.pick(obj)
+            retry = True
             if not self._ok(r):  # 재시도 1회
                 if self._stop:
                     self._stopped()
@@ -194,8 +201,16 @@ class TaskRunner:
                     obj2, ended = self._recheck_height(obj)  # 수직으로만 집는 후보는 한 번 더 CHECK해 높이를 다시 잰다 (결정 0052)
                     if ended is not None:
                         return ended
-                    obj = obj2 or obj
-                r = self.skills.pick(obj)
+                    if obj2 is None:  # 다시 CHECK에서 물체가 없다/못 갔다: 같은 후보로 다시 집지 않고 실패로 센다
+                        retry = False
+                    else:
+                        obj = obj2
+                elif r.status == "height_required":  # 수동 입력은 다시 집어도 같은 결과다(높이는 사람이 준다): 이유와 함께 건너뛴다
+                    retry = False
+                    self._skip(obj, r)
+                    continue
+                if retry:
+                    r = self.skills.pick(obj)
             if not self._ok(r):
                 fails[obj.id] = fails.get(obj.id, 0) + 1
                 self.failed.append(obj.id)
