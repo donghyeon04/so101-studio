@@ -87,7 +87,14 @@ def build(backend, client_id: str, actions) -> None:
                 edge_button = ui.button("작업대 가장자리 검사 끄기", on_click=lambda: offer_free_edge(backend, mark_dirty)).props(
                     "outline no-caps dense color=warning").mark("edge-offer")
                 edge_button.visible = False
-                move_button = ui.button("이동", on_click=guarded(move)).props("no-caps").classes("w-full").mark("move")
+                with ui.row().classes("w-full no-wrap gap-2"):
+                    move_button = ui.button("이동", on_click=guarded(move)).props("no-caps").classes("flex-1").mark("move")
+                    ui.button("점 처음 자리로", icon="restart_alt", on_click=lambda: reset_target()).props("outline no-caps").tooltip(
+                        f"점을 x {DEFAULT_TARGET['x']:.0f}, y {DEFAULT_TARGET['y']:.0f}, 높이 {DEFAULT_TARGET['h']:.0f}, 아래 방향으로 되돌린다(팔은 움직이지 않는다)").mark("target-reset")
+
+                def reset_target() -> None:  # 3D 손잡이를 실수로 멀리 끌었을 때. 입력칸을 바꾸면 계산과 3D 점이 따라온다
+                    for key, value in DEFAULT_TARGET.items():
+                        fields[key].value = value
 
             with ui.card().classes("w-full gap-2"):
                 ui.label("조그").classes("card-title")
@@ -174,9 +181,7 @@ def build(backend, client_id: str, actions) -> None:
 
     async def refresh_plan() -> None:
         seq, x, y, h = backend.scene.picked
-        if seq != plan_state["seq"]:  # 3D에서 고른 점을 입력칸에 옮긴다
-            if plan_state.get("planned") is not None and owner():
-                ui.notify(f"3D에서 점이 바뀌었습니다: x {x:.0f}, y {y:.0f}. 다시 계산합니다", type="info")
+        if seq != plan_state["seq"]:  # 3D에서 고른 점을 입력칸에 옮긴다. 알림은 띄우지 않는다: 손잡이를 끄는 동안 수십 번 쌓여 화면을 가린다(입력칸과 닿는지 줄이 바로 바뀐다)
             plan_state["seq"] = seq
             for key, value in (("x", x), ("y", y), ("h", h)):
                 target[key] = round(value, 1)

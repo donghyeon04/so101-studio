@@ -178,13 +178,21 @@ def test_page_blocks_unreachable_point_and_moves_to_reachable(backend):
     in_app(backend, check)
 
 
-def test_picked_point_from_3d_fills_the_inputs(backend):
+def test_picked_point_from_3d_fills_the_inputs(backend, monkeypatch):
+    from so101_studio.gui.pages import manual as manual_page
+
+    toasts = []
+    monkeypatch.setattr(manual_page.ui, "notify", lambda *a, **k: toasts.append(a))
+
     async def check(user):
         x = _one(user, "target-x")
         assert await _until(lambda: _one(user, "reach").text != "계산 중")
-        backend.scene.pick(320.0, 210.0, 55.0)
+        for dx in range(0, 25, 5):  # 손잡이를 끄는 것처럼 점이 여러 번 바뀐다
+            backend.scene.pick(300.0 + dx, 210.0, 55.0)
+            await asyncio.sleep(0.15)
         assert await _until(lambda: x.value == 320.0)
         assert _one(user, "target-y").value == 210.0 and _one(user, "target-h").value == 55.0
+        assert toasts == []  # 닿는 점을 옮기는 동안 알림이 쌓여 화면을 가리지 않는다
 
     in_app(backend, check)
 
@@ -311,3 +319,20 @@ def test_plane_draws_rectangle_zone_and_its_slots():
     assert 'width="100" height="80"' in svg and svg.count('r="6"') == 3  # 기본 4칸 중 집기 범위 안 3칸
     old = plane_svg({"x": 600, "y": 400}, [], {"right": {"x_mm": 500, "y_mm": 150}}, base, reach)
     assert 'width="80" height="80"' in old and 'r="6"' not in old
+
+
+def test_reset_button_puts_the_point_back_without_moving(backend):
+    """3D 손잡이를 멀리 끌었을 때 [점 처음 자리로]가 입력칸을 기본 점으로 되돌린다. 팔은 움직이지 않는다."""
+    from so101_studio.gui.pages.manual import DEFAULT_TARGET
+
+    async def check(user):
+        assert await _until(lambda: _one(user, "reach").text != "계산 중")
+        backend.scene.pick(520.0, 380.0, 150.0)  # 멀리 보낸 점
+        assert await _until(lambda: _one(user, "target-x").value == 520.0)
+        before = backend.arm.status().joints
+        user.find(marker="target-reset").click()
+        assert await _until(lambda: _one(user, "target-x").value == DEFAULT_TARGET["x"])
+        assert _one(user, "target-y").value == DEFAULT_TARGET["y"] and _one(user, "target-h").value == DEFAULT_TARGET["h"]
+        assert backend.arm.status().joints == before
+
+    in_app(backend, check)
