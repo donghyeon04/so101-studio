@@ -259,3 +259,38 @@ def test_joystick_vector_moves_then_stops(backend):
     assert _wait_for(lambda: backend.arm.ctl.state == "idle")
     moved = _tip(backend) - before
     assert moved[1] > 5 and abs(moved[0]) < 3
+
+
+def test_height_required_and_low_lift_get_their_own_text(backend):
+    """REQ-057: 결정 0052의 height_required와 놓은 뒤 상승 최소 미달(stopped, reason low_lift)은 일반 문구 대신 원인과 할 일을 보인다."""
+    from so101_studio.core.types import MotionResult, ToolPose
+    from so101_studio.gui.backend import MOTION_TEXT, Backend
+
+    zero = ToolPose(0, 0, 0, 0)
+    assert Backend._run_on(backend.sim, lambda arm: MotionResult("height_required", 0.0, zero, reason="높이가 필요합니다")) == MOTION_TEXT["height_required"]
+    text = Backend._run_on(backend.sim, lambda arm: MotionResult("stopped", 0.0, zero, reason="low_lift: 49mm 이상 올라가야 하는데 15mm만"))
+    assert "충분히 올라가지 못해" in text and "49mm" in text and text != MOTION_TEXT["stopped"]
+
+
+def test_manual_input_marks_objects_that_need_a_height_and_applies_it(backend):
+    """작업 실행이 height_required로 건너뛴 물체는 표에 '높이 필요', 이유 문장, [고른 물체에 이 높이]로 고친다 (REQ-057)."""
+    from so101_studio.core.types import TaskEvent
+
+    backend.reset_objects()
+    target = backend.add_object(260.0, 240.0, 45.0, 30.0, 100.0, 0.0)  # 높이 없는 물체(기본 물체는 #244부터 높이가 있다)
+    backend.state.events.append(TaskEvent(time.time(), "PICK", target, "height_required"))
+    try:
+        assert backend.height_needed() == {target}
+
+        async def check(user):
+            await user.should_see(marker="height-needed", retries=30)
+            assert await _until(lambda: target in _one(user, "height-needed").text)
+            assert await _until(lambda: any(r["height"] == "높이 필요" for r in _one(user, "object-table").rows if r["id"] == target))
+            backend.set_object_height(target, 40.0)
+            await user.should_not_see(marker="height-needed", retries=30)
+
+        in_app(backend, check, "/input")
+        assert backend.height_needed() == set() and next(o for o in backend.objects() if o.id == target).height_mm == 40.0
+    finally:
+        backend.state.events.clear()
+        backend.reset_objects()

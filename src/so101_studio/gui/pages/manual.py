@@ -3,7 +3,14 @@
 from nicegui import run, ui
 
 from .. import theme
-from ..backend import ANGLE_AXES, CART_AXES, EDGE_TEXT, JOG_JOINTS, JOINT_TEXT
+from ..backend import (
+    ANGLE_AXES,
+    CART_AXES,
+    EDGE_TEXT,
+    JOG_JOINTS,
+    JOINT_TEXT,
+    MOTION_TEXT,
+)
 from .common import HEIGHT_HINT, Controls, jog_pads, offer_free_edge, scene_frame
 
 STEPS = {0: "누르기", 1: "1", 5: "5", 10: "10"}
@@ -152,6 +159,7 @@ def build(backend, client_id: str, actions) -> None:
                         return
                     reason = await run.io_bound(backend.pick_place, points["pick"], float(obj_a.value or 0), float(obj_w.value or 0),
                                                 float(obj_l.value or 0), points["place"], float(obj_h.value or 0))
+                    obj_h.props(add="error" if reason == MOTION_TEXT["height_required"] else "", remove="" if reason == MOTION_TEXT["height_required"] else "error")  # 높이 칸 강조 (REQ-057)
                     if reason == EDGE_TEXT:
                         offer_free_edge(backend, pick_place)
                     else:

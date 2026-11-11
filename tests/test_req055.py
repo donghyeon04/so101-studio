@@ -62,7 +62,7 @@ def test_cli_pick_takes_an_optional_height(monkeypatch):
 
 @pytest.mark.slow
 def test_far_wide_object_with_unknown_height_is_not_retried_vertically(tmp_path):
-    # 수직 + 높이 모름은 위 모서리를 치는 조합(sim 틈 -12mm): 바꾸지 않고 ik_fail로 움직이지 않는다 (C가 정해질 때까지)
+    # 수직 + 높이 모름은 위 모서리를 치는 조합(sim 틈 -12mm): 바꾸지 않고 height_required로 움직이지 않는다 (결정 0052)
     s, ev = make(tmp_path, 58)
     try:
         before = s.driver.read_joints()
@@ -70,5 +70,5 @@ def test_far_wide_object_with_unknown_height_is_not_retried_vertically(tmp_path)
         after = s.driver.read_joints()
     finally:
         s.disconnect()
-    assert r.status == "ik_fail" and after == before
+    assert r.status == "height_required" and after == before
     assert [d["reason"] for c, d in ev if c == "ARM-PICK-TILT-UNREACHABLE"] == ["tilt_unreachable_height_unknown"]
