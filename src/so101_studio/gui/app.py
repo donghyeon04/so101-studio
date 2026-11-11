@@ -34,7 +34,8 @@ from .pages.common import Controls, jog_pads
 from .share import LOCAL_HOST, SHARE_HOST, is_remote, share_warning
 from .state import EMPTY, component_states, page_state
 from .view_cube import VIEW_CUBE_JS
-from .watchdog_link import BROWSER_HB_JS, WatchdogLink
+from .watchdog_link import PORT as WATCHDOG_PORT
+from .watchdog_link import WatchdogLink, browser_hb_js
 
 HOST = LOCAL_HOST  # NiceGUI 기본값 0.0.0.0은 같은 네트워크 어디서나 팔을 조작할 수 있게 한다 (decisions/0023). --share일 때만 0.0.0.0(결정 0047)
 DEFAULT_PORT = 8080
@@ -100,7 +101,7 @@ def make_root(backend: Backend):
         beating: list[bool] = []  # 이 브라우저가 지금 감시 프로세스에 heartbeat를 보내는가
         health_seen = [time.time()]  # 이 시각 뒤에 바뀐 서보 건강 판정만 알린다
         log_seen = [backend.log_loss()]  # 이 브라우저가 열린 뒤 새로 빠진 기록만 알린다
-        ui.add_head_html(BROWSER_HB_JS)
+        ui.add_head_html(browser_hb_js(getattr(backend.link, "port", WATCHDOG_PORT)))
         ui.add_head_html(VIEW_CUBE_JS)
 
         def show(path: str, title: str, task: str) -> None:
@@ -371,7 +372,8 @@ def main(args) -> None:
     host = SHARE_HOST if share else LOCAL_HOST
     # so101.cmd gui의 --port는 서보 시리얼 포트다. 웹 포트는 python -m so101_studio.gui --port(web_port)로만 바꾼다(gui-spec 12.6)
     web_port = getattr(args, "web_port", None) or DEFAULT_PORT
-    link = WatchdogLink(sim=sim)
+    wd_port = getattr(args, "watchdog_port", None) or WATCHDOG_PORT  # 시험용 서버는 다른 포트로 띄워 실제 팔 GUI의 감시 프로세스와 겹치지 않게
+    link = WatchdogLink(sim=sim, port=wd_port, stop_port=wd_port + 1)
     try:
         arm_name = getattr(args, "arm", None)
         backend = Backend(
