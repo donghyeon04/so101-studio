@@ -148,6 +148,13 @@ def test_main_binds_localhost_and_connects_the_real_arm_without_sim(monkeypatch)
     gui_app.main(argparse.Namespace(sim=True, share=True))  # --share면 NiceGUI·Viser 모두 0.0.0.0
     assert [(k["host"], k["port"]) for _, k in calls] == [("127.0.0.1", 9000), ("127.0.0.1", gui_app.DEFAULT_PORT), ("0.0.0.0", gui_app.DEFAULT_PORT)]
     assert [c[0].viser_host for c in calls] == ["127.0.0.1", "127.0.0.1", "0.0.0.0"] and calls[2][0].share is True
+    assert calls[0][1]["show"] == "/start"  # 기본은 브라우저 탭을 연다
+    gui_app.main(argparse.Namespace(sim=True, no_browser=True))
+    monkeypatch.setenv("SO101_GUI_NO_BROWSER", "1")
+    gui_app.main(argparse.Namespace(sim=True))  # so101.cmd gui처럼 인자가 없을 때는 환경 변수
+    monkeypatch.delenv("SO101_GUI_NO_BROWSER")
+    assert calls[-2][1]["show"] is False and calls[-1][1]["show"] is False
+    del calls[3:]
     assert calls[0][0].speed == 20
     assert calls[0][0].real == {} and calls[0][0].link.sim is True
     assert calls[0][0].link.run_dir == "runs/시험"  # 감시 기록을 실행 폴더에 남긴다

@@ -178,13 +178,21 @@ def test_page_blocks_unreachable_point_and_moves_to_reachable(backend):
     in_app(backend, check)
 
 
-def test_picked_point_from_3d_fills_the_inputs(backend):
+def test_picked_point_from_3d_fills_the_inputs(backend, monkeypatch):
+    from so101_studio.gui.pages import manual as manual_page
+
+    toasts = []
+    monkeypatch.setattr(manual_page.ui, "notify", lambda *a, **k: toasts.append(a))
+
     async def check(user):
         x = _one(user, "target-x")
         assert await _until(lambda: _one(user, "reach").text != "계산 중")
-        backend.scene.pick(320.0, 210.0, 55.0)
+        for dx in range(0, 25, 5):  # 손잡이를 끄는 것처럼 점이 여러 번 바뀐다
+            backend.scene.pick(300.0 + dx, 210.0, 55.0)
+            await asyncio.sleep(0.15)
         assert await _until(lambda: x.value == 320.0)
         assert _one(user, "target-y").value == 210.0 and _one(user, "target-h").value == 55.0
+        assert toasts == []  # 닿는 점을 옮기는 동안 알림이 쌓여 화면을 가리지 않는다
 
     in_app(backend, check)
 

@@ -75,8 +75,8 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 .frame-top {{ border-bottom: 1px solid {LINE}; }}
 .frame-bottom {{ border-top: 1px solid {LINE}; }}
 .page-desc {{ color: {MUTED}; margin-top: -4px; }}
-.joystick {{ width: 120px; height: 120px; position: relative; border-radius: 50%; background: {BG}; border: 1px solid {CONTROL_BORDER}; }}
-.joystick::after {{ content: ""; position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: {ACCENT}; pointer-events: none; }}
+.jog-pad {{ width: 120px; height: 120px; position: relative; border-radius: 50%; background: {BG}; border: 1px solid {CONTROL_BORDER}; }}
+.jog-pad > div {{ position: absolute; inset: 0; }}  /* 조이스틱 라이브러리가 안쪽 요소에 'joystick' 클래스를 써서 같은 이름을 피한다 */
 .nudge-pad {{ width: max-content; margin: 0 auto; }}
 .nudge-button {{ width: 40px; height: 40px; }}
 .top-stats {{ scrollbar-width: thin; }}
