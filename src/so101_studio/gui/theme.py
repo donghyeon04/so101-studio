@@ -131,7 +131,7 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 .scene3d {{ width: 100%; height: 62vh; min-height: 360px; border: 1px solid {LINE}; border-radius: {RADIUS}px; background: {CARD}; }}
 .scene-wrap {{ position: relative; width: 100%; }}
 .scene-wrap iframe {{ display: block; }}
-.viewcube {{ position: absolute; top: 40px; right: 8px; width: {CUBE_BOX}px; height: {CUBE_BOX}px; pointer-events: none; user-select: none; touch-action: none; }}
+.viewcube {{ position: absolute; top: -28px; right: 36px; width: {CUBE_BOX}px; height: {CUBE_BOX}px; pointer-events: none; user-select: none; touch-action: none; }}
 .vc-cube {{ position: absolute; left: calc(50% - {CUBE_SIZE / 2}px); top: calc(50% - {CUBE_SIZE / 2}px); width: {CUBE_SIZE}px; height: {CUBE_SIZE}px; transform-style: preserve-3d; }}
 .vc-face {{ position: absolute; inset: 0; display: grid; grid-template: 22% 56% 22% / 22% 56% 22%; background: #e9ebef; border: 1px solid {CONTROL_BORDER}; backface-visibility: hidden; }}
 .vc-cell {{ pointer-events: auto; cursor: pointer; }}
@@ -139,7 +139,7 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 .vc-cell.hot {{ background: {ACCENT}73; }}
 .vc-label {{ position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; color: {TEXT}; pointer-events: none; }}
 .vc-triad {{ position: absolute; inset: 0; pointer-events: none; }}
-.vc-home {{ position: absolute; left: 0; top: 0; pointer-events: auto; color: {MUTED}; }}
+.vc-home {{ position: absolute; left: 0; bottom: 18px; pointer-events: auto; color: {MUTED}; }}
 .scene-layers {{ position: absolute; top: 8px; left: 8px; }}
 .q-page-sticky {{ z-index: 5000; }}
 .program-step {{ border-radius: 6px; }}
@@ -152,9 +152,45 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 """
 
 
+SWIPE_DISMISS_JS = """
+<script>
+// 알림(Quasar Notify)을 아래로 끌면 따라 내려가며 흐려지고, 60px 넘게 끌고 놓으면 사라진다. 덜 끌면 제자리로 돌아온다.
+// Vue가 관리하는 요소라 지우지 않고 숨긴다(시간이 되면 Quasar가 지운다, 시간이 없는 알림은 숨긴 채로 남는다)
+(() => {
+  let drag = null;
+  addEventListener('pointerdown', (e) => {
+    const el = e.target.closest?.('.q-notification');
+    if (!el || e.target.closest('button')) return;
+    drag = {el, y: e.clientY};
+    el.style.transition = 'none';
+  });
+  addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const dy = Math.max(0, e.clientY - drag.y);
+    drag.el.style.transform = `translateY(${dy}px)`;
+    drag.el.style.opacity = String(Math.max(0.2, 1 - dy / 120));
+  });
+  addEventListener('pointerup', (e) => {
+    if (!drag) return;
+    const {el} = drag, dy = e.clientY - drag.y;
+    drag = null;
+    el.style.transition = 'transform .2s, opacity .2s';
+    if (dy > 60) {
+      el.style.transform = 'translateY(80px)'; el.style.opacity = '0';
+      setTimeout(() => { el.style.display = 'none'; }, 200);
+    } else {
+      el.style.transform = ''; el.style.opacity = '';
+    }
+  });
+})();
+</script>
+"""
+
+
 def apply() -> None:
     """현재 페이지에 테마를 입힌다."""
     ui.colors(primary=ACCENT, positive=OK, negative=DANGER, warning=WARN, info=SENSOR, preview=PREVIEW)
     ui.add_head_html(_FONTS)  # 오프라인이면 _CSS의 시스템 글꼴을 쓴다
+    ui.add_head_html(SWIPE_DISMISS_JS)
     ui.add_css(_CSS)
     ui.query("body").style(f"background: {BG}")

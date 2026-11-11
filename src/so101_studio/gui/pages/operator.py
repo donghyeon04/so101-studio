@@ -8,7 +8,8 @@ from nicegui import run, ui
 from .. import theme
 from ..share import is_remote
 from ..state import TASK_TEXT
-from ..watchdog_link import BROWSER_HB_JS
+from ..watchdog_link import PORT as WATCHDOG_PORT
+from ..watchdog_link import browser_hb_js
 from .common import Controls, scene_frame
 
 STAGES = ("SCAN", "DECIDE", "CHECK", "PICK", "PLACE", "RESCAN")  # 작업 실행 상태 그대로 (gui-spec 12.4)
@@ -29,7 +30,7 @@ def object_lines(objects, events, chosen: str | None, task_state: str, since: fl
 
 def build(backend, client_id: str) -> None:
     theme.apply()
-    ui.add_head_html(BROWSER_HB_JS)
+    ui.add_head_html(browser_hb_js(getattr(backend.link, "port", WATCHDOG_PORT)))
     controls = Controls(backend, client_id, block_during_task=False)
     remote = is_remote(ui.context.client.ip)  # 다른 기기(LAN IP로 연 같은 PC 포함)는 늘 보기 전용(gui-spec 12.6)
     state = backend.state
