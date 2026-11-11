@@ -46,8 +46,8 @@ def rig(kin, block=None, **cfg_kw):
     return d, ctl, Skills(ctl, kin, replace(CFG, **cfg_kw), WS, speed_pct=100)
 
 
-def obj(x=300, y=210, angle=0, width=0.0):
-    return DetectedObject("t", x, y, angle, width, width, 1.0, "manual")
+def obj(x=300, y=210, angle=0, width=0.0, height=0.0):
+    return DetectedObject("t", x, y, angle, width, width, 1.0, "manual", height)  # 기울이지 못하는 각도(0이 아닌 방향)는 높이를 알아야 집는다(결정 0052)
 
 
 def run_pick(kin, block=BLOCK, **kw):
@@ -104,7 +104,7 @@ def test_hand_tilts_when_open_and_straightens_while_closing(kin):
 
 @pytest.mark.slow
 def test_no_tilt_when_the_jaw_axis_is_sideways(kin):
-    d, _r = run_pick(kin, angle=90)  # 턱이 좌우로 벌어짐: 5축 팔은 옆으로 기울일 수 없다
+    d, _r = run_pick(kin, angle=90, height=40.0)  # 턱이 좌우로 벌어짐: 5축 팔은 옆으로 기울일 수 없다
     top = max(q.gripper for q in d.log)
     opened = d.log[max(i for i, q in enumerate(d.log) if q.gripper == top)]
     assert kin.fk(opened).pitch_deg == pytest.approx(-90, abs=2)
@@ -123,7 +123,7 @@ def test_jaws_open_perpendicular_to_the_long_axis(kin):
 
 @pytest.mark.slow
 def test_jaw_axis_follows_the_object_angle(kin):
-    d, _ = run_pick(kin, angle=45)
+    d, _ = run_pick(kin, angle=45, height=40.0)
     low = min(d.log, key=lambda q: kin.fk(q).z_mm)
     assert kin.moving_jaw_dir(low) == pytest.approx((math.cos(math.radians(135)), math.sin(math.radians(135))), abs=0.1)
 
@@ -131,7 +131,7 @@ def test_jaw_axis_follows_the_object_angle(kin):
 @pytest.mark.parametrize("angle", [0, 45, 90, 135])
 @pytest.mark.slow
 def test_pick_returns_to_hover_for_every_angle(kin, angle):
-    d, r = run_pick(kin, x=300, y=200, angle=angle)
+    d, r = run_pick(kin, x=300, y=200, angle=angle, height=40.0)
     assert r.status == "ok"
     low = min(kin.fk(q).z_mm for q in d.log)
     assert kin.fk(d.log[-1]).z_mm >= low + CFG.approach_height_mm - 6  # 접촉한 자리에서 접근 높이만큼 올라온다
