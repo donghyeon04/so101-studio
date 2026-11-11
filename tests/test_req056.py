@@ -124,6 +124,7 @@ def test_place_stops_with_low_lift_when_it_cannot_rise_enough(tmp_path, monkeypa
             out = descent(*a)
             monkeypatch.setattr(sk, "_heights", list)
             monkeypatch.setattr(sk, "_lift_heights", lambda need: [])
+            monkeypatch.setattr(sk, "_untilt_goal", lambda *a: None)  # 기울기를 풀며 올라가는 길도 없다
             return out
 
         monkeypatch.setattr(sk, "_descent", descent_then_no_heights)

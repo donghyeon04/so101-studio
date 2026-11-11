@@ -563,11 +563,10 @@ class Skills:
             if h < need and (u := self._line(self._q(), replace(here, z_mm=here.z_mm + h))) is not None:
                 lifted, up = h, u
                 break
-        if up is None:
-            return self._low_lift(lifted, need)
-        r = self._run([up])
-        if r.status != "ok":
-            return r
+        if up is not None:  # 곧게 올라갈 수 있는 만큼 먼저 올라간다(없으면 바로 기울기를 풀며 올라간다: _can_leave와 같은 길)
+            r = self._run([up])
+            if r.status != "ok":
+                return r
         p = self.kin.fk(self._q())
         if abs(p.pitch_deg + 90.0) < 1.0:  # 지금 손이 수직이면 기울기를 풀 것이 없다(②로 벌리면 놓은 자세와 달리 기울어 있을 수 있어 실제 pitch로 본다)
             return self._low_lift(lifted, need)  # 벌린 틈을 유지한 채 기울기만 풀며 같은 중점 위로 마저 올라간다
