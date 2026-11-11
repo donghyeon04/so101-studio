@@ -315,7 +315,7 @@ MuJoCo 물리 시뮬레이션(결정 0053, 13절). REQ-056이 끝난 뒤 M1부�
 | # | 작업 | 완료 기준 | 근거 | 결과 |
 |---|---|---|---|---|
 | M1 | 모델 가져오기(13.4), `arm/mujoco_model.py`(`load_model`, `JOINT_MAP`, 좌표 변환), 설치 확인(13.8·13.9) | 13.7 (d) | 0053, 13.1 | ✅ #260(관절 range 바꾸기는 M2에서) |
-| M2 | `MuJoCoDriver`(13.2·13.3), `make_sim_driver`, CLI 인자·`--dry-run` 거부, diagnostics 검사, `reload_workspace` 거부. `sim_state()`는 빈 값 | 13.7 (c)(e) | 0053, 13.1 | |
+| M2 | `MuJoCoDriver`(13.2·13.3), 관절·그리퍼 range와 ctrlrange 넓히기(`mujoco_model.py`, 13.4), `make_sim_driver`, CLI `--sim-engine`과 명령 처리(13.1), `--dry-run` 거부, diagnostics 검사, `reload_workspace` 거부, `sim_state()`는 빈 값(13.6), tooling-setup 설치 줄과 버전 고정(13.8) | 13.7 (c)(e) | 0053, 13.1 | |
 | M3 | 장면·물체·시나리오(13.5), `sim_state()` 채우기(13.6) | 13.7 (a)(b) | 0053, 13.1 | |
 | M4 | `--sim-viewer`, GUI 인자 전달·`no_object` 규칙·물체 표시(13.6, GUI REQ) | 13.7 (f) | 0053, 13.1 | |
 
@@ -461,20 +461,27 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
 | 파일 | 내용 | 단계 | 세션 |
 |---|---|---|---|
 | `arm/mujoco_model.py` | 모델 읽기(`load_model(scene, objects)` → `MjModel`, MjSpec으로 장면·물체·턱 접촉값을 더함), 관절 대응표 `JOINT_MAP`, 좌표 변환 `table_to_model_mm`·`model_to_table_mm` | M1 | 팔 |
+| `arm/mujoco_model.py`(고침) | `load_model(scene=None, objects=(), *, base, table_z_mm, joint_limits=None)` → `(MjModel, warnings)`. `joint_limits`가 있으면 관절 range와 액추에이터 ctrlrange를 그 값으로 넓힌다(13.4) | M2 | 팔 |
 | `assets/mujoco/so101/` | menagerie `robotstudio_so101`에서 `load_model`이 실제로 읽는 파일만(MJCF·쓰는 메쉬)과 `LICENSE`(Apache-2.0), 가져온 menagerie 커밋을 적은 `SOURCE.md`. 원본 파일은 고치지 않는다. 우리가 더하는 것은 XML이 아니라 `load_model`(MjSpec)이 한다(13.4) | M1 | 팔 |
-| `arm/mujoco_driver.py` | `MuJoCoDriver` | M2 | 팔 |
-| `arm/sim_driver.py` | `make_sim_driver(cfg, ws, scene, scenario=None, viewer=False)` → `MuJoCoDriver`. 지금 `SimDriver`와 `cli/__init__.py`의 `make_driver(sim, cfg)`는 그대로 둔다 | M2 | 팔 |
-| `cli/__init__.py` | 인자 `--sim-engine {kinematic,mujoco}`(기본 kinematic), `--sim-scenario`, `--sim-viewer`. 168행에서 `a.sim and a.sim_engine == "mujoco"`일 때만 `make_sim_driver`를 부르고, 아니면 지금처럼 `make_driver` | M2 | 팔 |
+| `arm/mujoco_driver.py` | `MuJoCoDriver(cfg, ws, *, scene=None, objects=(), realtime=True, viewer=False)`. 모델은 `connect`에서 만든다. `sim_state()`는 M2에서 `{"t_s": 시간, "objects": {}, "contacts": [], "held": None}` | M2 | 팔 |
+| `arm/sim_driver.py` | `make_sim_driver(cfg, ws, scene=None, scenario=None, viewer=False)` → `MuJoCoDriver`. M2는 `scene`만 넘기고(M1 `load_model`이 이미 받음) `scenario`는 None, `viewer`는 False로 둔다. `scenario`는 M3, `viewer`는 M4에서 쓴다. 지금 `SimDriver`와 `cli/__init__.py`의 `make_driver(sim, cfg)`는 그대로 둔다 | M2 | 팔 |
+| `cli/__init__.py` | M2: 인자 `--sim-engine {kinematic,mujoco}`(기본 kinematic). 168행에서 `a.sim and a.sim_engine == "mujoco"`일 때만 `make_sim_driver`를 부르고, 아니면 지금처럼 `make_driver`. `mujoco` import 실패(ImportError)는 이 자리에서 잡아 13.8 문장을 출력하고 `sys.exit(2)`. M3에 `--sim-scenario`, M4에 `--sim-viewer` | M2~M4 | 팔 |
 | `service/diagnostics.py` | `isinstance(driver, SimDriver)` → `getattr(driver, "simulated", False)` | M2 | 팔 |
 | `service/arm_service.py` | `reload_workspace`: 드라이버가 `physical_objects`면 거부(13.5) | M2 | 팔 |
 | `config/sim_scenarios/<이름>.yaml` | 물체 시나리오(13.5). (a)(b)용 두 개 | M3 | 팔 |
 | `pyproject.toml` | 선택 의존성 `mujoco = ["mujoco>=4.0,<5"]` | M1 | 팔 |
 | `environment.yml` | 기본에 넣지 않고 주석으로 설치법(13.8) | M1 | 팔 |
 | `tests/test_mujoco_model.py` | (d) | M1 | 팔 |
-| `tests/test_mujoco_driver.py` | (c)(e)와 13.2·13.3 | M2 | 팔 |
+| `tests/test_mujoco_driver.py` | M2 시험(13.7 (e) 목록) | M2 | 팔 |
 | `tests/test_mujoco_scenarios.py` | (a)(b) | M3 | 팔 |
 | `gui/__main__.py`, `gui/app.py`, `gui/backend.py`, `gui/programs.py` | 13.6 | M4 | GUI REQ |
 - 시험은 모두 `pytest.importorskip("mujoco")`로 없으면 건너뛰고, 10초 넘는 것은 `slow`로 표시한다.
+- **`--sim-engine mujoco`일 때 명령 처리**(M2):
+  - 드라이버로 팔을 움직이는 명령(`status`, `home`, `park`, `movej`, `goto`, `pick`, `place`, `gripper`, `run`, `jog`, `keys`, `record`, `replay`, `seq`, `powertest`, `shaketest`, `servoinfo`)은 MuJoCo로 돈다.
+  - 드라이버를 쓰지 않는 명령(`doctor`, `find-port`, `info`, `incident`)은 엔진을 무시한다.
+  - `calibrate`, `linkwatch`는 지금 `--sim`과 같이 거부한다.
+  - `gui`는 "GUI의 MuJoCo는 M4부터입니다"로 거부한다.
+  - `--sim` 없이 `--sim-engine`을 주면 오류로 끝난다(13.7 (c)).
 
 ### 13.2 드라이버 규약
 - `SimDriver`의 하위 클래스로 만들지 않는다. 시험 전용 속성(`grip_block`, `grip_load`, `torque_limit_writes`, `simulated_reset`, `simulated_status`)은 갖지 않는다.
@@ -498,6 +505,13 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
   - 전류: 관절별 부하 % × 10mA(부하 100% = 1000mA), 합이 `current_ma`.
   - 부하·전류·과열 감시는 끄지 않는다. 정상 동작에서 걸리면 모델의 서보 값(kp·forcerange)이 실물과 다른 것으로 보고 모델을 고친다.
 - **병렬 그리퍼**: MuJoCo 모델은 단동식뿐이다. 팔 파일의 그리퍼가 `parallel`이면 `make_sim_driver`가 "MuJoCo는 단동식만 지원"으로 거부한다.
+- **이벤트 통로**: 드라이버의 WARN·ERROR는 `event_sink(kind, level, code, data)`로 보낸다. `ArmService`가 생성자에서 `driver.event_sink`를 이어 준다(`arm_service.py`, 실물 `ArmDriver`와 같은 통로).
+  - `event_sink`가 아직 None일 때 생긴 이벤트(예: `connect` 전 `load_model` 경고)는 드라이버가 목록에 모아 두었다가 처음 보낼 수 있을 때 함께 보낸다.
+  - 코드: `SIM-JOINT-RANGE-DEFAULT`(WARN), `SIM-OBJECT-HEIGHT-DEFAULT`(WARN, M3), `SIM-PHYSICS-FAIL`(ERROR), `SIM-PHYSICS-DROP`(WARN, 13.3에서 버림이 생길 때마다).
+- **물리 실패**: 스텝 중 예외가 나거나 MuJoCo 경고 카운터(`data.warning`의 `mjWARN_BADQACC` 등)가 늘거나 관절값이 NaN이면 다음과 같이 한다.
+  - 스레드가 멈추고 `SIM-PHYSICS-FAIL`(이유)을 보낸다.
+  - 그 뒤 `read_joints`·`write_joints`·`read_health`는 `RuntimeError("물리 시뮬레이션이 멈췄습니다: 이유")`를 낸다. `ArmService`는 이것을 실물의 통신 오류와 같이 다룬다(지금 통신 끊김 처리로 정지).
+  - 되살리기는 `disconnect`·`connect`(모델을 새로 만듦)다.
 
 ### 13.3 시간
 - 물리는 `MuJoCoDriver` 안의 **백그라운드 스레드**가 벽시계에 맞춰 계속 돌린다. `connect`에서 시작하고 `disconnect`에서 멈춘다.
@@ -521,11 +535,11 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
 - **더하는 것**: XML include로는 원본의 중첩 body 안에 site를 넣을 수 없어서, 모두 `load_model`이 MjSpec으로 더한다. 원본 파일은 고치지 않는다(M1 #260).
   - gripper body에 site `gripper_frame`을 둔다. 위치·방향은 우리 URDF `gripper_frame_joint`의 origin을 그대로 쓴다(`xyz="-0.0079 -0.000218121 -0.0981274" rpy="0 3.14159 0"`, gripper_link 좌표). 원본의 `gripperframe` site는 위치가 우리 URDF와 달라 쓰지 않는다.
   - 받침: 원본에 충돌 geom이 없다. base body에 visual 메쉬의 경계 상자를 충돌 geom(`BASE_BOX`)으로 더한다.
-  - **관절 범위**: 원본 range는 우리 한계보다 좁다(예: pan ±110° vs ±120.3°, wrist_flex ±95° vs ±103.6°). `load_model`이 각 관절 range를 **`physical_limits_deg`(실물 AC4 측정, REQ-054)로 바꾼다**.
+  - **관절 범위**: 원본 range는 우리 한계보다 좁다(예: pan ±110° vs ±120.3°, wrist_flex ±95° vs ±103.6°). **M2에서** `load_model(..., joint_limits=cfg.physical_limits_deg)`가 각 관절의 range와 **그 관절 액추에이터의 ctrlrange를 함께** `physical_limits_deg`(실물 AC4 측정, REQ-054)로 넓힌다. range만 넓히면 ctrlrange가 옛 범위라 목표가 잘린다(그리퍼는 약 90.6에서 멈춤).
     - 이유: 시뮬레이션의 기계적 끝은 실물과 같아야 한다. 좁은 range를 두면 우리 안전 한계(`joint_limits_deg`, 실물보다 1° 안쪽) 근처 명령이 MuJoCo에서만 막혀, 실물에는 없는 실패가 생긴다.
     - 안전 검사는 지금처럼 `joint_limits_deg`로 하므로 정상 명령은 MuJoCo range에 닿지 않는다.
-    - 그리퍼 range는 `VALUE_TO_Q`로 값 0~100에 해당하는 각도를 덮도록 한다.
-    - `physical_limits_deg`가 없는 팔 파일이면 원본 range를 쓰고 `SIM-JOINT-RANGE-DEFAULT`(WARN)를 남긴다.
+    - 그리퍼는 `physical_limits_deg`의 그리퍼 값(0~100 단위)이 아니라 각도로 쓴다: range·ctrlrange = [`gripper_value_to_deg(0)` − 1°, `gripper_value_to_deg(100)` + 1°](라디안으로). 그래야 값 100까지 간다.
+    - `joint_limits`가 None(팔 파일에 `physical_limits_deg`가 없음)이면 원본 range를 쓰고, `load_model`이 돌려주는 `warnings`에 `SIM-JOINT-RANGE-DEFAULT`를 담는다. 드라이버가 그것을 WARN 이벤트로 보낸다(13.2 이벤트).
 - **턱 접촉**:
   - `load_model`이 MjSpec으로 고정 턱 body(그리퍼 body)와 가동 턱 body의 **충돌 geom을 찾아** 값만 고친다: `condim=4`, `friction="1.0 0.02 0.001"`.
   - 전역 옵션은 `cone="elliptic" impratio="10" integrator="implicitfast" timestep="0.002"`이다(시험값).
@@ -592,7 +606,12 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
   - 그리퍼 값 0·50·100을 `write_joints`로 주고 1초 뒤 읽은 값이 각각 2 안이다(물리 포함, 중력 그대로).
   - `connect` 직후 `read_joints`가 home과 1° 안이다.
   - 토크를 끄고 1초 뒤 shoulder_lift가 5° 넘게 처지고, 다시 켜면 그 자리를 지킨다.
-  - 개발 노트북(Windows)에서 실시간 모드로 60초(쉬기 30초 + `home`↔`park` 왕복 30초) 동안 `dropped_count`가 0이고 `step_ms_avg`가 1ms 안이다.
+  - 토크가 꺼진 동안 `write_joints`로 다른 목표를 주어도 움직이지 않고, 켜면 그 순간 자세를 지킨다.
+  - `realtime=False`에서 `advance` 없이는 시간이 흐르지 않는다.
+  - 물리 실패를 일부러 일으키면(시험에서 qpos에 NaN) `SIM-PHYSICS-FAIL`이 `event_sink`로 가고 `read_joints`가 `RuntimeError`다.
+  - `home`·`radar_clear` 두 자세에서 팔 body와 받침 상자(`base_box`)의 접촉이 없다(MuJoCo 기본으로 부모-자식 body 접촉은 빠진다).
+  - **실시간 속도**(손으로, 개발 노트북): 실시간 모드로 60초 동안(쉬기 30초 + `home`↔`radar_clear` 속도 30% 왕복 30초. `home`과 `park`는 지금 같은 자세라 쓰지 않음) `dropped_count`가 0이고 `step_ms_avg`가 1ms 안이다. pytest `slow` 시험 `test_realtime_60s`로 돌리고, 결과와 CPU 이름을 `measurements.md`에 남긴다.
+  - **시험 이름**(`tests/test_mujoco_driver.py`): `test_attributes_and_shapes`(13.2 속성·7키·8키·`read_power`), `test_connect_home`, `test_torque_off_sags_and_holds`, `test_write_while_torque_off`, `test_gripper_0_50_100`, `test_not_realtime_needs_advance`, `test_physics_fail_event`, `test_base_box_no_contact`, `test_cli_engine_requires_sim`, `test_cli_dry_run_rejected`, `test_cli_gui_rejected`, `test_cli_import_error_exit2`, `test_realtime_60s`(slow).
 - (f) **보기**(M4): `--sim-viewer`로 MuJoCo 뷰어가 떠서 팔과 물체가 움직이는 것이 보이고, GUI 3D에 `sim_state()`의 물체가 그려진다(GUI REQ).
 
 ### 13.8 설치 (M1 #260에서 확인)
@@ -600,7 +619,7 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
   ```
   pip install --no-deps "mujoco>=4.0,<5" mujoco-core mujoco-studio glfw pyopengl
   ```
-  정확한 버전 고정은 #260의 명령을 그대로 따르고, `docs/guides/tooling-setup.md` 설치 목록에도 같은 줄을 둔다.
+  M2의 첫 작업으로, #260에서 설치한 다섯 패키지의 버전을 `pip freeze`로 확인해 `==`로 고정한 줄을 `docs/guides/tooling-setup.md` 설치 목록에 둔다. `pyproject.toml`의 `mujoco>=4.0,<5`는 그대로 둔다.
 - 설치한 뒤 `python -c "import numpy; print(numpy.__version__)"`가 2.2.6(conda 설치본)이어야 한다(#260에서 확인).
 - `pyproject.toml`의 선택 의존성 `[mujoco]`는 목록 표시용으로 남긴다. 설치 안내에는 `pip install -e .[mujoco]`를 쓰지 않는다(numpy를 바꿀 수 있음).
 - `mujoco`를 import하지 못하면: CLI는 "MuJoCo가 설치되지 않았습니다. docs/guides/tooling-setup.md의 MuJoCo 줄로 설치하세요"를 출력하고 종료 코드 2로 끝난다. GUI는 M4에서 같은 문장을 띄운다.
@@ -611,4 +630,4 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
 - `gripper_frame`: 원본 site 위치가 달라 URDF origin으로 따로 더함.
 - 라이선스: Apache-2.0.
 - Windows 휠: 메타 휠이라 13.8처럼 설치하고, numpy 2.2.6이 유지됨을 확인.
-- 관절 range: 원본이 좁아 `physical_limits_deg`로 바꿈(13.4).
+- 관절 range: 원본이 우리 한계보다 좁다. M2에서 range·ctrlrange를 `physical_limits_deg`로 넓힌다(13.4). M1 `load_model`에는 아직 없다.
