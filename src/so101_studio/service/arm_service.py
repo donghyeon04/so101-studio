@@ -410,7 +410,18 @@ class ArmService:
         return self.skills._run(trajs)
 
     def home(self) -> MotionResult:
-        return self._comm_gate() or self._done("home", self.skills.home())
+        return self._comm_gate() or self._done("home", self._with_zero_lock_open(self.skills.home))
+
+    def _with_zero_lock_open(self, move):
+        """0° 자세 확인 잠금(decisions/0029)만 걸려 있으면 home은 허용한다: --verify-zero가 팔을 작업대 밖으로 뻗은 채 끝났을 때 12V를 끄는 것 말고 내릴 길이 없어지지 않게.
+        캘리브레이션 불일치·팔 파일 없음 잠금은 그대로 막는다. 정지·E-STOP 상태는 resume() 뒤에만 움직인다."""
+        if self._hard_lock is None and self._zero_lock is not None and self.ctl.locked_reason == self._zero_lock:
+            self.ctl.locked_reason = None
+            try:
+                return move()
+            finally:
+                self.ctl.locked_reason = self._zero_lock
+        return move()
 
     def park(self) -> MotionResult:
         return self._comm_gate() or self._done("park", self.skills.park())

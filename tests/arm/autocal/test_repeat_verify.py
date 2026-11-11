@@ -305,11 +305,39 @@ def test_verify_zero_without_yes_records_nothing(tmp_path, conf):
     before = arm_file.read_text(encoding="utf-8")
     answers = iter(["", "no"])
     try:
-        code = verify.run_verify_zero(svc, CFG0, input_fn=lambda _: next(answers), out=lambda *_: None, config_dir=conf)
+        start = svc.driver.read_joints()
+        speeds, said, result = [], [], {}
+        real = svc.move_joints
+        svc.move_joints = lambda goal, speed_pct=None: speeds.append(speed_pct) or real(goal, speed_pct)
+        code = verify.run_verify_zero(svc, CFG0, input_fn=lambda _: next(answers), out=said.append, config_dir=conf, result=result)
         assert code == 1 and arm_file.read_text(encoding="utf-8") == before
         assert "0° 자세 확인 필요" in svc.locked_reason  # 확인하지 않았으니 다시 잠겨 있다
+        assert speeds == [20, 20] and result == {"recorded": False, "returned": "start"} and "시작 자세로 돌아갔다" in said  # 0°로 갔다가 같은 20%로 시작 자세로 돌아왔다
+        q = svc.driver.read_joints()
+        assert max(abs(getattr(q, j) - getattr(start, j)) for j in ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll")) < 1.0
     finally:
         svc.disconnect()
+
+
+def test_verify_zero_goes_home_when_the_start_pose_cannot_be_read_or_reached(tmp_path, conf):
+    svc = service(tmp_path, conf)
+    said, result = [], {}
+    real = svc.driver.read_joints
+    calls = {"n": 0}
+
+    def flaky():  # 시작 자세를 읽는 첫 호출만 실패
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError("read failed")
+        return real()
+
+    svc.driver.read_joints = flaky
+    answers = iter(["", "no"])
+    try:
+        assert verify.run_verify_zero(svc, CFG0, input_fn=lambda _: next(answers), out=said.append, config_dir=conf, result=result) == 1
+    finally:
+        svc.disconnect()
+    assert result == {"recorded": False, "returned": "home"} and "home으로 돌아갔다" in said
 
 
 def test_verify_zero_does_not_lift_a_calibration_mismatch_lock(tmp_path, conf):
@@ -374,3 +402,26 @@ def test_deg_to_steps_helper_matches_the_boundary_math():
     with pytest.raises(AutoCalibrationError):
         raise AutoCalibrationError("x")
     assert time.time() > 0
+
+
+def test_home_is_allowed_while_only_the_zero_check_lock_is_on(tmp_path, conf):
+    # --verify-zero가 기록 없이 끝난 뒤에도 home은 된다(뻗은 채 12V를 끄는 것 말고 내릴 길이 있어야 한다). 다른 움직임은 계속 locked
+    svc = service(tmp_path, conf)
+    try:
+        assert "0° 자세 확인 필요" in svc.locked_reason
+        assert svc.home().status == "ok" and "0° 자세 확인 필요" in svc.locked_reason  # 끝난 뒤 다시 잠겨 있다
+        assert svc.move_joints(JointState(0, 0, 0, 0, 0, 10)).status == "locked"
+    finally:
+        svc.disconnect()
+
+
+def test_verify_zero_does_not_walk_back_when_the_move_was_refused_without_moving(tmp_path, conf):
+    svc = service(tmp_path, conf)
+    said, result = [], {}
+    svc.move_joints = lambda goal, speed_pct=None: type("R", (), {"status": "locked"})()
+    answers = iter([""])
+    try:
+        assert verify.run_verify_zero(svc, CFG0, input_fn=lambda _: next(answers), out=said.append, config_dir=conf, result=result) == 1
+    finally:
+        svc.disconnect()
+    assert result == {"recorded": False, "returned": None} and not any("돌아갔다" in line for line in said)
