@@ -20,7 +20,7 @@ BOX_GAP_MM = 2.0  # released_then_tilted: 쥔 물체 상자와 두 턱 선분 �
 MIN_SYM_ROOM_MM = 20.0  # 대칭 상한 틈 - 쥔 틈이 이보다 작으면(큰 물체) 대칭 경로를 건너뛴다
 HEIGHT_REQUIRED_REASON = "턱 축이 팔 방향과 어긋나 수직으로 집어야 해서 물체 높이가 필요합니다"  # 결정 0052
 HOVER_NEIGHBOUR_R_MM = 100.0  # 놓는 점 둘레 이 반경 안의 알려진 물체 높이를 hover 높이 규칙에 쓴다 (11.3.3)
-SWING_MAX_DEG = 60.0  # 기울기를 풀며 올라가는 관절 이동에서 한 관절이 이보다 크게 돌면 크게 휘두르는 것으로 보고 멈춘다
+SWING_MAX_DEG = 90.0  # 기울기를 풀며 올라가는 관절 이동에서 한 관절이 이보다 크게 돌면 크게 휘두르는 것으로 보고 멈춘다
 SAME_SPOT_MM = 30.0  # 놓을 자리에서 이 안에 있는 놓은 물체는 같은 자리(배출 구역에 쌓는 것)로 보고 피하지 않는다
 LIFT_MARGIN_MM = 10.0  # 놓은 뒤 상승의 최소 = 물체 높이 + 이 값 (11.3.3)
 LIFT_UNKNOWN_EXTRA_MM = 30.0  # 물체 높이를 모르면 t_g + 이 값
@@ -569,10 +569,27 @@ class Skills:
             return None
         return goal
 
+    def _leave_plan(self, q_from: JointState, need: float):
+        """q_from에서 need(mm) 올라가는 계획 (곧게 올라가는 궤적 또는 None, 기울기를 푸는 목표 또는 None, 곧게 올라가는 높이). 못 올라가면 None.
+        곧게 need 이상 올라가면 (궤적, None, 높이). 아니면 올라갈 수 있는 만큼 곧게 올라간 뒤(없으면 0) 기울기를 풀며 마저 올라간다(_untilt_goal). _leave와 열림 경로 검사(_can_leave)가 같은 계획을 쓴다."""
+        p = self.kin.fk(q_from)
+        for h in self._lift_heights(need):
+            if (u := self._line(q_from, replace(p, z_mm=p.z_mm + h))) is not None:
+                return u, None, h
+        lifted, up = 0.0, None
+        for h in self._heights():
+            if h < need and (u := self._line(q_from, replace(p, z_mm=p.z_mm + h))) is not None:
+                lifted, up = h, u
+                break
+        q_mid = q_from if up is None else JointState(*up.pts[-1])
+        if abs(self.kin.fk(q_mid).pitch_deg + 90.0) < 1.0:  # 이미 수직이면 풀 기울기가 없다
+            return None
+        goal = self._untilt_goal(q_mid, need - lifted)
+        return None if goal is None else (up, goal, lifted)
+
     def _can_leave(self, st: JointState, need: float) -> bool:
-        """이 끝 자세에서 놓은 뒤 need(mm)만큼 올라갈 수 있는가: 같은 기울기로 곧게(IK가 풀리면), 아니면 _leave의 두 번째 구간과 같은 검사(_untilt_goal)를 넘는 기울기 풀기가 있는가."""
-        p = self.kin.fk(st)
-        return self.kin.ik(replace(p, z_mm=p.z_mm + need), st) is not None or self._untilt_goal(st, need) is not None
+        """이 끝 자세에서 놓은 뒤 need(mm)만큼 올라갈 수 있는가: _leave와 같은 계획(_leave_plan)이 있는가."""
+        return self._leave_plan(st, need) is not None
 
     def _lift_heights(self, need: float) -> list[float]:
         """놓은 뒤 상승 높이 후보: max(approach_height_mm, need)에서 5mm씩 need까지 (11.3.3)."""
@@ -586,28 +603,22 @@ class Skills:
         return MotionResult("stopped", 0.0, ToolPose(0, 0, 0, 0), reason=f"low_lift: 놓은 뒤 {need:.0f}mm 이상 올라가야 하는데 {lifted:.0f}mm만 올라갈 수 있다")
 
     def _leave(self, here: ToolPose, held_gap: float, ctx: dict) -> MotionResult:
-        """놓은 뒤 떠나는 수직 상승. need = 물체 높이 + 10mm(모르면 t_g + 30mm)부터 위로, 닿는 가장 높은 높이로 올라간다(수직이라 두 턱 끝의 xy는 그대로여서 물체 검사는 없다).
-        그만큼 못 올라가고 기울어 있으면 올라갈 수 있는 만큼 올라간 뒤 기울기를 풀며 마저 올라간다(xy가 바뀌므로 알려진 물체 검사를 한다).
-        그래도 need에 못 미치면 ARM-PLACE-LOW-LIFT(ERROR)를 남기고 stopped(low_lift)로 끝낸다."""
+        """놓은 뒤 떠나는 수직 상승 (11.3.3 5번). need = 물체 높이 + 10mm(모르면 t_g + 30mm). 계획(_leave_plan): 곧게 need 이상 올라가거나, 올라갈 수 있는 만큼 곧게 올라간 뒤 기울기를 풀며 마저 올라간다
+        (직선은 해가 튀어 관절 보간, 지나는 자세는 알려진 물체·check_goal·내려감·휘두름 검사). 계획이 없으면 ARM-PLACE-LOW-LIFT(ERROR)와 stopped(low_lift)로 끝낸다. 계획은 지금 실제 관절에서 다시 세운다."""
         need = float(ctx.get("need_lift") or 0.0)
-        for h in self._lift_heights(need):
-            if (u := self._line(self._q(), replace(here, z_mm=here.z_mm + h))) is not None:
-                return self._run([u])
-        lifted, up = 0.0, None
-        for h in self._heights():
-            if h < need and (u := self._line(self._q(), replace(here, z_mm=here.z_mm + h))) is not None:
-                lifted, up = h, u
-                break
-        if up is not None:  # 곧게 올라갈 수 있는 만큼 먼저 올라간다(없으면 바로 기울기를 풀며 올라간다: _can_leave와 같은 길)
+        plan = self._leave_plan(self._q(), need)
+        if plan is None:
+            return self._low_lift(0.0, need)
+        up, goal, lifted = plan
+        if goal is None:
+            return self._run([up])
+        if up is not None:
             r = self._run([up])
             if r.status != "ok":
                 return r
-        p = self.kin.fk(self._q())
-        if abs(p.pitch_deg + 90.0) < 1.0:  # 지금 손이 수직이면 기울기를 풀 것이 없다(②로 벌리면 놓은 자세와 달리 기울어 있을 수 있어 실제 pitch로 본다)
-            return self._low_lift(lifted, need)  # 벌린 틈을 유지한 채 기울기만 풀며 같은 중점 위로 마저 올라간다
-        goal = self._untilt_goal(self._q(), need - lifted)
-        if goal is None:
-            return self._low_lift(lifted, need)
+            goal = self._untilt_goal(self._q(), need - lifted)  # 실제로 올라간 자세에서 다시 푼다
+            if goal is None:
+                return self._low_lift(lifted, need)
         return self._run([self._joint_move(goal)])
 
     def place_at(self, x_mm: float, y_mm: float) -> MotionResult:

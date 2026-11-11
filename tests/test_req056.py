@@ -259,3 +259,24 @@ def test_place_point_inside_a_known_object_fails_with_the_object_as_the_reason(t
     finally:
         s.disconnect()
     assert r.status == "ik_fail" and "known_object" in r.reason and "(350,200)" in r.reason and free.status in ("ok", "ik_fail", "out_of_bounds")
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("elbow_extra", [0.0, 2.5])
+def test_leave_from_the_real_arm_end_pose_rises_at_least_the_needed_height(tmp_path, elbow_extra):
+    # 11-11 실물: 놓은 칸 1번(442.5,112.5)에서 벌림 끝 자세(pan 65.4, lift 13.7, elbow 11.9, wrist_flex 102.7, roll -1.0, gripper 56.1)는 곧게 못 올라가
+    # 기울기를 풀며 올라가야 한다(필요 49mm). 계획과 실제 관절 차이(접힌 자세에서 elbow +2.5°)가 있어도 올라간다.
+    from so101_studio.core.types import JointState
+
+    s, ev = make(tmp_path, 58)
+    try:
+        sk = s.skills
+        q = JointState(65.4, 13.7, 11.9 + elbow_extra, 102.7, -1.0, 56.1)
+        assert sk._run([sk._joint_move(q)]).status == "ok"
+        before = sk._low_tip_z(sk._q())
+        assert sk._can_leave(sk._q(), 49.0)
+        r = sk._leave(sk.kin.fk(sk._q()), 93.0, {"need_lift": 49.0, "tilted": True})
+        rise = sk._low_tip_z(sk._q()) - before
+    finally:
+        s.disconnect()
+    assert r.status == "ok" and rise >= 49.0 - 1.0 and not [1 for _, c, _ in ev if c == "ARM-PLACE-LOW-LIFT"]
