@@ -100,8 +100,8 @@ def test_page_off_needs_confirmation_then_shows_red_badge(clean):
 def test_page_applies_margin_and_box(clean):
     async def check(user):
         assert await _until(lambda: clean.owner is not None)
-        _one(user, "safety-margin").value = 5
-        _one(user, "box-z-max").value = 150
+        _one(user, "safety-margin").meta.set(5)
+        _one(user, "box-z-max").meta.set(150)
         user.find(marker="safety-apply").click()
         assert await _until(lambda: clean.get_safety()["joint_margin_deg"] == 5)
         assert clean.get_safety()["box_mm"] == {"z": [None, 150]}

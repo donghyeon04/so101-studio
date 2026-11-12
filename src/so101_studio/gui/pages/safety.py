@@ -4,7 +4,7 @@ from nicegui import run, ui
 
 from ..backend import JOINT_TEXT
 from ..state import SAFETY_TEXT
-from .common import Controls, scene_frame
+from .common import Controls, meta_number, scene_frame
 
 AXES = ("x", "y", "z")
 
@@ -14,7 +14,17 @@ def build(backend, client_id: str, actions) -> None:
     current = backend.get_safety()
     box = current["box_mm"] or {}
     fields: dict = {}
+    metas: list = []  # 여유 칸 + 상자 칸 여섯: 적용·모드 토글·끄기 확인이 모두 읽는다 (12.7.4)
     state = {"shown_mode": current["mode"]}
+
+    def fields_ok() -> bool:
+        """허용 밖 칸이 있으면 알리고 토글을 지금 적용된 모드로 되돌린다."""
+        bad = next((m for m in metas if not m.valid), None)
+        if bad is None:
+            return True
+        ui.notify(f"{bad.name}: 허용 밖이라 적용하지 않습니다", type="warning")
+        mode_toggle.value = state["shown_mode"]
+        return False
 
     def read_box() -> dict | None:
         """비어 있는 칸은 기본 범위를 쓴다. 다 비어 있으면 None."""
@@ -26,7 +36,9 @@ def build(backend, client_id: str, actions) -> None:
         return out or None
 
     async def apply(mode: str | None = None) -> None:
-        reason = await run.io_bound(backend.set_safety, mode or state["shown_mode"], float(margin.value or 0), read_box())
+        if not fields_ok():
+            return
+        reason = await run.io_bound(backend.set_safety, mode or state["shown_mode"], float(margin.value), read_box())
         if reason:
             ui.notify(reason, type="negative")
         else:
@@ -48,6 +60,8 @@ def build(backend, client_id: str, actions) -> None:
                 ui.label("관절 한계 꺼짐").classes("event-line")
 
     async def confirm_off() -> None:
+        if not fields_ok():  # 거부되면 확인 창을 닫지 않는다
+            return
         dialog.close()
         await apply("off")
 
@@ -59,14 +73,15 @@ def build(backend, client_id: str, actions) -> None:
         if e.value == state["shown_mode"]:
             return
         if e.value == "off":
-            dialog.open()
+            if fields_ok():  # 허용 밖 칸이 있으면 확인 창을 열지 않고 되돌린다
+                dialog.open()
         else:
             ui.timer(0.01, lambda: apply(e.value), once=True)
 
     async def reset() -> None:
         for field in fields.values():
-            field.value = None
-        margin.value = 0
+            field.set(None, quiet=True)
+        margin.set(0, quiet=True)
         await apply("normal")
 
     with ui.dialog() as dialog, ui.card().classes("gap-3"):
@@ -81,7 +96,7 @@ def build(backend, client_id: str, actions) -> None:
         off_badge = ui.badge("안전 검사 꺼짐", color="negative").classes("page-state").mark("safety-off-badge")
         off_badge.visible = current["mode"] == "off"
         controls.add(ui.button("기본값으로", on_click=controls.guard(reset)).props("outline no-caps").mark("safety-reset"))
-        controls.add(ui.button("적용", on_click=controls.guard(apply)).props("no-caps").mark("safety-apply"))
+        controls.add(ui.button("적용", on_click=controls.guard(apply, needs=metas)).props("no-caps").mark("safety-apply"), needs=metas)
 
     with ui.row().classes("w-full no-wrap items-start gap-4"):
         with ui.column().classes("flex-1 min-w-0 gap-2"):
@@ -95,18 +110,19 @@ def build(backend, client_id: str, actions) -> None:
                 ui.label("보통: 관절 한계, 작업대, 바닥 · 자유: 작업대 x, y만 끔 · 끔: 모두 끔").classes("page-body")
             with ui.card().classes("w-full gap-2"):
                 ui.label("관절 여유 (°)").classes("card-title")
-                margin = controls.add(
-                    ui.number(value=current["joint_margin_deg"], min=-15, max=30, step=1).props("outlined dense").classes("w-full").mark("safety-margin")
-                )
+                margin = meta_number("safety.joint_margin_deg", current["joint_margin_deg"], label="관절 여유", mark="safety-margin", add=controls.add)
+                metas.append(margin)
                 ui.label("양수는 한계를 안쪽으로 줄이고, 음수는 실제 가동 범위까지 넓힙니다").classes("page-body")
             with ui.card().classes("w-full gap-2"):
                 ui.label("허용 상자 (mm)").classes("card-title")
                 for axis in AXES:
-                    with ui.row().classes("w-full no-wrap items-center gap-2"):
-                        ui.label("높이" if axis == "z" else axis).classes("axis-label")
-                        lo, hi = box.get(axis, (None, None))
-                        fields[axis, 0] = controls.add(ui.number("최소", value=lo).props("outlined dense").classes("flex-1").mark(f"box-{axis}-min"))
-                        fields[axis, 1] = controls.add(ui.number("최대", value=hi).props("outlined dense").classes("flex-1").mark(f"box-{axis}-max"))
+                    lo, hi = box.get(axis, (None, None))
+                    name = "높이" if axis == "z" else axis
+                    for i, (text, value) in enumerate((("최소", lo), ("최대", hi))):
+                        ui.label(f"{name} {text}").classes("stat-label")
+                        fields[axis, i] = meta_number("safety.box.z" if axis == "z" else "safety.box.xy", value, label=f"상자 {name} {text}",
+                                                      mark=f"box-{axis}-{'min' if i == 0 else 'max'}", add=controls.add)
+                        metas.append(fields[axis, i])
                 ui.label("비워 두면 기본 범위를 씁니다. 3D의 반투명 상자가 지금 적용되는 범위입니다").classes("page-body")
             with ui.card().classes("w-full gap-1"):
                 ui.label("항상 켜진 검사").classes("card-title")

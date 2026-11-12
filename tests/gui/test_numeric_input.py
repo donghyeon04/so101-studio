@@ -267,3 +267,45 @@ def test_manual_object_field_out_of_range_disables_pick_place(clean):
         assert await _until(lambda: not _one(user, "pp-run").enabled)
 
     in_app(clean, "/manual", check)
+
+
+# ③ 안전
+
+def test_safety_out_of_range_field_blocks_apply_toggle_and_off_confirm(clean, monkeypatch):
+    from so101_studio.gui.pages import safety as safety_page
+
+    toasts = []
+    monkeypatch.setattr(safety_page.ui, "notify", lambda text, **k: toasts.append(text))
+
+    async def check(user):
+        assert await _until(lambda: clean.owner is not None)
+        assert await _until(lambda: _one(user, "safety-apply").enabled)
+        _one(user, "box-z-max").value = 9999  # 사람이 친 글자
+        assert await _until(lambda: not _one(user, "safety-apply").enabled)
+        _one(user, "safety-mode").value = "free"  # 토글은 needs로 끌 수 없다: 적용하지 않고 되돌린다
+        assert await _until(lambda: _one(user, "safety-mode").value == "normal")
+        assert clean.get_safety()["mode"] == "normal"
+        assert any("허용 밖이라 적용하지 않습니다" in t for t in toasts)
+        _one(user, "box-z-max").value = 150
+        _one(user, "safety-mode").value = "off"
+        await user.should_see(marker="off-confirm")
+        _one(user, "box-z-max").value = 9999  # 확인 창이 열린 뒤 허용 밖이 되면 [끄기]를 거부하고 창은 그대로
+        user.find(marker="off-confirm").click()
+        await asyncio.sleep(0.3)
+        assert clean.get_safety()["mode"] == "normal"
+        await user.should_see(marker="off-confirm")
+
+    in_app(clean, "/safety", check)
+
+
+def test_safety_empty_box_fields_mean_default_range(clean):
+    async def check(user):
+        assert await _until(lambda: clean.owner is not None)
+        z = _one(user, "box-z-max").meta
+        assert z.set(None) and z.valid  # 빈 칸 = 기본 범위
+        _one(user, "safety-margin").meta.set(3)
+        user.find(marker="safety-apply").click()
+        assert await _until(lambda: clean.get_safety()["joint_margin_deg"] == 3)
+        assert clean.get_safety()["box_mm"] is None
+
+    in_app(clean, "/safety", check)
