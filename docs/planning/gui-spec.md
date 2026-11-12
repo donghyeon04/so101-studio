@@ -1,6 +1,6 @@
 # GUI 설계서
 
-상태: 확정 · 2026-11-02 (1차: 기본 골자) · 2026-11-07 사용자 사용 후 개정(11절), 결정 0044 구조(12절), 코드 대조 보완·다른 기기 보기(12절, 결정 0047)
+상태: 확정 · 2026-11-02 (1차: 기본 골자) · 2026-11-07 사용자 사용 후 개정(11절), 결정 0044 구조(12절), 코드 대조 보완·다른 기기 보기(12절, 결정 0047) · 2026-11-12 숫자 입력(12.7 초안, 결정 0055)
 
 근거 결정: `decisions/0020`(API 동결과 GUI 첫 작업), `0022`(디자인 도구), `0023`(NiceGUI 앱 틀 + Viser 3D, 센서별 화면), `0024`(GUI 세션과 팔 세션 분리, 요청서), `0025`(화면 확인과 디자인 기준), `0026`(E-STOP 감시 프로세스), `0027`(팔 파일과 local.yaml, doctor), `0030`(블랙박스 기록), `0031`(XY 복귀 허용, 포트 빠짐 시험), `0034`·`0038`(초음파 레이더 + 팔 확인, 모드 하나). 팀 검토(2026-11-02): 기본 골자를 먼저 만들고 기능은 나중에 붙일 수 있게 확장성을 둔다. 화면 구성의 모티브는 PIPER Studio(WeGo-Robotics/wego-piper-web)이다.
 
@@ -278,3 +278,143 @@ G0~G4가 기본 골자의 핵심이다. G12~G16은 11절의 1차다. 막히는 R
 | 알림 | `--share`로 켜면 콘솔에 한 줄 "같은 네트워크의 누구나 화면을 볼 수 있고 E-STOP을 누를 수 있습니다: http://<IP>:<포트>/operator", 로컬 화면 상단 상태줄에 "공유 중" 배지(누르면 주소). Windows가 처음에 방화벽 허용을 물으면 "개인 네트워크"만 허용한다고 안내 문구에 덧붙인다 |
 | 실물 | `--share`는 시뮬레이션과 실물 모두에서 쓸 수 있다(결정 0049. 0023의 "공유 링크는 시뮬레이션에서만"을 바꾼다). 원격은 보기 전용과 E-STOP뿐이고 조작권·감시 heartbeat는 루프백에만 있기 때문이다 |
 - 코드 주석 정리: `operator.py`의 "gui-spec 11절 알려진 문제 3" 참조는 지금 설계서에 없으니 "gui-spec 12.4"로 바꾼다.
+
+### 12.7 숫자 입력 (결정 0055, 2026-11-12 초안 8 — EGM Stage 9 1~7차 지적 반영)
+숫자 칸마다 허용 범위·추천 범위·기본값을 보이고, 값의 성격에 맞는 입력 방식을 쓴다. 근거 결정: 0055(값 정보표·입력 방식 규칙), 0054(화면 시험), 0014(서보 가속 10·50Hz), 0019(교시 구간 기준), 0033(그리퍼 조임). 2026-11-12 사용자 결정: 파라미터의 **[기본값으로]는 설정 파일 값**(코드 기본값이 아님)으로 되돌린다. 그 밖의 칸은 표의 "기본" 열대로.
+
+#### 12.7.1 값 정보표 `gui/param_meta.py`
+- `Meta(unit: str, hard: tuple[float, float], step: float, soft: tuple[float, float] | None = None, why: str = "", widget: str | None = None, allow_none: bool = False, none_text: str = "")`, `META: dict[str, Meta]`. 키는 아래 표의 키 그대로다.
+- `hard`: 받는 한계(양 끝 포함). 밖이면 막는다. `step`: 숫자 칸 화살표·휠 한 칸이자 슬라이더 눈금. `soft`: 추천 범위. 근거(`why`, 결정·측정 번호)가 없으면 두지 않는다. `widget`: 규칙(12.7.2)을 덮어쓸 때만. `allow_none`: 빈 칸이 뜻을 갖는 값(지금은 `safety.box.xy`·`safety.box.z`만, 빈 칸 = 기본 범위, `none_text`="비우면 기본 범위").
+- 기본값은 표에 적지 않는다. 파라미터의 기본은 **설정 파일 값**: 앱을 켤 때 `robot.yaml` ← `config/arms/<팔>.yaml` ← `config/grippers/<종류>.yaml` ← `local.yaml`을 합쳐 읽은 값이다(`set_params`로 바꾸기 전). 이를 위해 **팔 세션 REQ**: `ArmService.__init__`에서 합친 `cfg`의 숫자 값을 복사해 두고 `get_params()`의 항목에 `saved`로 더한다. `default`(코드 기본값)는 남기되 화면은 쓰지 않는다. 파라미터가 아닌 칸은 "기본" 열대로: 좌표·물체·작업대·안전은 없음, `replay.speed`·`program.*`는 `gui/programs.py` `DEFAULTS`의 값.
+
+| 키 | 화면(파일) | 단위 | 허용 | 한 칸(`step`) | 추천 · 근거 | 기본 |
+|---|---|---|---|---|---|---|
+| `speed_pct` | 파라미터(`params.py`), 하단 막대 속도(`app.py` `bar-speed`), 직접 조작 속도(`manual.py`) | % | 5~100 | 5 | 5~30 · CLAUDE.md 실물 첫 동작 30% 이하 | 설정 `speed_pct_default` |
+| `gripper_speed_pct` | 파라미터, 상단 막대 그리퍼 속도(`app.py` `top-grip-speed`) | % | 5~100 | 5 | — | 설정 |
+| `joint_v_max_deg_s` | 파라미터 | °/s | 10~300 | 5 | — | 설정 |
+| `a_max_deg_s2` | 파라미터 | °/s² | 10~2000 | 10 | — | 설정 |
+| `joint_jerk_max_deg_s3` | 파라미터 | °/s³ | 50~10000 | 50 | — | 설정 |
+| `tool_v_max_mm_s` | 파라미터 | mm/s | 10~500 | 5 | — | 설정 |
+| `tool_a_max_mm_s2` | 파라미터 | mm/s² | 10~3000 | 10 | — | 설정 |
+| `tool_jerk_max_mm_s3` | 파라미터 | mm/s³ | 50~20000 | 50 | — | 설정 |
+| `servo_acceleration` | 파라미터 | 서보 단위 | 1~254 | 1 | 10~25 · 결정 0014, 측정 11-01(12는 끝점 오차 15mm) | 설정 |
+| `gripper_acceleration` | 파라미터 | 서보 단위 | 1~254 | 1 | — (접촉 감지를 25에서 맞춤, 결정 0033) | 설정 |
+| `control_hz` | 파라미터 | Hz | 10~100 | 5 | 50~50 · 결정 0014 | 설정 |
+| `table_z_mm` | 파라미터 | mm | −100~50 | 1 | — | 설정 |
+| `tip_floor_mm` | 파라미터 | mm | 0~50 | 1 | — | 설정 |
+| `approach_height_mm` | 파라미터 | mm | 10~150 | 5 | — | 설정 |
+| `grasp_height_mm` | 파라미터 | mm | 0~100 | 1 | — | 설정 |
+| `place_height_mm` | 파라미터 | mm | 0~150 | 1 | — | 설정 |
+| `gripper_margin_mm` | 파라미터 | mm | 0~60 | 1 | — | 설정 |
+| `gripper_open` | 파라미터(놓을 때 벌림, 0이면 놓지 못함) | 열림 눈금 | 10~100 | 5 | — | 설정 |
+| `gripper_squeeze_torque` | 파라미터 | 토크 눈금 | 50~1000 | 10 | — (결정 0033) | 설정 |
+| `gripper_hold_torque` | 파라미터 | 토크 눈금 | 50~1000 | 10 | — (결정 0033) | 설정 |
+| `grip_preload_units` | 파라미터 | 서보 단위 | 0~20 | 1 | — | 설정 |
+| `gripper_load_warn_pct` | 파라미터 | % | 10~100 | 5 | — | 설정 |
+| `gripper_load_s` | 파라미터 | 초 | 0.2~10 | 0.1 | — | 설정 |
+| `contact_lag_units` | 파라미터 | 서보 단위 | 1~30 | 1 | — | 설정 |
+| `grasp_max_open_mm` | 파라미터 | mm | 20~100 | 1 | — | 설정 |
+| `grasp_bias_mm` | 파라미터 | mm | −20~20 | 0.5 | — | 설정 |
+| `grasp_tilt_deg` | 파라미터 | ° | 0~60 | 1 | — | 설정 |
+| `grasp_tilt_tol_deg` | 파라미터 | ° | 0~45 | 1 | — | 설정 |
+| `grasp_min_contact_mm` | 파라미터 | mm | 0~50 | 1 | — | 설정 |
+| `record_hz` | 파라미터 | Hz | 5~50 | 1 | — (결정 0019) | 설정 |
+| `record_max_s` | 파라미터 | 초 | 5~600 | 5 | — | 설정 |
+| `seg_pause_deg_s` | 파라미터 | °/s | 0.5~30 | 0.5 | — (결정 0019) | 설정 |
+| `seg_fast_deg_s` | 파라미터 | °/s | 5~200 | 1 | — (결정 0019) | 설정 |
+| `seg_min_s` | 파라미터 | 초 | 0.1~5 | 0.1 | — | 설정 |
+| `replay_a_max_deg_s2` | 파라미터 | °/s² | 50~3000 | 50 | — | 설정 |
+| `target.x`·`target.y` | 직접 조작 좌표(`manual.py`), 프로그램 이동·집기의 x·y·놓을 x·y(`program.py`) | mm | −600~900 | 5 | — | 없음 |
+| `target.h` | 직접 조작 높이, 프로그램 이동 `h` | mm | 0~400 | 5 | — | 없음 |
+| `target.yaw` | 직접 조작 yaw, 프로그램 이동 `yaw` | ° | −180~360 | 5 | — | 없음 |
+| `target.pitch` | 직접 조작 손끝 각도, 프로그램 이동 `pitch` | ° | −90~0 | 5 | — | 없음 |
+| `obj.angle` | 물체 각도(`manual.py`, `sensors/manual_view.py`, 프로그램 `angle`) | ° | −180~180. 수동 입력 화면은 지금 범위 그대로(0~180, `hard` 덮어쓰기) | 5 | — | 없음 |
+| `obj.width`·`obj.length` | 물체 폭·길이(같은 세 곳). 직접 조작·프로그램은 0 = 모름(`skills.py` `known = width_mm > 0`) | mm | 직접 조작·프로그램 0~150. 수동 입력 화면(`sensors/manual_view.py`)은 지금 범위 그대로(폭 5~110, 길이 5~300, `hard` 덮어쓰기) | 1 | — | 없음 |
+| `obj.height` | 물체 높이(같은 세 곳). 0 = 모름 | mm | 0~200 | 1 | — | 없음 |
+| `joint.deg` | 직접 조작 관절 각도로(`manual.py` `joint-to-deg`) | ° | 고른 관절의 `backend.get_safety()["physical_limits_deg"]`(빈 dict면 `cfg.joint_limits_deg`). 관절을 바꾸면 `set_hard()` | 1 | `effective_limits_deg`(지금 안전 여유를 반영한 한계) | 없음 |
+| `gripper.width_mm` | 직접 조작 그리퍼 폭(`manual.py`) | mm | 0~111(지금 칸의 max, 그리퍼 최대 틈) | 5 | — | 없음 |
+| `gripper.value` | 직접 조작 그리퍼 막대(`manual.py`), 프로그램 그리퍼 | 열림 눈금 | 0~100 | 1 | — | 없음 |
+| `safety.joint_margin_deg` | 안전(`safety.py`) | ° | −15~30 (원본 `set_safety`) | 1 | — | 없음 |
+| `safety.box.xy` | 안전 허용 상자 x·y 최소·최대(`safety.py`). 빈 칸 = 그 쪽은 기본 범위(`allow_none`) | mm | −600~900 | 5 | — | 빈 칸 |
+| `safety.box.z` | 안전 허용 상자 z 최소·최대. 빈 칸 = 기본 범위(`allow_none`) | mm | 0~500 (최소 0은 원본 `set_safety`) | 5 | — | 빈 칸 |
+| `ws.table_x`·`ws.table_y` | 작업대 가로·세로(`table.py`) | mm | 100~3000 | 10 | — | 없음 |
+| `ws.margin` | 작업대 가장자리 여유 | mm | 0~200(저장은 원본 `save_workspace`가 가로·세로 중 작은 값의 절반 미만인지 본다) | 1 | — | 없음 |
+| `ws.base_x`·`ws.base_y`·`ws.zone_x`·`ws.zone_y` | 팔 받침·배출 구역 위치 | mm | −3000~6000(그리기 보호값). 저장은 원본 `save_workspace`가 작업대 안(0~가로·세로)인지 본다 | 5 | — | 없음 |
+| `ws.base_yaw` | 팔 받침 방향 | ° | −360~720 | 15 | — | 없음 |
+| `replay.speed` | 교시 배속(`teach.py`), 프로그램 재생 `speed` | 배 | 0.05~3 | 0.05 | — | 1 |
+| `program.s` | 프로그램 대기 | 초 | 0~600 (원본 `programs.validate`) | 0.5 | — | 1 |
+| `program.count` | 프로그램 반복 | 회 | 1~1000 (원본 `programs.validate`) | 1 | — | 2 |
+
+- 표에 없는 숫자 파라미터("그 밖" 카드)는 지금처럼 숫자 칸만 둔다. 시험이 그 목록을 출력해 하나씩 채운다.
+- 한 키를 여러 화면이 쓰면 한계는 하나다(`obj.*`는 직접 조작·수동 입력·프로그램이 같은 한계, `target.*`도 같다).
+- 원본 검사(`set_safety`, `programs.validate`, `backend.save_workspace`)가 있는 값은 그 범위와 같게 두거나, 값끼리 비교하는 검사(작업대 안, 여유 < 짧은 변/2)는 원본에 맡긴다. 작업대는 11-12에 `table.py` `LIMITS`로 먼저 막았고(#269) 이 표로 옮긴다.
+- 슬라이더 눈금은 `hard` 아래 끝부터 `step`씩이다(Quasar). 그래서 슬라이더 값은 `hard` 아래 끝이 `step`의 배수가 되게 둔다(속도 5~100 간격 5 → 30·100을 고를 수 있다). GUI `hard`는 서비스 한계와 같거나 더 좁다(속도: 서비스 1~100, GUI 5~100 — 지금 상단 막대와 같다).
+- 허용 범위의 근거: 0이나 음수가 뜻이 없는 값은 아래를 막고, 위는 서보 레지스터 범위(가속 254, 토크 1000)나 SO-101이 닿는 범위의 약 두 배로 둔다. 추천은 근거가 있는 셋(속도, 서보 가속, 제어 주기)만 둔다. 나머지는 측정이 쌓이면 채운다.
+
+#### 12.7.2 입력 방식 규칙 (위에서부터 처음 맞는 것)
+1. `widget`이 적혀 있으면 그것.
+2. 정해진 보기가 있는 값(`service/params.py` `CHOICES`): 보기 3개 이하는 토글, 넘으면 고르는 목록.
+3. 단위가 %·열림 눈금·토크 눈금·Hz·배이고 `(hard 위 − hard 아래) / step ≤ 200`: 슬라이더 + 오른쪽 숫자 칸. 슬라이더에 `soft`를 옅은 띠로 그린다.
+4. 단위가 mm·°인 좌표·물체·작업대·안전 칸(`target.*`, `obj.*`, `ws.*`, `safety.box.*`, `gripper.width_mm`, `joint.deg`): 숫자 칸 + 간격 버튼 `−10 −5 −1 +1 +5 +10`(결정 0055). 버튼은 적힌 수(mm·°)만큼 바꾸고, `hard` 밖으로 밀면 끝값에 맞춘다.
+5. 그 밖(파라미터의 mm·°·°/s·°/s²·초·서보 단위): 숫자 칸만(화살표·휠 한 칸 = `step`). 간격 버튼은 두지 않는다(°/s²처럼 큰 값에서 ±1은 뜻이 없다). 결정 0055와 다른 점은 이것뿐이다.
+- 하단 막대 속도(`bar-speed`)와 상단 막대 그리퍼 속도(`top-grip-speed`) 슬라이더는 자리가 좁아 숫자 칸 없이 지금 모양을 두고 `META`의 `hard`·`step`만 쓴다.
+
+#### 12.7.3 칸 아래 줄과 [기본값으로]
+- 칸 아래 한 줄: `기본 30 · 추천 5~30 · 허용 5~100 %`. 기본이 없거나 추천이 없으면 그 부분을 뺀다.
+- 값이 `soft` 밖이면 칸 아래 줄 글자를 `theme.WARN`(#8a4b00)으로, 칸 테두리를 같은 색으로 한다. `hard` 밖이면 Quasar `error`(빨강 `theme.DANGER` #c62828 테두리와 "허용 5~100 밖이라 쓰지 않습니다"). 파라미터 화면의 "바꾼 값" 강조는 줄 전체 배경(#fff4d6)과 왼쪽 막대라 칸 테두리 색과 겹치지 않는다.
+- 추천 띠: 슬라이더 트랙 뒤에 `soft` 구간만 `theme.ACCENT` 20% 투명도 배경을 둔다(트랙 요소의 CSS `linear-gradient`, 위치는 `hard` 기준 백분율).
+- [기본값으로]: 기본이 있는 칸 옆 작은 아이콘 버튼(`restart_alt`, 툴팁 "기본값 30으로"). 누르면 칸 값만 바꾸고 적용하지 않는다. 파라미터 화면의 바꾼 값 강조·[적용]은 지금 그대로다.
+
+#### 12.7.4 공용 부품 계약 (`pages/common.py`)
+- `meta_number(key: str, value: float | None, on_change=None, *, label: str | None = None, default: float | None = None, add=None, mark: str | None = None, hard: tuple | None = None, on_valid=None) -> MetaNumber`. `mark`가 없으면 `meta-<key>`(숫자 칸), 슬라이더 `<mark>-slider`, 간격 버튼 `<mark>-m10`…`<mark>-p10`, [기본값으로] `<mark>-reset`. 기존 시험 표식(`ws-table_x`, `replay-speed` 등)은 `mark`로 그대로 넘긴다. `hard`는 `joint.deg`처럼 그때 정해지는 한계를 넘길 때(표의 `hard`보다 우선).
+- `MetaNumber`: `.value`(마지막 허용 값, `float | None` — None은 `allow_none`일 때만), `.enabled`(쓰기 가능), `.set(v, quiet=False) -> bool`(코드에서 값 바꾸기. 허용 밖이면 바꾸지 않고 False. 성공하면 `quiet`가 아닐 때 `on_change(v)`를 부른다), `.valid`(지금 칸 글자가 허용 안인가), `.set_hard(lo, hi)`(그때 정해지는 한계, `joint.deg`), `.set_error(text | None)`(그 화면의 다른 오류, 예: 높이 필요. 허용 밖 오류가 있으면 그것을 먼저 보인다), `on_valid`(생성 인자, 허용 안/밖이 바뀔 때 `on_valid(ok)`), `.load(v)`(저장된 값을 다시 읽어 넣기: 허용 밖이어도 그대로 보이고 `.valid`로 알리며, `on_change`를 부르지 않고 그 칸의 "처음 값"(바꾼 값 강조의 기준)도 v로 바꾼다. 파라미터 화면은 프리셋을 불러온 뒤 모든 칸을 `.load()`로 채워, [적용]이 프리셋 값을 이전 값으로 되돌리지 않게 한다). 안의 숫자 칸·슬라이더·버튼을 한 묶음으로 켜고 끈다.
+- `add`가 오면 `add(MetaNumber)`로 넘긴다. `Controls.add`는 `.enabled`를 바꾸므로 `MetaNumber`가 `.enabled` 속성을 가지면 그대로 넣을 수 있다. `Controls`에는 버튼 쪽 `needs` 인자 하나만 더한다(아래).
+- 허용 밖 글자: NiceGUI `min`·`max`를 주지 않는다(말없이 잘라 내지 않게). Quasar `error`·`error-message`로 보이고, `.value`는 바뀌지 않으며 `on_change`를 부르지 않는다. 그래서 버튼이 누를 때 `.value`를 읽어도 허용 값만 받는다.
+- `on_change(v: float | None)`: 허용 값 하나를 받는다(이벤트 객체가 아님). 지금 이벤트를 받아 `e.value`를 읽는 곳(`table.py`, `manual.py`, `program.py`)과 인자 없는 곳(`params.py`)은 이 모양으로 바꾼다. 코드가 값을 넣던 자리(`manual.py` 3D 점·[점 처음 자리로], `table.py` 클릭·패드, `safety.py` 기본으로)는 `.set()`을 쓴다. 파라미터 화면이 프리셋을 불러온 뒤 칸을 채우는 것만은 `.load()`다(아래).
+- **`on_change`를 부르는 때**: 숫자 칸은 Enter나 칸을 떠날 때(blur, Tab·클릭으로 떠나는 것 포함) 값이 바뀌었을 때만 한 번(값을 바꾸지 않고 Tab으로 지나가면 부르지 않는다. 직접 조작 그리퍼 칸에서 팔이 움직이지 않게)(글자를 칠 때마다가 아니다. 그리퍼 칸에 50을 칠 때 5로 먼저 가지 않게). 간격 버튼·[기본값으로]는 누를 때 바로. 슬라이더는 끄는 동안 숫자 칸만 따라 바꾸고 손을 뗄 때(Quasar `change`) 한 번.
+- 허용 밖 글자가 남은 동안: `.valid`가 False이고 칸에 오류 문구가 보인다. **그 칸을 읽는 실행·저장·적용 버튼은 꺼진다**(보이지 않는 이전 값으로 팔이 움직이지 않게). 방법: `Controls.add(element, needs=())`에 인자 하나를 더해 `refresh()`가 `enabled = allowed and all(m.valid for m in needs)`로 켠다(지금 `refresh()`가 tick마다 다시 켜므로 여기서 함께 본다). 버튼과 그 버튼이 읽는 칸:
+
+  | 화면 | 버튼(표식) | 읽는 칸 |
+  |---|---|---|
+  | 직접 조작 | [이동] 좌표 | `target.*` |
+  | 직접 조작 | [이동] 관절(`joint-to`) | `joint.deg` |
+  | 직접 조작 | 그리퍼 폭으로 | `gripper.width_mm` |
+  | 직접 조작 | 지금 좌표를 집기 점으로·놓기 점으로(`pp-set-pick`·`pp-set-place`) | `target.*`(옮겨 담는 값) |
+  | 직접 조작 | 집어 옮기기(`pp-run`) | `obj.*`와 집기·놓기 점 칸 |
+  | 파라미터 | [적용] | 그 화면의 모든 칸 |
+  | 안전 | [적용](모드 토글이 부르는 적용 포함) | `safety.*` |
+  | 작업대·좌표 | [저장](`ws-save`) | `ws.*` |
+  | 프로그램 | [저장](`program-save`)·[실행]·[한 단계씩](`program-step-run`) | 그 프로그램 모든 단계의 숫자 칸 — 아래 "프로그램 화면" |
+  | 교시 | [재생](`play`) | `replay.speed` |
+  | 수동 입력 | 고른 물체에 이 높이(`apply-height`) | `obj.height` |
+  | 수동 입력 | 작업대 클릭으로 새 물체 더하기("새 물체" 모드, 버튼 없음) | `obj.*`(각도·폭·길이·높이). 칸이 허용 밖이면 클릭을 받지 않고 "각도·폭·길이·높이를 먼저 고치세요"를 보인다. "고른 물체 옮기기" 모드는 칸을 읽지 않으므로 막지 않는다 |
+  | 안전 | 모드 토글과 끄기 확인 창의 [확인] | `safety.*`(모드를 바꿀 때 함께 보내는 값) |
+
+  **누를 때 다시 확인**: 버튼은 타이머(0.1~0.5초)로 꺼지므로 그 사이에 누를 수 있다. 그래서 `Controls.guard(fn, needs=())`도 같은 `needs`를 받아, 누른 순간 `all(m.valid for m in needs)`가 아니면 실행하지 않고 "<칸 이름>: 허용 밖이라 실행하지 않습니다"를 알린다(지금 `guard`는 조작권·잠김·작업 실행만 본다, `common.py`). 표의 모든 버튼은 `controls.add(button, needs=...)`와 `controls.guard(fn, needs=...)`에 같은 목록을 넘긴다.
+  **프로그램 화면**: 단계 칸은 `@ui.refreshable` 안에서 다시 만들어지므로 버튼을 더할 때 정한 `needs`로는 볼 수 없다. 그래서 페이지에 `state["invalid"]: set[(단계 번호, 칸 이름)]`을 두고, 단계 칸마다 `meta_number(..., on_valid=lambda ok, k=(i, name): ...)`로 허용 밖이 되면 넣고 안으로 돌아오면 뺀다(다시 그릴 때는 비우고 새 칸이 다시 채운다). [저장]·[실행]·[한 단계씩]은 모두 `gate`에 넣고, 페이지 `tick()`에서 `enabled = controls.allowed and not state["invalid"]`로 켠다(그 뒤에 다른 줄이 다시 켜지 않게 마지막에 둔다). 누를 때는 `guard`가 `state["invalid"]`를 다시 본다. `meta_number`는 칸을 만들 때 `on_valid(지금 허용 여부)`를 한 번 부른다(파일에서 읽은 허용 밖 값도 바로 들어가게). 또 `programs.validate`가 모든 단계의 숫자 값을 `META` 한계(`target.*`, `obj.*`, `gripper.value`, `replay.speed`, `program.*`)로 보도록 넓혀, 펼치지 않은 단계나 파일에서 읽은 단계도 저장·실행 전에 막는다("N번 단계: x 허용 −600~900 밖"). `MetaNumber`에는 `on_valid(ok: bool)` 인자 하나를 더한다.
+  페이지가 `refresh()` 뒤에 `enabled`를 따로 다시 켜는 곳(`manual.py:219`, `params.py:73`, `teach.py:233`, `sensors/manual_view.py:169`)은 그 식에 `and controls.valid(needs)`를 더한다(`Controls.valid(needs) -> bool = all(m.valid for m in needs)`). 시험(12.7.7)이 이 네 곳에서 허용 밖 글자일 때 버튼이 꺼지는지 본다.
+ 빈 칸(`None`)은 `allow_none`이 아니면 허용 밖과 같다.
+- 처음 넣는 값(`workspace.yaml`, 저장된 프로그램 단계 등)이 허용 밖이면 그 값을 그대로 보이고 오류색으로 표시하며 `.valid`는 False다(위 규칙대로 버튼이 꺼진다). 3D에서 고른 점은 x·y(·높이)를 **모두 넣거나 하나도 넣지 않는다**: 먼저 셋 다 허용 안인지 보고, 하나라도 밖이면 아무 칸도 바꾸지 않고 알림 "점이 허용 범위 밖입니다"를 한 번 낸다. 안이면 `.set(quiet=True)`로 넣고 `on_change`는 한 번만 부른다.
+- 프리셋은 서비스가 팔에 먼저 적용하므로(`backend.load_preset` → `set_params`) 허용 밖 프리셋을 막는 것은 12.7.6 서비스 검사다. GUI는 불러온 뒤 모든 칸을 `.load()`로 채우고(값을 다시 보내지 않고 "처음 값"도 바꿈), 허용 밖이면 그 칸이 오류색이 된다.
+- 정수 값(`get_params()`의 값이 int인 파라미터, `program.count`)은 `round()`해서 넘기고 칸 형식은 `%d`.
+- 시험이 부품에 닿는 법: `meta_number`는 안쪽 `ui.number`에 `meta` 속성으로 자기를 붙인다. 코드가 넣는 값은 `_one(user, "<표식>").meta.set(v)`, 사람이 치는 값은 `user.find(marker=...).type("50")` 뒤 `.trigger("blur")`로 시험한다(NiceGUI 시험 도구에서 blur가 되는지 첫 PR에서 확인, 안 되면 `.meta` 안의 blur 처리 함수를 직접 부른다). 교시 배속 표식은 지금처럼 `replay-speed`.
+
+#### 12.7.5 바꾸는 순서
+선행: #269(화면 시험, `table.py` `LIMITS`)는 main에 합쳐졌다. ① 파라미터·프리셋(`params.py`, 새 `param_meta.py`, `common.py`, `theme.py` 색·띠, `backend.py` `saved` 전달) ② 직접 조작의 모든 숫자 칸(좌표, 관절 각도로, 그리퍼 폭·막대, 집어 옮기기 물체, `manual.py`) ③ 안전(`safety.py`) ④ 작업대·좌표(`table.py`, `LIMITS`를 `META`로) ⑤ 교시·프로그램(`teach.py`, `program.py`, `gui/programs.py` `validate`, `app.py` 막대) ⑥ 수동 입력(`sensors/manual_view.py`). 한 PR에 한두 화면씩. 고칠 시험: `.value =`로 칸에 값을 넣는 시험은 `.meta.set()`으로 바꾼다 — `tests/gui/test_teach.py`의 `replay-speed`, `test_settings.py`의 `ws-*`·파라미터 칸·안전 상자(`{"z": [None, 150]}`, 103~107행), `test_manual.py`의 좌표·관절 각도·물체 칸, `test_programs.py`의 단계 숫자 칸, `tests/gui_visual` 기준 사진. 바꾼 화면은 0054 화면 시험(`tests/gui_visual`) 기준 사진을 다시 찍는다. ①의 [기본값으로]는 팔 세션 REQ(`saved`)가 합쳐진 뒤 켠다(그 전에는 줄에서 "기본"을 뺀다).
+
+#### 12.7.6 서비스 쪽 검사 (팔 세션 REQ)
+`set_params`는 지금 `speed_pct`·`gripper_speed_pct`만 범위를 본다. 12.7.1 표의 파라미터 행 `hard`를 서비스에서도 거부하도록 한다(`service/params.py`에 한계 표 하나, GUI `META`와 같거나 넓은 값. 속도 두 값은 지금 1~100 그대로). 0이면 위험한 것부터: `control_hz`(0으로 나눔), `record_hz`, 최대 속도·가속도·저크 6개, 조임 힘 2개, `gripper_open`, `servo_acceleration`·`gripper_acceleration`(서보에서 0이 제한 없음일 수 있어 아래를 1로).
+
+#### 12.7.7 시험 기준
+- `META`의 파라미터 키가 모두 `get_params()`에 있고, `soft`가 있으면 `why`가 비어 있지 않으며 `soft`가 `hard` 안이다.
+- `META` 파라미터 `hard`가 서비스 한계 안이다(같거나 더 좁다, 팔 REQ가 합쳐진 뒤).
+- `safety.joint_margin_deg`, `safety.box.z` 최소, `program.s`, `program.count`가 원본 검사 범위와 같다. 작업대 칸의 저장은 `save_workspace` 검사가 막는다(작업대 밖 받침, 여유 ≥ 짧은 변/2).
+- 안전 상자의 빈 칸은 그대로 None으로 넘어가 기본 범위가 된다.
+- 칸마다 `hard` 밖 값(1e7 포함)은 그림·저장·이동에 쓰이지 않는다(11-12 무작위 조작 시험에서 작업대 가로 1e7로 연결이 끊긴 버그).
+- 슬라이더·숫자 칸·간격 버튼이 같은 값을 보이고, 슬라이더를 끄는 동안에는 `on_change`가 불리지 않고 놓을 때 한 번 불린다. 숫자 칸에 "50"을 칠 때 `on_change`는 blur에서 한 번(50)만 불린다.
+- 허용 밖 글자가 남은 칸이 있을 때 표(12.7.4)의 버튼이 꺼진다(`manual.py`·`params.py`·`teach.py`·`manual_view.py`처럼 페이지가 다시 켜는 곳 포함). 프리셋을 불러온 뒤 [적용]은 프리셋 값을 보낸다(`.load()`). `.set()`은 성공하면 `on_change`를 부르고 `quiet=True`면 부르지 않는다. 관절을 바꾸면 `joint.deg` 한계가 그 관절의 것으로 바뀐다.
+- 슬라이더 값이 `soft` 끝점(속도 5·30)과 `hard` 끝점(100)을 고를 수 있다.
+- 칸에 허용 밖 값을 넣고 바로(다음 타이머 전) 버튼을 눌러도 실행되지 않는다(`guard`가 다시 확인).
+- 프로그램: 펼친 단계 칸이 허용 밖이면 [저장]·[실행]·[한 단계씩]이 꺼지고, 파일에서 읽은 단계 값이 허용 밖이면 `programs.validate`가 "N번 단계: <칸> 허용 <범위> 밖"으로 저장·실행을 막는다.
+- 수동 입력: "새 물체" 모드에서 칸이 허용 밖이면 작업대 클릭이 물체를 더하지 않고, "고른 물체 옮기기" 모드는 그대로 옮긴다.
+- 파라미터 화면의 [기본값으로]는 설정 파일 값으로 바꾸고 바꾼 값 강조를 켠다(적용 전).
