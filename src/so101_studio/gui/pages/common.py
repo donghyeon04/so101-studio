@@ -1,10 +1,12 @@
 """페이지들이 같이 쓰는 조각: 조작권 게이트, 3D 칸."""
 
 import asyncio
+import inspect
 
 from nicegui import run, ui
 
 from .. import theme
+from ..param_meta import GAPS, META, fmt, hint_text, widget_for
 from ..scene3d import LAYERS
 from ..view_cube import view_cube
 
@@ -19,9 +21,14 @@ class Controls:
         self.backend, self.client_id, self.block_during_task, self.moves = backend, client_id, block_during_task, moves
         self.elements: list = []
 
-    def add(self, element):
-        self.elements.append(element)
+    def add(self, element, needs=()):
+        """needs: 이 요소가 읽는 숫자 칸(MetaNumber). 하나라도 허용 밖이면 끈다 (gui-spec 12.7.4)."""
+        self.elements.append((element, needs))  # 목록이면 나중에 더한 칸도 본다
         return element
+
+    @staticmethod
+    def valid(needs=()) -> bool:
+        return all(m.valid for m in needs)
 
     @property
     def mine(self) -> bool:
@@ -37,7 +44,9 @@ class Controls:
         """팔을 움직이는 페이지(moves)는 실제 팔이 잠기면 함께 꺼진다 (decisions/0027)."""
         return self.backend.move_lock() if self.moves else None
 
-    def guard(self, fn):
+    def guard(self, fn, needs=()):
+        """누른 순간 서버에서 다시 막는다: 조작권·잠김·작업 실행, 그리고 needs 칸이 허용 안인지(버튼은 타이머로만 꺼져 그 사이에 누를 수 있다, 12.7.4).
+        동기 함수도 감쌀 수 있다(돌려준 값이 awaitable일 때만 기다린다)."""
         async def call(*args):
             if not self.mine:
                 ui.notify("보기 전용입니다", type="warning")
@@ -48,14 +57,193 @@ class Controls:
             if not self.allowed:
                 ui.notify("작업 실행 중입니다", type="warning")
                 return None
-            return await fn(*args)
+            bad = next((m for m in needs if not m.valid), None)
+            if bad is not None:
+                ui.notify(f"{bad.name}: 허용 밖이라 실행하지 않습니다", type="warning")
+                return None
+            result = fn(*args)
+            return await result if inspect.isawaitable(result) else result
 
         return call
 
     def refresh(self) -> None:
         allowed = self.allowed
-        for element in self.elements:
-            element.enabled = allowed
+        for element, needs in self.elements:
+            element.enabled = allowed and self.valid(needs)
+
+
+class MetaNumber:
+    """값 정보표(META)를 따르는 숫자 칸 한 묶음 (gui-spec 12.7.4): 숫자 칸, 규칙에 따라 슬라이더나 간격 버튼, [기본값으로], 칸 아래 줄.
+    .value는 마지막 허용 값이고, 허용 밖 글자는 오류로 보이기만 하고 on_change를 부르지 않는다. on_change는 Enter·칸 떠남·간격 버튼·[기본값으로]·슬라이더 놓음에서 한 번."""
+
+    def __init__(self, key: str, value, on_change=None, *, label: str | None = None, default=None, add=None, mark: str | None = None,
+                 hard: tuple | None = None, on_valid=None):
+        self.key, self.meta = key, META[key]
+        self.name = label or key
+        self.on_change, self.on_valid, self.default = on_change, on_valid, default
+        self.hard = tuple(float(x) for x in (hard or self.meta.hard))
+        self.integer = isinstance(value, int) and not isinstance(value, bool) or key == "program.count"
+        self.other_error: str | None = None
+        self._enabled, self._syncing = True, False
+        mark = mark or f"meta-{key}"
+        kind = widget_for(key)
+        self.parts: list = []
+        with ui.column().classes("gap-0 meta-number").mark(f"{mark}-box") as self.box:
+            with ui.row().classes("w-full no-wrap items-center gap-1"):
+                self.slider = None
+                if kind == "slider":
+                    self.slider = ui.slider(min=self.hard[0], max=self.hard[1], step=self.meta.step, value=self._clamp(value)).props("label").classes("flex-1 meta-slider").mark(f"{mark}-slider")
+                    self.slider.on("update:model-value", self._slider_moving)
+                    self.slider.on("change", self._slider_released)
+                    self.parts.append(self.slider)
+                self.number = ui.number(value=value, format="%d" if self.integer else None, step=self.meta.step, validation=self._error_text,
+                                        on_change=self._typed).props("outlined dense").classes("meta-input").mark(mark)
+                self.number.meta = self  # 시험이 _one(user, 표식).meta.set(v)로 닿는다
+                self.number.on("blur", self._commit)
+                self.number.on("keydown.enter", self._commit)
+                self.parts.append(self.number)
+                if kind == "gap":
+                    for d in GAPS:
+                        b = ui.button(f"{d:+d}", on_click=lambda _e, d=d: self._step(d)).props("outline dense no-caps size=sm").classes("meta-gap").mark(f"{mark}-{'m' if d < 0 else 'p'}{abs(d)}")
+                        self.parts.append(b)
+                if default is not None:
+                    b = ui.button(icon="restart_alt", on_click=lambda: self.set(self.default)).props(f'flat dense round size=sm aria-label="기본값 {fmt(default)}으로"').mark(f"{mark}-reset")
+                    b.tooltip(f"기본값 {fmt(default)}으로")
+                    self.parts.append(b)
+            self.hint = ui.label("").classes("stat-label meta-hint").mark(f"{mark}-hint")
+        self.value = value if self._ok(value) else None
+        self.initial = value
+        self._was_valid = self._ok(value)
+        self._paint()
+        if add is not None:
+            add(self)
+        if on_valid is not None:
+            on_valid(self._was_valid)  # 처음 값이 허용 밖이어도 바로 알린다(프로그램 화면의 state["invalid"])
+
+    # 판정
+    def _ok(self, v) -> bool:
+        if v is None:
+            return self.meta.allow_none
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            return False
+        return self.hard[0] <= v <= self.hard[1]
+
+    def _error_text(self, v) -> str | None:
+        if not self._ok(v):
+            return f"허용 {fmt(self.hard[0])}~{fmt(self.hard[1])} 밖이라 쓰지 않습니다"
+        return self.other_error
+
+    @property
+    def valid(self) -> bool:
+        return self._ok(self.number.value)
+
+    def _clamp(self, v) -> float:
+        try:
+            return min(max(float(v), self.hard[0]), self.hard[1])
+        except (TypeError, ValueError):
+            return self.hard[0]
+
+    def _norm(self, v):
+        return None if v is None else (round(float(v)) if self.integer else float(v))
+
+    # 그리기
+    def _paint(self) -> None:
+        self.hint.text = hint_text(self.meta, self.default, self.hard)
+        v, soft = self.number.value, self.meta.soft
+        warn = soft is not None and self._ok(v) and v is not None and not soft[0] <= float(v) <= soft[1]
+        self.box.classes(add="meta-soft-out" if warn else "", remove="" if warn else "meta-soft-out")
+        if self.slider is not None and soft:
+            span = self.hard[1] - self.hard[0]
+            a, b = ((s - self.hard[0]) / span * 100 for s in soft)
+            self.slider.style(f"--soft-a:{a:.1f}%;--soft-b:{max(b, a + 1):.1f}%")
+            self.slider.classes(add="meta-soft-band")
+
+    def _check_valid(self) -> None:
+        ok = self.valid
+        if ok != self._was_valid:
+            self._was_valid = ok
+            if self.on_valid is not None:
+                self.on_valid(ok)
+
+    # 사람이 바꿀 때
+    def _typed(self, _e=None) -> None:
+        """글자가 바뀔 때마다: 판정만 하고(값을 보내지 않는다) 슬라이더를 따라 옮긴다."""
+        self._check_valid()
+        self._paint()
+        if self.slider is not None and self.valid and self.number.value is not None and not self._syncing:
+            self._syncing = True
+            self.slider.value = self._clamp(self.number.value)
+            self._syncing = False
+
+    def _commit(self, _e=None) -> None:
+        """Enter·칸 떠남: 허용 값이 바뀌었으면 한 번 보낸다."""
+        v = self.number.value
+        if self._ok(v) and self._norm(v) != self._norm(self.value):
+            self._accept(v)
+
+    def _slider_moving(self, _e=None) -> None:
+        if not self._syncing:
+            self._syncing = True
+            self.number.value = self._norm(self.slider.value)
+            self._syncing = False
+
+    def _slider_released(self, _e=None) -> None:
+        self._slider_moving()
+        self._commit()
+
+    def _step(self, d: float) -> None:
+        base = self.value if self.value is not None else self._clamp(0)
+        self.set(self._clamp(float(base) + d))
+
+    def _accept(self, v, quiet: bool = False) -> None:
+        self.value = self._norm(v)
+        if not quiet and self.on_change is not None:
+            self.on_change(self.value)
+
+    # 코드에서
+    def set(self, v, quiet: bool = False) -> bool:
+        """값 바꾸기. 허용 밖이면 바꾸지 않고 False. 성공하면 quiet가 아닐 때 on_change(v)."""
+        if not self._ok(v):
+            return False
+        self.number.value = self._norm(v)
+        self._accept(v, quiet)
+        return True
+
+    def load(self, v) -> None:
+        """저장된 값을 다시 읽어 넣는다: 허용 밖이어도 그대로 보이고, on_change를 부르지 않고 처음 값도 v로 바꾼다."""
+        self.number.value = v
+        self.value = self._norm(v) if self._ok(v) else self.value
+        self.initial = v
+        self._typed()
+
+    def set_hard(self, lo: float, hi: float) -> None:
+        self.hard = (float(lo), float(hi))
+        if self.slider is not None:
+            self.slider.props(f"min={lo} max={hi}")
+        self.number.validate(return_result=False)
+        self._typed()
+
+    def set_error(self, text: str | None) -> None:
+        self.other_error = text
+        self.number.validate(return_result=False)
+
+    @property
+    def enabled(self) -> bool:
+        return self._enabled
+
+    @enabled.setter
+    def enabled(self, on: bool) -> None:
+        if on != self._enabled:
+            self._enabled = on
+            for p in self.parts:
+                p.enabled = on
+
+
+def meta_number(key: str, value, on_change=None, **kw) -> MetaNumber:
+    """gui-spec 12.7.4 공용 부품. 표식: 숫자 칸 meta-<key>(또는 mark), 슬라이더 <mark>-slider, 간격 버튼 <mark>-m10…-p10, [기본값으로] <mark>-reset."""
+    return MetaNumber(key, value, on_change, **kw)
 
 
 def _layer_menu(scene) -> None:

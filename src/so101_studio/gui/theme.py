@@ -105,6 +105,12 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 .param-row {{ padding: 2px 6px; border-radius: 4px; }}
 .param-row.param-changed {{ background: #fff4d6; box-shadow: inset 3px 0 0 {WARN}; }}
 .param-input {{ width: 112px; flex: none; }}
+.meta-input {{ width: 112px; flex: none; }}
+.meta-number {{ width: 100%; }}
+.meta-soft-out .meta-hint {{ color: {WARN}; }}
+.meta-soft-out .meta-input .q-field__control:before {{ border-color: {WARN}; border-width: 2px; }}
+.meta-soft-band .q-slider__track {{ background: linear-gradient(to right, transparent var(--soft-a), rgba{(*rgb(ACCENT), 0.2)} var(--soft-a), rgba{(*rgb(ACCENT), 0.2)} var(--soft-b), transparent var(--soft-b)), rgba(0,0,0,0.1); }}
+.meta-gap {{ min-width: 34px; }}
 .progress-step {{ text-align: center; line-height: {CONTROL_H}px; background: {CARD}; color: {MUTED}; border: 1px solid {LINE}; border-radius: 6px; }}
 .progress-step.progress-active {{ background: {ACCENT}; color: #ffffff; font-weight: 600; border-color: {ACCENT}; }}
 .event-line {{ font-size: 14px; line-height: 22px; }}
