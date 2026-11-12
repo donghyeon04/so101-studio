@@ -6,7 +6,8 @@ from nicegui import run, ui
 
 from .. import theme
 from ..backend import EDGE_TEXT, JOINT_TEXT
-from .common import Controls, offer_free_edge, scene_frame
+from ..programs import DEFAULTS as PROGRAM_DEFAULTS
+from .common import Controls, meta_number, offer_free_edge, scene_frame
 
 SEGMENT_FACTORS = {0.5: "0.5", 1.0: "1", 2.0: "2"}
 RECORD_STEPS = ("홈으로 이동", "팔 잡기", "카운트다운", "기록")
@@ -55,6 +56,7 @@ def fit_text(fit: dict | None) -> str:
 def build(backend, client_id: str, actions) -> None:
     controls = Controls(backend, client_id, moves=True)
     state: dict = {"data": None, "factors": {}, "counting": False}
+    speed_needs: list = []  # 배속 칸 (12.7.4: 허용 밖이면 [재생]을 끈다)
 
     async def play() -> None:
         data = state["data"]
@@ -70,7 +72,7 @@ def build(backend, client_id: str, actions) -> None:
 
     with actions:
         ui.button("정지", color="negative", on_click=lambda: run.io_bound(backend.stop_all)).props("outline no-caps").mark("stop")
-        play_button = controls.add(ui.button("재생", on_click=controls.guard(play)).props("no-caps").mark("play"))
+        play_button = controls.add(ui.button("재생", on_click=controls.guard(play, needs=speed_needs)).props("no-caps").mark("play"), needs=speed_needs)
 
     def update_expected() -> None:
         if state["data"]:
@@ -197,12 +199,9 @@ def build(backend, client_id: str, actions) -> None:
                 segment_panel()
             with ui.card().classes("w-full gap-2"):
                 ui.label("재생").classes("card-title")
-                speed = controls.add(
-                    ui.slider(min=0.05, max=3, step=0.05, value=1.0, on_change=lambda: update_expected())
-                    .props("label-always").classes("mt-6").mark("replay-speed")
-                )
-                controls.add(ui.number("배속", min=0.05, max=3, step=0.05, format="%.2f").bind_value(speed)
-                             .props("outlined dense").classes("w-28").mark("replay-speed-input"))
+                speed = meta_number("replay.speed", 1.0, lambda _v: update_expected(), label="배속", default=PROGRAM_DEFAULTS["replay"]["speed"],
+                                    mark="replay-speed", add=controls.add)
+                speed_needs.append(speed)
                 replay_mode = controls.add(ui.toggle(REPLAY_MODES, value="original").props("no-caps spread").classes("w-full").mark("replay-mode"))
                 fit_note = ui.label("").classes("page-body").mark("fit-note")
                 until_limit = controls.add(ui.checkbox("한계 앞까지만 재생").mark("until-limit"))
@@ -230,6 +229,6 @@ def build(backend, client_id: str, actions) -> None:
         record_button.visible = not busy
         record_stop_button.visible = recording
         record_cancel_button.visible = state["counting"]
-        play_button.enabled = bool(controls.allowed and state["data"] and backend.state.status and backend.state.status.state == "idle")
+        play_button.enabled = bool(controls.allowed and state["data"] and backend.state.status and backend.state.status.state == "idle" and controls.valid(speed_needs))
 
     ui.timer(0.2, tick)

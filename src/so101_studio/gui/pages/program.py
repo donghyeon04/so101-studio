@@ -6,7 +6,7 @@ import copy
 from nicegui import run, ui
 
 from .. import programs
-from .common import Controls
+from .common import Controls, meta_number
 
 NUM_LABEL = {
     "x": "x (mm)", "y": "y (mm)", "h": "높이 (mm)", "yaw": "방향 (°)", "pitch": "손끝 각도 (°)", "value": "그리퍼 (0 닫힘 ~ 100 열림)",
@@ -17,7 +17,15 @@ NUM_LABEL = {
 
 def build(backend, client_id: str, actions) -> None:
     gate = Controls(backend, client_id, moves=True)
-    state: dict = {"name": "", "steps": [], "sel": None}  # sel = (바깥 번호, 반복 안 번호 | None)
+    state: dict = {"name": "", "steps": [], "sel": None, "invalid": set()}  # sel = (바깥 번호, 반복 안 번호 | None), invalid = 펼친 단계의 허용 밖 칸 이름 (12.7.4)
+
+    def invalid_text() -> str | None:
+        """펼친 단계에 허용 밖 칸이 있으면 알릴 문장. 다시 만들어지는 칸이라 guard의 needs 대신 이것을 누를 때 본다."""
+        if not state["invalid"]:
+            return None
+        i, j = state["sel"]
+        no = f"{i + 1}" if j is None else f"{i + 1}.{j + 1}"
+        return f"{no}번 단계 {', '.join(sorted(state['invalid']))}: 허용 밖이라 실행하지 않습니다"
 
     def selected() -> dict | None:
         sel = state["sel"]
@@ -74,6 +82,9 @@ def build(backend, client_id: str, actions) -> None:
             changed()
 
     def save() -> None:
+        if (text := invalid_text()):
+            ui.notify(text, type="warning")
+            return
         reason = backend.save_program(name_input.value or "", state["steps"])
         if reason:
             ui.notify(reason, type="negative")
@@ -84,6 +95,9 @@ def build(backend, client_id: str, actions) -> None:
         ui.notify(f"프로그램 {state['name']}을 저장했습니다", type="positive")
 
     async def start(step_mode: bool) -> None:
+        if (text := invalid_text()):
+            ui.notify(text, type="warning")
+            return
         reason = await run.io_bound(backend.run_program, copy.deepcopy(state["steps"]), name_input.value or "이름 없음", step_mode)
         if reason:
             ui.notify(reason, type="negative")
@@ -102,7 +116,7 @@ def build(backend, client_id: str, actions) -> None:
                 with ui.row().classes("w-full items-center gap-2 no-wrap"):
                     picker = ui.select(backend.program_names(), label="불러오기", on_change=lambda e: load(e.value)).props("outlined dense").classes("w-48").mark("program-picker")
                     name_input = ui.input("프로그램 이름").props("outlined dense").classes("flex-1").mark("program-name")
-                    ui.button("저장", on_click=save).props("outline no-caps").mark("program-save")
+                    save_button = ui.button("저장", on_click=save).props("outline no-caps").mark("program-save")
                 with ui.row().classes("w-full items-center gap-2"):
                     kind = ui.select({k: v for k, v in programs.STEP_TEXT.items()}, value="waypoint", label="단계 종류").props("outlined dense").classes("w-40").mark("step-kind")
                     ui.button("끝에 추가", on_click=lambda: add(kind.value, False)).props("outline no-caps").mark("step-add")
@@ -137,6 +151,7 @@ def build(backend, client_id: str, actions) -> None:
         with ui.column().classes("control-column gap-3"):
             @ui.refreshable
             def editor() -> None:
+                state["invalid"].clear()  # 다시 그리면 새 칸이 다시 채운다
                 step = selected()
                 with ui.card().classes("w-full gap-2").mark("step-editor"):
                     ui.label("고른 단계").classes("card-title")
@@ -154,17 +169,23 @@ def build(backend, client_id: str, actions) -> None:
                             ui.select(backend.sequences(), value=step["name"] or None, label="교시 기록",
                                       on_change=lambda e, s=step: (s.update(name=e.value or ""), step_list.refresh())).props("outlined dense").classes("w-full").mark("edit-name")
                         else:
-                            ui.number(NUM_LABEL.get(key, key), value=step[key],
-                                      on_change=lambda e, s=step, k=key: (s.update({k: int(e.value) if k == "count" else float(e.value)}), step_list.refresh()) if e.value is not None else None,
-                                      ).props("outlined dense").classes("w-full").mark(f"edit-{key}")
+                            ui.label(NUM_LABEL.get(key, key)).classes("stat-label")
+
+                            def valid_changed(ok: bool, k=key) -> None:
+                                (state["invalid"].discard if ok else state["invalid"].add)(NUM_LABEL.get(k, k))
+
+                            meta_number(programs.STEP_META[key], step[key], label=NUM_LABEL.get(key, key), mark=f"edit-{key}",
+                                        default=programs.DEFAULTS[step["type"]][key] if key in ("s", "speed", "count") else None,
+                                        on_change=lambda v, s=step, k=key: (s.update({k: int(v) if k == "count" else float(v)}), step_list.refresh()),
+                                        on_valid=valid_changed)
 
             editor()
             with ui.card().classes("w-full gap-2"):
                 ui.label("실행").classes("card-title")
                 ui.label("지금 실행 방식(위쪽)을 따릅니다. 시뮬레이션 먼저면 끝난 뒤 실제 팔로 실행할지 묻습니다").classes("page-body")
                 with ui.row().classes("w-full gap-2 no-wrap"):
-                    gate.add(ui.button("실행", on_click=gate.guard(lambda: start(False))).props("no-caps").classes("flex-1").mark("program-run"))
-                    gate.add(ui.button("한 단계씩", on_click=gate.guard(lambda: start(True))).props("outline no-caps").classes("flex-1").mark("program-step-run"))
+                    run_buttons = [ui.button("실행", on_click=gate.guard(lambda: start(False))).props("no-caps").classes("flex-1").mark("program-run"),
+                                   ui.button("한 단계씩", on_click=gate.guard(lambda: start(True))).props("outline no-caps").classes("flex-1").mark("program-step-run")]
                 next_button = ui.button("다음 단계", on_click=lambda: backend.program_run and backend.program_run.next_step()).props("outline no-caps").classes("w-full").mark("program-next")
                 progress = ui.label("").classes("page-body").mark("program-progress")
 
@@ -218,5 +239,9 @@ def build(backend, client_id: str, actions) -> None:
             progress.text = f"멈춤: {r.reason}"
         elif r:
             progress.text = "마쳤습니다"
+        bad = bool(state["invalid"])  # tick 마지막: 앞 줄이 다시 켜지 않게 (12.7.4)
+        for b in run_buttons:
+            b.enabled = gate.allowed and not bad
+        save_button.enabled = not bad
 
     ui.timer(0.2, tick)

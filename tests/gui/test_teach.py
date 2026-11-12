@@ -98,7 +98,7 @@ def test_page_loads_sequence_and_plays(backend):
         await user.should_see(marker="segment-bar")
         await user.should_see(marker="joint-chart")
         expected_before = _one(user, "expected").text
-        _one(user, "replay-speed").value = 0.5
+        _one(user, "replay-speed").meta.set(0.5)
         assert await _until(lambda: _one(user, "expected").text != expected_before)
         assert await _until(lambda: _one(user, "play").enabled)
         user.find(marker="play").click()
@@ -230,8 +230,10 @@ def test_replay_speed_can_be_typed(backend):
     async def go():
         async with user_simulation(gui_app.make_root(backend)) as user:
             await user.open("/teach")
-            _one(user, "replay-speed-input").value = 0.6
-            assert await _until(lambda: abs(_one(user, "replay-speed").value - 0.6) < 1e-9)
+            _one(user, "replay-speed").value = 0.6  # 사람이 친 글자: 슬라이더가 따라오고 칸을 떠나면 값이 된다
+            assert await _until(lambda: abs(_one(user, "replay-speed-slider").value - 0.6) < 1e-9)
+            _one(user, "replay-speed").meta._commit()
+            assert abs(_one(user, "replay-speed").meta.value - 0.6) < 1e-9
 
     asyncio.run(go())
 
