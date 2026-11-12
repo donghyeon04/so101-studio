@@ -216,7 +216,7 @@ def test_opening_end_that_cannot_lift_enough_is_not_used(tmp_path, monkeypatch):
     try:
         sk = s.skills
         assert sk.pick(DetectedObject("o", 300.0, 150.0, 0.0, 30, 30, 1.0, "manual", 40.0)).status == "ok"
-        monkeypatch.setattr(sk, "_can_leave", lambda st, need: False)  # 어떤 끝 자세에서도 필요한 만큼 못 올라간다고 하면 경로를 다 거른다
+        monkeypatch.setattr(sk, "_can_leave", lambda st, need, held=None: False)  # 어떤 끝 자세에서도 필요한 만큼 못 올라간다고 하면 경로를 다 거른다
         sk.place_at(*POINT)
     finally:
         s.disconnect()
