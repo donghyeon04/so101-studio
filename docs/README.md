@@ -86,3 +86,6 @@
 | `docs/decisions/0051-home-allowed-under-zero-lock.md` | 결정 | 확정 | 0° 확인 잠금만 걸렸을 때는 home 이동 허용, 캘리브레이션 불일치·팔 파일 없음 잠금은 그대로 |
 | `docs/decisions/0052-height-required-for-vertical-pick.md` | 결정 | 확정 | 수직으로만 집을 수 있고 높이를 모르면 집지 않고 높이 요구(height_required), 초음파는 CHECK 다시 1회, 부하로 높이 재기는 나중 |
 | `docs/decisions/0053-mujoco-sim-driver.md` | 결정 | 확정 | MuJoCo는 SimDriver와 같은 메서드의 MuJoCoDriver로 드라이버 자리에, menagerie robotstudio_so101에서 시작, 미끄럼 방지 접촉 조합, 학습용 프레임워크는 쓰지 않음 |
+| `docs/decisions/0054-gui-visual-tests.md` | 결정 | 확정 | GUI 화면 버그는 Playwright 화면 시험 묶음(사진 비교·배치 점검·몽키)으로, 시험 서버는 실제 팔 GUI와 다른 포트 |
+| `docs/decisions/0055-numeric-input-ui.md` | 결정 | 확정 | 숫자 입력은 값 정보표 하나(허용·추천·기본)와 입력 방식 규칙(목록·슬라이더+칸·칸+간격 버튼), gui-spec 새 절 뒤 구현 |
+| `docs/decisions/0056-egm-run-by-coordinator.md` | 결정 | 확정 | EGM 설계서 점검(Stage 9·drift-report)은 총괄이 egm-synthesizer 하위 에이전트로 직접 돌린다(0048 실행 방식 대체) |

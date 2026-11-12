@@ -156,6 +156,7 @@ class Scene3D:
         self.server.gui.configure_theme(
             dark_mode=False, show_logo=False, show_share_button=False, brand_color=theme.rgb(theme.ACCENT)
         )
+        self.server.gui.main_panel.dock_right()  # 떠 있는 창은 3D 칸이 좁아지면(조그 패널을 열 때) 다시 펼쳐져 팔을 가린다: 오른쪽 띠로 붙여 접는다
         self.server.gui.main_panel.minimize()  # 조작은 NiceGUI 쪽에서 한다. 이 패널은 3D를 가리기만 한다
         self._kin, self._table_z = kin, cfg.table_z_mm
         self._width_mm = cfg.gripper_width_mm if getattr(cfg, "gripper", "single_jaw") == "parallel" else None  # 병렬 URDF는 그리퍼가 직선 관절

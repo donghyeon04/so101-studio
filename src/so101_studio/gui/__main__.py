@@ -10,4 +10,6 @@ if __name__ == "__main__":
     parser.add_argument("--arm", help="팔 파일 이름(config/arms/<이름>.yaml)")
     parser.add_argument("--viser-port", type=int, default=scene3d.DEFAULT_PORT)
     parser.add_argument("--share", action="store_true", help="같은 네트워크의 다른 기기에서 보기 전용으로 보게 연다(결정 0047). 원격은 조작권이 없고 E-STOP만 누를 수 있다")
+    parser.add_argument("--watchdog-port", type=int, help="감시 프로세스 포트(기본 8090, 정지 수신은 +1). 시험용 서버를 실제 팔 GUI와 같이 띄울 때")
+    parser.add_argument("--no-browser", action="store_true", help="띄울 때 기본 브라우저에 탭을 열지 않는다(환경 변수 SO101_GUI_NO_BROWSER=1과 같다)")
     main(parser.parse_args())

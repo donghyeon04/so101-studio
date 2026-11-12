@@ -1,6 +1,7 @@
 """NiceGUI 앱: 공통 틀(위쪽 상태줄, 사이드바, 아래쪽 상태줄, E-STOP)과 페이지 등록."""
 
 import logging
+import os
 import sys
 import time
 
@@ -33,7 +34,8 @@ from .pages.common import Controls, jog_pads
 from .share import LOCAL_HOST, SHARE_HOST, is_remote, share_warning
 from .state import EMPTY, component_states, page_state
 from .view_cube import VIEW_CUBE_JS
-from .watchdog_link import BROWSER_HB_JS, WatchdogLink
+from .watchdog_link import PORT as WATCHDOG_PORT
+from .watchdog_link import WatchdogLink, browser_hb_js
 
 HOST = LOCAL_HOST  # NiceGUI 기본값 0.0.0.0은 같은 네트워크 어디서나 팔을 조작할 수 있게 한다 (decisions/0023). --share일 때만 0.0.0.0(결정 0047)
 DEFAULT_PORT = 8080
@@ -99,7 +101,7 @@ def make_root(backend: Backend):
         beating: list[bool] = []  # 이 브라우저가 지금 감시 프로세스에 heartbeat를 보내는가
         health_seen = [time.time()]  # 이 시각 뒤에 바뀐 서보 건강 판정만 알린다
         log_seen = [backend.log_loss()]  # 이 브라우저가 열린 뒤 새로 빠진 기록만 알린다
-        ui.add_head_html(BROWSER_HB_JS)
+        ui.add_head_html(browser_hb_js(getattr(backend.link, "port", WATCHDOG_PORT)))
         ui.add_head_html(VIEW_CUBE_JS)
 
         def show(path: str, title: str, task: str) -> None:
@@ -265,7 +267,8 @@ def make_root(backend: Backend):
             failed = await run.io_bound(backend.estop)
             ui.notify(failed or "비상 정지했습니다", type="negative", **({"timeout": 0, "close_button": "닫기"} if failed else {}))
 
-        drawer = ui.left_drawer(value=True, bordered=False).props(f"width={theme.DRAWER_W}").classes("p-0 gap-0")
+        # value=None: 넓은 화면에서만 열린 채 시작(좁으면 닫힌 채, 메뉴 버튼으로 연다). True는 좁은 화면에서 내용을 덮었다
+        drawer = ui.left_drawer(value=None, bordered=False).props(f"width={theme.DRAWER_W}").classes("p-0 gap-0")
 
         with ui.header().classes("frame-bar frame-top items-center no-wrap gap-4 px-3 py-1"):
             ui.button(icon="menu", on_click=drawer.toggle).props("flat round color=dark aria-label=메뉴").mark("menu")
@@ -370,7 +373,8 @@ def main(args) -> None:
     host = SHARE_HOST if share else LOCAL_HOST
     # so101.cmd gui의 --port는 서보 시리얼 포트다. 웹 포트는 python -m so101_studio.gui --port(web_port)로만 바꾼다(gui-spec 12.6)
     web_port = getattr(args, "web_port", None) or DEFAULT_PORT
-    link = WatchdogLink(sim=sim)
+    wd_port = getattr(args, "watchdog_port", None) or WATCHDOG_PORT  # 시험용 서버는 다른 포트로 띄워 실제 팔 GUI의 감시 프로세스와 겹치지 않게
+    link = WatchdogLink(sim=sim, port=wd_port, stop_port=wd_port + 1)
     try:
         arm_name = getattr(args, "arm", None)
         backend = Backend(
@@ -387,5 +391,6 @@ def main(args) -> None:
         print(share_warning(web_port), flush=True)
     ui.run(
         make_root(backend), host=host, port=web_port, title="SO-101 Studio",
-        language="ko-KR", reload=False, show="/start",
+        language="ko-KR", reload=False,
+        show=False if (getattr(args, "no_browser", False) or os.environ.get("SO101_GUI_NO_BROWSER")) else "/start",  # 세션이 띄울 때는 기본 브라우저에 탭을 열지 않는다(먼저 붙은 탭이 조작권을 가져간다)
     )

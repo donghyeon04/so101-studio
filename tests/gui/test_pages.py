@@ -127,8 +127,8 @@ def test_main_binds_localhost_and_connects_the_real_arm_without_sim(monkeypatch)
             pass
 
     class FakeLink:
-        def __init__(self, sim):
-            self.sim = sim
+        def __init__(self, sim, port=None, stop_port=None):
+            self.sim, self.port, self.stop_port = sim, port, stop_port
 
         def start(self, run_dir=None):
             self.run_dir = run_dir
@@ -148,6 +148,15 @@ def test_main_binds_localhost_and_connects_the_real_arm_without_sim(monkeypatch)
     gui_app.main(argparse.Namespace(sim=True, share=True))  # --share면 NiceGUI·Viser 모두 0.0.0.0
     assert [(k["host"], k["port"]) for _, k in calls] == [("127.0.0.1", 9000), ("127.0.0.1", gui_app.DEFAULT_PORT), ("0.0.0.0", gui_app.DEFAULT_PORT)]
     assert [c[0].viser_host for c in calls] == ["127.0.0.1", "127.0.0.1", "0.0.0.0"] and calls[2][0].share is True
+    assert calls[0][1]["show"] == "/start"  # 기본은 브라우저 탭을 연다
+    gui_app.main(argparse.Namespace(sim=True, no_browser=True))
+    monkeypatch.setenv("SO101_GUI_NO_BROWSER", "1")
+    gui_app.main(argparse.Namespace(sim=True))  # so101.cmd gui처럼 인자가 없을 때는 환경 변수
+    monkeypatch.delenv("SO101_GUI_NO_BROWSER")
+    assert calls[-2][1]["show"] is False and calls[-1][1]["show"] is False
+    gui_app.main(argparse.Namespace(sim=True, watchdog_port=8490))  # 시험용 서버는 다른 감시 포트(정지 수신은 +1)
+    assert (calls[-1][0].link.port, calls[-1][0].link.stop_port) == (8490, 8491)
+    del calls[3:]
     assert calls[0][0].speed == 20
     assert calls[0][0].real == {} and calls[0][0].link.sim is True
     assert calls[0][0].link.run_dir == "runs/시험"  # 감시 기록을 실행 폴더에 남긴다
@@ -284,3 +293,10 @@ def test_bottom_bar_speed_home_and_jog_panel(backend):
         assert await _until(lambda: not next(iter(user.find(marker="bar-grip-open").elements)).enabled)
 
     in_app(backend, check)
+
+
+def test_browser_heartbeat_follows_the_watchdog_port():
+    """브라우저 heartbeat는 그 서버의 감시 포트로 간다: 시험용 서버가 실제 팔 GUI의 감시 프로세스(8090)에 heartbeat를 보내면 안 된다."""
+    from so101_studio.gui.watchdog_link import BROWSER_HB_JS, browser_hb_js
+
+    assert ":8090/hb" in BROWSER_HB_JS and ":8490/hb" in browser_hb_js(8490) and ":8090/hb" not in browser_hb_js(8490)
