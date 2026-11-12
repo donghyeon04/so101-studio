@@ -1,6 +1,4 @@
 """진단을 함수로 (REQ-006): servoinfo, linkwatch, powertest, shaketest. GUI 장치 > 팔 페이지가 부른다."""
-from ..arm.sim_driver import SimDriver
-
 NAMES = ("servoinfo", "linkwatch", "powertest", "shaketest")
 BIG_MOVES = ("powertest", "shaketest")  # 팔을 크게 움직인다: GUI는 확인 창을 띄운다
 
@@ -16,7 +14,7 @@ def run_diagnostic(svc, name: str, progress=None, stop=None, **kw) -> dict:
     if name == "servoinfo":
         res = svc.driver.read_servo_info()
     elif name == "linkwatch":
-        if isinstance(svc.driver, SimDriver):
+        if getattr(svc.driver, "simulated", False):
             raise ValueError("linkwatch는 실제 팔의 포트가 필요하다 (시뮬레이션에서는 쓸 수 없다)")
         if svc._connected:
             raise ValueError("linkwatch는 포트를 직접 열므로 팔 연결을 끊은 뒤에 실행한다")

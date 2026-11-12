@@ -80,12 +80,6 @@ def _quat_z(deg: float) -> np.ndarray:
     return np.array([math.cos(h), 0.0, 0.0, math.sin(h)])
 
 
-def _quat_mul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    aw, ax, ay, az = a
-    bw, bx, by, bz = b
-    return np.array([aw * bw - ax * bx - ay * by - az * bz, aw * bx + ax * bw + ay * bz - az * by, aw * by - ax * bz + ay * bw + az * bx, aw * bz + ax * by - ay * bx + az * bw])
-
-
 def _mat_quat(R: np.ndarray) -> np.ndarray:
     import mujoco
 
@@ -94,8 +88,9 @@ def _mat_quat(R: np.ndarray) -> np.ndarray:
     return q
 
 
-def load_model(scene=None, objects=(), *, base: frames.Pose2D, table_z_mm: float):
-    """MjModel을 만든다: 원본 so101.xml + 받침 상자 + gripper_frame site + 작업대 평면 + 장면 부품 + 물체, 턱 충돌 geom 접촉값(condim 4, 마찰), 전역 옵션(타원 원뿔, impratio 10, implicitfast, timestep 2ms).
+def load_model(scene=None, objects=(), *, base: frames.Pose2D, table_z_mm: float, joint_limits: dict | None = None):
+    """(MjModel, warnings)를 만든다. joint_limits(팔 파일의 physical_limits_deg)가 있으면 관절 range와 액추에이터 ctrlrange를 그 값으로 넓힌다(13.4). 없으면 원본 range를 쓰고 warnings에 SIM-JOINT-RANGE-DEFAULT를 담는다.
+    모델: 원본 so101.xml + 받침 상자 + gripper_frame site + 작업대 평면 + 장면 부품 + 물체, 턱 충돌 geom 접촉값(condim 4, 마찰), 전역 옵션(타원 원뿔, impratio 10, implicitfast, timestep 2ms).
     scene는 core.scene.Scene 또는 None, objects는 SimObject 목록(이름이 서로 달라야 한다). `mujoco`가 없으면 ImportError."""
     import mujoco
 
@@ -104,11 +99,18 @@ def load_model(scene=None, objects=(), *, base: frames.Pose2D, table_z_mm: float
     spec.option.impratio = 10
     spec.option.integrator = mujoco.mjtIntegrator.mjINT_IMPLICITFAST
     spec.option.timestep = 0.002
+    warnings = []
+    if joint_limits:
+        _widen_ranges(spec, joint_limits)
+    else:
+        warnings.append("SIM-JOINT-RANGE-DEFAULT")
 
     gripper = spec.body("gripper")
     gripper.add_site(name="gripper_frame", pos=list(GRIPPER_FRAME_POS), quat=list(GRIPPER_FRAME_QUAT), group=3)
     spec.body("base").add_geom(name="base_box", type=mujoco.mjtGeom.mjGEOM_BOX, pos=list(BASE_BOX_POS), size=list(BASE_BOX_HALF), group=3, rgba=[0.5, 0.5, 0.5, 0.0])
 
+    # base는 월드에 붙은 body라 MuJoCo가 base-shoulder(부모-자식) 접촉을 거르지 않는다: 받침 상자가 어깨 모터와 겹쳐 늘 닿으므로 쌍을 뺀다
+    spec.add_exclude(name="base_shoulder", bodyname1="base", bodyname2="shoulder")
     for body_name in JAW_BODIES.values():  # 턱 충돌 geom(원본의 collision_gripper 클래스, group 3·4)의 접촉값만 고친다
         for g in spec.body(body_name).geoms:
             if g.group in (3, 4) and g.name != "base_box":
@@ -127,7 +129,21 @@ def load_model(scene=None, objects=(), *, base: frames.Pose2D, table_z_mm: float
             raise ValueError(f"물체 이름이 겹친다: {o.name!r}")
         seen.add(o.name)
         _add_object(spec, o, base, table_z_mm)
-    return spec.compile()
+    return spec.compile(), warnings
+
+
+def _widen_ranges(spec, limits: dict) -> None:
+    """관절 range와 그 액추에이터 ctrlrange를 함께 넓힌다(range만 넓히면 목표가 옛 범위에서 잘린다). 그리퍼는 값(0~100)이 아니라 각도로: [v0 - 1°, v100 + 1°]."""
+    for name, (mj_name, sign, offset) in JOINT_MAP.items():
+        if name == "gripper":
+            lo, hi = gripper_value_to_deg(0) - 1.0, gripper_value_to_deg(100) + 1.0
+        elif name in limits:
+            lo, hi = sorted(sign * v + offset for v in limits[name])
+        else:
+            continue
+        rng = [math.radians(lo), math.radians(hi)]
+        spec.joint(mj_name).range = rng
+        spec.actuator(mj_name).ctrlrange = rng
 
 
 def _add_object(spec, o: SimObject, base, table_z_mm: float) -> None:
@@ -159,7 +175,7 @@ def _add_scene(spec, scene, base, table_z_mm: float) -> None:
         b = parent.add_body(name=f"scene:{p.name}", pos=list(pos), quat=list(quat))
         lo, hi = p.mesh.bounds
         kw = {} if p.collide else {"contype": 0, "conaffinity": 0}
-        if len(p.mesh.faces) <= 12:  # 상자 메쉬(12면)는 상자 geom으로
+        if len(p.mesh.vertices) == 8 and len(p.mesh.faces) == 12:  # 꼭짓점 8개 상자 메쉬만 상자 geom으로(면 12개 이하라도 다른 모양이면 메쉬)
             half = (hi - lo) / 2000.0
             center = (hi + lo) / 2000.0
             b.add_geom(name=f"scene:{p.name}_geom", type=mujoco.mjtGeom.mjGEOM_BOX, pos=list(center), size=list(half), **kw)

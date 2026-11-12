@@ -15,6 +15,9 @@ from ..service.arm_service import ArmService, plan_goto  # noqa: F401  plan_goto
 COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "jog", "keys", "powertest", "shaketest", "servoinfo", "linkwatch", "info", "record", "replay", "seq", "gui", "doctor", "find-port", "incident", "calibrate"]
 
 
+MUJOCO_MISSING_TEXT = "MuJoCo가 설치되지 않았습니다. docs/guides/tooling-setup.md의 MuJoCo 줄로 설치하세요"
+
+
 def make_driver(sim: bool, cfg):
     if sim:
         return SimDriver(cfg.poses.get("home"))
@@ -79,6 +82,7 @@ def run_jog(svc: ArmService, a) -> None:
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(prog="so101_studio")
     ap.add_argument("--sim", action="store_true", help="SimDriver로 실행")
+    ap.add_argument("--sim-engine", choices=["kinematic", "mujoco"], default="kinematic", help="--sim과 함께: kinematic(기본, SimDriver) 또는 mujoco(물리)")
     ap.add_argument("--config", default="config/robot.yaml")
     ap.add_argument("--speed", type=float, help="속도 %% (기본: 설정값)")
     ap.add_argument("--place", help="pick 뒤에 놓을 배출 구역 이름 (place 명령은 필수)")
@@ -122,6 +126,15 @@ def main(argv=None) -> None:
     ap.add_argument("command", choices=COMMANDS)
     ap.add_argument("values", nargs="*", help="movej: 관절 6개 / goto: x y z yaw (z는 ToolPose 모델 z: 기준점 높이이고 턱 끝의 작업대 위 높이가 아니다. 턱 끝 높이로 보내려면 GUI 좌표 이동이나 keys 좌표 모드) / pick: x y 각도 폭 [높이](폭·높이 0이면 모름. 팔 방향과 어긋난 물체는 높이를 모르면 위 모서리를 칠 수 있다) / gripper: 값 / record·replay·seq: 이름")
     a = ap.parse_args(argv)
+    if a.sim_engine == "mujoco":
+        if not a.sim:
+            sys.exit("--sim-engine은 --sim과 함께 쓴다")
+        if a.command == "gui":
+            sys.exit("GUI의 MuJoCo는 M4부터입니다")
+        if a.command in ("calibrate", "linkwatch"):
+            sys.exit(f"{a.command}은 시뮬레이션에서 쓸 수 없다")
+        if a.dry_run:
+            sys.exit("물리 시뮬레이션에서는 --dry-run을 쓰지 않는다")
     if a.command in ("doctor", "find-port", "incident"):
         from ..bringup import run
 
@@ -165,7 +178,22 @@ def main(argv=None) -> None:
 
         run_linkwatch(cfg.port)
         return
-    svc = ArmService(make_driver(a.sim, cfg), cfg, load_workspace(), a.speed or cfg.speed_pct_default)
+    ws = load_workspace()
+    if a.sim and a.sim_engine == "mujoco":
+        from ..core.scene import load_scene
+
+        try:
+            from ..arm.sim_driver import make_sim_driver
+
+            driver = make_sim_driver(cfg, ws, load_scene())
+        except ImportError:
+            print(MUJOCO_MISSING_TEXT)
+            sys.exit(2)
+        except ValueError as e:
+            sys.exit(str(e))
+    else:
+        driver = make_driver(a.sim, cfg)
+    svc = ArmService(driver, cfg, ws, a.speed or cfg.speed_pct_default)
     svc.config_dir = Path(a.config).parent  # 캘리브레이션 사본과 팔 파일을 robot.yaml 옆에서 찾는다
     ok, msg = svc.connect()
     if not ok:
