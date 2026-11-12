@@ -267,7 +267,8 @@ def make_root(backend: Backend):
             failed = await run.io_bound(backend.estop)
             ui.notify(failed or "비상 정지했습니다", type="negative", **({"timeout": 0, "close_button": "닫기"} if failed else {}))
 
-        drawer = ui.left_drawer(value=True, bordered=False).props(f"width={theme.DRAWER_W}").classes("p-0 gap-0")
+        # value=None: 넓은 화면에서만 열린 채 시작(좁으면 닫힌 채, 메뉴 버튼으로 연다). True는 좁은 화면에서 내용을 덮었다
+        drawer = ui.left_drawer(value=None, bordered=False).props(f"width={theme.DRAWER_W}").classes("p-0 gap-0")
 
         with ui.header().classes("frame-bar frame-top items-center no-wrap gap-4 px-3 py-1"):
             ui.button(icon="menu", on_click=drawer.toggle).props("flat round color=dark aria-label=메뉴").mark("menu")
