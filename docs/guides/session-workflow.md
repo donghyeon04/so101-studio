@@ -4,13 +4,14 @@
 
 근거: `decisions/0024`, `0036`(로컬 세션 셋, GUI 세션 총괄). 요청 기록은 `docs/planning/session-requests.md`에 남긴다.
 
-## 1. 세션 네 개 (기획 1 + 로컬 3)
+## 1. 세션 다섯 개 (기획 1 + 로컬 4, MuJoCo 세션은 2026-11-12 추가)
 | 세션 | 위치 | 하는 일 | 고칠 수 있는 곳 | 기준 문서 |
 |---|---|---|---|---|
 | 기획 | 원격 (claude.ai) | 기획, 아키텍처, 레퍼런스 조사, 결정 기록, 설계서 | `docs/` | 전체 |
 | 초음파 (Sonnet) | 로컬, 폴더 `so101-studio-us` | 초음파 인식 코드, 가상 ESP32, ESP32 펌웨어 | `src/so101_studio/perception/ultrasonic/`, `firmware/`, `tests/perception/`, `config/ultrasonic.yaml` | `planning/ultrasonic-spec.md` |
 | GUI (Opus, 로컬 총괄) | 로컬, 폴더 `so101-studio-gui` | GUI 앱과 시뮬레이션 화면. 총괄: 일 나누기, 요청 대장, Sonnet 세션 PR 검토, 기획 요청 모으기 | `src/so101_studio/gui/`, `tests/gui/`, `pyproject.toml`의 `[project.optional-dependencies] gui` 줄 | `planning/gui-spec.md` |
 | 팔 (Sonnet) | 로컬, 폴더 `so101-studio` | 팔, 서비스, 작업 실행, 인식, CLI | 그 밖의 `src/`, `config/`, `tests/`, `so101.cmd` | `planning/arm-software-spec.md`, `planning/system-architecture.md` |
+| MuJoCo (Sonnet, 2026-11-12 추가) | 로컬, 폴더 `so101-studio-sim` | 물리 시뮬레이션 M2~M4(`arm-software-spec.md` 13절). 실물 일이 없을 때만 하는 일이라 팔 세션과 나눴다 | `src/so101_studio/arm/mujoco_*.py`, `assets/mujoco/`, `config/sim_scenarios/`, `tests/test_mujoco_*.py`. 13.1 표의 공유 파일(`arm/sim_driver.py`, `cli/__init__.py`, `service/diagnostics.py`, `service/arm_service.py`)은 그 표에 적힌 줄만 고치고, PR 본문에 적어 팔 세션과 겹치지 않게 총괄이 순서를 정한다 | `planning/arm-software-spec.md` 13절 |
 
 - 모든 세션은 `docs/planning/`의 확정 문서와 `docs/decisions/`를 근거로 일한다. 설계서는 기획 세션만 고친다.
 - 로컬 세션은 자기 인수인계 문서만 고친다. GUI 세션은 `planning/gui-dev-status.md`, 팔 세션은 `planning/arm-dev-status.md`, 초음파 세션은 `planning/us-dev-status.md`(초음파 세션이 처음 만든다)이다. 실물 시험 순서와 측정값은 `planning/measurements.md`에 모은다.
