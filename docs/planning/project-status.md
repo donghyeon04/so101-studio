@@ -15,7 +15,7 @@
 | 부분 | 된 것 (main) | 남은 것 | 세부 문서 |
 |---|---|---|---|
 | 팔 | 동작·안전 검사·CLI·교시·자동 캘리브레이션(측정·반복 합격·저장·0° 확인, 0° 잠금에서 home 허용), 작업 실행 `CHECK`·`RESCAN`, 그리퍼 두 종, 장면 부품 충돌, 대칭 V자 놓기(REQ-053), 넓힌 관절 한계(REQ-054), 어긋난 물체 집기 보완(REQ-055), 높이 필요·상승 최소(REQ-056) | 배출 구역 칸·낮은 hover(REQ-058), MuJoCo M1~M4(REQ-059~) | `arm-dev-status.md`, `arm-software-spec.md` 11.3·13절 |
-| GUI | 페이지 15개 + 운영자 화면, `--share`(원격 보기 전용), 캘리브레이션 마법사(측정·비교·저장·0° 확인), 높이 필요 표시, 프로그램·서보 건강·3D | 새 배출 구역 형식 표시(REQ-058 뒤), MuJoCo 인자 전달(M2)·물체 표시(M4), 장면 부품 편집기(STEP 뒤), 초음파 화면 실제 기록 | `gui-dev-status.md`, `gui-spec.md` |
+| GUI | 페이지 15개 + 운영자 화면, `--share`(원격 보기 전용), 캘리브레이션 마법사(측정·비교·저장·0° 확인), 높이 필요 표시, 프로그램·서보 건강·3D | 새 배출 구역 형식 표시(REQ-058 뒤), MuJoCo 인자 전달·물체 표시(둘 다 M4), 장면 부품 편집기(STEP 뒤), 초음파 화면 실제 기록 | `gui-dev-status.md`, `gui-spec.md` |
 | 초음파 | 레이더 + 팔 확인 인식, 가상 ESP32·가상 팔, 벤치마크, OpenRB-150 + XL330 펌웨어(컴파일만) | 부품 도착 뒤 업로드·실물(B1~B4, R1, A0·A1, I1). OpenRB VIN 12V 확인 전 배선 금지 | `us-dev-status.md`, `ultrasonic-spec.md` |
 | 작업대 | 하드웨어 요구사항(600×400, 팔 원점 (300, 61)) | 조립(로보나인 브래킷) 뒤 runbook 2-A | `workbench-hardware-requirements.md` |
 | 시험·운영 | 결정 0045(slow 표시·code-review·ruff 훅), 0046(PR은 관련 시험, 전체는 총괄이 하루 한 번·실물 전), 0048(설계서 새 절은 EGM Stage 9) | - | `../decisions/` |

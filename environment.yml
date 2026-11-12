@@ -14,4 +14,4 @@ dependencies:
   - pip
   - pip:
       - "lerobot[feetech]==0.6.1"
-      - -e .[gui]
+      - -e .[gui,test]

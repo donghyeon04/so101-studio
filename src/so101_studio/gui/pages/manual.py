@@ -83,7 +83,7 @@ def build(backend, client_id: str, actions) -> None:
                     ui.label("−90 아래 · 0 수평").classes("page-body")
                 with ui.row().classes("w-full items-center no-wrap gap-2"):
                     reach_icon = ui.icon("help", size="24px").mark("reach-icon")
-                    reach = ui.label("계산 중").classes("flex-1").mark("reach")
+                    reach = ui.label("계산 중").classes("flex-1 reach-text").mark("reach")  # 예상 시간은 팔 자세에 따라 바뀐다(화면 시험은 가린다)
                 edge_button = ui.button("작업대 가장자리 검사 끄기", on_click=lambda: offer_free_edge(backend, mark_dirty)).props(
                     "outline no-caps dense color=warning").mark("edge-offer")
                 edge_button.visible = False
