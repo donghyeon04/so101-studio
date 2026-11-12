@@ -6,6 +6,10 @@ from ...core.frames import Pose2D
 from ..sensors.manual_view import plane_svg
 from .common import Controls, nudge_pad
 
+# 칸마다 받는 범위(mm, °). 범위 밖 값은 그림·저장에 쓰지 않는다: 가로에 큰 수를 치면 100mm마다 긋는 격자선이 수십만 개가 되어 연결이 끊겼다(무작위 조작 시험)
+LIMITS = {"table_x": (100, 3000), "table_y": (100, 3000), "margin": (0, 200), "base_yaw": (-360, 720)}
+POS_LIMIT = (-3000, 6000)
+
 
 def build(backend, client_id: str, actions) -> None:
     controls = Controls(backend, client_id)
@@ -29,13 +33,15 @@ def build(backend, client_id: str, actions) -> None:
         plane.update()
 
     def number(label: str, key: str, step: float = 5) -> None:
+        lo, hi = LIMITS.get(key, POS_LIMIT)
+
         def changed(e) -> None:
-            if e.value is not None:
+            if e.value is not None and lo <= e.value <= hi:
                 values[key] = float(e.value)
                 redraw()
 
         fields[key] = controls.add(
-            ui.number(label, value=values[key], step=step, on_change=changed).props("outlined dense").classes("flex-1").mark(f"ws-{key}")
+            ui.number(label, value=values[key], step=step, min=lo, max=hi, on_change=changed).props("outlined dense").classes("flex-1").mark(f"ws-{key}")
         )
 
     async def plane_clicked(e) -> None:
