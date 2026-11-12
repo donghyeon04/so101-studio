@@ -279,7 +279,7 @@ G0~G4가 기본 골자의 핵심이다. G12~G16은 11절의 1차다. 막히는 R
 | 실물 | `--share`는 시뮬레이션과 실물 모두에서 쓸 수 있다(결정 0049. 0023의 "공유 링크는 시뮬레이션에서만"을 바꾼다). 원격은 보기 전용과 E-STOP뿐이고 조작권·감시 heartbeat는 루프백에만 있기 때문이다 |
 - 코드 주석 정리: `operator.py`의 "gui-spec 11절 알려진 문제 3" 참조는 지금 설계서에 없으니 "gui-spec 12.4"로 바꾼다.
 
-### 12.7 숫자 입력 (결정 0055, 2026-11-12 초안 8 — EGM Stage 9 1~7차 지적 반영)
+### 12.7 숫자 입력 (결정 0055, 2026-11-13 초안 9 — EGM Stage 9 1~8차 지적 반영)
 숫자 칸마다 허용 범위·추천 범위·기본값을 보이고, 값의 성격에 맞는 입력 방식을 쓴다. 근거 결정: 0055(값 정보표·입력 방식 규칙), 0054(화면 시험), 0014(서보 가속 10·50Hz), 0019(교시 구간 기준), 0033(그리퍼 조임). 2026-11-12 사용자 결정: 파라미터의 **[기본값으로]는 설정 파일 값**(코드 기본값이 아님)으로 되돌린다. 그 밖의 칸은 표의 "기본" 열대로.
 
 #### 12.7.1 값 정보표 `gui/param_meta.py`
@@ -367,7 +367,7 @@ G0~G4가 기본 골자의 핵심이다. G12~G16은 11절의 1차다. 막히는 R
 
 #### 12.7.4 공용 부품 계약 (`pages/common.py`)
 - `meta_number(key: str, value: float | None, on_change=None, *, label: str | None = None, default: float | None = None, add=None, mark: str | None = None, hard: tuple | None = None, on_valid=None) -> MetaNumber`. `mark`가 없으면 `meta-<key>`(숫자 칸), 슬라이더 `<mark>-slider`, 간격 버튼 `<mark>-m10`…`<mark>-p10`, [기본값으로] `<mark>-reset`. 기존 시험 표식(`ws-table_x`, `replay-speed` 등)은 `mark`로 그대로 넘긴다. `hard`는 `joint.deg`처럼 그때 정해지는 한계를 넘길 때(표의 `hard`보다 우선).
-- `MetaNumber`: `.value`(마지막 허용 값, `float | None` — None은 `allow_none`일 때만), `.enabled`(쓰기 가능), `.set(v, quiet=False) -> bool`(코드에서 값 바꾸기. 허용 밖이면 바꾸지 않고 False. 성공하면 `quiet`가 아닐 때 `on_change(v)`를 부른다), `.valid`(지금 칸 글자가 허용 안인가), `.set_hard(lo, hi)`(그때 정해지는 한계, `joint.deg`), `.set_error(text | None)`(그 화면의 다른 오류, 예: 높이 필요. 허용 밖 오류가 있으면 그것을 먼저 보인다), `on_valid`(생성 인자, 허용 안/밖이 바뀔 때 `on_valid(ok)`), `.load(v)`(저장된 값을 다시 읽어 넣기: 허용 밖이어도 그대로 보이고 `.valid`로 알리며, `on_change`를 부르지 않고 그 칸의 "처음 값"(바꾼 값 강조의 기준)도 v로 바꾼다. 파라미터 화면은 프리셋을 불러온 뒤 모든 칸을 `.load()`로 채워, [적용]이 프리셋 값을 이전 값으로 되돌리지 않게 한다). 안의 숫자 칸·슬라이더·버튼을 한 묶음으로 켜고 끈다.
+- `MetaNumber`: `.value`(마지막 허용 값, `float | None` — None은 `allow_none`일 때만), `.enabled`(쓰기 가능), `.set(v, quiet=False) -> bool`(코드에서 값 바꾸기. 허용 밖이면 바꾸지 않고 False. 성공하면 `quiet`가 아닐 때 `on_change(v)`를 부른다), `.valid`(지금 칸 글자가 허용 안인가), `.set_hard(lo, hi)`(그때 정해지는 한계, `joint.deg`), `.set_error(text | None)`(그 화면의 다른 오류, 예: 높이 필요. 허용 밖 오류가 있으면 그것을 먼저 보인다), `on_valid`(생성 인자, 허용 안/밖이 바뀔 때 `on_valid(ok)`. **글자가 바뀔 때마다**(입력 이벤트, 값을 보내기 전) 판정해 바뀌었으면 바로 부른다. 그래야 치자마자 누른 버튼도 바뀐 판정을 본다), `.load(v)`(저장된 값을 다시 읽어 넣기: 허용 밖이어도 그대로 보이고 `.valid`로 알리며, `on_change`를 부르지 않고 그 칸의 "처음 값"(바꾼 값 강조의 기준)도 v로 바꾼다. 파라미터 화면은 프리셋을 불러온 뒤 모든 칸을 `.load()`로 채워, [적용]이 프리셋 값을 이전 값으로 되돌리지 않게 한다). 안의 숫자 칸·슬라이더·버튼을 한 묶음으로 켜고 끈다.
 - `add`가 오면 `add(MetaNumber)`로 넘긴다. `Controls.add`는 `.enabled`를 바꾸므로 `MetaNumber`가 `.enabled` 속성을 가지면 그대로 넣을 수 있다. `Controls`에는 버튼 쪽 `needs` 인자 하나만 더한다(아래).
 - 허용 밖 글자: NiceGUI `min`·`max`를 주지 않는다(말없이 잘라 내지 않게). Quasar `error`·`error-message`로 보이고, `.value`는 바뀌지 않으며 `on_change`를 부르지 않는다. 그래서 버튼이 누를 때 `.value`를 읽어도 허용 값만 받는다.
 - `on_change(v: float | None)`: 허용 값 하나를 받는다(이벤트 객체가 아님). 지금 이벤트를 받아 `e.value`를 읽는 곳(`table.py`, `manual.py`, `program.py`)과 인자 없는 곳(`params.py`)은 이 모양으로 바꾼다. 코드가 값을 넣던 자리(`manual.py` 3D 점·[점 처음 자리로], `table.py` 클릭·패드, `safety.py` 기본으로)는 `.set()`을 쓴다. 파라미터 화면이 프리셋을 불러온 뒤 칸을 채우는 것만은 `.load()`다(아래).
@@ -383,15 +383,15 @@ G0~G4가 기본 골자의 핵심이다. G12~G16은 11절의 1차다. 막히는 R
   | 직접 조작 | 집어 옮기기(`pp-run`) | `obj.*`와 집기·놓기 점 칸 |
   | 파라미터 | [적용] | 그 화면의 모든 칸 |
   | 안전 | [적용](모드 토글이 부르는 적용 포함) | `safety.*` |
+  | 안전 | 모드 토글과 끄기 확인 창의 [확인] | `safety.*`(모드를 바꿀 때 함께 보내는 값). 토글은 버튼이 아니라 `needs`로 끌 수 없으므로, 안전 화면 `apply()`가 첫 줄에서 여유 칸과 상자 칸 여섯의 `.valid`를 본다. 하나라도 False면 "<칸 이름>: 허용 밖이라 적용하지 않습니다"를 알리고 `mode_toggle.value = state["shown_mode"]`(지금 적용된 모드)로 되돌린 뒤 끝낸다. 끄기 확인 창의 [확인]이 이것으로 거부되면 확인 창은 닫지 않는다 |
   | 작업대·좌표 | [저장](`ws-save`) | `ws.*` |
   | 프로그램 | [저장](`program-save`)·[실행]·[한 단계씩](`program-step-run`) | 그 프로그램 모든 단계의 숫자 칸 — 아래 "프로그램 화면" |
   | 교시 | [재생](`play`) | `replay.speed` |
   | 수동 입력 | 고른 물체에 이 높이(`apply-height`) | `obj.height` |
-  | 수동 입력 | 작업대 클릭으로 새 물체 더하기("새 물체" 모드, 버튼 없음) | `obj.*`(각도·폭·길이·높이). 칸이 허용 밖이면 클릭을 받지 않고 "각도·폭·길이·높이를 먼저 고치세요"를 보인다. "고른 물체 옮기기" 모드는 칸을 읽지 않으므로 막지 않는다 |
-  | 안전 | 모드 토글과 끄기 확인 창의 [확인] | `safety.*`(모드를 바꿀 때 함께 보내는 값) |
+  | 수동 입력 | 작업대 클릭으로 새 물체 더하기("새 물체" 모드, 버튼 없음) | `obj.*`(각도·폭·길이·높이). 칸이 허용 밖이면 클릭을 받지 않고 "각도·폭·길이·높이를 먼저 고치세요"를 보인다. 이 클릭은 `guard`에 `needs`를 넘기지 않는다(넘기면 "고른 물체 옮기기" 모드까지 막힌다). 대신 `clicked()`의 **더하기 분기 첫 줄**에서 각도·폭·길이·높이 칸의 `.valid`를 본다. "고른 물체 옮기기" 모드는 칸을 읽지 않으므로 막지 않는다 |
 
-  **누를 때 다시 확인**: 버튼은 타이머(0.1~0.5초)로 꺼지므로 그 사이에 누를 수 있다. 그래서 `Controls.guard(fn, needs=())`도 같은 `needs`를 받아, 누른 순간 `all(m.valid for m in needs)`가 아니면 실행하지 않고 "<칸 이름>: 허용 밖이라 실행하지 않습니다"를 알린다(지금 `guard`는 조작권·잠김·작업 실행만 본다, `common.py`). 표의 모든 버튼은 `controls.add(button, needs=...)`와 `controls.guard(fn, needs=...)`에 같은 목록을 넘긴다.
-  **프로그램 화면**: 단계 칸은 `@ui.refreshable` 안에서 다시 만들어지므로 버튼을 더할 때 정한 `needs`로는 볼 수 없다. 그래서 페이지에 `state["invalid"]: set[(단계 번호, 칸 이름)]`을 두고, 단계 칸마다 `meta_number(..., on_valid=lambda ok, k=(i, name): ...)`로 허용 밖이 되면 넣고 안으로 돌아오면 뺀다(다시 그릴 때는 비우고 새 칸이 다시 채운다). [저장]·[실행]·[한 단계씩]은 모두 `gate`에 넣고, 페이지 `tick()`에서 `enabled = controls.allowed and not state["invalid"]`로 켠다(그 뒤에 다른 줄이 다시 켜지 않게 마지막에 둔다). 누를 때는 `guard`가 `state["invalid"]`를 다시 본다. `meta_number`는 칸을 만들 때 `on_valid(지금 허용 여부)`를 한 번 부른다(파일에서 읽은 허용 밖 값도 바로 들어가게). 또 `programs.validate`가 모든 단계의 숫자 값을 `META` 한계(`target.*`, `obj.*`, `gripper.value`, `replay.speed`, `program.*`)로 보도록 넓혀, 펼치지 않은 단계나 파일에서 읽은 단계도 저장·실행 전에 막는다("N번 단계: x 허용 −600~900 밖"). `MetaNumber`에는 `on_valid(ok: bool)` 인자 하나를 더한다.
+  **누를 때 다시 확인**: 버튼은 타이머(0.1~0.5초)로 꺼지므로 그 사이에 누를 수 있다. 그래서 `Controls.guard(fn, needs=())`도 같은 `needs`를 받아, 누른 순간 `all(m.valid for m in needs)`가 아니면 실행하지 않고 "<칸 이름>: 허용 밖이라 실행하지 않습니다"를 알린다(지금 `guard`는 조작권·잠김·작업 실행만 본다, `common.py`). 표의 버튼은 **프로그램 행과 수동 입력 클릭 행, 안전 모드 토글 행을 빼고** `controls.add(button, needs=...)`와 `controls.guard(fn, needs=...)`에 같은 목록을 넘긴다(뺀 세 행은 각 행과 아래 "프로그램 화면"에 적은 대로 따로 본다). 지금 표에 `guard`가 없는 [집기 점으로]·[놓기 점으로](`pp-set-pick`·`pp-set-place`)도 `controls.guard(..., needs=<target 칸>)`로 감싼다. `guard`가 감싼 함수를 부를 때는 `result = fn(*args)` 뒤 `inspect.isawaitable(result)`일 때만 `await`한다(동기 처리 함수도 감쌀 수 있게, 지금 `common.py`는 늘 `await`한다).
+  **프로그램 화면**: 단계 칸은 `@ui.refreshable` 안에서 다시 만들어지므로 버튼을 더할 때 정한 `needs`로는 볼 수 없다. 그래서 페이지에 `state["invalid"]: set[(단계 번호, 칸 이름)]`을 두고, 단계 칸마다 `meta_number(..., on_valid=lambda ok, k=(i, name): ...)`로 허용 밖이 되면 넣고 안으로 돌아오면 뺀다(다시 그릴 때는 비우고 새 칸이 다시 채운다). [실행]·[한 단계씩]은 `gate`에 넣고, 페이지 `tick()` 끝에서 `enabled = gate.allowed and not state["invalid"]`로 켠다. [저장](`program-save`)은 팔을 움직이지 않으므로 `gate`에 넣지 않고, `tick()` 끝에서 `save_button.enabled = not state["invalid"]`로 둔다(둘 다 그 뒤에 다른 줄이 다시 켜지 않게 `tick()` 마지막에 둔다). **누를 때**: `save()`와 `start()`는 첫 줄에서 `state["invalid"]`가 비어 있지 않으면 "<가장 앞 단계 번호>번 단계 <칸 이름>: 허용 밖이라 실행하지 않습니다"를 알리고 끝낸다. `guard`의 `needs`는 다시 만들어지는 단계 칸을 볼 수 없으므로 이렇게 따로 본다. 단계 칸은 허용 값일 때만 `state["steps"]`를 바꾸므로(`program.py`), 이 확인이 없으면 허용 밖 글자를 치고 다음 tick(0.2초) 전에 누를 때 화면에 없는 이전 값으로 팔이 움직인다. `meta_number`는 칸을 만들 때 `on_valid(지금 허용 여부)`를 한 번 부른다(파일에서 읽은 허용 밖 값도 바로 들어가게). 또 `programs.validate`가 모든 단계의 숫자 값을 `META` 한계(`target.*`, `obj.*`, `gripper.value`, `replay.speed`, `program.*`)로 보도록 넓혀, 펼치지 않은 단계나 파일에서 읽은 단계도 저장·실행 전에 막는다("N번 단계: x 허용 −600~900 밖"). `MetaNumber`에는 `on_valid(ok: bool)` 인자 하나를 더한다.
   페이지가 `refresh()` 뒤에 `enabled`를 따로 다시 켜는 곳(`manual.py:219`, `params.py:73`, `teach.py:233`, `sensors/manual_view.py:169`)은 그 식에 `and controls.valid(needs)`를 더한다(`Controls.valid(needs) -> bool = all(m.valid for m in needs)`). 시험(12.7.7)이 이 네 곳에서 허용 밖 글자일 때 버튼이 꺼지는지 본다.
  빈 칸(`None`)은 `allow_none`이 아니면 허용 밖과 같다.
 - 처음 넣는 값(`workspace.yaml`, 저장된 프로그램 단계 등)이 허용 밖이면 그 값을 그대로 보이고 오류색으로 표시하며 `.valid`는 False다(위 규칙대로 버튼이 꺼진다). 3D에서 고른 점은 x·y(·높이)를 **모두 넣거나 하나도 넣지 않는다**: 먼저 셋 다 허용 안인지 보고, 하나라도 밖이면 아무 칸도 바꾸지 않고 알림 "점이 허용 범위 밖입니다"를 한 번 낸다. 안이면 `.set(quiet=True)`로 넣고 `on_change`는 한 번만 부른다.
@@ -416,5 +416,8 @@ G0~G4가 기본 골자의 핵심이다. G12~G16은 11절의 1차다. 막히는 R
 - 슬라이더 값이 `soft` 끝점(속도 5·30)과 `hard` 끝점(100)을 고를 수 있다.
 - 칸에 허용 밖 값을 넣고 바로(다음 타이머 전) 버튼을 눌러도 실행되지 않는다(`guard`가 다시 확인).
 - 프로그램: 펼친 단계 칸이 허용 밖이면 [저장]·[실행]·[한 단계씩]이 꺼지고, 파일에서 읽은 단계 값이 허용 밖이면 `programs.validate`가 "N번 단계: <칸> 허용 <범위> 밖"으로 저장·실행을 막는다.
+- 프로그램: 단계 칸에 허용 밖 글자를 친 직후, tick 전에 [실행]·[저장]을 누르면 거부되고 알림이 뜬다(`save()`·`start()` 첫 줄 확인).
+- 안전: 여유·상자 칸이 허용 밖일 때 모드 토글을 바꾸면 적용되지 않고 토글이 지금 모드로 되돌아가며, 끄기 확인 창의 [확인]은 창을 닫지 않는다.
+- `guard`가 동기 함수(`save`)와 비동기 함수를 모두 감싸 TypeError 없이 부른다. [집기 점으로]·[놓기 점으로]는 `target` 칸이 허용 밖이면 실행되지 않는다.
 - 수동 입력: "새 물체" 모드에서 칸이 허용 밖이면 작업대 클릭이 물체를 더하지 않고, "고른 물체 옮기기" 모드는 그대로 옮긴다.
 - 파라미터 화면의 [기본값으로]는 설정 파일 값으로 바꾸고 바꾼 값 강조를 켠다(적용 전).
