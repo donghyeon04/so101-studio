@@ -80,12 +80,6 @@ def _quat_z(deg: float) -> np.ndarray:
     return np.array([math.cos(h), 0.0, 0.0, math.sin(h)])
 
 
-def _quat_mul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    aw, ax, ay, az = a
-    bw, bx, by, bz = b
-    return np.array([aw * bw - ax * bx - ay * by - az * bz, aw * bx + ax * bw + ay * bz - az * by, aw * by - ax * bz + ay * bw + az * bx, aw * bz + ax * by - ay * bx + az * bw])
-
-
 def _mat_quat(R: np.ndarray) -> np.ndarray:
     import mujoco
 
@@ -159,7 +153,7 @@ def _add_scene(spec, scene, base, table_z_mm: float) -> None:
         b = parent.add_body(name=f"scene:{p.name}", pos=list(pos), quat=list(quat))
         lo, hi = p.mesh.bounds
         kw = {} if p.collide else {"contype": 0, "conaffinity": 0}
-        if len(p.mesh.faces) <= 12:  # 상자 메쉬(12면)는 상자 geom으로
+        if len(p.mesh.vertices) == 8 and len(p.mesh.faces) == 12:  # 꼭짓점 8개 상자 메쉬만 상자 geom으로(면 12개 이하라도 다른 모양이면 메쉬)
             half = (hi - lo) / 2000.0
             center = (hi + lo) / 2000.0
             b.add_geom(name=f"scene:{p.name}_geom", type=mujoco.mjtGeom.mjGEOM_BOX, pos=list(center), size=list(half), **kw)
