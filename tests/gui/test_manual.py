@@ -167,10 +167,10 @@ def test_page_blocks_unreachable_point_and_moves_to_reachable(backend):
         move = _one(user, "move")
         x, y = _one(user, "target-x"), _one(user, "target-y")
         assert await _until(lambda: _one(user, "reach").text.startswith("닿습니다") and move.enabled)
-        x.value, y.value = UNREACHABLE[0], UNREACHABLE[1]
+        x.meta.set(UNREACHABLE[0]), y.meta.set(UNREACHABLE[1])
         assert await _until(lambda: not _one(user, "reach").text.startswith("닿습니다") and _one(user, "reach").text != "계산 중")
         assert not move.enabled
-        x.value, y.value = REACHABLE[0], REACHABLE[1]
+        x.meta.set(REACHABLE[0]), y.meta.set(REACHABLE[1])
         assert await _until(lambda: _one(user, "reach").text.startswith("닿습니다") and move.enabled)
         user.find(marker="move").click()
         assert await _until(lambda: np.linalg.norm(_tip(backend) - np.array(REACHABLE[:3])) < 5, 15.0)

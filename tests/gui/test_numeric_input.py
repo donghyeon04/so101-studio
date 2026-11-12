@@ -211,3 +211,59 @@ def test_reset_puts_saved_value_and_marks_changed(clean):
         await user.should_see(f"기본 {saved:g}")
 
     in_app(clean, "/params", check)
+
+
+# ② 직접 조작
+
+def test_manual_out_of_range_coordinate_disables_move_and_point_buttons(clean):
+    async def check(user):
+        assert await _until(lambda: clean.owner is not None)
+        assert await _until(lambda: _one(user, "move").enabled, 10.0)
+        x = _one(user, "target-x")
+        x.value = 1e7  # 사람이 친 글자
+        assert not x.meta.valid
+        assert await _until(lambda: not _one(user, "move").enabled and not _one(user, "pp-set-pick").enabled)
+        x.value = 300
+        assert await _until(lambda: _one(user, "pp-set-pick").enabled)
+
+    in_app(clean, "/manual", check)
+
+
+def test_manual_joint_limit_follows_chosen_joint(clean):
+    async def check(user):
+        deg = _one(user, "joint-to-deg").meta
+        lims = clean.get_safety()["physical_limits_deg"] or clean.arm.cfg.joint_limits_deg
+        assert deg.hard == tuple(float(v) for v in lims["shoulder_pan"])
+        _one(user, "joint-to-name").value = 1
+        assert await _until(lambda: deg.hard == tuple(float(v) for v in lims["shoulder_lift"]))
+        assert await _until(lambda: f"허용 {lims['shoulder_lift'][0]:g}~{lims['shoulder_lift'][1]:g}" in deg.hint.text)
+
+    in_app(clean, "/manual", check)
+
+
+def test_manual_3d_point_outside_limits_changes_nothing(clean, monkeypatch):
+    from so101_studio.gui.pages import manual as manual_page
+
+    toasts = []
+    monkeypatch.setattr(manual_page.ui, "notify", lambda text, **k: toasts.append(text))
+
+    async def check(user):
+        assert await _until(lambda: _one(user, "reach").text != "계산 중")
+        x0, h0 = _one(user, "target-x").value, _one(user, "target-h").value
+        clean.scene.pick(300.0, 200.0, 1000.0)  # 높이만 허용(0~400) 밖
+        clean.scene.pick(300.0, 200.0, 1200.0)
+        await asyncio.sleep(0.5)
+        assert _one(user, "target-x").value == x0 and _one(user, "target-h").value == h0  # 셋 다 넣지 않는다
+        assert toasts.count("점이 허용 범위 밖입니다") == 1  # 한 번만 알린다
+
+    in_app(clean, "/manual", check)
+
+
+def test_manual_object_field_out_of_range_disables_pick_place(clean):
+    async def check(user):
+        assert await _until(lambda: clean.owner is not None)
+        assert await _until(lambda: _one(user, "pp-run").enabled, 10.0)
+        _one(user, "pp-height").value = 900
+        assert await _until(lambda: not _one(user, "pp-run").enabled)
+
+    in_app(clean, "/manual", check)
