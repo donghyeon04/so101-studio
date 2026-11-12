@@ -126,6 +126,10 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 .operator-button {{ font-size: 20px; min-height: 56px; padding: 0 28px; }}
 .operator-now {{ font-size: 32px; font-weight: 600; line-height: 40px; }}
 .scene-column {{ position: sticky; top: {GAP}px; }}
+@media (min-width: 700px) {{
+  .scene3d {{ min-width: 600px; }}  /* Viser는 3D 칸이 약 576px보다 좁으면 좁은 화면 배치로 바뀌어 설정 창을 펼친다(조그 패널을 열 때). 폰은 보기 전용이라 둔다 */
+  .nicegui-content .no-wrap:has(.scene3d) {{ flex-wrap: wrap; }}  /* 자리가 모자라면 오른쪽 조작 칸이 3D 아래로 내려간다 */
+}}
 .jog-button {{ min-width: {CONTROL_H}px; padding: 0 8px; }}
 .jog-unit {{ width: 24px; }}
 .scene3d {{ width: 100%; height: 62vh; min-height: 360px; border: 1px solid {LINE}; border-radius: {RADIUS}px; background: {CARD}; }}

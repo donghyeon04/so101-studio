@@ -252,6 +252,21 @@ def test_table_pad_moves_the_chosen_item(clean, tmp_path, monkeypatch):
     in_app(clean, "/table", check)
 
 
+def test_table_ignores_out_of_range_numbers(clean):
+    """가로에 아주 큰 수를 쳐도 그림을 다시 그리지 않는다(격자선 수십만 개로 연결이 끊겼다, 무작위 조작 시험)."""
+    async def check(user):
+        assert await _until(lambda: clean.owner is not None)
+        plane = _one(user, "ws-plane")
+        before = plane.content
+        _one(user, "ws-table_x").value = 10_000_000
+        await asyncio.sleep(0.3)
+        assert plane.content == before and len(plane.content) < 100_000
+        _one(user, "ws-table_x").value = 700
+        assert await _until(lambda: plane.content != before)
+
+    in_app(clean, "/table", check)
+
+
 def test_workspace_text_keeps_rectangle_zone_keys():
     """사각형 배출 구역(11.3.5, REQ-058)은 가운데 x·y만 바꾸고 w_mm·h_mm·slot_mm는 그대로 둔다."""
     text = "drop_zones:\n  right: {x_mm: 480, y_mm: 150, w_mm: 100, h_mm: 80, slot_mm: 75}\n"
