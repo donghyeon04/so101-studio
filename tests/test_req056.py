@@ -216,7 +216,7 @@ def test_opening_end_that_cannot_lift_enough_is_not_used(tmp_path, monkeypatch):
     try:
         sk = s.skills
         assert sk.pick(DetectedObject("o", 300.0, 150.0, 0.0, 30, 30, 1.0, "manual", 40.0)).status == "ok"
-        monkeypatch.setattr(sk, "_can_leave", lambda st, need: False)  # 어떤 끝 자세에서도 필요한 만큼 못 올라간다고 하면 경로를 다 거른다
+        monkeypatch.setattr(sk, "_can_leave", lambda st, need, held=None: False)  # 어떤 끝 자세에서도 필요한 만큼 못 올라간다고 하면 경로를 다 거른다
         sk.place_at(*POINT)
     finally:
         s.disconnect()
@@ -259,3 +259,81 @@ def test_place_point_inside_a_known_object_fails_with_the_object_as_the_reason(t
     finally:
         s.disconnect()
     assert r.status == "ik_fail" and "known_object" in r.reason and "(350,200)" in r.reason and free.status in ("ok", "ik_fail", "out_of_bounds")
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("elbow_extra", [0.0, 2.5])
+def test_leave_from_the_real_arm_end_pose_rises_at_least_the_needed_height(tmp_path, elbow_extra):
+    # 11-11 실물: 놓은 칸 1번(442.5,112.5)에서 벌림 끝 자세(pan 65.4, lift 13.7, elbow 11.9, wrist_flex 102.7, roll -1.0, gripper 56.1)는 곧게 못 올라가
+    # 기울기를 풀며 올라가야 한다(필요 49mm). 계획과 실제 관절 차이(접힌 자세에서 elbow +2.5°)가 있어도 올라간다. 방금 놓은 물체는 높이 있는 상자(폭 58, 높이 39)로 본다.
+    from so101_studio.core.types import JointState
+
+    s, ev = make(tmp_path, 58)
+    try:
+        sk = s.skills
+        q = JointState(65.4, 13.7, 11.9 + elbow_extra, 102.7, -1.0, 56.1)
+        assert sk._run([sk._joint_move(q)]).status == "ok"
+        def low_tip_z():
+            pp = sk.kin.fk(sk._q())
+            ff, mm = sk.kin.jaw_tip_offsets(pp.pitch_deg, pp.yaw_deg, sk._q().gripper)
+            return pp.z_mm + float(min(ff[2], mm[2]))
+        before = low_tip_z()
+        p = sk.kin.fk(sk._q())
+        f, m = sk.kin.jaw_tip_offsets(p.pitch_deg, p.yaw_deg, sk._q().gripper)
+        mid = (f[:2] + m[:2]) / 2
+        ctx = {"need_lift": 49.0, "tilted": True, "target": (p.x_mm + float(mid[0]), p.y_mm + float(mid[1])), "obj_w": 58.0, "obj_h": 39.0}
+        r = sk._leave(93.0, ctx)
+        rise = low_tip_z() - before
+    finally:
+        s.disconnect()
+    assert r.status == "ok" and rise >= 49.0 - 1.0 and not [1 for _, c, _ in ev if c == "ARM-PLACE-LOW-LIFT"]
+
+
+@pytest.mark.slow
+def test_untilt_checks_densely_and_names_the_check_that_rejected(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from so101_studio.core.types import JointState
+
+    s, ev = make(tmp_path, 58)
+    try:
+        sk = s.skills
+        assert sk._run([sk._joint_move(JointState(65.4, 13.7, 11.9, 102.7, -1.0, 56.1))]).status == "ok"
+        q = sk._q()
+        p = sk.kin.fk(q)
+        f, m = sk.kin.jaw_tip_offsets(p.pitch_deg, p.yaw_deg, q.gripper)
+        mid = (f[:2] + m[:2]) / 2
+        center = SimpleNamespace(x_mm=p.x_mm + float(mid[0]), y_mm=p.y_mm + float(mid[1]))
+        held = SimpleNamespace(center=center, box_w=58.0, obj_h=39.0)
+        seen = []
+        orig = sk._hits_objects
+        monkeypatch.setattr(sk, "_hits_objects", lambda states, held_r=0.0, **kw: seen.append(len(list(states))) or orig(states, held_r, **kw))
+        assert sk._untilt_goal(q, 49.0, held) is not None and sk.untilt_rejected is None and seen and seen[0] >= 25  # 58° 도는 관절을 2°마다 -> 25자세 이상
+        assert sk._untilt_goal(q, 49.0, SimpleNamespace(center=center, box_w=300.0, obj_h=39.0)) is None and sk.untilt_rejected.startswith("box:")  # 큰 상자: 지나는 길이 상자에 걸린다
+        sk.known_objects = [(center.x_mm, center.y_mm, 300.0)]
+        assert sk._untilt_goal(q, 49.0, held) is None and sk.untilt_rejected.startswith("object:")
+        sk.known_objects = []
+        monkeypatch.setattr(sk.ctl.safety, "check_goal", lambda q1, q0=None: "joint_limit:wrist_flex")
+        assert sk._untilt_goal(q, 49.0, held) is None and sk.untilt_rejected == "check_goal:joint_limit:wrist_flex"
+        monkeypatch.undo()
+        monkeypatch.setattr(sk.kin, "ik", lambda *a, **k: None)
+        assert sk._untilt_goal(q, 49.0, held) is None and sk.untilt_rejected == "ik"
+        sk._low_lift(0.0, 49.0)
+    finally:
+        s.disconnect()
+    assert [d["rejected_by"] for _, c, d in ev if c == "ARM-PLACE-LOW-LIFT"] == ["ik"]  # 마지막으로 거절한 검사가 이벤트에 남는다
+
+
+@pytest.mark.slow
+def test_just_placed_object_is_registered_after_leaving_not_before(tmp_path, monkeypatch):
+    # 11-12 리뷰: 방금 놓은 물체가 자기 떠나기(턱 중점이 놓는 점 12mm 안)를 막지 않게 떠난 뒤에 placed에 넣는다
+    s, _ = make(tmp_path, 30)
+    try:
+        sk = s.skills
+        assert sk.pick(DetectedObject("o", 300.0, 150.0, 0.0, 30, 30, 1.0, "manual", 40.0)).status == "ok"
+        leave, at_leave = sk._leave, []
+        monkeypatch.setattr(sk, "_leave", lambda *a: at_leave.append(list(sk.placed)) or leave(*a))
+        assert sk.place_at(*POINT).status == "ok"
+        assert at_leave == [[]] and len(sk.placed) == 1
+    finally:
+        s.disconnect()
