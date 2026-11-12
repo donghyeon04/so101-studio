@@ -7,6 +7,9 @@ def describe(reason: str, detail: dict | None = None) -> str:
     d = detail or {}
     name, _, joint = reason.partition(":")
     joint = d.get("joint", joint)
+    if name == "step" and joint == "gripper" and d.get("gripper_held"):
+        return (f"그리퍼가 한 제어 주기에 {d.get('delta_deg', 0):.1f}°(한계 {d.get('limit_deg', 0):.1f}°)를 넘게 움직이려 했습니다. 물체를 쥔 채 막혀 있는데 그리퍼 목표가 쥔 값과 달랐습니다. "
+                "물체를 놓거나 빼고(사람이 상자를 치우고) '재개' 하세요. " + SAFE)
     if name == "step":
         return (f"{joint}가 한 제어 주기에 {d.get('delta_deg', 0):.1f}°(한계 {d.get('limit_deg', 0):.1f}°)를 넘게 움직이려 했습니다. "
                 "목표가 너무 멀리 있거나 서보가 따라오지 못한 것입니다. " + SAFE + " '재개' 뒤 더 느린 속도로 다시 하세요.")
