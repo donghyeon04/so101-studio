@@ -64,6 +64,7 @@ class ArmService:
         self.driver, self.cfg = driver, cfg
         self.ws = ws or load_workspace()
         self.speed = speed_pct if speed_pct is not None else cfg.speed_pct_default
+        self.saved_params = {**_params._scalars(cfg), _params.SPEED: cfg.speed_pct_default}  # 설정 파일 값(합친 cfg, set_params로 바꾸기 전): get_params의 saved, GUI의 [기본값으로]
         self.log_root = log_root
         self.collision = None
         self.scene_error: str | None = None  # config/scene.yaml을 못 읽었을 때의 이유(빈 장면으로 시작한다)

@@ -132,7 +132,7 @@ def svc(tmp_path):
 
 def test_req004_get_set_params_with_timing(svc):
     p = svc.get_params()
-    assert p["speed_pct"] == {"value": 50, "default": 30, "timing": "now"}
+    assert p["speed_pct"] == {"value": 50, "default": 30, "saved": CFG.speed_pct_default, "timing": "now"}
     assert p["servo_acceleration"]["timing"] == "reconnect" and p["approach_height_mm"]["timing"] == "next_motion"
     assert svc.set_params({"speed_pct": "70", "approach_height_mm": 55}) == {"speed_pct": "now", "approach_height_mm": "next_motion"}
     assert svc.speed == 70 and svc.skills.speed == 70 and svc.cfg.approach_height_mm == 55.0
@@ -144,6 +144,49 @@ def test_req004_invalid_changes_apply_nothing(svc):
         with pytest.raises(ValueError):
             svc.set_params(bad)
     assert svc.cfg.approach_height_mm == CFG.approach_height_mm and svc.speed == 50
+
+
+def test_req062_saved_is_the_config_file_value_and_survives_set_params(svc):
+    p = svc.get_params()
+    assert all(p[k]["saved"] == getattr(CFG, k) for k in p if k != "speed_pct" and hasattr(CFG, k) and isinstance(getattr(CFG, k), (int, float, str)))
+    svc.set_params({"approach_height_mm": 55, "speed_pct": 70})
+    q = svc.get_params()
+    assert q["approach_height_mm"]["saved"] == CFG.approach_height_mm != q["approach_height_mm"]["value"] and q["speed_pct"]["saved"] == CFG.speed_pct_default
+
+
+def test_req062_limits_reject_out_of_range_and_dangerous_zero(svc):
+    from so101_studio.service.params import LIMITS
+    zero_unsafe = ["control_hz", "record_hz", "joint_v_max_deg_s", "a_max_deg_s2", "joint_jerk_max_deg_s3", "tool_v_max_mm_s", "tool_a_max_mm_s2",
+                   "tool_jerk_max_mm_s3", "gripper_squeeze_torque", "gripper_hold_torque", "gripper_open", "servo_acceleration", "gripper_acceleration"]
+    for k in zero_unsafe:
+        with pytest.raises(ValueError):
+            svc.set_params({k: 0})
+    before = {k: v["value"] for k, v in svc.get_params().items()}
+    for k, (lo, hi) in LIMITS.items():
+        for bad in (lo - 1, hi + 1):
+            with pytest.raises(ValueError):
+                svc.set_params({k: bad})
+    assert {k: v["value"] for k, v in svc.get_params().items()} == before
+    for k, (lo, hi) in LIMITS.items():  # 양 끝은 받는다
+        svc.set_params({k: lo})
+        svc.set_params({k: hi})
+
+
+def test_req062_every_limit_key_exists_and_config_values_are_inside(svc):
+    from so101_studio.service.params import LIMITS
+    p = svc.get_params()
+    assert set(LIMITS) <= set(p)
+    assert all(LIMITS[k][0] <= p[k]["saved"] <= LIMITS[k][1] for k in LIMITS)
+
+
+def test_req062_preset_outside_limits_is_rejected(svc, tmp_path):
+    import yaml
+    d = tmp_path / "presets"
+    d.mkdir(exist_ok=True)
+    (d / "bad.yaml").write_text(yaml.safe_dump({"approach_height_mm": 60, "control_hz": 0}), encoding="utf-8")
+    with pytest.raises(ValueError):
+        svc.load_preset("bad")
+    assert svc.cfg.approach_height_mm == CFG.approach_height_mm  # 하나라도 틀리면 아무것도 안 바뀐다
 
 
 def test_req004_presets_roundtrip(svc):
