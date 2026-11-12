@@ -452,6 +452,8 @@ class ArmService:
             raise RuntimeError("연결되지 않음")
         if self.ctl.busy:
             raise RuntimeError("동작 중에는 작업대 설정을 다시 읽을 수 없다")
+        if getattr(self.driver, "physical_objects", False):
+            raise RuntimeError("MuJoCo 시뮬레이션은 작업대 설정을 바꾸면 다시 시작해야 합니다")
         ws = load_workspace(path)
         try:  # 장면을 먼저 읽는다: 실패하면 아무것도 바꾸지 않는다
             scene = load_scene(Path(path).parent / "scene.yaml")

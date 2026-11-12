@@ -5,6 +5,17 @@ from ..core.types import JointState
 from .driver import JOINTS
 
 
+def make_sim_driver(cfg, ws, scene=None, scenario=None, viewer=False):
+    """MuJoCoDriver를 만든다(13.1). scenario는 M3, viewer는 M4에서 쓴다. mujoco가 없으면 ImportError."""
+    import mujoco  # noqa: F401  없으면 여기서 ImportError (CLI가 안내문으로 바꾼다)
+
+    from .mujoco_driver import MuJoCoDriver
+
+    if cfg.gripper == "parallel":
+        raise ValueError("MuJoCo는 단동식만 지원")
+    return MuJoCoDriver(cfg, ws, scene=scene)
+
+
 class SimDriver:
     def __init__(self, home: list[float] | None = None, grip_block: float | None = None):
         self._q = JointState(*(home or [0.0] * 6))

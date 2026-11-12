@@ -23,7 +23,7 @@ WS = load_workspace("config/workspace.yaml")
 
 @pytest.fixture(scope="module")
 def model():
-    return load_model(load_scene("config/scene.yaml"), [SimObject("box", 300, 200, 0, 30, 100, 39)], base=WS.base, table_z_mm=CFG.table_z_mm)
+    return load_model(load_scene("config/scene.yaml"), [SimObject("box", 300, 200, 0, 30, 100, 39)], base=WS.base, table_z_mm=CFG.table_z_mm)[0]
 
 
 def _set(model, data, q: JointState) -> None:
