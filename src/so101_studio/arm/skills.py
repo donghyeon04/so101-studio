@@ -269,8 +269,10 @@ class Skills:
             self._restore_grip_torque()
             return r
         if contact:  # 접촉: 목표를 지금 위치에서 예압만큼만 더 닫힌 쪽으로 두고(계속 미는 것을 없앤다), 들고 가는 동안 조임 한계를 낮춘다. 되돌리는 것은 place가 끝난 뒤
-            self.grip = {"tilted": bool(tilt_ok), "tip_h": float(t), "obj_h": float(obj.height_mm), "obj_w": float(obj.width_mm), "held_gap": float(self._gap_mm(self._q().gripper))}
-            self.known_objects = [o for o in self.known_objects if math.hypot(o[0] - obj.x_mm, o[1] - obj.y_mm) > 40.0]  # 집었다: 그 물체는 더 이상 장애물이 아니다(GUI 자동 실행은 집는 물체까지 알려 준다). no_object·집기 실패면 그대로 둔다  # 놓기가 같은 기울기·높이로 내려가도록 기억한다 (11.3.2)
+            self.grip = {"tilted": bool(tilt_ok), "tip_h": float(t), "obj_h": float(obj.height_mm), "obj_w": float(obj.width_mm), "held_gap": float(self._gap_mm(self._q().gripper))}  # 놓기가 같은 기울기·높이로 내려가도록 기억한다 (11.3.2)
+            near = min(self.known_objects, key=lambda o: math.hypot(o[0] - obj.x_mm, o[1] - obj.y_mm), default=None)  # 집었다: 가장 가까운 한 항목만 장애물에서 뺀다(붙어 있는 이웃은 남긴다). GUI 자동 실행은 집는 물체까지 알려 준다. no_object·집기 실패면 그대로 둔다
+            if near is not None and math.hypot(near[0] - obj.x_mm, near[1] - obj.y_mm) <= 40.0:
+                self.known_objects.remove(near)
             self.ctl.hold_gripper(max(lo_g, self._q().gripper - self.cfg.grip_preload_units))
             self._set_grip_torque(self.cfg.gripper_hold_torque)
         else:
@@ -319,6 +321,8 @@ class Skills:
         mid = (f[:2] + m[:2]) / 2
         env = SimpleNamespace(center=SimpleNamespace(x_mm=p.x_mm + float(mid[0]), y_mm=p.y_mm + float(mid[1])), yaw=p.yaw_deg, tip_z=p.z_mm + float(min(f[2], m[2])),
                               v0=v0, gap0=gap0, cap=cap, sym=self._sym_gap_mm(), tau_s=self._tilt(v0) if ctx.get("tilted") else 0.0, obj_h=float(ctx.get("obj_h", 0.0)), need_lift=float(ctx.get("need_lift") or LIFT_MARGIN_MM), box_w=float(ctx.get("obj_w") or gap0))  # 상자 폭: 물체 폭을 알면 그 값, 모르면 쥔 틈 (11.3.3)
+        if self._place_ctx is not None:
+            self._place_ctx["center"] = env.center  # 떠날 때(_leave)도 열림 경로 검사(_can_leave)와 같은 상자 중심을 쓴다
         last = "ik_failed_along_opening_path"
         for route in ROUTES:
             why = self._route_skip(route, ctx, env)
@@ -504,9 +508,9 @@ class Skills:
         """수직 이동 높이 후보: approach_height_mm부터 5mm씩 10mm까지. 전부 기울인 자세는 높이 올릴수록 손목 한계(wrist_flex ±101°)에 막혀(배출 구역은 15mm까지만 닿는다) 닿는 가장 높은 것을 쓴다 (11.3.3의 호버 높이를 현실에 맞춤)."""
         return [float(h) for h in range(int(self.cfg.approach_height_mm), 9, -5)] or [float(self.cfg.approach_height_mm)]
 
-    def _hits_objects(self, states, held_r: float = 0.0) -> str | None:
+    def _hits_objects(self, states, held_r: float = 0.0, tolerate_start: bool = True) -> str | None:
         """낮게 지나는(낮은 턱 끝이 이웃 높이 + 여유보다 낮은) 상태에서 두 턱 끝이, held_r > 0이면 쥔 물체(두 턱 끝 중점, 반지름 held_r)도, 알려진 물체 원(placed·known_objects)에 들어가면 이유 문자열.
-        첫 자세에서 이미 겹쳐 있는 원(들어올린 자세가 낮아 바로 옆 이웃과 겹쳐 시작할 수 있다)은 그 겹침이 더 깊어지지 않는 동안만 허용한다: 이웃을 쓸고 가면 충돌이다."""
+        첫 자세에서 이미 겹쳐 있는 원(들어올린 자세가 낮아 바로 옆 이웃과 겹쳐 시작할 수 있다)은 그 겹침이 더 깊어지지 않는 동안만 허용한다: 이웃을 쓸고 가면 충돌이다. tolerate_start=False면 허용하지 않는다(기울기 풀기는 집은 직후가 아니다)."""
         circles = [*self.placed, *self.known_objects]
         states = list(states)
         start = {}  # 원 -> 첫 자세에서의 여유 거리(음수 = 겹침)
@@ -520,7 +524,7 @@ class Skills:
             for c in circles:
                 cx, cy, r = c
                 d = min(min(math.hypot(t[0] - cx, t[1] - cy) for t in tips) - (r + JAW_HALF_MM), (math.hypot(mid[0] - cx, mid[1] - cy) - (r + held_r + 2.0)) if held_r else 1e9)
-                if i == 0:
+                if i == 0 and tolerate_start:
                     start[c] = d
                 if d < 0 and d < start.get(c, 0.0) - 1.0:  # 새로 겹치거나, 처음부터 겹친 것이 더 깊어진다
                     return f"object@({cx:.0f},{cy:.0f})"
@@ -553,12 +557,6 @@ class Skills:
                 return q_hover, down, h
         return None
 
-    def _low_tip_z(self, st: JointState) -> float:
-        """낮은 턱 끝의 모델 z(mm)."""
-        p = self.kin.fk(st)
-        f, m = self.kin.jaw_tip_offsets(p.pitch_deg, p.yaw_deg, st.gripper)
-        return p.z_mm + float(min(f[2], m[2]))
-
     def _untilt_goal(self, q_from: JointState, rise: float, held=None) -> JointState | None:
         """q_from에서 벌린 틈을 유지한 채 기울기를 풀며 같은 중점 위로 rise(mm) 올라가는 목표 자세. 기울기 변화가 커서 직선(MoveL)은 해가 튀므로 관절 보간으로 가는데,
         q_from에서 가까운 해로 풀고, 지나는 자세(가장 크게 도는 관절 SWING_STEP_DEG마다 하나)에서 방금 놓은 물체 상자(held: center·box_w·obj_h)와 두 턱 선분이 BOX_GAP_MM 안으로 들어오거나
@@ -580,7 +578,7 @@ class Skills:
         gaps = [self._box_gap(st, self.kin.fk(st), held) for st in states] if held is not None else []
         if gaps and min(gaps) < BOX_GAP_MM:
             self.untilt_rejected = f"box:{min(gaps):.0f}mm"
-        elif (why := self._hits_objects(states)) is not None:
+        elif (why := self._hits_objects(states, tolerate_start=False)) is not None:
             self.untilt_rejected = f"object:{why}"
         elif (why := next((w for a, b in itertools.pairwise(states) if (w := self.ctl.safety.check_goal(b, a))), None)) is not None:
             self.untilt_rejected = f"check_goal:{why}"
@@ -621,19 +619,19 @@ class Skills:
         self.ctl._emit("place_low_lift", "ERROR", "ARM-PLACE-LOW-LIFT", {"lift_mm": lifted, "needed_mm": need, "rejected_by": self.untilt_rejected or "no_plan"})  # 어느 검사가 기울기 풀기를 거절했는지
         return MotionResult("stopped", 0.0, ToolPose(0, 0, 0, 0), reason=f"low_lift: 놓은 뒤 {need:.0f}mm 이상 올라가야 하는데 {lifted:.0f}mm만 올라갈 수 있다")
 
-    def _leave(self, here: ToolPose, held_gap: float, ctx: dict) -> MotionResult:
+    def _leave(self, held_gap: float, ctx: dict) -> MotionResult:
         """놓은 뒤 떠나는 수직 상승 (11.3.3 5번). need = 물체 높이 + 10mm(모르면 t_g + 30mm). 계획(_leave_plan): 곧게 need 이상 올라가거나, 올라갈 수 있는 만큼 곧게 올라간 뒤 기울기를 풀며 마저 올라간다
-        (직선은 해가 튀어 관절 보간, 지나는 자세는 알려진 물체·check_goal·내려감·휘두름 검사). 계획이 없으면 ARM-PLACE-LOW-LIFT(ERROR)와 stopped(low_lift)로 끝낸다. 계획은 지금 실제 관절에서 다시 세운다."""
+        (직선은 해가 튀어 관절 보간, 지나는 자세는 방금 놓은 물체 상자·알려진 물체·check_goal 검사). 계획이 없으면 ARM-PLACE-LOW-LIFT(ERROR)와 stopped(low_lift)로 끝낸다. 계획은 지금 실제 관절에서 다시 세운다."""
         need = float(ctx.get("need_lift") or 0.0)
-        tx, ty = ctx["target"]
-        held = SimpleNamespace(center=SimpleNamespace(x_mm=tx, y_mm=ty), box_w=float(ctx.get("obj_w") or held_gap), obj_h=float(ctx.get("obj_h") or NEIGHBOUR_H_MM))  # 방금 놓은 물체 상자
+        held = SimpleNamespace(center=ctx.get("center") or SimpleNamespace(x_mm=ctx["target"][0], y_mm=ctx["target"][1]), box_w=float(ctx.get("obj_w") or held_gap), obj_h=float(ctx.get("obj_h") or NEIGHBOUR_H_MM))  # 방금 놓은 물체 상자
         plan = self._leave_plan(self._q(), need, held)
         if plan is None:  # 풀 길이 없다: 곧게 올라갈 수 있는 만큼은 올라가(턱을 놓은 물체 옆에서 떼) 멈춘다
             q, p, lifted = self._q(), self.kin.fk(self._q()), 0.0
             for h in self._heights():
                 if h < need and (u := self._line(q, replace(p, z_mm=p.z_mm + h))) is not None:
-                    if self._run([u]).status == "ok":
-                        lifted = h
+                    if (r := self._run([u])).status != "ok":
+                        return r  # E-STOP·fault는 low_lift로 덮지 않는다
+                    lifted = h
                     break
             return self._low_lift(lifted, need)
         up, goal, lifted = plan
@@ -710,9 +708,8 @@ class Skills:
                 return r
             # 열면서 손이 옮겨졌으니 원래 하강 경로를 거꾸로 타면 낮은 높이에서 release 자리로 되돌아가며 물체를 민다: 그 틈과 기울기를 유지한 채 지금 자리에서 수직으로 올린다.
             # 그리퍼는 연 채로 둔다(닫기는 호출한 쪽이 호버 높이 이상 올라온 뒤에 한다)
-            here = self.kin.fk(self._q())
             try:
-                return self._leave(here, held_gap, self._place_ctx)  # 방금 놓은 물체는 떠난 뒤에 placed에 넣는다: 떠나는 길(턱 중점이 놓는 점 12mm 안)이 그 물체에 걸리지 않게 (11-12 리뷰, _can_leave는 놓기 전이라 이미 그랬다)
+                return self._leave(held_gap, self._place_ctx)  # 방금 놓은 물체는 떠난 뒤에 placed에 넣는다: 떠나는 길(턱 중점이 놓는 점 12mm 안)이 그 물체에 걸리지 않게 (11-12 리뷰, _can_leave는 놓기 전이라 이미 그랬다)
             finally:
                 if held_gap < self._gap_mm(min(self.cfg.gripper_open, self.cfg.joint_limits_deg["gripper"][1])) - 1.0:  # 그리퍼가 이미 열린 값(gripper_open)까지 열려 있었으면 쥔 물체가 없었다(드라이런·집기 실패): 놓은 물체로 세지 않는다
                     self.placed.append((x_mm, y_mm, held_gap / 2.0))  # 다음 놓기의 벌림이 이 물체를 피하도록 알려진 물체로 둔다

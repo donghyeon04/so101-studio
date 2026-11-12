@@ -273,13 +273,17 @@ def test_leave_from_the_real_arm_end_pose_rises_at_least_the_needed_height(tmp_p
         sk = s.skills
         q = JointState(65.4, 13.7, 11.9 + elbow_extra, 102.7, -1.0, 56.1)
         assert sk._run([sk._joint_move(q)]).status == "ok"
-        before = sk._low_tip_z(sk._q())
+        def low_tip_z():
+            pp = sk.kin.fk(sk._q())
+            ff, mm = sk.kin.jaw_tip_offsets(pp.pitch_deg, pp.yaw_deg, sk._q().gripper)
+            return pp.z_mm + float(min(ff[2], mm[2]))
+        before = low_tip_z()
         p = sk.kin.fk(sk._q())
         f, m = sk.kin.jaw_tip_offsets(p.pitch_deg, p.yaw_deg, sk._q().gripper)
         mid = (f[:2] + m[:2]) / 2
         ctx = {"need_lift": 49.0, "tilted": True, "target": (p.x_mm + float(mid[0]), p.y_mm + float(mid[1])), "obj_w": 58.0, "obj_h": 39.0}
-        r = sk._leave(p, 93.0, ctx)
-        rise = sk._low_tip_z(sk._q()) - before
+        r = sk._leave(93.0, ctx)
+        rise = low_tip_z() - before
     finally:
         s.disconnect()
     assert r.status == "ok" and rise >= 49.0 - 1.0 and not [1 for _, c, _ in ev if c == "ARM-PLACE-LOW-LIFT"]
@@ -303,7 +307,7 @@ def test_untilt_checks_densely_and_names_the_check_that_rejected(tmp_path, monke
         held = SimpleNamespace(center=center, box_w=58.0, obj_h=39.0)
         seen = []
         orig = sk._hits_objects
-        monkeypatch.setattr(sk, "_hits_objects", lambda states, held_r=0.0: seen.append(len(list(states))) or orig(states, held_r))
+        monkeypatch.setattr(sk, "_hits_objects", lambda states, held_r=0.0, **kw: seen.append(len(list(states))) or orig(states, held_r, **kw))
         assert sk._untilt_goal(q, 49.0, held) is not None and sk.untilt_rejected is None and seen and seen[0] >= 25  # 58° 도는 관절을 2°마다 -> 25자세 이상
         assert sk._untilt_goal(q, 49.0, SimpleNamespace(center=center, box_w=300.0, obj_h=39.0)) is None and sk.untilt_rejected.startswith("box:")  # 큰 상자: 지나는 길이 상자에 걸린다
         sk.known_objects = [(center.x_mm, center.y_mm, 300.0)]
