@@ -99,6 +99,15 @@
 |---|---|---|---|---|
 | C19 | **Stageshow** (Benji Taylor, `benjitaylor/skills`, MIT) | 스킬 | 제품 데모 화면을 만들고 영상으로 찍어 다듬는다(빽빽하거나 비거나 갇힌 화면을 고침). 시연 영상과 GUI 화면 다듬기에 쓴다 | Node.js 22.20 이상에서 `npx skills add benjitaylor/skills --skill stageshow`. 레포가 아니라 사용자 범위(`~/.claude/skills/`)에 설치한다. 설치 전에 레포의 `SKILL.md`·`LICENSE`를 읽고 확인한다(2차 자료로만 확인함) |
 
+### C-7. 2026-11-07~12 추가 (계정을 바꾸면 여기까지 맞춘다)
+| # | 이름 | 종류 | 용도 | 설치 |
+|---|---|---|---|---|
+| C20 | **EGM** (google/elephant-goldfish-model, Apache-2.0) | 플러그인 | 설계서 구현 전 Stage 9 점검, drift-report(결정 0048·0056). 총괄이 하위 에이전트로 돌린다 | `claude plugin marketplace add google/elephant-goldfish-model` 후 `claude plugin install egm@egm`. Claude Code 2.1.271 이상 |
+| C21 | **pr-review-toolkit** | 플러그인 | PR 테스트 감사(결정 0045) | `/plugin install pr-review-toolkit` (마켓플레이스에서 찾기) |
+| C22 | **code-review** | 내장 스킬 | 총괄이 PR마다 medium 이상(결정 0045) | 설치 불필요 |
+| C23 | **playwright-cli** | 스킬(사용자 전역) | GUI PR 화면 확인(결정 0045). 레포에 넣지 않고 총괄 PC의 사용자 전역(`~/.claude/skills/`)에 둔다 | 예전 총괄 PC의 `~/.claude/skills/playwright-cli/`를 복사. 없으면 C16의 Playwright CLI만으로 한다 |
+| C24 | **MuJoCo** | 파이썬 패키지(MuJoCo 세션 PC) | 물리 시뮬레이션(결정 0053, `arm-software-spec.md` 13.8) | so101 환경에서 `pip install --no-deps "mujoco>=4.0,<5" mujoco-core mujoco-studio glfw pyopengl`(numpy가 바뀌지 않게). 버전 고정 줄은 M2 첫 작업이 이 칸에 적는다. 설치 뒤 `python -c "import numpy; print(numpy.__version__)"`가 2.2.6 |
+
 ## D. 레퍼런스 평가 기준
 
 평가표와 조사 절차는 프로젝트 skill `.claude/skills/researching-references/SKILL.md`에 있다. 레포에 포함되어 있어서 어느 계정에서든 따로 설치할 필요가 없다.
