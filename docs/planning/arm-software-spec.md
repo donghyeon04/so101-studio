@@ -315,7 +315,7 @@ MuJoCo 물리 시뮬레이션(결정 0053, 13절). REQ-056이 끝난 뒤 M1부�
 | # | 작업 | 완료 기준 | 근거 | 결과 |
 |---|---|---|---|---|
 | M1 | 모델 가져오기(13.4), `arm/mujoco_model.py`(`load_model`, `JOINT_MAP`, 좌표 변환), 설치 확인(13.8·13.9) | 13.7 (d) | 0053, 13.1 | ✅ #260(관절 range 바꾸기는 M2에서) |
-| M2 | `MuJoCoDriver`(13.2·13.3), 관절·그리퍼 range와 ctrlrange 넓히기(`mujoco_model.py`, 13.4), `make_sim_driver`, CLI `--sim-engine`과 명령 처리(13.1), `--dry-run` 거부, diagnostics 검사, `reload_workspace` 거부, `sim_state()`는 빈 값(13.6), tooling-setup 설치 줄과 버전 고정(13.8) | 13.7 (c)(e) | 0053, 13.1 | |
+| M2 | `MuJoCoDriver`(13.2·13.3), 관절·그리퍼 range와 ctrlrange 넓히기(`mujoco_model.py`, 13.4), `make_sim_driver`, CLI `--sim-engine`과 명령 처리(13.1), `--dry-run` 거부, diagnostics 검사, `reload_workspace` 거부, `sim_state()`는 빈 값(13.6), tooling-setup 설치 줄과 버전 고정(13.8) | 13.7 (c)(e) | 0053, 13.1 | ✅ #275(11-13) |
 | M3 | 장면·물체·시나리오(13.5), `sim_state()` 채우기(13.6) | 13.7 (a)(b) | 0053, 13.1 | |
 | M4 | `--sim-viewer`, GUI 인자 전달·`no_object` 규칙·물체 표시(13.6, GUI REQ) | 13.7 (f) | 0053, 13.1 | |
 
@@ -516,7 +516,7 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
 ### 13.3 시간
 - 물리는 `MuJoCoDriver` 안의 **백그라운드 스레드**가 벽시계에 맞춰 계속 돌린다. `connect`에서 시작하고 `disconnect`에서 멈춘다.
 - 물리 스텝은 2ms다. 스레드는 깨어날 때마다 시뮬레이션 시간이 벽시계를 따라잡을 만큼 스텝을 몰아서 진행하고, 1ms 쉰다. Windows의 `time.sleep` 해상도가 약 15ms여도 이 방식이면 시간은 맞는다.
-- 따라잡아야 할 양이 100ms를 넘으면 넘는 만큼 버린다. `dropped_count`(횟수)와 `dropped_s`(버린 시간 합)를 센다. 스텝 계산 시간의 평균은 `step_ms_avg`로 읽는다.
+- 따라잡아야 할 양이 100ms를 넘으면 넘는 만큼 버린다. **연결 직후**에는 `ArmService.connect`가 기구학을 읽는 동안 GIL을 쥐어 수 초가 버려질 수 있다(#275 실측: 약 3.9초 × 2회, `measurements.md` "MuJoCo 실시간 속도"). 팔은 연결 뒤에 움직이므로 받아들이고, 13.7 (e)의 측정은 연결이 끝난 뒤부터 한다. `dropped_count`(횟수)와 `dropped_s`(버린 시간 합)를 센다. 스텝 계산 시간의 평균은 `step_ms_avg`로 읽는다.
 - 그래서 제어 주기(`control_hz`, `--hz`)와 상관이 없다. 쉬는 중, 토크를 끈 교시, 놓은 뒤, `estop`·fault·`hold_gripper` 같은 틱 밖 호출에도 물리가 흐른다.
 - 읽기·쓰기는 스레드와 잠금 하나로 맞춘다.
 - 시험용 `MuJoCoDriver(..., realtime=False)`: 스레드가 없고 `advance(seconds)`만 시간을 흘린다. `write_joints`는 목표만 바꾼다. `ArmService` 위 시험((a)(b))은 실시간 모드를 쓴다.
@@ -605,12 +605,12 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
 - (e) **드라이버 동작과 속도**(M2):
   - 그리퍼 값 0·50·100을 `write_joints`로 주고 1초 뒤 읽은 값이 각각 2 안이다(물리 포함, 중력 그대로).
   - `connect` 직후 `read_joints`가 home과 1° 안이다.
-  - 토크를 끄고 1초 뒤 shoulder_lift가 5° 넘게 처지고, 다시 켜면 그 자리를 지킨다.
+  - shoulder_lift −30°·elbow_flex 60° 자세(중력이 걸리는 자세. home은 균형 자세라 처지지 않는다)에서 토크를 끄고 1초 뒤 shoulder_lift가 5° 넘게 처지고, 다시 켜면 그 자리를 지킨다(#275).
   - 토크가 꺼진 동안 `write_joints`로 다른 목표를 주어도 움직이지 않고, 켜면 그 순간 자세를 지킨다.
   - `realtime=False`에서 `advance` 없이는 시간이 흐르지 않는다.
   - 물리 실패를 일부러 일으키면(시험에서 qpos에 NaN) `SIM-PHYSICS-FAIL`이 `event_sink`로 가고 `read_joints`가 `RuntimeError`다.
-  - `home`·`radar_clear` 두 자세에서 팔 body와 받침 상자(`base_box`)의 접촉이 없다(MuJoCo 기본으로 부모-자식 body 접촉은 빠진다).
-  - **실시간 속도**(손으로, 개발 노트북): 실시간 모드로 60초 동안(쉬기 30초 + `home`↔`radar_clear` 속도 30% 왕복 30초. `home`과 `park`는 지금 같은 자세라 쓰지 않음) `dropped_count`가 0이고 `step_ms_avg`가 1ms 안이다. pytest `slow` 시험 `test_realtime_60s`로 돌리고, 결과와 CPU 이름을 `measurements.md`에 남긴다.
+  - `home`·`radar_clear` 두 자세에서 팔 body와 받침 상자(`base_box`)의 접촉이 없다. base는 월드에 고정된 body라 MuJoCo가 부모-자식 접촉을 자동으로 거르지 않으므로, `load_model`이 `exclude(base, shoulder)`를 더한다(받침 상자가 어깨 모터와 늘 닿기 때문, #275).
+  - **실시간 속도**(손으로, 개발 노트북): 실시간 모드로 60초 동안(쉬기 30초 + `home`↔`radar_clear` 속도 30% 왕복 30초. `home`과 `park`는 지금 같은 자세라 쓰지 않음) 연결 직후 버림(13.3)을 뺀 `dropped_count`가 0이고 `step_ms_avg`가 1ms 안이다. pytest `slow` 시험 `test_realtime_60s`로 돌리고, 결과와 CPU 이름을 `measurements.md`에 남긴다.
   - **시험 이름**(`tests/test_mujoco_driver.py`): `test_attributes_and_shapes`(13.2 속성·7키·8키·`read_power`), `test_connect_home`, `test_torque_off_sags_and_holds`, `test_write_while_torque_off`, `test_gripper_0_50_100`, `test_not_realtime_needs_advance`, `test_physics_fail_event`, `test_base_box_no_contact`, `test_cli_engine_requires_sim`, `test_cli_dry_run_rejected`, `test_cli_gui_rejected`, `test_cli_import_error_exit2`, `test_realtime_60s`(slow).
 - (f) **보기**(M4): `--sim-viewer`로 MuJoCo 뷰어가 떠서 팔과 물체가 움직이는 것이 보이고, GUI 3D에 `sim_state()`의 물체가 그려진다(GUI REQ).
 
