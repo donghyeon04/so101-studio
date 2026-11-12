@@ -57,7 +57,7 @@
 | C8 | Context7 (A2) | LeRobot `SO101Follower`, `RobotKinematics` 등 최신 API 확인 | 로컬에서는 플러그인 버전도 동작한다 |
 | C9 | engineering 플러그인 | `debug`, `code-review`, `testing-strategy` | |
 | C10 | desktop-commander | Windows 셸, 시리얼 모니터, 오래 도는 프로세스 관리 | |
-| C11 | so101-mcp (Tibe31, 선택) | Claude가 관절을 직접 움직여 보는 초기 탐색용 | 시리얼 포트는 한 번에 한 프로그램만 쓸 수 있다. 우리 코드를 실행하기 전에 반드시 끈다. 설치(`decisions/0057`): `git clone https://github.com/Tibe31/so101-mcp C:	ools\so101-mcp` → `uv sync --extra robot` → `claude mcp add so101 --scope local --env SO101_MCP_CONFIG=C:	ools\so101-mcp\config.json -- uv run --directory C:	ools\so101-mcp --extra robot so101-mcp` |
+| C11 | so101-mcp (Tibe31, 선택) | Claude가 관절을 직접 움직여 보는 초기 탐색용 | 시리얼 포트는 한 번에 한 프로그램만 쓸 수 있다. 우리 코드를 실행하기 전에 반드시 끈다. 설치(`decisions/0057`): `git clone https://github.com/Tibe31/so101-mcp C:\tools\so101-mcp` → `uv sync --extra robot` → `claude mcp add so101 --scope local --env SO101_MCP_CONFIG=C:\tools\so101-mcp\config.json -- uv run --directory C:\tools\so101-mcp --extra robot so101-mcp` |
 | C12 | Ponytail (선택) | 코드를 적게 쓰도록 유도하는 규칙 모음 | `/plugin marketplace add DietrichGebert/ponytail` 후 `/plugin install ponytail@ponytail`. Node.js 필요. 제3자 측정에서는 약 15% 감소 |
 | C13 | huggingface-skills (나중) | ACT 등 학습 정책을 할 때만 (선택 층) | 지금은 불필요 |
 
