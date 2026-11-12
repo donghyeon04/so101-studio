@@ -368,3 +368,39 @@ def test_teach_out_of_range_speed_disables_play(clean):
         assert not speed.meta.valid and speed.meta.value == 1.0
 
     in_app(clean, "/teach", check)
+
+
+# ⑥ 수동 입력
+
+def test_input_out_of_range_field_blocks_add_but_not_move(clean, monkeypatch):
+    from nicegui.events import GenericEventArguments
+
+    from so101_studio.gui.sensors import manual_view
+
+    toasts = []
+    monkeypatch.setattr(manual_view.ui, "notify", lambda text, **k: toasts.append(text))
+
+    async def check(user):
+        assert await _until(lambda: clean.owner is not None)
+        width = _one(user, "new-width")
+        assert width.meta.hard == (5.0, 110.0)  # 수동 입력은 지금 범위 그대로
+        plane = _one(user, "plane")
+        listener = next(v for v in plane._event_listeners.values() if v.type == "mouse")
+        args = {"mouse_event_type": "click", "image_x": 100, "image_y": 100, "button": 0, "buttons": 0,
+                "altKey": False, "ctrlKey": False, "metaKey": False, "shiftKey": False}
+
+        def click():
+            for handler in listener.handler if isinstance(listener.handler, list) else [listener.handler]:
+                handler(GenericEventArguments(sender=plane, client=user.client, args=args))
+
+        count = len(clean.objects())
+        width.value = 500  # 사람이 친 글자
+        click()
+        await asyncio.sleep(0.3)
+        assert len(clean.objects()) == count and "각도·폭·길이·높이를 먼저 고치세요" in toasts
+        width.value = 30
+        click()
+        assert await _until(lambda: len(clean.objects()) == count + 1)
+        clean.reset_objects()
+
+    in_app(clean, "/input", check)
