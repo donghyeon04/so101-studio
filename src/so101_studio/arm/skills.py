@@ -227,7 +227,6 @@ class Skills:
         (3) 닫을 때 중간점이 물체 중심에 머물도록 손을 같이 보낸다(F1 Hand '닫으며 중심 쪽으로 이동'),
         (4) 그리퍼가 명령보다 앞서 멈추면(접촉) 그 자리에서 정지한다. 물체 크기를 몰라도 된다."""
         self.placed = [o for o in self.placed if math.hypot(o[0] - obj.x_mm, o[1] - obj.y_mm) > 40.0]  # 집어 간 물체는 더 이상 장애물이 아니다
-        self.known_objects = [o for o in self.known_objects if math.hypot(o[0] - obj.x_mm, o[1] - obj.y_mm) > 40.0]  # 알려 준 물체도 같다(GUI 자동 실행은 집는 물체까지 알려 준다)
         self.grip = None
         yaw = self._jaw_yaw((obj.angle_deg or 0.0) + 90.0)
         lo_g = self.cfg.joint_limits_deg["gripper"][0]  # 턱 축이 물체 긴 변에 수직이 되도록 (spec 6.6: 물체 각도 + 90°)
@@ -269,7 +268,8 @@ class Skills:
             self._restore_grip_torque()
             return r
         if contact:  # 접촉: 목표를 지금 위치에서 예압만큼만 더 닫힌 쪽으로 두고(계속 미는 것을 없앤다), 들고 가는 동안 조임 한계를 낮춘다. 되돌리는 것은 place가 끝난 뒤
-            self.grip = {"tilted": bool(tilt_ok), "tip_h": float(t), "obj_h": float(obj.height_mm), "obj_w": float(obj.width_mm), "held_gap": float(self._gap_mm(self._q().gripper))}  # 놓기가 같은 기울기·높이로 내려가도록 기억한다 (11.3.2)
+            self.grip = {"tilted": bool(tilt_ok), "tip_h": float(t), "obj_h": float(obj.height_mm), "obj_w": float(obj.width_mm), "held_gap": float(self._gap_mm(self._q().gripper))}
+            self.known_objects = [o for o in self.known_objects if math.hypot(o[0] - obj.x_mm, o[1] - obj.y_mm) > 40.0]  # 집었다: 그 물체는 더 이상 장애물이 아니다(GUI 자동 실행은 집는 물체까지 알려 준다). no_object·집기 실패면 그대로 둔다  # 놓기가 같은 기울기·높이로 내려가도록 기억한다 (11.3.2)
             self.ctl.hold_gripper(max(lo_g, self._q().gripper - self.cfg.grip_preload_units))
             self._set_grip_torque(self.cfg.gripper_hold_torque)
         else:
@@ -504,10 +504,11 @@ class Skills:
         return [float(h) for h in range(int(self.cfg.approach_height_mm), 9, -5)] or [float(self.cfg.approach_height_mm)]
 
     def _hits_objects(self, states, held_r: float = 0.0) -> str | None:
-        """낮게 지나는(낮은 턱 끝이 이웃 높이 + 여유보다 낮은) 상태에서 두 턱 끝이, held_r > 0이면 쥔 물체(두 턱 끝 중점, 반지름 held_r)도, 알려진 물체 원(placed·known_objects)에 들어가면 이유 문자열."""
+        """낮게 지나는(낮은 턱 끝이 이웃 높이 + 여유보다 낮은) 상태에서 두 턱 끝이, held_r > 0이면 쥔 물체(두 턱 끝 중점, 반지름 held_r)도, 알려진 물체 원(placed·known_objects)에 들어가면 이유 문자열.
+        첫 자세에서 이미 겹쳐 있는 원(들어올린 자세가 낮아 바로 옆 이웃과 겹쳐 시작할 수 있다)은 그 겹침이 더 깊어지지 않는 동안만 허용한다: 이웃을 쓸고 가면 충돌이다."""
         circles = [*self.placed, *self.known_objects]
         states = list(states)
-        already = set()  # 첫 자세에서 이미 겹쳐 있는 물체는 새 충돌이 아니다(들어올린 자세가 낮아 집은 물체 자신이나 바로 옆 물체와 겹쳐 시작할 수 있다): 그 원은 이 경로에서 뺀다
+        start = {}  # 원 -> 첫 자세에서의 여유 거리(음수 = 겹침)
         for i, st in enumerate(states if circles else []):
             p = self.kin.fk(st)
             f, m = self.kin.jaw_tip_offsets(p.pitch_deg, p.yaw_deg, st.gripper)
@@ -515,12 +516,13 @@ class Skills:
                 continue
             tips = [(p.x_mm + float(t[0]), p.y_mm + float(t[1])) for t in (f, m)]
             mid = ((tips[0][0] + tips[1][0]) / 2, (tips[0][1] + tips[1][1]) / 2)
-            for cx, cy, r in circles:
-                if any(math.hypot(t[0] - cx, t[1] - cy) < r + JAW_HALF_MM for t in tips) or (held_r and math.hypot(mid[0] - cx, mid[1] - cy) < r + held_r + 2.0):
-                    if i == 0:
-                        already.add((cx, cy, r))
-                    elif (cx, cy, r) not in already:
-                        return f"object@({cx:.0f},{cy:.0f})"
+            for c in circles:
+                cx, cy, r = c
+                d = min(min(math.hypot(t[0] - cx, t[1] - cy) for t in tips) - (r + JAW_HALF_MM), (math.hypot(mid[0] - cx, mid[1] - cy) - (r + held_r + 2.0)) if held_r else 1e9)
+                if i == 0:
+                    start[c] = d
+                if d < 0 and d < start.get(c, 0.0) - 1.0:  # 새로 겹치거나, 처음부터 겹친 것이 더 깊어진다
+                    return f"object@({cx:.0f},{cy:.0f})"
         return None
 
     def _hover_need(self, target: tuple[float, float] | None) -> float:
