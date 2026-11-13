@@ -27,7 +27,7 @@ class Wall(SimDriver):
         super().write_joints(q)
 
 
-def make(tmp_path, drv, speed=100):
+def make(tmp_path, drv, speed=30):
     s = ArmService(drv, CFG, WS, speed_pct=speed, log_root=str(tmp_path))
     assert s.connect()[0]
     ev = []
@@ -80,9 +80,20 @@ def test_held_profile_uses_its_own_threshold(tmp_path):
     assert r.status == "ok" and not blocked(ev)
 
 
+@pytest.mark.slow
+def test_above_50_percent_a_wall_is_not_judged_but_tracking_is_logged(tmp_path):
+    """결정 0061: 50%를 넘으면 판정하지 않는다(ARM-BLOCKED 없음). 동작 끝의 ARM-TRACKING은 남는다."""
+    s, ev = make(tmp_path, Wall(CFG.poses["home"], wall_deg=20.0), speed=60)
+    try:
+        s.move_joints(replace(HOME, shoulder_pan=80.0), speed_pct=60)
+    finally:
+        s.disconnect()
+    assert not blocked(ev) and [d for _, c, d in ev if c == "ARM-TRACKING"]
+
+
 def test_gripper_closing_on_something_stops_at_actual_plus_preload(tmp_path):
     """집기 밖의 닫기(gripper 명령)도 접촉으로 본다(결정 0033: 지금 위치 + 예압으로 멈춤)."""
-    s, ev = make(tmp_path, SimDriver(CFG.poses["home"], grip_block=30.0), speed=100)
+    s, ev = make(tmp_path, SimDriver(CFG.poses["home"], grip_block=30.0), speed=30)
     try:
         s.set_gripper(60.0)
         r = s.set_gripper(0.0)
