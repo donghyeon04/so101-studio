@@ -7,9 +7,11 @@ import yaml
 from ..core.types import JointState
 from .driver import JOINTS
 
+REPO_ROOT = Path(__file__).resolve().parents[3]  # 다른 폴더에서 실행해도 config를 찾게(mujoco_model.MODEL_XML과 같은 방식)
 
-def _read_objects(path: Path, what: str) -> list:
-    """YAML의 objects 행을 SimObject로. 파일이 없거나 모르는 키·name/x_mm/y_mm 빠짐·이름 중복이면 ValueError(13.5)."""
+
+def _read_objects(path: Path, what: str, auto_names: bool = False) -> list:
+    """YAML의 objects 행을 SimObject로(auto_names면 name이 없는 행은 obj-1, obj-2, …). 파일이 없거나 모르는 키·name/x_mm/y_mm 빠짐·이름 중복이면 ValueError(13.5)."""
     from .mujoco_model import SimObject
 
     if not path.exists():
@@ -18,8 +20,8 @@ def _read_objects(path: Path, what: str) -> list:
     objs = []
     for i, row in enumerate(rows, 1):
         try:
-            objs.append(SimObject(**row))
-        except TypeError as e:
+            objs.append(SimObject(**({"name": f"obj-{i}", **row} if auto_names else row)))
+        except (TypeError, AttributeError) as e:  # 모르는 키·빠진 키(TypeError), 행이 mapping이 아님(AttributeError)
             raise ValueError(f"{what} {path.name}의 {i}번째 물체가 잘못됐다: {e}") from e
     if len({o.name for o in objs}) != len(objs):
         raise ValueError(f"{what} {path.name}의 물체 이름이 겹친다")
@@ -31,17 +33,14 @@ def make_sim_driver(cfg, ws, scene=None, scenario=None, viewer=False):
     import mujoco  # noqa: F401  없으면 여기서 ImportError (CLI가 안내문으로 바꾼다)
 
     from .mujoco_driver import MuJoCoDriver
-    from .mujoco_model import SimObject
-
     if cfg.gripper == "parallel":
         raise ValueError("MuJoCo는 단동식만 지원")
     if scenario:
-        path = Path(scenario) if str(scenario).endswith(".yaml") else Path("config/sim_scenarios") / f"{scenario}.yaml"
+        path = Path(scenario) if str(scenario).endswith(".yaml") else REPO_ROOT / "config" / "sim_scenarios" / f"{scenario}.yaml"
         objs, name = _read_objects(path, "시나리오"), path.stem
     else:
-        path = Path("config/manual_objects.yaml")
-        rows = (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("objects") or [] if path.exists() else []
-        objs, name = [SimObject(name=f"obj-{i}", **row) for i, row in enumerate(rows, 1)], None
+        path = REPO_ROOT / "config" / "manual_objects.yaml"
+        objs, name = (_read_objects(path, "수동 물체", auto_names=True) if path.exists() else []), None
     return MuJoCoDriver(cfg, ws, scene=scene, objects=objs, scenario=name)
 
 
