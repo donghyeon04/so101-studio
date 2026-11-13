@@ -44,7 +44,7 @@
 | `docs/decisions/0009-gripper-geometry-and-jaw-yaw.md` | 결정 | 확정 | 턱 방향은 URDF 기하로 정하고(고정 턱 면이 기준점, 가동 턱 방향 m), 집기 각도는 물체 각도 + 90° |
 | `docs/decisions/0010-centered-closing-grasp.md` | 결정 | 확정 | 최대로 벌려 중심을 맞추고 닫으며 손을 같이 보내 닫는 내내 중심을 유지, 접촉에서 정지 |
 | `docs/decisions/0011-tilted-symmetric-closing.md` | 결정 | 확정 | 턱 끝 기하로 중간점을 물체에 맞추고, 턱이 앞뒤로 벌어질 때 손을 기울여 V자를 대칭으로, 닫을수록 푼다 |
-| `docs/decisions/0012-symmetric-v-tilt.md` | 결정 | 확정 | 기울기를 벌림 각도의 절반으로 해 보기에 대칭인 V자로(손목 한계 35°), 대칭 그리퍼 교체와 물체 교정은 하지 않음 |
+| `docs/decisions/0012-symmetric-v-tilt.md` | 결정 | 대체됨(→ 0060) | 기울기를 벌림 각도의 절반으로 해 보기에 대칭인 V자로(손목 한계 35°), 대칭 그리퍼 교체와 물체 교정은 하지 않음 |
 | `docs/decisions/0013-coordinate-frames-and-keys-modes.md` | 결정 | 확정 | 좌표계는 월드(작업대)·베이스(로봇)·툴, 높이는 작업대 면 기준, keys는 관절/직교 조그/좌표 입력 세 모드 |
 | `docs/decisions/0014-servo-acceleration-and-elbow-limit.md` | 결정 | 확정 | 팔 서보 가속 한계 10(그리퍼 25 유지), 제어 주기 50Hz 유지, 팔꿈치 접는 한계 95·home 93, 전원은 병목 아님 |
 | `docs/decisions/0015-safety-settings.md` | 결정 | 확정 | 안전 검사를 실행 중 바꿀 수 있는 설정으로(normal/free/off, 관절 여유, XYZ 범위), GUI는 get_safety/set_safety |
@@ -92,3 +92,4 @@
 | `docs/decisions/0057-so101-mcp.md` | 결정 | 확정 | C11 so101-mcp는 Tibe31/so101-mcp를 `C:\tools`에 설치하고 local 범위로만 등록, 우리 코드 실행 전에는 끈다 |
 | `docs/decisions/0058-camera-esp32-cam.md` | 결정 | 확정 | 비교 실험 카메라는 AI-Thinker ESP32-CAM 1대, Wi-Fi(노트북 핫스팟), 작업대 위 고정, ArUco+minAreaRect, VLA 때 USB 카메라 추가 |
 | `docs/decisions/0059-blocked-contact-stop.md` | 결정 | 확정 | 막힘·접촉 즉시 정지는 추종 오차(명령−실제, 10Hz 위치 재사용)로, 빈 이동·쥔 채 이동·닫기 프로필별 문턱(정상 최대×1.3), 부하 감시는 두 번째 안전망 |
+| `docs/decisions/0060-grasp-tilt-equal-tips.md` | 결정 | 확정 | 집기 손 기울기 기본값을 equal_tips(두 턱 끝 높이를 맞춤)로, symmetric(0012)은 옵션. 실물 58mm 상자 symmetric 0/2 → equal_tips 10/10 |
