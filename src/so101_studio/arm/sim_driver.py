@@ -1,4 +1,5 @@
 """하드웨어 없이 도는 가짜 장치: 명령받은 위치를 그대로 현재 위치로 돌려준다."""
+import math
 from dataclasses import replace
 from pathlib import Path
 
@@ -28,8 +29,33 @@ def _read_objects(path: Path, what: str, auto_names: bool = False) -> list:
     return objs
 
 
+def _rect_corners(o) -> list[tuple[float, float]]:
+    c, s = math.cos(math.radians(o.angle_deg)), math.sin(math.radians(o.angle_deg))
+    return [(o.x_mm + c * dx - s * dy, o.y_mm + s * dx + c * dy) for dx, dy in ((o.length_mm / 2, o.width_mm / 2), (-o.length_mm / 2, o.width_mm / 2), (-o.length_mm / 2, -o.width_mm / 2), (o.length_mm / 2, -o.width_mm / 2))]
+
+
+def _overlap(a, b) -> bool:
+    """바닥 사각형 둘이 겹치거나 닿는가(분리축 검사)."""
+    ca, cb = _rect_corners(a), _rect_corners(b)
+    for poly in (ca, cb):
+        for i in range(4):
+            ax, ay = poly[i][1] - poly[(i + 1) % 4][1], poly[(i + 1) % 4][0] - poly[i][0]  # 변의 법선
+            pa = [ax * x + ay * y for x, y in ca]
+            pb = [ax * x + ay * y for x, y in cb]
+            if max(pa) < min(pb) or max(pb) < min(pa):
+                return False
+    return True
+
+
+def _check_overlap(objs: list, path: Path) -> None:
+    for i, a in enumerate(objs):
+        for b in objs[i + 1:]:
+            if _overlap(a, b):
+                raise ValueError(f"{path.name}의 {a.name}과 {b.name}이 겹친다")
+
+
 def make_sim_driver(cfg, ws, scene=None, scenario=None, viewer=False):
-    """MuJoCoDriver를 만든다(13.1·13.5). scenario는 이름(config/sim_scenarios/<이름>.yaml) 또는 .yaml 경로, 없으면 config/manual_objects.yaml(obj-1부터). viewer는 M4. mujoco가 없으면 ImportError."""
+    """MuJoCoDriver를 만든다(13.1·13.5). scenario는 이름(config/sim_scenarios/<이름>.yaml) 또는 .yaml 경로, 없으면 config/manual_objects.yaml(obj-1부터). viewer는 `--sim-viewer`(mujoco 뷰어). 두 물체의 바닥 사각형이 겹치면 ValueError(13.5). mujoco가 없으면 ImportError."""
     import mujoco  # noqa: F401  없으면 여기서 ImportError (CLI가 안내문으로 바꾼다)
 
     from .mujoco_driver import MuJoCoDriver
@@ -41,7 +67,8 @@ def make_sim_driver(cfg, ws, scene=None, scenario=None, viewer=False):
     else:
         path = REPO_ROOT / "config" / "manual_objects.yaml"
         objs, name = (_read_objects(path, "수동 물체", auto_names=True) if path.exists() else []), None
-    return MuJoCoDriver(cfg, ws, scene=scene, objects=objs, scenario=name)
+    _check_overlap(objs, path)
+    return MuJoCoDriver(cfg, ws, scene=scene, objects=objs, scenario=name, viewer=viewer)
 
 
 class SimDriver:

@@ -1,7 +1,8 @@
 # ManualSource가 돌려주는 물체 (작업대 좌표 mm, 각도는 x축 기준 반시계 0~180°).
 # 팔 앞쪽 약 14~17cm, 폭 30mm 안팎 물체 기준. 실제 물체를 놓은 자리에 맞춰 고친다.
 # height_mm = 물체 높이(작업대 면 위 mm, 시연 상자 약 40). 팔 정면이 아닌 자리나 각도의 물체는 수직으로 집어야 해서 높이가 없으면 height_required로 거부된다 (결정 0052).
+# 서로 겹치지 않는다: MuJoCo 시뮬레이션은 물체끼리 충돌하고, 바닥 사각형이 겹치면 make_sim_driver가 ValueError를 낸다 (arm-software-spec 13.5, 2026-11-13).
 objects:
   - {x_mm: 300, y_mm: 190, angle_deg: 0, width_mm: 30, length_mm: 100, height_mm: 40}
-  - {x_mm: 250, y_mm: 210, angle_deg: 45, width_mm: 30, length_mm: 100, height_mm: 40}
-  - {x_mm: 350, y_mm: 200, angle_deg: 90, width_mm: 30, length_mm: 100, height_mm: 40}
+  - {x_mm: 170, y_mm: 170, angle_deg: 45, width_mm: 30, length_mm: 100, height_mm: 40}
+  - {x_mm: 400, y_mm: 250, angle_deg: 90, width_mm: 30, length_mm: 100, height_mm: 40}
