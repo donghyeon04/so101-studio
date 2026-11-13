@@ -378,7 +378,7 @@ def main(args) -> None:
     web_port = getattr(args, "web_port", None) or DEFAULT_PORT
     wd_port = getattr(args, "watchdog_port", None) or WATCHDOG_PORT  # 시험용 서버는 다른 포트로 띄워 실제 팔 GUI의 감시 프로세스와 겹치지 않게
     viser_port = getattr(args, "viser_port", None) or scene3d.DEFAULT_PORT
-    if why := port_check.check_ports({web_port, viser_port, wd_port}, {wd_port + 1}):  # 팔을 연결하기 전에: 이전 GUI가 남아 있으면 포트 오류로 죽었다
+    if why := port_check.check_ports({web_port, viser_port, wd_port}, {wd_port + 1}, url=f"http://127.0.0.1:{web_port}"):  # 팔을 연결하기 전에: 이전 GUI가 남아 있으면 포트 오류로 죽었다
         sys.exit(why)
     link = WatchdogLink(sim=sim, port=wd_port, stop_port=wd_port + 1)
     try:
