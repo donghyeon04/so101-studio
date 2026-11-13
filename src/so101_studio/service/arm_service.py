@@ -728,7 +728,7 @@ class ArmService:
         self._log("pick", {"object": asdict(obj), "status": r.status, "grasp": self.skills.last_pick_info})
         if r.status == "ok" and target:
             r = self.skills.place_at(*target) if place_at else self.skills.place(zone)
-            self._log("place", {"zone": zone, "at": place_at, "status": r.status, "correction_mm": self._place_correction()})
+            self._log("place", {"zone": zone, "at": place_at, "status": r.status, "correction_mm": self._place_correction(), **self._place_angle()})
         return r
 
     def place(self, zone: str | None = None, at: tuple[float, float] | None = None) -> MotionResult:
@@ -741,12 +741,18 @@ class ArmService:
             return self._rejected("place", why, at=at)
         self.enable_torque()
         r = self.skills.place_at(*at) if at is not None else self.skills.place(zone)
-        return self._done("place", r, zone=zone, at=at, correction_mm=self._place_correction())
+        return self._done("place", r, zone=zone, at=at, correction_mm=self._place_correction(), **self._place_angle())
 
     def _place_correction(self) -> list[float] | None:
         """마지막 place가 두 턱 끝 중간점을 구역 점에 맞추려고 손 위치를 옮긴 양(mm, x·y). 기록용."""
         c = getattr(self.skills, "last_place_correction_mm", None)
         return None if c is None else [round(c[0], 1), round(c[1], 1)]
+
+    def _place_angle(self) -> dict:
+        """놓은 뒤 물체 각도(작업대 기준, 0~180°, 추정): 물체는 쥔 채 놓는 손의 턱 축 방향으로 놓이므로 각도 = 손 yaw - 90(턱은 긴 변에 수직으로 집는다). 정사각형은 90° 주기.
+        놓은 물체를 다시 집으려면 이 각도를 알려 준다(실물 2-2 11-13: 각도 0으로 알려 줘서 모서리를 집음)."""
+        y = getattr(self.skills, "last_place_yaw_deg", None)
+        return {} if y is None else {"object_angle_after_deg": round((y - 90.0) % 180.0, 1)}
 
     def set_gripper(self, value: float, as_width: bool = False) -> MotionResult:
         """그리퍼만 움직인다. as_width면 벌림 폭(mm)으로 해석한다(예: 카드 폭 54mm)."""

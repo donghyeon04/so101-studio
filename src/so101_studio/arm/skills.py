@@ -36,6 +36,7 @@ class Skills:
         self.gripper = kin.gripper = make_gripper(kin, cfg)  # 그리퍼 종류별 기하·보정·경로 지식은 arm/gripper.py (work-queue 5-3)
         self.speed = speed_pct if speed_pct is not None else cfg.speed_pct_default
         self.opening_fallback_reason: str | None = None  # 마지막 _opening_path가 None이었던 이유
+        self.last_place_yaw_deg: float | None = None  # 마지막 place의 손(턱 축) 방향, 작업대 기준
         self.last_place_correction_mm: tuple[float, float] | None = None  # 마지막 place가 손 xy를 옮긴 양
         self._grip_orig: int | None = None  # 조임 한계를 바꾸기 전 값(놓은 뒤 되돌린다)
         self.placed: list[tuple[float, float, float]] = []  # 이 세션에서 놓은 물체 (x, y, 반경 mm): 다음 놓기의 벌림이 부딪히는지 볼 때 알려진 물체로 쓴다 (11.3)
@@ -670,16 +671,19 @@ class Skills:
         fail = MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0))
         v = self._q().gripper
         grip, plan, legacy = self.grip, None, None
+        place_yaw = 0.0  # 놓는 손의 턱 축 방향(작업대 기준, °): 옛 방식은 0
         if grip is None:
             legacy = "no_grip_memory"
         else:  # 새 방식(11.3.3): 집을 때와 같은 기울기로, 낮은 턱 끝을 t_g + place_drop_mm에 내린다
             yaw = self._place_yaw(x_mm, y_mm)
+            place_yaw = yaw
             allowed = self.gripper.tilt_allowed(x_mm, y_mm, yaw)
             tilted = bool(grip["tilted"]) and allowed
             release = self._hand_pose(x_mm, y_mm, yaw, v, tilted, self.cfg.table_z_mm + grip["tip_h"] + self.cfg.place_drop_mm)
             plan = self._descent(release, self._gap_mm(v) / 2.0, (x_mm, y_mm))
             legacy = None if plan else "ik_failed_new_pose"
         if legacy:  # 옛 방식: yaw 0, 기울기 0, 손 기준점 높이 = table_z + place_height_mm. 한쪽만 열리는 그리퍼라 놓는 순간의 두 턱 끝 중간점이 점에 오도록 손 xy를 보정한다 (결정 0033)
+            place_yaw = 0.0
             tilted_grip = bool(grip and grip["tilted"])  # 기울여 쥔 물체가 옛 방식(수직 손, 손 높이 place_height_mm)으로 놓이면 기운 채·높이에서 놓일 수 있다: 경고로 남긴다
             self.ctl._emit("place_legacy", "WARN" if tilted_grip else "INFO", "ARM-PLACE-LEGACY", {"reason": legacy, "grip_tilted": tilted_grip})
             hand = self._hand_pose(x_mm, y_mm, 0.0, v, False, 0.0)
@@ -692,6 +696,7 @@ class Skills:
                 return replace(fail, reason=f"known_object: 놓을 자리가 알려진 물체와 겹친다 ({self.descent_blocked_by})") if self.descent_blocked_by else fail
             tilted, allowed = False, False
         self.last_place_correction_mm = (float(release.x_mm - x_mm), float(release.y_mm - y_mm))
+        self.last_place_yaw_deg = place_yaw  # 물체는 쥔 채 이 손 방향으로 놓이므로 놓은 뒤 물체 각도가 바뀐다(ArmService가 기록에 남긴다)
         self._place_ctx = {"target": (x_mm, y_mm), "legacy": bool(legacy), "tilted": tilted, "tilt_allowed": allowed, "obj_h": 0.0 if legacy else grip["obj_h"],
                            "obj_w": 0.0 if legacy or not grip else grip.get("obj_w", 0.0),
                            "need_lift": (grip["obj_h"] + LIFT_MARGIN_MM) if grip and grip["obj_h"] > 0 else ((grip["tip_h"] if grip else self.cfg.grasp_height_mm) + LIFT_UNKNOWN_EXTRA_MM)}  # 놓은 뒤 상승의 최소: 물체 높이 + 10mm, 모르면 t_g + 30mm (11.3.3)
