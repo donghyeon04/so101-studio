@@ -47,7 +47,7 @@ class RobotConfig:
     grasp_bias_mm: float = 0.0
     grasp_open_policy: str = "max"
     grasp_tilt_deg: float = 35.0
-    grasp_tilt_mode: str = "symmetric"
+    grasp_tilt_mode: str = "equal_tips"  # 사용자 결정 11-13(실물 58x58x39: symmetric은 높은 턱이 9mm만 물림)
     grasp_tilt_tol_deg: float = 15.0
     grasp_max_open_mm: float = 100
     grasp_min_contact_mm: float = 8  # 물체 높이로 집는 높이를 정할 때 턱이 물체에 닿아야 하는 최소 높이(mm). 이보다 얕게 닿아야 지나가는 물체는 거부한다

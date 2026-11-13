@@ -85,4 +85,4 @@ def test_open_only_as_much_as_needed_when_width_and_height_are_known(kin):  # no
     wide_tall = DetectedObject("w", 300, 200, 0, 58, 58, 1.0, "manual", 39)
     g = sk._needed_gap(wide_tall, True)
     t, why = sk._grasp_height(wide_tall, g, sk.gripper_for_width(g), True)
-    assert g == 86.0 and g < CFG.grasp_max_open_mm and why is None and t == 20.0  # 58×39: 최대(90)까지 안 벌려도 지나는 가장 작은 벌림 86mm에서 설정 높이 20mm로 집는다
+    assert g == CFG.grasp_max_open_mm == 90.0 and why is None and t == pytest.approx(20.08, abs=0.2)  # 58×39: equal_tips(기본, 결정 0060)는 최대 벌림 90mm가 있어야 위 모서리를 안 치고 설정 높이 약 20mm로 집는다(symmetric은 86mm)

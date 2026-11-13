@@ -90,7 +90,8 @@ def test_jaw_tips_stay_centered_on_the_object_while_closing(kin):
         assert low == pytest.approx(CFG.table_z_mm + CFG.grasp_height_mm, abs=6)
 
 
-def test_hand_tilts_when_open_and_straightens_while_closing(kin):
+def test_hand_tilts_when_open_and_straightens_while_closing(kin, monkeypatch):
+    monkeypatch.setattr(CFG, "grasp_tilt_mode", "symmetric")  # symmetric 동작을 본다(기본값은 equal_tips, 결정 0060)
     d, r = run_pick(kin)
     assert r.status == "ok"
     top = max(q.gripper for q in d.log)
@@ -183,7 +184,8 @@ def test_width_table_follows_urdf_geometry(kin):
     assert sk.gripper_for_width(94) == pytest.approx(58.0, abs=1.5)
 
 
-def test_symmetric_tilt_is_half_the_jaw_opening_angle(kin):
+def test_symmetric_tilt_is_half_the_jaw_opening_angle(kin, monkeypatch):
+    monkeypatch.setattr(CFG, "grasp_tilt_mode", "symmetric")  # symmetric 동작을 본다(기본값은 equal_tips, 결정 0060)
     _d, ctl, sk = rig(kin)
     ctl.close()
     for v in (10.0, 20.0, 40.0):
