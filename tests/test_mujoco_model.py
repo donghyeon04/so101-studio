@@ -62,7 +62,7 @@ def test_jaw_collision_geoms_get_the_contact_values_and_the_global_options(model
     assert model.opt.cone == mujoco.mjtCone.mjCONE_ELLIPTIC and model.opt.impratio == 10 and model.opt.timestep == pytest.approx(0.002)
     assert model.opt.integrator == mujoco.mjtIntegrator.mjINT_IMPLICITFAST
     for body in ("gripper", "moving_jaw_so101_v1"):
-        jaw = [g for g in range(model.ngeom) if model.geom_bodyid[g] == model.body(body).id and model.geom_group[g] in (3, 4) and model.geom_contype[g] > 0]
+        jaw = [g for g in range(model.ngeom) if model.geom_bodyid[g] == model.body(body).id and model.geom_priority[g] == 1 and model.geom_contype[g] > 0]  # 원본 collision_gripper 클래스(priority 1)만. 손목 서보 상자(priority 0)는 그대로
         assert jaw and all(model.geom_condim[g] == 4 and tuple(model.geom_friction[g]) == pytest.approx((1.0, 0.02, 0.001)) for g in jaw)
 
 

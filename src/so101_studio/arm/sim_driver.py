@@ -1,19 +1,48 @@
 """하드웨어 없이 도는 가짜 장치: 명령받은 위치를 그대로 현재 위치로 돌려준다."""
 from dataclasses import replace
+from pathlib import Path
+
+import yaml
 
 from ..core.types import JointState
 from .driver import JOINTS
 
 
+def _read_objects(path: Path, what: str) -> list:
+    """YAML의 objects 행을 SimObject로. 파일이 없거나 모르는 키·name/x_mm/y_mm 빠짐·이름 중복이면 ValueError(13.5)."""
+    from .mujoco_model import SimObject
+
+    if not path.exists():
+        raise ValueError(f"{what} 파일이 없다: {path}")
+    rows = (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("objects") or []
+    objs = []
+    for i, row in enumerate(rows, 1):
+        try:
+            objs.append(SimObject(**row))
+        except TypeError as e:
+            raise ValueError(f"{what} {path.name}의 {i}번째 물체가 잘못됐다: {e}") from e
+    if len({o.name for o in objs}) != len(objs):
+        raise ValueError(f"{what} {path.name}의 물체 이름이 겹친다")
+    return objs
+
+
 def make_sim_driver(cfg, ws, scene=None, scenario=None, viewer=False):
-    """MuJoCoDriver를 만든다(13.1). scenario는 M3, viewer는 M4에서 쓴다. mujoco가 없으면 ImportError."""
+    """MuJoCoDriver를 만든다(13.1·13.5). scenario는 이름(config/sim_scenarios/<이름>.yaml) 또는 .yaml 경로, 없으면 config/manual_objects.yaml(obj-1부터). viewer는 M4. mujoco가 없으면 ImportError."""
     import mujoco  # noqa: F401  없으면 여기서 ImportError (CLI가 안내문으로 바꾼다)
 
     from .mujoco_driver import MuJoCoDriver
+    from .mujoco_model import SimObject
 
     if cfg.gripper == "parallel":
         raise ValueError("MuJoCo는 단동식만 지원")
-    return MuJoCoDriver(cfg, ws, scene=scene)
+    if scenario:
+        path = Path(scenario) if str(scenario).endswith(".yaml") else Path("config/sim_scenarios") / f"{scenario}.yaml"
+        objs, name = _read_objects(path, "시나리오"), path.stem
+    else:
+        path = Path("config/manual_objects.yaml")
+        rows = (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("objects") or [] if path.exists() else []
+        objs, name = [SimObject(name=f"obj-{i}", **row) for i, row in enumerate(rows, 1)], None
+    return MuJoCoDriver(cfg, ws, scene=scene, objects=objs, scenario=name)
 
 
 class SimDriver:

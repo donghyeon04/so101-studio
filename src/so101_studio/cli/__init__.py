@@ -83,6 +83,7 @@ def main(argv=None) -> None:
     ap = argparse.ArgumentParser(prog="so101_studio")
     ap.add_argument("--sim", action="store_true", help="SimDriver로 실행")
     ap.add_argument("--sim-engine", choices=["kinematic", "mujoco"], default="kinematic", help="--sim과 함께: kinematic(기본, SimDriver) 또는 mujoco(물리)")
+    ap.add_argument("--sim-scenario", help="--sim --sim-engine mujoco와 함께: 물체 시나리오 이름(config/sim_scenarios/<이름>.yaml) 또는 .yaml 경로. 없으면 config/manual_objects.yaml")
     ap.add_argument("--config", default="config/robot.yaml")
     ap.add_argument("--speed", type=float, help="속도 %% (기본: 설정값)")
     ap.add_argument("--place", help="pick 뒤에 놓을 배출 구역 이름 (place 명령은 필수)")
@@ -126,6 +127,8 @@ def main(argv=None) -> None:
     ap.add_argument("command", choices=COMMANDS)
     ap.add_argument("values", nargs="*", help="movej: 관절 6개 / goto: x y z yaw (z는 ToolPose 모델 z: 기준점 높이이고 턱 끝의 작업대 위 높이가 아니다. 턱 끝 높이로 보내려면 GUI 좌표 이동이나 keys 좌표 모드) / pick: x y 각도 폭 [높이](폭·높이 0이면 모름. 팔 방향과 어긋난 물체는 높이를 모르면 위 모서리를 칠 수 있다) / gripper: 값 / record·replay·seq: 이름")
     a = ap.parse_args(argv)
+    if a.sim_scenario and not (a.sim and a.sim_engine == "mujoco"):
+        sys.exit("--sim-scenario는 --sim --sim-engine mujoco와 함께 쓴다")
     if a.sim_engine == "mujoco":
         if not a.sim:
             sys.exit("--sim-engine은 --sim과 함께 쓴다")
@@ -185,7 +188,7 @@ def main(argv=None) -> None:
         try:
             from ..arm.sim_driver import make_sim_driver
 
-            driver = make_sim_driver(cfg, ws, load_scene())
+            driver = make_sim_driver(cfg, ws, load_scene(), scenario=a.sim_scenario)
         except ImportError:
             print(MUJOCO_MISSING_TEXT)
             sys.exit(2)

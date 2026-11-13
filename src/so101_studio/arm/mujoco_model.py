@@ -89,7 +89,7 @@ def _mat_quat(R: np.ndarray) -> np.ndarray:
 
 
 def load_model(scene=None, objects=(), *, base: frames.Pose2D, table_z_mm: float, joint_limits: dict | None = None):
-    """(MjModel, warnings)를 만든다. joint_limits(팔 파일의 physical_limits_deg)가 있으면 관절 range와 액추에이터 ctrlrange를 그 값으로 넓힌다(13.4). 없으면 원본 range를 쓰고 warnings에 SIM-JOINT-RANGE-DEFAULT를 담는다.
+    """(MjModel, warnings)를 만든다. joint_limits(팔 파일의 physical_limits_deg)가 있으면 관절 range와 액추에이터 ctrlrange를 그 값으로 넓힌다(13.4). 없으면 원본 range를 쓰고 warnings에 ("SIM-JOINT-RANGE-DEFAULT", {})를 담는다. warnings 항목은 (코드, 데이터)이고 높이 0 물체마다 ("SIM-OBJECT-HEIGHT-DEFAULT", {"object", "height_mm"})도 담긴다.
     모델: 원본 so101.xml + 받침 상자 + gripper_frame site + 작업대 평면 + 장면 부품 + 물체, 턱 충돌 geom 접촉값(condim 4, 마찰), 전역 옵션(타원 원뿔, impratio 10, implicitfast, timestep 2ms).
     scene는 core.scene.Scene 또는 None, objects는 SimObject 목록(이름이 서로 달라야 한다). `mujoco`가 없으면 ImportError."""
     import mujoco
@@ -103,7 +103,7 @@ def load_model(scene=None, objects=(), *, base: frames.Pose2D, table_z_mm: float
     if joint_limits:
         _widen_ranges(spec, joint_limits)
     else:
-        warnings.append("SIM-JOINT-RANGE-DEFAULT")
+        warnings.append(("SIM-JOINT-RANGE-DEFAULT", {}))
 
     gripper = spec.body("gripper")
     gripper.add_site(name="gripper_frame", pos=list(GRIPPER_FRAME_POS), quat=list(GRIPPER_FRAME_QUAT), group=3)
@@ -111,9 +111,9 @@ def load_model(scene=None, objects=(), *, base: frames.Pose2D, table_z_mm: float
 
     # base는 월드에 붙은 body라 MuJoCo가 base-shoulder(부모-자식) 접촉을 거르지 않는다: 받침 상자가 어깨 모터와 겹쳐 늘 닿으므로 쌍을 뺀다
     spec.add_exclude(name="base_shoulder", bodyname1="base", bodyname2="shoulder")
-    for body_name in JAW_BODIES.values():  # 턱 충돌 geom(원본의 collision_gripper 클래스, group 3·4)의 접촉값만 고친다
+    for body_name in JAW_BODIES.values():  # 턱 충돌 geom만: 원본 collision_gripper(_mesh) 클래스(priority 1)로 거른다. 손목 서보 상자(priority 0)는 그대로
         for g in spec.body(body_name).geoms:
-            if g.group in (3, 4) and g.name != "base_box":
+            if g.priority == 1 and g.contype != 0:
                 g.condim = JAW_CONDIM
                 g.friction = list(JAW_FRICTION)
 
@@ -128,6 +128,8 @@ def load_model(scene=None, objects=(), *, base: frames.Pose2D, table_z_mm: float
         if o.name in seen:
             raise ValueError(f"물체 이름이 겹친다: {o.name!r}")
         seen.add(o.name)
+        if o.height_mm <= 0:
+            warnings.append(("SIM-OBJECT-HEIGHT-DEFAULT", {"object": o.name, "height_mm": DEFAULT_OBJECT_HEIGHT_MM}))
         _add_object(spec, o, base, table_z_mm)
     return spec.compile(), warnings
 
@@ -175,6 +177,8 @@ def _add_scene(spec, scene, base, table_z_mm: float) -> None:
         b = parent.add_body(name=f"scene:{p.name}", pos=list(pos), quat=list(quat))
         lo, hi = p.mesh.bounds
         kw = {} if p.collide else {"contype": 0, "conaffinity": 0}
+        if p.attach != "table":
+            kw["density"] = 0  # 링크에 붙는 부품은 질량 0: 팔 동역학을 바꾸지 않는다
         if len(p.mesh.vertices) == 8 and len(p.mesh.faces) == 12:  # 꼭짓점 8개 상자 메쉬만 상자 geom으로(면 12개 이하라도 다른 모양이면 메쉬)
             half = (hi - lo) / 2000.0
             center = (hi + lo) / 2000.0
@@ -188,3 +192,23 @@ def _add_scene(spec, scene, base, table_z_mm: float) -> None:
 def _rotz(deg: float) -> np.ndarray:
     c, s = math.cos(math.radians(deg)), math.sin(math.radians(deg))
     return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+
+
+def geom_roles(model) -> list[str]:
+    """geom id별 접촉 보고용 역할 이름(13.4): table / jaw_fixed / jaw_moving / obj:<이름> / scene:<이름> / arm."""
+    gripper, jaw = model.body("gripper").id, model.body("moving_jaw_so101_v1").id
+    roles = []
+    for g in range(model.ngeom):
+        body = int(model.geom_bodyid[g])
+        bname = model.body(body).name
+        if model.geom(g).name == "table":
+            roles.append("table")
+        elif body == gripper and model.geom_priority[g] == 1:  # 손목 서보 상자(priority 0)는 arm
+            roles.append("jaw_fixed")
+        elif body == jaw:
+            roles.append("jaw_moving")
+        elif bname.startswith(("obj:", "scene:")):
+            roles.append(bname)
+        else:
+            roles.append("arm")
+    return roles
