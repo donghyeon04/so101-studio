@@ -411,18 +411,6 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
 
 **바꿀 파일**: `arm/skills.py`(`place_at`, `_opening_path`, `_opening_blocked`, `_emit_opening`, 집기 기억), `arm/gripper.py`(`closing_path`의 `tilt_scale`), `config/robot.yaml`(새 키 `place_drop_mm: 3`, `place_release_mm: 6`)과 설정 스키마, 테스트.
 
-### 11.3.5 배출 구역 칸 (2026-11-11, #244 뒤 새 REQ)
-- **문제**: 배출 구역이 점 하나라 두 번째 물체가 먼저 놓인 물체 자리로 내려간다. #244는 `ARM-PLACE-SAME-SPOT`(WARN)만 남기고 겹쳐 놓는다.
-- **규칙**:
-  - `workspace.yaml`의 배출 구역을 사각형으로 쓸 수 있게 한다: `right: {x_mm, y_mm, w_mm, h_mm, slot_mm}`(가운데·크기·칸 간격, 작업대 좌표).
-  - 칸 가운데는 사각형 안에 `slot_mm` 간격 격자로 놓는다. 그 가운데 집기 범위(`reach_mm`) 밖의 칸은 뺀다.
-  - 놓을 때는 비어 있는 칸(`placed`에 없는 칸) 가운데 **로봇 원점에 가까운 칸부터** 고른다. 가까울수록 대칭 V자(11.3.4, 약 200mm까지)가 잘 되기 때문이다. 경로 검사(11.3.3 4번)를 통과한 첫 칸을 쓴다.
-  - 빈 칸이 없으면 놓지 않고 `stopped`(이유 `drop_zone_full`)로 멈춘다. 손에 쥔 채이므로 사람이 정한다.
-  - `x_mm`·`y_mm`만 있는 옛 형식은 칸 하나로 보고 지금처럼 겹쳐 놓으며 경고한다(#244와 같음).
-- **기본값**(시험값): `right: {x_mm: 480, y_mm: 150, w_mm: 100, h_mm: 80, slot_mm: 75}`. 폭 58mm 물체 + 여유 15mm를 생각한 값이다. 작업대 조립 뒤(runbook 2-A A-3) 실측 위치로 바꾼다.
-- **초음파**: 배출 구역을 `ignore_zones`로 넘길 때(REQ-045)는 사각형 전체에 `safety_margin_mm`를 더해 넘긴다.
-- **GUI**: 작업대·좌표 페이지가 사각형과 칸을 그리고, 놓인 칸을 표시한다(GUI REQ, 나중).
-
 ### 11.3.4 완료 기준
 - 시뮬레이션: 폭 30·45·58mm(높이 40mm), 놓는 곳 배출 구역과 (300, 200)에서 다음을 모두 만족한다.
   - 배출 구역은 반경 90~250mm 안에서 옮길 수 있다(`workspace.yaml`). 대칭 V자(①·②)는 sim 기준 반경 약 200mm까지 된다(넓힌 손목 한계면 폭 30mm는 225mm까지). 그보다 먼 곳의 넓은 물체가 ③`fixed_tilt`로 가는 것은 팔 구조의 한계로 받아들인다. 그래서 아래 기준은 반경 200mm 안의 놓는 곳에 적용한다.
@@ -436,6 +424,18 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
   - 놓기 5/5 성공
   - 놓은 물체가 5mm 넘게 밀리지 않고 쓰러지지 않음. 배출 구역에 mm 눈금 종이를 붙이고 위에서 고정한 휴대폰으로 놓기 전후를 찍어 잰다.
   - 사용자가 영상으로 "양쪽으로 대칭으로 벌어진다"를 확인
+
+### 11.3.5 배출 구역 칸 (2026-11-11, #244 뒤 새 REQ)
+- **문제**: 배출 구역이 점 하나라 두 번째 물체가 먼저 놓인 물체 자리로 내려간다. #244는 `ARM-PLACE-SAME-SPOT`(WARN)만 남기고 겹쳐 놓는다.
+- **규칙**:
+  - `workspace.yaml`의 배출 구역을 사각형으로 쓸 수 있게 한다: `right: {x_mm, y_mm, w_mm, h_mm, slot_mm}`(가운데·크기·칸 간격, 작업대 좌표).
+  - 칸 가운데는 사각형 안에 `slot_mm` 간격 격자로 놓는다. 그 가운데 집기 범위(`reach_mm`) 밖의 칸은 뺀다.
+  - 놓을 때는 비어 있는 칸(`placed`에 없는 칸) 가운데 **로봇 원점에 가까운 칸부터** 고른다. 가까울수록 대칭 V자(11.3.4, 약 200mm까지)가 잘 되기 때문이다. 경로 검사(11.3.3 4번)를 통과한 첫 칸을 쓴다.
+  - 빈 칸이 없으면 놓지 않고 `stopped`(이유 `drop_zone_full`)로 멈춘다. 손에 쥔 채이므로 사람이 정한다.
+  - `x_mm`·`y_mm`만 있는 옛 형식은 칸 하나로 보고 지금처럼 겹쳐 놓으며 경고한다(#244와 같음).
+- **기본값**(시험값): `right: {x_mm: 480, y_mm: 150, w_mm: 100, h_mm: 80, slot_mm: 75}`. 폭 58mm 물체 + 여유 15mm를 생각한 값이다. 작업대 조립 뒤(runbook 2-A A-3) 실측 위치로 바꾼다.
+- **초음파**: 배출 구역을 `ignore_zones`로 넘길 때(REQ-045)는 사각형 전체에 `safety_margin_mm`를 더해 넘긴다.
+- **GUI**: 작업대·좌표 페이지가 사각형과 칸을 그리고, 놓인 칸을 표시한다(GUI REQ, 나중).
 
 ## 12. 미정 사항
 - 팔 배치(모서리 / 긴 변 가운데)와 작업대 크기: T6 줄자 실측 후 확정. 코드는 `workspace.yaml`만 바뀐다. 허용 범위는 임의로 늘리지 않고 실측값을 넣는다(`decisions/0031`).
@@ -465,10 +465,11 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
 | `assets/mujoco/so101/` | menagerie `robotstudio_so101`에서 `load_model`이 실제로 읽는 파일만(MJCF·쓰는 메쉬)과 `LICENSE`(Apache-2.0), 가져온 menagerie 커밋을 적은 `SOURCE.md`. 원본 파일은 고치지 않는다. 우리가 더하는 것은 XML이 아니라 `load_model`(MjSpec)이 한다(13.4) | M1 | 팔 |
 | `arm/mujoco_driver.py` | `MuJoCoDriver(cfg, ws, *, scene=None, objects=(), realtime=True, viewer=False)`. 모델은 `connect`에서 만든다. `sim_state()`는 M2에서 `{"t_s": 시간, "objects": {}, "contacts": [], "held": None}` | M2 | 팔 |
 | `arm/sim_driver.py` | `make_sim_driver(cfg, ws, scene=None, scenario=None, viewer=False)` → `MuJoCoDriver`. M2는 `scene`만 넘기고(M1 `load_model`이 이미 받음) `scenario`는 None, `viewer`는 False로 둔다. `scenario`는 M3, `viewer`는 M4에서 쓴다. 지금 `SimDriver`와 `cli/__init__.py`의 `make_driver(sim, cfg)`는 그대로 둔다 | M2 | 팔 |
+| `arm/sim_driver.py`(M3) | 시나리오와 `config/manual_objects.yaml` 읽기, 오류 처리(13.5) | M3 | 팔 |
 | `cli/__init__.py` | M2: 인자 `--sim-engine {kinematic,mujoco}`(기본 kinematic). 168행에서 `a.sim and a.sim_engine == "mujoco"`일 때만 `make_sim_driver`를 부르고, 아니면 지금처럼 `make_driver`. `mujoco` import 실패(ImportError)는 이 자리에서 잡아 13.8 문장을 출력하고 `sys.exit(2)`. M3에 `--sim-scenario`, M4에 `--sim-viewer` | M2~M4 | 팔 |
 | `service/diagnostics.py` | `isinstance(driver, SimDriver)` → `getattr(driver, "simulated", False)` | M2 | 팔 |
 | `service/arm_service.py` | `reload_workspace`: 드라이버가 `physical_objects`면 거부(13.5) | M2 | 팔 |
-| `config/sim_scenarios/<이름>.yaml` | 물체 시나리오(13.5). (a)(b)용 두 개 | M3 | 팔 |
+| `config/sim_scenarios/<이름>.yaml` | 물체 시나리오(13.5). (a)용 `topedge.yaml`, (b)용 `carry30.yaml`·`carry45.yaml`·`carry58.yaml` | M3 | 팔 |
 | `pyproject.toml` | 선택 의존성 `mujoco = ["mujoco>=4.0,<5"]` | M1 | 팔 |
 | `environment.yml` | 기본에 넣지 않고 주석으로 설치법(13.8) | M1 | 팔 |
 | `tests/test_mujoco_model.py` | (d) | M1 | 팔 |
@@ -541,62 +542,80 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
     - 그리퍼는 `physical_limits_deg`의 그리퍼 값(0~100 단위)이 아니라 각도로 쓴다: range·ctrlrange = [`gripper_value_to_deg(0)` − 1°, `gripper_value_to_deg(100)` + 1°](라디안으로). 그래야 값 100까지 간다.
     - `joint_limits`가 None(팔 파일에 `physical_limits_deg`가 없음)이면 원본 range를 쓰고, `load_model`이 돌려주는 `warnings`에 `SIM-JOINT-RANGE-DEFAULT`를 담는다. 드라이버가 그것을 WARN 이벤트로 보낸다(13.2 이벤트).
 - **턱 접촉**:
-  - `load_model`이 MjSpec으로 고정 턱 body(그리퍼 body)와 가동 턱 body의 **충돌 geom을 찾아** 값만 고친다: `condim=4`, `friction="1.0 0.02 0.001"`.
-  - 전역 옵션은 `cone="elliptic" impratio="10" integrator="implicitfast" timestep="0.002"`이다(시험값).
+  - `load_model`은 `gripper`·`moving_jaw_so101_v1` body에 바로 붙은 geom 가운데 원본 `collision_gripper` 클래스(priority 1, 원본 condim 6, friction `1 0.005 0.0005`)인 것만 `condim=4`, `friction="1.0 0.02 0.001"`로 바꾼다. priority 1이 남아 있어 턱–물체 접촉은 턱 쪽 값을 쓴다. 손목 서보 상자(`so101.xml`, priority 0)는 바꾸지 않는다. (지금 코드는 group 3·4로 거른다. M3에서 클래스·priority 기준으로 바꾼다.)
+  - 전역 옵션은 `cone="elliptic" impratio="10" integrator="implicitfast" timestep="0.002"`이다(시험값). 원본 timestep 0.005(`so101.xml`)를 0.002로 바꾸고, `cone`·`impratio`·`integrator`는 원본과 같은 값이다.
   - 접촉을 보고할 때는 geom 이름 대신 **body의 역할 이름**을 쓴다: `jaw_fixed`(그리퍼 body), `jaw_moving`(가동 턱 body), `arm`(나머지 팔 body), `table`, `obj:<이름>`, `scene:<이름>`.
   - 물체와 장면 부품은 **body 이름 자체를** `obj:<이름>`·`scene:<이름>`으로 만들어, 역할 이름을 따로 표로 두지 않는다. 그 아래 geom 이름은 자유다.
-- 서보 kp·kv·forcerange·armature는 menagerie 기본값으로 시작한다. 공개 값은 kp 17.8~998로 약 56배 갈린다. 실물 `status.jsonl`로 맞추는 것은 M3 뒤 별도 REQ다.
+  - 역할은 다음 순서로 정한다: geom `table`이면 `table`, body `gripper`면 `jaw_fixed`(단 손목 서보 상자는 `arm`), `moving_jaw_so101_v1`이면 `jaw_moving`, body 이름이 `obj:`·`scene:`으로 시작하면 그 이름, 나머지(`base`, `camera_mount` 포함)는 `arm`.
+- 서보는 원본 값으로 시작한다: kp 998.22, kv 2.731, forcerange ±2.94, armature 0.028, damping 0.60, frictionloss 0.052(`so101.xml`). 공개 값은 kp 17.8~998로 약 56배 갈린다. 실물 `status.jsonl`로 맞추는 것은 M3 뒤 별도 REQ다.
 
 ### 13.5 장면과 물체
-- `make_sim_driver(cfg, ws, scene, scenario=None, viewer=False)`. home은 `cfg.poses["home"]`, 장면은 CLI가 `load_scene()`으로 읽은 것을 넘긴다(`ArmService`와 같은 함수).
-- `--sim-scenario`는 이름이면 `config/sim_scenarios/<이름>.yaml`, `.yaml`로 끝나면 경로다.
+- `make_sim_driver(cfg, ws, scene=None, scenario=None, viewer=False)`. CLI는 `load_scene()`으로 읽은 장면을 넘긴다(`ArmService`와 같은 함수). home 자세는 드라이버가 `cfg.poses["home"]`에서 읽는다.
+- **시나리오 읽기**(M3): 시나리오는 `make_sim_driver`가 읽는다. 이름이면 `config/sim_scenarios/<이름>.yaml`(레포 루트 기준), `.yaml`로 끝나면 그 경로다. `objects`의 각 행을 `SimObject(**row)`로 만든다.
+  - 파일이 없거나, 모르는 키·`name` 빠짐·이름 중복이면 `ValueError`를 내고, CLI는 그 문장을 출력하고 종료 코드 1로 끝난다.
+  - 시나리오가 없으면 같은 함수가 `config/manual_objects.yaml`을 읽는다.
+  - 만든 목록은 `MuJoCoDriver(cfg, ws, scene=scene, objects=objs, scenario=이름)`으로 넘기고, `scenario`(`connect_info`)에는 확장자를 뺀 파일 이름을 넣는다.
+  - `--sim-scenario`를 `--sim --sim-engine mujoco` 없이 주면 "--sim-scenario는 --sim --sim-engine mujoco와 함께 쓴다"로 종료 코드 1이다.
 - `connect`에서 `load_model`로 작업대(작업 면 평면)·장면 부품·물체를 더해 컴파일한다.
 - **장면 부품**(`config/scene.yaml`):
-  - `attach`가 작업대면 월드 고정 body, 링크면 그 링크 body의 자식이다.
+  - `attach`가 작업대면 월드 고정 body, 링크면 그 링크 body의 자식이다. 모르는 링크 이름이면 `connect`에서 `ValueError`가 나고 CLI는 "연결 실패"로 끝난다. 링크에 붙는 부품 geom은 질량 0으로 둔다(팔 동역학을 바꾸지 않게. 지금 `scene.yaml`에는 링크 부품이 없다).
   - `collide: false`는 보이기만 하는 geom이다(`contype=0 conaffinity=0`).
-  - `margin_mm`는 물리에 쓰지 않는다. STL이 있으면 메쉬, 없으면 `box_mm` 상자다.
+  - `margin_mm`는 물리에 쓰지 않는다. `box_mm`가 있으면 상자, 없으면 `file`의 메쉬다(둘 다 있으면 `box_mm`). MuJoCo에서는 꼭짓점 8개·면 12개 메쉬만 box geom이고 나머지는 mesh geom(충돌은 볼록 껍질)이다. 파일이 없으면 CLI는 그 오류 문장으로 끝난다.
 - **물체**:
-  - 시나리오가 없으면 `config/manual_objects.yaml`의 물체를 쓴다. 이름은 파일 순서대로 `manual0`, `manual1`, …이다.
+  - 시나리오가 없으면 `config/manual_objects.yaml`의 물체를 `ManualSource`와 같은 이름 `obj-1`, `obj-2`, …(파일 순서, 1부터)로 놓는다. body는 `obj:obj-1`이다. M2는 물체를 넘기지 않았다(`objects=()`).
   - 시나리오 물체는 `name`이 필수이고 서로 달라야 한다. 시나리오 파일 이름과 물체 이름은 별개다.
-  - 각 물체는 폭·길이·높이 상자다. 질량은 `mass_g`(기본 30g), 마찰은 1.0이다.
-  - 높이가 없는(0) 물체는 상자 높이 40mm로 놓고 `SIM-OBJECT-HEIGHT-DEFAULT`(WARN)를 남긴다. 계획 쪽 물체 높이는 그대로 0이라 결정 0052가 적용된다.
+  - 물체 행의 키는 `SimObject` 필드(`name, x_mm, y_mm, angle_deg, width_mm, length_mm, height_mm, mass_g`)이고 필수는 `name`·`x_mm`·`y_mm`이다. 기본값은 각도 0, 폭 30, 길이 100, 높이 0(→ 40), 질량 30g이다. 마찰은 `1.0 0.005 0.0001`(작업대와 같음)이다. 상자의 길이 축이 `angle_deg` 방향이다. 시험 시나리오는 길이를 늘 적는다(기본 100이면 막대가 된다).
+  - 높이가 없는(0) 물체는 상자 높이 40mm로 놓는다. `load_model`의 warnings 항목은 `(code, data)`이고, 높이 0 물체마다 `("SIM-OBJECT-HEIGHT-DEFAULT", {"object": 이름, "height_mm": 40})`을 하나씩 담아 드라이버가 WARN으로 보낸다. 계획 쪽 물체 높이는 0으로 남는다. 그래서 기울이지 못하는 집기는 `height_required`로 거부된다(결정 0052).
   ```yaml
   # config/sim_scenarios/topedge.yaml (a)
   objects:
     - {name: box58, x_mm: 300, y_mm: 275, angle_deg: 45, width_mm: 58, length_mm: 58, height_mm: 39}
   ```
-  - (300, 275)는 `robot_base_in_table` (300, 50)·yaw 90°에서 로봇 x축(정면)으로 225mm다. 팔 원점을 다시 재면(runbook 2-A A-1) 이 점도 같이 옮긴다.
+  ```yaml
+  # config/sim_scenarios/carry30.yaml (b). carry45·carry58은 폭·길이만 45·58로 다르다(정사각 상자)
+  objects:
+    - {name: box, x_mm: 300, y_mm: 200, angle_deg: 0, width_mm: 30, length_mm: 30, height_mm: 40}
+  ```
+  - (300, 275)는 `robot_base_in_table` (300, 50)·yaw 90°에서 로봇 x축(정면)으로 225mm다. 팔 원점을 다시 재면(runbook 2-A A-1) 시나리오 YAML의 `x_mm`·`y_mm`와 13.7 (a)(b)의 좌표를 로봇 정면 225mm(`carry`는 150mm) 점으로 함께 고친다.
 - **작업대 설정 다시 읽기**: MuJoCo 월드는 `connect` 때 만들어지므로, `ArmService.reload_workspace`는 드라이버가 `physical_objects`면 "MuJoCo 시뮬레이션은 작업대 설정을 바꾸면 다시 시작해야 합니다"로 거부한다.
 - 초음파 가상 ESP32의 demo 배치와 같은 물체를 놓는 것은 나중이다(초음파 세션과 맞출 때).
 
 ### 13.6 시뮬레이션 전용 읽기와 `no_object` 규칙
-- `sim_state()`(M3, `MuJoCoDriver`에만 있다):
+- `sim_state()`(`MuJoCoDriver`에만 있다. M2는 빈 값, M3에서 채운다):
   ```
   {"t_s": 시뮬레이션 시간,
-   "objects": {이름: {"x_mm", "y_mm", "z_mm"(작업대 좌표, 상자 바닥 가운데), "yaw_deg", "tilt_deg"(상자 위쪽 축과 연직 사이 각)}},
-   "contacts": [{"a": 역할 이름, "b": 역할 이름, "force_n": 법선 힘, "pos_mm": [x, y, h](작업대 좌표, h는 작업 면 위)}],
-   "held": jaw_fixed와 jaw_moving 둘 다와 접촉한 물체 이름 또는 None}
+   "objects": {이름: {"x_mm", "y_mm", "z_mm", "yaw_deg", "tilt_deg"}},
+   "tool": {"pos_mm": [x_mm, y_mm, z_mm], "rot": 3×3 행렬},
+   "contacts": [{"a": 역할 이름, "b": 역할 이름, "force_n": 법선 힘, "pos_mm": [x_mm, y_mm, z_mm]}],
+   "held": 물체 이름 또는 None}
   ```
-  M2에서는 `objects`·`contacts`가 빈 값, `held`가 None이다.
-- **`no_object`를 성공으로 치는 규칙**: 시뮬레이션 팔은 쥘 물체가 없어서 `no_object`를 성공으로 친다. MuJoCo는 물체가 있으므로 이 규칙을 쓰지 않는다.
+  - 좌표는 모두 작업대 좌표 mm이고, `z_mm`는 작업 면 위 높이(13.4의 h)다.
+  - `objects`: 위치는 상자 바닥 가운데. `yaw_deg`는 시나리오 `angle_deg`와 같은 기준(작업대 x축에서 반시계, −180~180), `tilt_deg`는 상자 위쪽 축과 연직 사이 각.
+  - `tool`: `gripper_frame` site의 위치와 축(작업대 좌표·축). 미끄러짐 판정(13.7 (b))에 쓴다.
+  - `contacts`: MuJoCo 접촉점 하나마다 한 항목이고, a·b 순서는 정하지 않는다(시험은 순서 없이 비교한다). `force_n`은 그 점의 법선 힘(N)이다. `a`·`b`는 역할 이름(`obj:<이름>` 포함)이고, `objects`의 키와 `held`는 접두어 없는 이름이다.
+  - `held`: `jaw_fixed`와 `jaw_moving` 둘 다와 법선 힘 > 0으로 접촉한 물체의 이름(접두어 없이) 또는 None. 둘 이상이면 `force_n` 합이 큰 것.
+  - M2에서는 `objects`·`contacts`가 빈 값, `tool`이 None, `held`가 None이다.
+- **`no_object`를 성공으로 치는 규칙**: 기구학 엔진(`SimDriver`, `--sim-engine kinematic`)은 쥘 물체가 없어서 `no_object`를 성공으로 친다. 드라이버의 `physical_objects`가 참이면 이 규칙을 쓰지 않는다.
   - CLI 작업 실행: `--dry-run`(→ `TaskRunner(accept_no_object=True)`)을 MuJoCo와 함께 주면 "물리 시뮬레이션에서는 --dry-run을 쓰지 않는다"로 거부한다(M2). `Studio`·`TaskRunner`는 고치지 않는다. `test_run_modes.py`·`test_task.py`는 기본 엔진이라 영향이 없다.
-  - GUI(M4, GUI REQ): `backend.py`의 집어 옮기기(`arm is self.sim`), `programs.py`의 `is_sim(arm)`, `Studio(dry_run=self.real is None)`가 드라이버의 `physical_objects`가 참이면 실패로 본다. `is_sim`은 "시뮬레이션이고 `physical_objects`가 아님"으로 바꾼다.
-  - GUI 인자 전달도 M4에서 같이 한다. 그래서 M3까지 GUI에서 MuJoCo를 고를 수 없다(위 "범위 나누기").
+  - GUI(M4, GUI REQ): `backend.py`의 집어 옮기기(`arm is self.sim`), `backend.py`가 넘기는 `is_sim` 람다(`arm is self.sim`, `programs.py`가 씀), `Studio(dry_run=self.real is None)`가 드라이버의 `physical_objects`가 참이면 실패로 본다. `is_sim`은 "시뮬레이션이고 `physical_objects`가 아님"으로 바꾼다.
 
 ### 13.7 완료 기준
+- **(a)(b) 공통**: cfg는 `config/robot.yaml` + `config/arms/so101_follower_01.yaml`(local.yaml 없이)이다. `driver = make_sim_driver(cfg, ws, None, scenario=이름)`, `svc = ArmService(driver, cfg, ws, log_root=tmp_path)`, `svc.connect()`. 집기는 `svc.pick_and_place(obj)`(놓을 곳 없이 집기만), 놓기는 `svc.place(at=(x, y))`다. 둘 다 `slow`로 표시한다.
 - (a) **재현**(M3, 시나리오 `topedge`):
-  - `pick`에 `DetectedObject(x=300, y=275, angle=45, width=58, length=58, height_mm=15)`를 넘긴다(실제 상자 높이 39).
+  - `obj = DetectedObject(id="box58", x_mm=300, y_mm=275, angle_deg=45, width_mm=58, length_mm=58, confidence=1.0, source="manual", height_mm=15)`를 넘긴다(실제 상자 높이 39).
     - 계획 쪽 계산: 각도 45°라 `tilt_ok=False`이고, 높이 15를 아니까 결정 0052의 `height_required`에 걸리지 않는다.
-    - 낮은 턱 끝 목표 t = min(`grasp_height_mm` 20, 15 − 8) = 7mm다. 통과 조건(W ≤ G − (H − t)·s(G) − 4, G 90에서 8·s < 28)은 지나므로 계획대로 내려간다.
-  - **기대**: 하강 중 `sim_state()["contacts"]`에 `jaw_fixed` 또는 `jaw_moving`과 `obj:box58`의 접촉이 있고, 접촉점 h가 34~44mm(윗면 39 ±5)다.
-  - 그리고 `pick`이 끝난 직후(놓기 전) "`held`가 `box58`이고 `box58`의 `tilt_deg` < 10"이 **아니다**(제대로 쥐지 못함). 결과 status는 `ok`·`no_object`·`stopped`·`fault` 가운데 무엇이어도 된다. 윗면을 누른 채 닫혀 접촉 판정이 `ok`로 나올 수 있고, 누르면 과부하 fault가 날 수도 있기 때문이다.
-  - **대조**: 같은 시나리오에서 `height_mm=39`를 주면 `ok`이고 `held`가 `box58`, `tilt_deg` < 10이다.
-- (b) **집어 옮기기**(M3, 시나리오 `carry`: (300, 200)에 폭·길이 30·45·58mm, 높이 40mm, 각도 0 상자를 하나씩):
-  - `pick`(height_mm 40) 뒤 `place_at(420, 170)`. 로봇 원점에서 약 170mm라 대칭 V자 범위(11.3.4, 약 200mm) 안이다. 배출 구역 칸(11.3.5)은 여기서 쓰지 않는다.
+    - 기호는 11.2와 같다. W 물체 폭 58, H 계획에 넘긴 높이 15, t 낮은 턱 끝 높이, G 시작 벌림(`Skills._needed_gap`이 고름), s = `Gripper.narrowing(v(G), tilt_ok=False)`.
+    - t = min(`grasp_height_mm` 20, H − `grasp_min_contact_mm` 8) = 7mm. G는 W + `gripper_margin_mm` = 78이고, 78에서 s ≈ 1.45라 (H − t)·s ≈ 11.6 ≤ G − W − 4 = 16이므로 계획대로 t = 7까지 내려간다.
+    - 실제 윗면 39mm에서 턱 사이는 78 − (39 − 7)·1.45 ≈ 31.5mm < 58이라 턱이 윗모서리를 친다. 숫자는 `config/arms/so101_follower_01.yaml`의 `gripper_width_mm` 기준이다(EGM 리뷰 계산, 실행 전).
+  - **기대**: `pick_and_place`가 도는 동안 시험 스레드가 `sim_state()`를 50Hz로 읽는다. {`jaw_fixed` 또는 `jaw_moving`, `obj:box58`} 접촉 가운데 `pos_mm`의 `z_mm`가 34~44mm(윗면 39 ±5)인 것이 한 번 이상 나온다.
+  - 그리고 `pick_and_place`가 끝난 직후(놓기 전) `held != "box58"`이거나 `box58`의 `tilt_deg` ≥ 10이다(제대로 쥐지 못함). 결과 status는 `ok`·`no_object`·`stopped`·`fault` 가운데 무엇이어도 된다. 윗면을 누른 채 닫혀 접촉 판정이 `ok`로 나올 수 있고, 누르면 과부하 fault가 날 수도 있기 때문이다.
+  - **대조**: 새 드라이버와 새 `ArmService`로 다시 connect한 뒤(물체가 처음 자리로 돌아온다) `height_mm=39`로 같은 호출을 하면 `ok`이고 `held`가 `box58`, `tilt_deg` < 10이다(같은 시점에 잰다). 이때 계획은 G 90, t 약 27mm(닿는 깊이 약 12mm)다. 실패하면 모델 접촉값 문제로 보고 기준은 바꾸지 않는다.
+- (b) **집어 옮기기**(M3, 시나리오 `carry30`·`carry45`·`carry58`을 하나씩, 시나리오마다 새로 connect한다. 시험은 셋을 parametrize한다. 상자 이름은 `box`):
+  - `svc.pick_and_place(obj)`(`height_mm=40`, 폭·길이는 시나리오와 같게) 뒤 `svc.place(at=(420, 170))`. 로봇 원점에서 약 170mm라 대칭 V자 범위(11.3.4, 약 200mm) 안이다. 배출 구역 칸(11.3.5)은 여기서 쓰지 않는다.
   - 시험 스레드가 `sim_state()`를 50Hz로 읽는다.
-  - 미끄러짐: `held`가 그 상자이고 상자 h > 5mm인 동안, `gripper_frame` site 좌표계에서 본 상자 바닥 가운데의 위치가 들어 올린 첫 순간 값에서 **최대 3mm 안**이다.
-  - 놓기: `place_at`이 끝나고 1.0초 뒤 잰다. 상자 바닥 가운데와 (420, 170)의 **수평 거리가 5mm 안**이고, `tilt_deg` < 10이다.
-  - 감시: 실행 동안 `events.jsonl`에 부하·전류·그리퍼 부하 감시의 WARN·ERROR가 0건이다.
+  - 미끄러짐: `held`가 `box`이고 그 `z_mm` > 5인 표본마다, `tool` 자세로 상자 바닥 가운데를 site 좌표계로 바꾼다. 그 값이 이 조건을 처음 만족한 표본의 값에서 3mm 이하다.
+  - 놓기: `svc.place`가 끝나고 1.0초 뒤 잰다. 상자 바닥 가운데와 (420, 170)의 **수평 거리가 5mm 안**이고, `tilt_deg` < 10이다.
+  - 감시: 실행 동안 `events.jsonl`에 `ARM-GRIP-OVERLOAD-WARN`·`ARM-GRIP-OVERLOAD`가 0건이고, reason이 `overload`·`overcurrent`·`overheat`로 시작하는 `ARM-FAULT`가 0건이다. `ARM-LOAD-PROBE`는 세지 않고, 건수와 최대 `load_pct`만 시험 출력에 남긴다(kp 998·forcerange ±2.94면 움직이는 동안 50%를 넘을 수 있다는 리뷰 추정. 흔들리면 13.2 부하 정의나 서보 값을 고친다).
 - (c) **기본값 유지**(M2): `--sim-engine`을 주지 않으면 지금 `SimDriver`이고, 지금 시험이 모두 그대로 통과한다. `--sim` 없이 `--sim-engine`만 주면 "`--sim`과 함께 쓴다"로 끝난다.
 - (d) **모델 대조**(M1, `mujoco` 모듈과 `arm/mujoco_model.py`만 쓴다. 드라이버 없이):
   - `np.random.default_rng(0)`으로 그리퍼를 뺀 다섯 관절을 `joint_limits_deg`에서 5° 안쪽으로 고른 자세 10개를 만든다.
