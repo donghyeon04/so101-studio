@@ -59,3 +59,22 @@ def test_failed_place_does_not_keep_the_previous_angle_and_angles_are_kept_per_o
         assert s.placed_angle_at(sx, sy) is None
     finally:
         s.disconnect()
+
+
+@pytest.mark.slow
+def test_placed_angle_and_height_survive_a_reconnect(tmp_path):
+    """GUI [다시 연결]이 Skills를 새로 만들어도 놓은 물체의 각도·높이가 남는다(#314 검토)."""
+    block = float(np.interp(58, [p[0] for p in TABLE], [p[1] for p in TABLE]))
+    s = ArmService(SimDriver(CFG.poses["home"], grip_block=block), CFG, WS, speed_pct=30, log_root=str(tmp_path))
+    assert s.connect()[0]
+    try:
+        assert s.pick_and_place(DetectedObject("b", 300, 200, 0, 58, 58, 1.0, "manual", 39), zone="right").status == "ok"
+        sx, sy = WS.zone_slots("right")[0]
+        angle, heights = s.placed_angle_at(sx, sy), dict(s.skills.placed_height)
+        assert angle is not None and heights
+        s.disconnect()
+        assert s.connect()[0]
+        assert s.placed_angle_at(sx, sy) == pytest.approx(angle) and s.skills.placed_height == heights
+        assert s.last_placed_angle_deg == pytest.approx(angle)
+    finally:
+        s.disconnect()
