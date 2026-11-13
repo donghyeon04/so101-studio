@@ -502,7 +502,10 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
   - 토크가 꺼진 동안 `write_joints`는 목표를 저장만 하고 힘을 내지 않는다. 다시 켤 때는 저장한 값이 아니라 그 순간의 관절값을 목표로 쓴다.
   - 그리퍼 `Torque_Limit` v(0~1000)는 그리퍼 액추에이터 `forcerange`를 원래 값 × v/1000으로 줄인다.
 - **상태 값**(서보 모델이 없으므로 근사):
-  - 부하 %: |액추에이터 힘| / **원래(줄이기 전)** `forcerange` × 100. 쥔 그리퍼는 운반 중 `gripper_hold_torque` 200이면 20% 이하, 닫는 중 `gripper_squeeze_torque` 300이면 30% 이하다. `gripper_load_warn_pct` 60 아래라 정상 집기에서 경고·fault가 나지 않는다.
+  - 부하 %: |clip(kp·(ctrl − q), ±지금 `forcerange`)| / **원래(줄이기 전)** `forcerange` × 100(2026-11-13 변경, M3에서 발견). **위치 오차에 걸리는 힘만 세고 kv·damping(속도에 비례하는 항)은 뺀다.**
+    - 이유: 처음 정의(액추에이터 힘 전체)에는 속도 항이 들어 있어서, 그리퍼를 여는 동안 부하가 `forcerange`의 100%까지 올라갔다. 그러면 `ARM-GRIP-OVERLOAD-WARN`(60% 초과)이 걸려 컨트롤러가 열기를 멈췄고, 그리퍼가 55가 아니라 36까지만 벌어진 채 내려가 윗면을 쳤다(13.7 (a) 대조가 `no_object`로 실패).
+    - 쥔 그리퍼와 중력을 버티는 부하는 그대로 잡힌다. MuJoCo 세션 측정으로 운반 중(`gripper_hold_torque` 200) 20% 이하, 닫는 중(`gripper_squeeze_torque` 300) 30% 이하라 `gripper_load_warn_pct` 60 아래다. 정상 집기에서 경고·fault가 나지 않는다.
+    - 실물 서보의 `Present_Load`와 같은 뜻인지는 실물 측정(`measurements.md`) 뒤에 다시 본다. 이 정의로도 감시가 걸리면, 서보 kv를 낮추는 안(모델 원본 값 변경)을 따로 판단한다.
   - 전류: 관절별 부하 % × 10mA(부하 100% = 1000mA), 합이 `current_ma`.
   - 부하·전류·과열 감시는 끄지 않는다. 정상 동작에서 걸리면 모델의 서보 값(kp·forcerange)이 실물과 다른 것으로 보고 모델을 고친다.
 - **병렬 그리퍼**: MuJoCo 모델은 단동식뿐이다. 팔 파일의 그리퍼가 `parallel`이면 `make_sim_driver`가 "MuJoCo는 단동식만 지원"으로 거부한다.
@@ -615,7 +618,7 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
   - 시험 스레드가 `sim_state()`를 50Hz로 읽는다.
   - 미끄러짐: `held`가 `box`이고 그 `z_mm` > 5인 표본마다, `tool` 자세로 상자 바닥 가운데를 site 좌표계로 바꾼다. 그 값이 이 조건을 처음 만족한 표본의 값에서 3mm 이하다.
   - 놓기: `svc.place`가 끝나고 1.0초 뒤 잰다. 상자 바닥 가운데와 (420, 170)의 **수평 거리가 5mm 안**이고, `tilt_deg` < 10이다.
-  - 감시: 실행 동안 `events.jsonl`에 `ARM-GRIP-OVERLOAD-WARN`·`ARM-GRIP-OVERLOAD`가 0건이고, reason이 `overload`·`overcurrent`·`overheat`로 시작하는 `ARM-FAULT`가 0건이다. `ARM-LOAD-PROBE`는 세지 않고, 건수와 최대 `load_pct`만 시험 출력에 남긴다(kp 998·forcerange ±2.94면 움직이는 동안 50%를 넘을 수 있다는 리뷰 추정. 흔들리면 13.2 부하 정의나 서보 값을 고친다).
+  - 감시: 실행 동안 `events.jsonl`에 `ARM-GRIP-OVERLOAD-WARN`·`ARM-GRIP-OVERLOAD`가 0건이고, reason이 `overload`·`overcurrent`·`overheat`로 시작하는 `ARM-FAULT`가 0건이다. `ARM-LOAD-PROBE`는 세지 않고, 건수와 최대 `load_pct`만 시험 출력에 남긴다. 부하 %는 13.2의 정의(위치 오차 항만, 속도 항 제외)라 움직이는 속도 때문에 부하가 오르지는 않는다. 그래도 감시가 걸리면 13.2 끝의 kv 안을 따로 올린다.
 - (c) **기본값 유지**(M2): `--sim-engine`을 주지 않으면 지금 `SimDriver`이고, 지금 시험이 모두 그대로 통과한다. `--sim` 없이 `--sim-engine`만 주면 "`--sim`과 함께 쓴다"로 끝난다.
 - (d) **모델 대조**(M1, `mujoco` 모듈과 `arm/mujoco_model.py`만 쓴다. 드라이버 없이):
   - `np.random.default_rng(0)`으로 그리퍼를 뺀 다섯 관절을 `joint_limits_deg`에서 5° 안쪽으로 고른 자세 10개를 만든다.
