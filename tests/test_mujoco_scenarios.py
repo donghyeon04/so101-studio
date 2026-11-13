@@ -13,7 +13,7 @@ from so101_studio.core.config import load_robot, load_workspace
 from so101_studio.core.types import DetectedObject
 from so101_studio.service.arm_service import ArmService
 
-CFG = load_robot("config/robot.yaml")
+CFG = load_robot("config/robot.yaml", local_path="config/no-local.yaml")  # 13.7 공통: robot.yaml + 팔 파일, local.yaml 없이
 WS = load_workspace("config/workspace.yaml")
 JAWS = {"jaw_fixed", "jaw_moving"}
 
@@ -147,3 +147,16 @@ def test_sim_state_shapes_and_height_default_warning():
     assert any(c["a"] == "table" or c["b"] == "table" for c in st["contacts"]) and st["held"] is None and len(st["tool"]["rot"]) == 3
     assert ("sim", "WARN", "SIM-OBJECT-HEIGHT-DEFAULT", {"object": "a", "height_mm": 40.0}) in got
     d.disconnect()
+
+
+def test_paths_are_relative_to_the_repo_root_and_manual_unknown_keys_are_value_errors(tmp_path, monkeypatch):
+    from so101_studio.arm import sim_driver
+
+    monkeypatch.chdir(tmp_path)  # 다른 폴더에서 실행해도 시나리오·수동 물체를 찾는다
+    assert make_sim_driver(CFG, WS, None, scenario="topedge").connect_info["scenario"] == "topedge"
+    assert make_sim_driver(CFG, WS, None).objects[0].name == "obj-1"
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "manual_objects.yaml").write_text("objects: [{x_mm: 1, y_mm: 1, color: red}]", encoding="utf-8")
+    monkeypatch.setattr(sim_driver, "REPO_ROOT", tmp_path)
+    with pytest.raises(ValueError, match="수동 물체"):
+        make_sim_driver(CFG, WS, None)
