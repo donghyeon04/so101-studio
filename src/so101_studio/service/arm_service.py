@@ -725,7 +725,7 @@ class ArmService:
             return self._rejected("pick_and_place", why, object=asdict(obj), place_at=place_at)
         self.enable_torque()
         r = self.skills.pick(obj)
-        self._log("pick", {"object": asdict(obj), "status": r.status})
+        self._log("pick", {"object": asdict(obj), "status": r.status, "grasp": self.skills.last_pick_info})
         if r.status == "ok" and target:
             r = self.skills.place_at(*target) if place_at else self.skills.place(zone)
             self._log("place", {"zone": zone, "at": place_at, "status": r.status, "correction_mm": self._place_correction()})

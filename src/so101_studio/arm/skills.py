@@ -47,6 +47,7 @@ class Skills:
         self.untilt_rejected: str | None = None  # 마지막 _untilt_goal이 거절한 이유(ik | box:<mm> | object:<..> | check_goal:<..> | already_vertical)
         self.descent_blocked_by: str | None = None  # 마지막 _descent가 알려진 물체 때문에 거른 이유(object@(x,y))
         self.opening_skipped: list[dict] = []  # 건너뛰었거나 못 쓴 여는 경로와 이유 (11.3.3)
+        self.last_pick_info: dict | None = None  # 마지막 집기가 닫힌 자세(목표 높이·기울기·관절): PICK 기록에 붙는다
         self.last_pick_tilted: bool | None = None  # 마지막 pick이 기울여 집으려 했는지(수직 집기 no_object를 작업 실행이 알아본다, 결정 0052)
         self.grip: dict | None = None  # 집기 기억(11.3.2): tilted(집기의 tilt_ok), tip_h(낮은 턱 끝 높이 t_g, mm), obj_h(물체 높이, 0=모름). 놓기가 끝나면·집기가 실패하면·새 집기를 시작하면 지운다
         self._box_after_low_lift = None  # low_lift로 멈춘 뒤 방금 놓은 상자(center·box_w·obj_h): home 경로 검사에 쓴다
@@ -251,6 +252,7 @@ class Skills:
         tilt_ok = self._tilt_ok(obj, yaw)
         self.last_pick_tilted = tilt_ok
         self._box_after_low_lift = None
+        self.last_pick_info = None
         height_required = MotionResult("height_required", 0.0, ToolPose(0, 0, 0, 0), reason=HEIGHT_REQUIRED_REASON)
         if self.gripper.name == "single_jaw" and not tilt_ok and obj.height_mm <= 0:  # (단동식만: 위 모서리 문제는 V자 턱이 위로 좁아지는 데서 나온다. 병렬은 해당 없음) 수직으로만 집는데 높이를 모르면 위 모서리를 친다: 움직이지 않고 높이를 요구한다 (결정 0052, 6.6)
             return height_required
@@ -279,6 +281,10 @@ class Skills:
         self._set_grip_torque(self.cfg.gripper_squeeze_torque)  # 조임 힘을 낮춰 얇은 물체가 미끄러져 빠지지 않게(RAM Torque_Limit, 결정 0033)
         try:
             contact, r = self._close_until_contact(closing)  # 4. 닫으며 손을 같이 보낸다
+            qg = self._q()
+            pg = self.kin.fk(qg)
+            self.last_pick_info = {"tilted": bool(tilt_ok), "target_tip_h_mm": round(float(t), 1), "tool_z_mm": round(pg.z_mm, 1), "pitch_deg": round(pg.pitch_deg, 1),
+                                   "joints": [round(v, 1) for v in astuple(qg)], "contact": contact}  # 실물에서 얼마나 덜 내려갔는지 판정하는 기록(실물 2-2 11-13)
         except BaseException:
             self._restore_grip_torque()
             raise
@@ -337,7 +343,7 @@ class Skills:
         f, m = self.kin.jaw_tip_offsets(p.pitch_deg, p.yaw_deg, v0)  # -90° 고정 대신 지금 손 pitch로 중심과 낮은 턱 끝 높이를 구한다
         mid = (f[:2] + m[:2]) / 2
         env = SimpleNamespace(center=SimpleNamespace(x_mm=p.x_mm + float(mid[0]), y_mm=p.y_mm + float(mid[1])), yaw=p.yaw_deg, tip_z=p.z_mm + float(min(f[2], m[2])),
-                              v0=v0, gap0=gap0, cap=cap, sym=self._sym_gap_mm(), tau_s=self._tilt(v0) if ctx.get("tilted") else 0.0, obj_h=float(ctx.get("obj_h", 0.0)), need_lift=float(ctx.get("need_lift") or LIFT_MARGIN_MM), box_w=float(ctx.get("obj_w") or gap0))  # 상자 폭: 물체 폭을 알면 그 값, 모르면 쥔 틈 (11.3.3)
+                              v0=v0, gap0=gap0, cap=cap, sym=self._sym_gap_mm(), tau_s=self._tilt(v0) if ctx.get("tilted") else 0.0, obj_h=float(ctx.get("obj_h", 0.0)), need_lift=float(ctx.get("need_lift") or LIFT_MARGIN_MM), box_w=min(float(ctx.get("obj_w") or gap0), gap0))  # 상자 폭: 물체 폭을 알면 그 값, 모르면 쥔 틈 (11.3.3)
         if self._place_ctx is not None:
             self._place_ctx["center"] = env.center  # 떠날 때(_leave)도 열림 경로 검사(_can_leave)와 같은 상자 중심을 쓴다
         last = "ik_failed_along_opening_path"
@@ -593,7 +599,7 @@ class Skills:
         n = max(9, math.ceil(swing / SWING_STEP_DEG) + 1)  # 가장 크게 도는 관절이 SWING_STEP_DEG마다 한 자세씩 지나도록 촘촘히 본다
         states = [JointState(*(q0 + (q1 - q0) * k)) for k in np.linspace(0.0, 1.0, n)]
         gaps = [self._box_gap(st, self.kin.fk(st), held) for st in states] if held is not None else []
-        if gaps and min(gaps) < BOX_GAP_MM:
+        if gaps and min(gaps) < BOX_GAP_MM and not (gaps[0] > 0.2 and gaps[-1] >= BOX_GAP_MM and min(gaps) > 0.2 and min(gaps) >= gaps[0] - 0.5):  # 단동식은 놓은 직후 고정 턱이 상자 옆에 닿아 있다(간격 0~2mm): 시작이 겹치지 않고(0.2mm 넘게 떨어짐) 풀기 내내 0.2mm를 넘게 떨어져 있고(_box_gap은 겹치면 0으로 잘린다) 시작보다 더 가까워지지 않고 끝에 BOX_GAP_MM 이상 벌어지면 허용
             self.untilt_rejected = f"box:{min(gaps):.0f}mm"
         elif (why := self._hits_objects(states, tolerate_start=False)) is not None:
             self.untilt_rejected = f"object:{why}"
@@ -640,7 +646,7 @@ class Skills:
         """놓은 뒤 떠나는 수직 상승 (11.3.3 5번). need = 물체 높이 + 10mm(모르면 t_g + 30mm). 계획(_leave_plan): 곧게 need 이상 올라가거나, 올라갈 수 있는 만큼 곧게 올라간 뒤 기울기를 풀며 마저 올라간다
         (직선은 해가 튀어 관절 보간, 지나는 자세는 방금 놓은 물체 상자·알려진 물체·check_goal 검사). 계획이 없으면 ARM-PLACE-LOW-LIFT(ERROR)와 stopped(low_lift)로 끝낸다. 계획은 지금 실제 관절에서 다시 세운다."""
         need = float(ctx.get("need_lift") or 0.0)
-        held = SimpleNamespace(center=ctx.get("center") or SimpleNamespace(x_mm=ctx["target"][0], y_mm=ctx["target"][1]), box_w=float(ctx.get("obj_w") or held_gap), obj_h=float(ctx.get("obj_h") or NEIGHBOUR_H_MM))  # 방금 놓은 물체 상자
+        held = SimpleNamespace(center=ctx.get("center") or SimpleNamespace(x_mm=ctx["target"][0], y_mm=ctx["target"][1]), box_w=min(float(ctx.get("obj_w") or held_gap), held_gap), obj_h=float(ctx.get("obj_h") or NEIGHBOUR_H_MM))  # 방금 놓은 물체 상자
         plan = self._leave_plan(self._q(), need, held)
         if plan is None:  # 풀 길이 없다: 곧게 올라갈 수 있는 만큼은 올라가(턱을 놓은 물체 옆에서 떼) 멈춘다
             q, p, lifted = self._q(), self.kin.fk(self._q()), 0.0
