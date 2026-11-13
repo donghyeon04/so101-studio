@@ -91,5 +91,6 @@
 | `docs/decisions/0056-egm-run-by-coordinator.md` | 결정 | 확정 | EGM 설계서 점검(Stage 9·drift-report)은 총괄이 egm-synthesizer 하위 에이전트로 직접 돌린다(0048 실행 방식 대체) |
 | `docs/decisions/0057-so101-mcp.md` | 결정 | 확정 | C11 so101-mcp는 Tibe31/so101-mcp를 `C:\tools`에 설치하고 local 범위로만 등록, 우리 코드 실행 전에는 끈다 |
 | `docs/decisions/0058-camera-esp32-cam.md` | 결정 | 확정 | 비교 실험 카메라는 AI-Thinker ESP32-CAM 1대, Wi-Fi(노트북 핫스팟), 작업대 위 고정, ArUco+minAreaRect, VLA 때 USB 카메라 추가 |
-| `docs/decisions/0059-blocked-contact-stop.md` | 결정 | 확정 | 막힘·접촉 즉시 정지는 추종 오차(명령−실제, 10Hz 위치 재사용)로, 빈 이동·쥔 채 이동·닫기 프로필별 문턱(정상 최대×1.3), 부하 감시는 두 번째 안전망 |
+| `docs/decisions/0059-blocked-contact-stop.md` | 결정 | 확정(문턱은 → 0061) | 막힘·접촉 즉시 정지는 추종 오차(명령−실제, 10Hz 위치 재사용)로, 빈 이동·쥔 채 이동·닫기 프로필별 문턱(정상 최대×1.3), 부하 감시는 두 번째 안전망 |
 | `docs/decisions/0060-grasp-tilt-equal-tips.md` | 결정 | 확정 | 집기 손 기울기 기본값을 equal_tips(두 턱 끝 높이를 맞춤)로, symmetric(0012)은 옵션. 실물 58mm 상자 symmetric 0/2 → equal_tips 10/10 |
+| `docs/decisions/0061-blocked-threshold-by-speed.md` | 결정 | 확정 | 막힘 감지 문턱: 30% 이하 고정(#307 값), 30% 초과는 정속 문턱만 속도/30%배, 50% 초과는 판정 없이 ARM-TRACKING 기록만(0059 문턱 대체) |
