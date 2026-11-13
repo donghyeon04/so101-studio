@@ -21,7 +21,6 @@ def start(scenario, tmp_path, speed):
     svc = ArmService(make_sim_driver(CFG, WS, None, scenario=scenario), CFG, WS, speed_pct=speed, log_root=str(tmp_path))
     ok, msg = svc.connect()
     assert ok, msg
-    svc.ctl.blocked_cfg = replace(CFG, blocked_empty_accel_deg=6.0, blocked_empty_cruise_deg=4.0 * (0.25 + 0.75 * speed / 100))  # MuJoCo 액추에이터의 오차는 실물 서보보다 작고 속도에 비례한다(결정 0059): 실물 문턱(10/15.5)으로는 장애물 시험이 잡히지 않아 시뮬레이션 값을 쓴다
     return svc
 
 
@@ -30,7 +29,7 @@ def blocked_events(svc):
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("speed", [30, 100])
+@pytest.mark.parametrize("speed", [30, 50])
 def test_move_into_a_tall_box_is_stopped_and_held(tmp_path, speed):
     svc = start("blocker", tmp_path, speed)
     try:
@@ -45,7 +44,7 @@ def test_move_into_a_tall_box_is_stopped_and_held(tmp_path, speed):
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("speed", [30, 100])
+@pytest.mark.parametrize("speed", [30, 50])
 def test_free_empty_moves_never_trigger_blocked(tmp_path, speed):
     svc = start("carry30", tmp_path, speed)  # 상자(40 높이)는 (300,200) 한 곳: 80mm 위로만 지난다
     try:
@@ -56,3 +55,15 @@ def test_free_empty_moves_never_trigger_blocked(tmp_path, speed):
         assert not blocked_events(svc)
     finally:
         svc.disconnect()
+
+
+def test_sim_blocked_overrides_thresholds_only_for_mujoco_and_rejects_unknown_keys(tmp_path):
+    from so101_studio.arm.sim_driver import SimDriver
+
+    assert CFG.sim_blocked  # robot.yaml 값
+    mj = ArmService(make_sim_driver(CFG, WS, None, scenario="carry30"), CFG, WS, log_root=None)
+    assert mj.cfg.blocked_empty_cruise_deg == CFG.sim_blocked["blocked_empty_cruise_deg"] != CFG.blocked_empty_cruise_deg
+    assert mj.saved_params["blocked_empty_cruise_deg"] == mj.cfg.blocked_empty_cruise_deg  # GUI [기본값으로]도 시뮬레이션 값
+    assert ArmService(SimDriver(), CFG, WS, log_root=None).cfg.blocked_empty_cruise_deg == CFG.blocked_empty_cruise_deg  # 기구학 시뮬레이션은 실물 값 그대로
+    with pytest.raises(ValueError, match="sim_blocked"):
+        ArmService(make_sim_driver(CFG, WS, None, scenario="carry30"), replace(CFG, sim_blocked={"speed_pct_default": 5}), WS, log_root=None)

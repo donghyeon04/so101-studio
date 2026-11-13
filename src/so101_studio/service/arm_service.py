@@ -61,6 +61,10 @@ def plan_goto(kin, cfg, q0: JointState, goal: ToolPose, speed_pct: float):
 class ArmService:
     def __init__(self, driver, cfg: RobotConfig, ws: WorkspaceConfig | None = None, speed_pct: float | None = None,
                  log_root: str | None = "runs", proc: str | None = None):
+        if getattr(driver, "physical_objects", False) and cfg.sim_blocked:  # MuJoCo는 추종 오차가 작아 실물 막힘 문턱을 시뮬레이션 값으로 바꾼다(robot.yaml sim_blocked)
+            if bad := [k for k in cfg.sim_blocked if not k.startswith("blocked_") or not hasattr(cfg, k)]:
+                raise ValueError(f"sim_blocked에 모르는 키: {bad}")
+            cfg = replace(cfg, **cfg.sim_blocked)
         self.driver, self.cfg = driver, cfg
         self.ws = ws or load_workspace()
         self.speed = speed_pct if speed_pct is not None else cfg.speed_pct_default
