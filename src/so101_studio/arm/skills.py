@@ -22,6 +22,7 @@ HEIGHT_REQUIRED_REASON = "턱 축이 팔 방향과 어긋나 수직으로 집어
 HOVER_NEIGHBOUR_R_MM = 100.0  # 놓는 점 둘레 이 반경 안의 알려진 물체 높이를 hover 높이 규칙에 쓴다 (11.3.3)
 SWING_STEP_DEG = 2.0  # 기울기 풀기 보간에서 가장 크게 도는 관절이 이만큼 돌 때마다 한 자세씩 검사한다
 SAME_SPOT_MM = 30.0  # 놓을 자리에서 이 안에 있는 놓은 물체는 같은 자리(배출 구역에 쌓는 것)로 보고 피하지 않는다
+SQUARE_TOL_MM = 3.0  # 폭과 길이가 이만큼 안으로 같으면 정사각형으로 본다: 턱 축 후보가 변 법선 둘(각도+90, 각도)이다
 LIFT_MARGIN_MM = 10.0  # 놓은 뒤 상승의 최소 = 물체 높이 + 이 값 (11.3.3)
 LIFT_UNKNOWN_EXTRA_MM = 30.0  # 물체 높이를 모르면 t_g + 이 값
 NEIGHBOUR_H_MM = 40.0  # 이웃 물체 높이를 모를 때 가정하는 높이: 이보다 낮게 지나는 두 턱 끝은 알려진 물체와의 거리를 본다
@@ -142,6 +143,22 @@ class Skills:
             r -= math.copysign(180.0, r)
         return r + base
 
+    def _radial_off(self, x_mm: float, y_mm: float, yaw_t: float) -> float:
+        """턱 축(yaw_t)이 점 (x, y)에서 팔이 뻗은 방향(반경)에서 벗어난 각도(0~90°, 턱 축은 180° 대칭). gripper.tilt_allowed와 같은 식이다."""
+        xr, yr = frames.table_to_robot(x_mm, y_mm, self.kin.base)
+        radial = math.degrees(math.atan2(yr, xr))
+        return abs((yaw_t - self.kin.base.yaw_deg - radial + 90.0) % 180.0 - 90.0)
+
+    def _pick_yaw(self, obj: DetectedObject) -> float:
+        """집는 턱 축 방향: 긴 변(또는 한 변)에 수직인 각도+90. 정사각형은 변이 둘이라 각도+90과 각도 둘 다 후보이므로 반경 방향에 더 가까운 쪽을 고른다(75~105° 정사각형이 0°와 같이 기울여 집힌다, 11-14 사용자 결정 B)."""
+        a = obj.angle_deg or 0.0
+        yaw = self._jaw_yaw(a + 90.0)
+        if obj.width_mm > 0 and obj.length_mm > 0 and abs(obj.width_mm - obj.length_mm) <= SQUARE_TOL_MM:
+            alt = self._jaw_yaw(a)
+            if self._radial_off(obj.x_mm, obj.y_mm, alt) < self._radial_off(obj.x_mm, obj.y_mm, yaw) - 1e-6:
+                return alt
+        return yaw
+
     def _tilt_ok(self, obj: DetectedObject, yaw_t: float) -> bool:
         """턱 축이 팔이 뻗은 방향(방사 방향)과 거의 나란할 때만 기울일 수 있다."""
         return self.gripper.tilt_allowed(obj.x_mm, obj.y_mm, yaw_t)
@@ -254,7 +271,7 @@ class Skills:
         (4) 그리퍼가 명령보다 앞서 멈추면(접촉) 그 자리에서 정지한다. 물체 크기를 몰라도 된다."""
         self.placed = [o for o in self.placed if math.hypot(o[0] - obj.x_mm, o[1] - obj.y_mm) > 40.0]  # 집어 간 물체는 더 이상 장애물이 아니다
         self.grip = None
-        yaw = self._jaw_yaw((obj.angle_deg or 0.0) + 90.0)
+        yaw = self._pick_yaw(obj)
         lo_g = self.cfg.joint_limits_deg["gripper"][0]  # 턱 축이 물체 긴 변에 수직이 되도록 (spec 6.6: 물체 각도 + 90°)
         m = (math.cos(math.radians(yaw)), math.sin(math.radians(yaw)))
         tilt_ok = self._tilt_ok(obj, yaw)
