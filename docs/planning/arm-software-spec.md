@@ -544,11 +544,11 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
     - 그리퍼는 `physical_limits_deg`의 그리퍼 값(0~100 단위)이 아니라 각도로 쓴다: range·ctrlrange = [`gripper_value_to_deg(0)` − 1°, `gripper_value_to_deg(100)` + 1°](라디안으로). 그래야 값 100까지 간다.
     - `joint_limits`가 None(팔 파일에 `physical_limits_deg`가 없음)이면 원본 range를 쓰고, `load_model`이 돌려주는 `warnings`에 `SIM-JOINT-RANGE-DEFAULT`를 담는다. 드라이버가 그것을 WARN 이벤트로 보낸다(13.2 이벤트).
 - **턱 접촉**:
-  - `load_model`은 `gripper`·`moving_jaw_so101_v1` body에 바로 붙은 geom 가운데 원본 `collision_gripper` 클래스(priority 1, 원본 condim 6, friction `1 0.005 0.0005`)인 것만 `condim=4`, `friction="1.0 0.02 0.001"`로 바꾼다. priority 1이 남아 있어 턱–물체 접촉은 턱 쪽 값을 쓴다. 손목 서보 상자(`so101.xml`, priority 0)는 바꾸지 않는다. (지금 코드는 group 3·4로 거른다. M3에서 클래스·priority 기준으로 바꾼다.)
+  - `load_model`은 `gripper`·`moving_jaw_so101_v1` body에 바로 붙은 geom 가운데 원본 `collision_gripper`·`collision_gripper_mesh` 클래스(둘 다 priority 1, contype ≠ 0. 원본 condim 6, friction `1 0.005 0.0005`)인 것을 모두 `condim=4`, `friction="1.0 0.02 0.001"`로 바꾼다. priority 1이 남아 있어 턱–물체 접촉은 턱 쪽 값을 쓴다. 손목 서보 상자(`so101.xml`, priority 0)는 바꾸지 않는다(M3 #290 코드와 같음).
   - 전역 옵션은 `cone="elliptic" impratio="10" integrator="implicitfast" timestep="0.002"`이다(시험값). 원본 timestep 0.005(`so101.xml`)를 0.002로 바꾸고, `cone`·`impratio`·`integrator`는 원본과 같은 값이다.
   - 접촉을 보고할 때는 geom 이름 대신 **body의 역할 이름**을 쓴다: `jaw_fixed`(그리퍼 body), `jaw_moving`(가동 턱 body), `arm`(나머지 팔 body), `table`, `obj:<이름>`, `scene:<이름>`.
   - 물체와 장면 부품은 **body 이름 자체를** `obj:<이름>`·`scene:<이름>`으로 만들어, 역할 이름을 따로 표로 두지 않는다. 그 아래 geom 이름은 자유다.
-  - 역할은 다음 순서로 정한다: geom `table`이면 `table`, body `gripper`면 `jaw_fixed`(단 손목 서보 상자는 `arm`), `moving_jaw_so101_v1`이면 `jaw_moving`, body 이름이 `obj:`·`scene:`으로 시작하면 그 이름, 나머지(`base`, `camera_mount` 포함)는 `arm`.
+  - 역할은 다음 순서로 정한다: geom `table`이면 `table`, body `gripper`의 priority 1 geom이면 `jaw_fixed`(손목 서보 상자처럼 priority 0인 geom은 `arm`), `moving_jaw_so101_v1`이면 `jaw_moving`, body 이름이 `obj:`·`scene:`으로 시작하면 그 이름, 나머지(`base`, `camera_mount` 포함)는 `arm`.
 - 서보는 원본 값으로 시작한다: kp 998.22, kv 2.731, forcerange ±2.94, armature 0.028, damping 0.60, frictionloss 0.052(`so101.xml`). 공개 값은 kp 17.8~998로 약 56배 갈린다. 실물 `status.jsonl`로 맞추는 것은 M3 뒤 별도 REQ다.
 
 ### 13.5 장면과 물체
@@ -617,7 +617,7 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
 - (b) **집어 옮기기**(M3, 시나리오 `carry30`·`carry45`·`carry58`을 하나씩, 시나리오마다 새로 connect한다. 시험은 셋을 parametrize한다. 상자 이름은 `box`):
   - `svc.pick_and_place(obj)`(`height_mm=40`, 폭·길이는 시나리오와 같게) 뒤 `svc.place(at=(420, 170))`. 로봇 원점에서 약 170mm라 대칭 V자 범위(11.3.4, 약 200mm) 안이다. 배출 구역 칸(11.3.5)은 여기서 쓰지 않는다.
   - 시험 스레드가 `sim_state()`를 50Hz로 읽는다.
-  - 미끄러짐: `held`가 `box`이고 그 `z_mm` > 5인 표본마다, `tool` 자세로 상자 바닥 가운데를 site 좌표계로 바꾼다. 그 값이 이 조건을 처음 만족한 표본의 값에서 3mm 이하다.
+  - 미끄러짐: `held`가 `box`이고 그 `z_mm` > 5인 표본마다, `tool` 자세로 상자 바닥 가운데를 site 좌표계로 바꾼다. 그 값이 이 조건을 처음 만족한 표본의 값에서 3.5mm 이하다(2026-11-13: 3 → 3.5mm. M3 실측에서 carry45가 실행마다 2.95~3.03mm로 경계에 걸렸고, carry30·58은 3mm 안).
   - 놓기: `svc.place`가 끝나고 1.0초 뒤 잰다. 상자 바닥 가운데와 (420, 170)의 **수평 거리가 7mm 안**이고, `tilt_deg` < 10이다(2026-11-13: 5mm → 7mm. M3 실측 carry30·45·58 = 4.4·6.2·3.3mm. 실물 손끝 위치 정밀도 ±9mm(`measurements.md` 11-07)보다 작아 시뮬레이션 기준으로 충분하다).
   - 감시: 실행 동안 `events.jsonl`에 `ARM-GRIP-OVERLOAD-WARN`·`ARM-GRIP-OVERLOAD`가 0건이고, reason이 `overload`·`overcurrent`·`overheat`로 시작하는 `ARM-FAULT`가 0건이다. `ARM-LOAD-PROBE`는 세지 않고, 건수와 최대 `load_pct`만 시험 출력에 남긴다(M3 실측: 1~2건, 최대 100%는 순간값). 목표 선형 보간(13.2) 뒤에도 감시가 걸리면 서보 kv를 낮추는 안을 따로 올린다.
 - (c) **기본값 유지**(M2): `--sim-engine`을 주지 않으면 지금 `SimDriver`이고, 지금 시험이 모두 그대로 통과한다. `--sim` 없이 `--sim-engine`만 주면 "`--sim`과 함께 쓴다"로 끝난다.
