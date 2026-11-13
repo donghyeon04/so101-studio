@@ -56,7 +56,7 @@ def test_commands_go_through_the_service_and_are_logged(svc):
     r3 = svc.set_gripper(54, as_width=True)
     assert (r1.status, r2.status, r3.status) == ("ok", "ok", "ok")
     svc.logger.flush()
-    kinds = [r["kind"] for r in read_events(svc.logger.dir)]
+    kinds = [r["kind"] for r in read_events(svc.logger.dir) if r["kind"] != "tracking"]  # tracking(REQ-067)은 동작마다 따로 남는다
     assert kinds[:4] == ["connect", "movej", "goto", "gripper"]
 
 

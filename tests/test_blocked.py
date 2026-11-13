@@ -101,3 +101,17 @@ def test_one_noisy_read_is_not_enough():
     """연속 2번 넘어야 막힘이다."""
     from so101_studio.arm.motion import BLOCKED_N
     assert BLOCKED_N == 2
+
+
+def test_each_finished_move_logs_its_tracking_error_maxima(tmp_path):
+    """REQ-067: 정상 동작이 끝나면 ARM-TRACKING INFO(프로필, 속도 비율, 출발·정지/정속 오차 최대와 관절)가 남는다. 기구학 SimDriver는 명령을 그대로 따르므로 값은 0 근처."""
+    s, ev = make(tmp_path, SimDriver(CFG.poses["home"]), speed=60)
+    try:
+        assert s.move_joints(replace(HOME, shoulder_pan=40.0), speed_pct=60).status == "ok"
+    finally:
+        s.disconnect()
+    tracking = [d for _, c, d in ev if c == "ARM-TRACKING"]
+    assert len(tracking) == 1 and not blocked(ev)
+    d = tracking[0]
+    assert d["profile"] == "empty" and d["speed_ratio"] == pytest.approx(0.6) and set(d) >= {"accel", "cruise"}
+    assert d["accel"]["err_deg"] < 1.0 and d["cruise"]["err_deg"] < 1.0 and d["accel"]["joint"] and d["cruise"]["joint"]
