@@ -155,6 +155,12 @@ class Skills:
         r = h.wait()
         self.ctl.wait_idle()
         self.ctl.grasp_closing, self.ctl._blocked_until = False, 0.0
+        if not contact and r.status == "ok" and self.ctl._last.gripper > lo + 1:
+            time.sleep(0.15)  # 서보가 명령에 따라갈 시간을 준 뒤 본다: 물체가 막고 있으면 실제가 명령보다 앞에 남는다
+            lag = self._q().gripper - self.ctl._last.gripper
+            if lag >= 0.5 * self.cfg.contact_lag_units:  # 닫는 동안 4번 연속 문턱(contact_lag_units)에 못 미쳤지만 끝에서도 막혀 있다: 실물 2-2 11-13, 쥔 채(gap 54, 지연 3.9) no_object로 올라가 떨어뜨림
+                contact = True
+                self.ctl._emit("pick_late_contact", "INFO", "ARM-PICK-LATE-CONTACT", {"lag_units": round(float(lag), 2), "threshold": self.cfg.contact_lag_units})
         return contact, r
 
     def _closing_path(self, q_start: JointState, obj, yaw_t: float, tilt_ok: bool, v0: float, v_end: float, gap0: float, gap_end: float, tip_z: float | None = None,
