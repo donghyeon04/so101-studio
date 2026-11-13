@@ -27,6 +27,8 @@ LIMITS = {
     "seg_fast_deg_s": (5, 200), "seg_min_s": (0.1, 5), "replay_a_max_deg_s2": (50, 3000),
     "speed_pct": (1, 100), "gripper_speed_pct": (1, 100),
 }
+# 원래 정수인 값(Hz·서보 단위·토크 눈금): 정수가 아니면 거부한다. LIMITS의 나머지는 설정 파일이 0처럼 정수로 적혀 있어도 float로 받는다(0.5를 0으로 자르지 않게)
+INT_KEYS = {"control_hz", "record_hz", "servo_acceleration", "gripper_acceleration", "gripper_squeeze_torque", "gripper_hold_torque"}
 SPEED = "speed_pct"  # cfg가 아니라 ArmService.speed. 바로 적용된다
 NOW_KEYS = {SPEED, "gripper_speed_pct"}  # 그리퍼 속도도 Skills가 그때그때 읽어 바로 적용된다
 
@@ -60,9 +62,15 @@ def _check(svc, changes: dict) -> dict:
         if k not in cur:
             raise ValueError(f"바꿀 수 없는 파라미터: {k}")
         try:
-            v = type(cur[k])(v)
-        except (TypeError, ValueError):
-            raise ValueError(f"{k}: {type(cur[k]).__name__} 값이어야 한다 ({v!r})") from None
+            if k in INT_KEYS:
+                f = float(v)
+                if f != int(f):
+                    raise ValueError
+                v = int(f)
+            else:
+                v = float(v) if k in LIMITS else type(cur[k])(v)
+        except (TypeError, ValueError, OverflowError):
+            raise ValueError(f"{k}: {'정수' if k in INT_KEYS else type(cur[k]).__name__} 값이어야 한다 ({v!r})") from None
         if k in CHOICES and v not in CHOICES[k]:
             raise ValueError(f"{k}는 {CHOICES[k]} 중 하나")
         if k in LIMITS and not LIMITS[k][0] <= v <= LIMITS[k][1]:

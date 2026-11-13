@@ -5,7 +5,9 @@ pitch는 도구 축(gripper z축)의 수평면 기준 각도(-90 = 수직 하강
 (URDF 기하로 확인: 고정 턱 안쪽 면이 gripper_frame 점이고, 턱은 도구 프레임 x축을 따라 벌어지며 가동 턱은 -x 쪽이다 → moving_jaw_dir = (cos yaw, sin yaw)).
 shortcut: wrist_roll을 yaw로 읽으므로 yaw는 pitch가 -90에 가까울 때만 의미가 있다. 기울여 집기가 필요하면 확장.
 """
+import functools
 import math
+import threading
 
 import numpy as np
 from lerobot.model.kinematics import RobotKinematics
@@ -34,9 +36,19 @@ def _rotation(pitch_deg: float, yaw_deg: float) -> np.ndarray:
     return np.column_stack([x, jaw, z])
 
 
+def locked(f):
+    """placo 풀이기(kin._k)는 호출마다 내부 상태를 바꿔서 스레드 둘이 같이 쓰면 IK가 가끔 틀린 해를 낸다(부하에서 ik_fail). Kinematics(또는 .kin이 있는 그리퍼)의 lock으로 한 번에 하나만 쓴다."""
+    @functools.wraps(f)
+    def wrapper(self, *a, **kw):
+        with (self.lock if hasattr(self, "lock") else self.kin.lock):
+            return f(self, *a, **kw)
+    return wrapper
+
+
 class Kinematics:
     def __init__(self, urdf_path: str, base: frames.Pose2D | None = None, limits: dict | None = None):
         self.base = base or frames.Pose2D(0, 0, 0)
+        self.lock = threading.RLock()
         self._k = RobotKinematics(urdf_path, "gripper_frame_link", joint_names=ARM_JOINTS)
         for j in ARM_JOINTS if limits else []:  # 풀이기가 우리 관절 한계 안에서 해를 찾게 한다(한계 밖 해를 만들고 나중에 거부하지 않도록)
             self._k.robot.set_joint_limits(j, math.radians(limits[j][0]), math.radians(limits[j][1]))
@@ -48,6 +60,7 @@ class Kinematics:
 
         self.gripper = SingleJawGripper(self)  # 기하만 쓰는 기본 그리퍼. Skills가 설정을 가진 것으로 바꿔 끼운다
 
+    @locked
     def fk(self, q: JointState) -> ToolPose:
         T = self._k.forward_kinematics(np.array([getattr(q, j) for j in ARM_JOINTS], float))
         x, y, z = (T[:3, 3] * 1000).tolist()
@@ -66,6 +79,7 @@ class Kinematics:
         """기준점(gripper_frame)에서 본 두 턱 끝의 위치 벡터(작업대 좌표계, mm). 구현은 그리퍼에 있다 (arm/gripper.py)."""
         return self.gripper.jaw_tips(pitch_deg, yaw_table_deg, gripper_value)
 
+    @locked
     def link_points(self, q: JointState) -> list[tuple[float, float]]:
         """어깨(위팔 관절)·팔꿈치·손목·고정 턱 끝의 작업대 xy(mm). 레이더가 팔이 가린 자리를 지울 때 쓴다."""
         tip = self.fk(q)
@@ -78,12 +92,14 @@ class Kinematics:
         out.append((tip.x_mm + float(f[0]), tip.y_mm + float(f[1])))
         return out
 
+    @locked
     def tool_axes(self, q: JointState) -> np.ndarray:
         """도구 프레임의 x·y·z 축(열)을 작업대 좌표계 벡터로 돌려준다. z = 도구 앞(턱 끝 방향), x = 턱이 벌어지는 축(가동 턱은 -x 쪽)."""
         R = self._k.forward_kinematics(np.array([getattr(q, j) for j in ARM_JOINTS], float))[:3, :3] @ self._C.T
         c, s = math.cos(math.radians(self.base.yaw_deg)), math.sin(math.radians(self.base.yaw_deg))
         return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]]) @ R
 
+    @locked
     def moving_jaw_dir(self, q: JointState) -> tuple[float, float]:
         """고정 턱에서 가동 턱으로 향하는 방향(작업대 좌표계, 수평 성분의 단위 벡터)."""
         v = -(self._k.forward_kinematics(np.array([getattr(q, j) for j in ARM_JOINTS], float))[:3, :3] @ self._C.T)[:, 0]
@@ -92,6 +108,7 @@ class Kinematics:
         n = math.hypot(x, y)
         return x / n, y / n
 
+    @locked
     def step(self, q: JointState, dx_mm: float, dy_mm: float, dz_mm: float, dyaw_deg: float = 0.0, tol_mm: float = 0.5, dpitch_deg: float = 0.0) -> JointState | None:
         """지금 자세의 방향을 유지한 채 끝을 (dx, dy, dz)(작업대 좌표계 mm)만큼 옮기고 수직축으로 dyaw만큼 돌린다(원격 조종용).
         pitch·yaw로 방향을 다시 만들지 않으므로 손목이 돌아가 있어도(wrist_roll) 동작한다."""
@@ -114,6 +131,7 @@ class Kinematics:
         # 5축이라 도구가 수평일 때는 방향을 그대로 둔 채 옆으로 옮길 수 없다. 방향 가중치를 점점 낮춰(위치 우선) 풀리는 첫 해를 쓴다
         for w in (0.1, 0.01, 0.0):
             cur = arm
+            self._sync(cur, q.gripper)
             for _ in range(8):
                 nxt = self._k.inverse_kinematics(cur, T, orientation_weight=w)[:5]
                 done = np.abs(nxt - cur).max() < 1e-3
@@ -125,6 +143,13 @@ class Kinematics:
                 return JointState(*cur.tolist(), q.gripper)
         return None
 
+    def _sync(self, arm: np.ndarray, gripper_value: float) -> None:
+        """풀이기를 시작하기 전에 팔·그리퍼 관절과 링크 변환(update_kinematics)을 이 자세로 맞춘다. placo는 한 걸음을 마지막 update_kinematics의 변환으로 계산하고 그리퍼 관절도
+        움직이는 변수로 보므로, 그 사이에 다른 호출(상태 스레드의 fk, 턱 높이 계산)이 남긴 값에 따라 해가 달라져 부하에서 가끔 ik_fail이 났다."""
+        self.gripper.set_joints(self._k.robot, gripper_value)
+        self._k.forward_kinematics(arm)
+
+    @locked
     def ik(self, pose: ToolPose, seed: JointState, tol_mm: float = 3.0, max_iter: int = 30,
            orientation_weight: float = 0.1) -> JointState | None:
         r = frames.tool_table_to_robot(pose, self.base)
@@ -132,6 +157,7 @@ class Kinematics:
         T[:3, :3] = _rotation(r.pitch_deg, r.yaw_deg) @ self._C
         T[:3, 3] = np.array([r.x_mm + PAN_AXIS_X_MM, r.y_mm, r.z_mm]) / 1000
         q = np.array([getattr(seed, j) for j in ARM_JOINTS], float)
+        self._sync(q, seed.gripper)
         for _ in range(max_iter):  # placo는 호출 1번에 한 걸음만 가므로 수렴할 때까지 반복
             nxt = self._k.inverse_kinematics(q, T, orientation_weight=orientation_weight)[:5]
             done = np.abs(nxt - q).max() < 1e-3

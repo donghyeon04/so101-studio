@@ -403,6 +403,7 @@ def test_identical_points_are_an_argument_error(svc):
         svc.follow_path([(260.0, 200.0), (260.0, 200.0), (260.0, 200.0)], Z, 60.0)
 
 
+@pytest.mark.slow  # 약 20초
 def test_follow_path_starts_from_radar_clear_pose(svc):
     """결정 0039의 대기 자세(손목을 접어 세운 자세)에서 출발해도 첫 점으로 가서 경로를 따라간다."""
     assert svc.skills.radar_clear().status == "ok"
