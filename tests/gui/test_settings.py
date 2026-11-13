@@ -206,7 +206,7 @@ def test_page_highlights_changed_and_applies(clean):
         await user.should_see("재시작")
         apply_button = _one(user, "param-apply")
         assert await _until(lambda: not apply_button.enabled)
-        _one(user, "param-grasp_height_mm").value = 22
+        _one(user, "param-grasp_height_mm").meta.set(22)
         assert await _until(lambda: apply_button.enabled)
         assert "param-changed" in _one(user, "row-grasp_height_mm").classes
         assert "바꾼 값 1개" in _one(user, "param-count").text
@@ -220,7 +220,7 @@ def test_page_highlights_changed_and_applies(clean):
 def test_speed_param_applies_now(clean):
     async def check(user):
         assert await _until(lambda: clean.owner is not None)
-        _one(user, "param-speed_pct").value = 25
+        _one(user, "param-speed_pct").meta.set(25)
         assert await _until(lambda: _one(user, "param-apply").enabled)
         user.find(marker="param-apply").click()
         assert await _until(lambda: clean.arm.speed == 25)

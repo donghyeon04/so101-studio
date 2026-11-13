@@ -2,8 +2,10 @@
 
 from nicegui import run, ui
 
+from ...service.params import CHOICES
 from ..backend import RUN_MODES
-from .common import Controls
+from ..param_meta import META
+from .common import Controls, meta_number
 
 TIMING_TEXT = {"now": "바로", "next_motion": "다음 동작부터", "reconnect": "재시작"}
 # (제목, {파라미터: (이름, 설명)}). 목록에 없는 값은 "그 밖"에 설명 없이 보인다
@@ -62,15 +64,17 @@ def build(backend, client_id: str, actions) -> None:
     inputs: dict = {}
     rows: dict = {}
 
+    metas: list = []
+
     def changes() -> dict:
         return {k: e.value for k, e in inputs.items() if e.value is not None and e.value != baseline[k]}
 
-    def mark_changed() -> None:
+    def mark_changed(_v=None) -> None:
         changed = changes()
         for key, row in rows.items():
             row.classes(add="param-changed" if key in changed else "", remove="" if key in changed else "param-changed")
         count.text = f"바꾼 값 {len(changed)}개"
-        apply_button.enabled = controls.allowed and bool(changed)
+        apply_button.enabled = controls.allowed and bool(changed) and controls.valid(metas)
 
     def field(key: str, text: str, note: str, info: dict) -> None:
         with ui.column().classes("w-full gap-0 param-row").mark(f"row-{key}") as row:
@@ -78,11 +82,22 @@ def build(backend, client_id: str, actions) -> None:
                 ui.label(text).classes("flex-1")
                 ui.badge(TIMING_TEXT[info["timing"]], color="grey-8").props("outline").mark(f"timing-{key}")
                 value = info["value"]
-                if isinstance(value, str):
-                    element = ui.input(value=value, on_change=mark_changed)
+                if key in CHOICES and len(CHOICES[key]) <= 3:  # 정해진 보기 3개 이하는 토글 (12.7.2 규칙 2)
+                    element = ui.toggle(list(CHOICES[key]), value=value, on_change=mark_changed).props("no-caps dense")
+                elif key in CHOICES:
+                    element = ui.select(list(CHOICES[key]), value=value, on_change=mark_changed).props("outlined dense")
+                elif isinstance(value, str):
+                    element = ui.input(value=value, on_change=mark_changed).props("outlined dense")
+                elif key not in META:  # 표에 없는 숫자 값("그 밖")은 숫자 칸만
+                    element = ui.number(value=value, on_change=mark_changed).props("outlined dense")
                 else:
-                    element = ui.number(value=value, on_change=mark_changed)
-                inputs[key] = controls.add(element.props("outlined dense").classes("param-input").mark(f"param-{key}"))
+                    element = None
+                if element is not None:
+                    inputs[key] = controls.add(element.classes("param-input").mark(f"param-{key}"))
+            if element is None:  # 값 정보표의 칸: 허용·추천·기본 줄과 입력 방식 (12.7)
+                m = meta_number(key, value, mark_changed, label=text, default=info.get("saved"), mark=f"param-{key}")
+                inputs[key] = controls.add(m)
+                metas.append(m)
             if note:
                 ui.label(note).classes("stat-label")
         rows[key] = row
@@ -105,7 +120,10 @@ def build(backend, client_id: str, actions) -> None:
     def reload_values() -> None:
         current = backend.arm.get_params()
         for key, element in inputs.items():
-            element.value = current[key]["value"]
+            if hasattr(element, "load"):
+                element.load(current[key]["value"])  # 프리셋 값을 처음 값으로: [적용]이 이전 값으로 되돌리지 않게 (12.7.4)
+            else:
+                element.value = current[key]["value"]
             baseline[key] = current[key]["value"]
         mark_changed()
 
@@ -125,7 +143,7 @@ def build(backend, client_id: str, actions) -> None:
 
     with actions:
         count = ui.label("").classes("page-body").mark("param-count")
-        apply_button = ui.button("적용", on_click=controls.guard(apply)).props("no-caps").mark("param-apply")
+        apply_button = ui.button("적용", on_click=controls.guard(apply, needs=metas)).props("no-caps").mark("param-apply")
 
     params = backend.arm.get_params()
     listed = {key for _, group in CARDS for key in group}
