@@ -1,6 +1,6 @@
 # 로봇팔 소프트웨어 설계서
 
-상태: 확정 · 갱신 2026-11-02 · 11.3 놓기 동작 모양 2026-11-07, 대칭 V자 개정 2026-11-10, 상승 최소·상자 폭·높이 모름 집기 2026-11-11, 13 MuJoCo 2026-11-11 · 2026-11-13 drift-report(main ec9fd73) 반영, 막힘 감지(결정 0059, 6.5), M4 GUI는 `gui-spec.md` 12.8
+상태: 확정 · 갱신 2026-11-02 · 11.3 놓기 동작 모양 2026-11-07, 대칭 V자 개정 2026-11-10, 상승 최소·상자 폭·높이 모름 집기 2026-11-11, 13 MuJoCo 2026-11-11 · 2026-11-13 drift-report(main ec9fd73) 반영, 막힘 감지(결정 0059, 6.5), M4 GUI는 `gui-spec.md` 12.8(13절 M4 부분은 초안, gui-spec 12.8과 함께 확정)
 
 로컬 개발 세션이 이 문서만 보고 팔 모듈을 구현할 수 있도록, 구조·인터페이스·출력값·작업 순서를 정한다. 범위는 개발 0~2단계(구동 점검, 동작 라이브러리, 작업 공간 확정)다. 인식 모듈과 GUI는 팔 모듈과 맞닿는 인터페이스만 정한다.
 
@@ -416,7 +416,7 @@ MuJoCo 물리 시뮬레이션(결정 0053, 13절). M1부터 차례로 한다. GU
 | M1 | 모델 가져오기(13.4), `arm/mujoco_model.py`(`load_model`, `JOINT_MAP`, 좌표 변환), 설치 확인(13.8·13.9) | 13.7 (d) | 0053, 13.1 | ✅ #260(관절 range 바꾸기는 M2에서) |
 | M2 | `MuJoCoDriver`(13.2·13.3), 관절·그리퍼 range와 ctrlrange 넓히기(`mujoco_model.py`, 13.4), `make_sim_driver`, CLI `--sim-engine`과 명령 처리(13.1), `--dry-run` 거부, diagnostics 검사, `reload_workspace` 거부, `sim_state()`는 빈 값(13.6), tooling-setup 설치 줄과 버전 고정(13.8) | 13.7 (c)(e) | 0053, 13.1 | ✅ #275(11-13) |
 | M3 | 장면·물체·시나리오(13.5), `sim_state()` 채우기(13.6) | 13.7 (a)(b) | 0053, 13.1 | ✅ #290(11-13) |
-| M4 | 팔: `--sim-viewer`(13.1 뷰어), `sim_state()` `size_mm`, CLI `gui` 거부 해제. GUI: `gui-spec.md` 12.8(팔 세션이 REQ로 요청) | 13.7 (f) | 0053, 13.1, gui-spec 12.8 | |
+| M4 | 팔: `--sim-viewer`(13.1 뷰어), `sim_state()` `size_mm`, `failed_reason`, 물체 파일·겹침 검사(13.5), CLI `gui` 거부 해제. GUI: `gui-spec.md` 12.8(팔 세션이 REQ로 요청). 순서: 팔 M4 PR이 먼저 합쳐진 뒤 GUI M4를 시작한다. 총괄이 팔 M4 REQ를 `session-requests.md`에 올린다 | 13.7 (f) | 0053, 13.1, gui-spec 12.8 | |
 
 T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작업 공간 확정)를 한다. T8~T11은 센서를 기다리는 동안 할 수 있다. 팔 이외의 작업(C1, S1~S3)과 전체 순서는 `system-architecture.md` 11절에 있다.
 
@@ -568,10 +568,10 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
 - shoulder_pan 가동 범위가 PR #4826의 SO-101 값(194°)보다 큰 이유(받침 스토퍼 차이로 본다). AC4(11-10) 실측은 242.6°다. 자동 캘리브레이션 허용 범위 230~245°(`autocal/plan.py`)를 확정할지는 남아 있다.
 - 보드(CH343) USB 시리얼 번호: 준다(`board_serial: "5B8E114816"`, 팔 파일). 해결됨.
 
-## 13. MuJoCo 물리 시뮬레이션 (결정 0053, 2026-11-11, EGM Stage 9 2라운드 반영)
-**목표**: 지금 기구학 시뮬레이션(`SimDriver`)이 `ok`로 넘기는 접촉 실패(턱이 윗모서리를 침, 물체 밀림·쓰러짐·미끄러짐)를 `--sim`에서 보이게 한다. 11-10 실물 실패(배출 구역 다시 집기 `no_object`)는 "턱이 물체를 실제보다 낮다고 믿고 내려가 윗면을 친다"는 물리였다. 완료 기준 (a)는 그 로그를 다시 돌리는 것이 아니라 같은 물리를 합성 시나리오로 재현한다.
+## 13. MuJoCo 물리 시뮬레이션 (결정 0053, 2026-11-11, EGM Stage 9 2라운드 반영, M4 전 점검 2026-11-13 반영)
+**목표**: 지금 기구학 엔진(`SimDriver`)이 `ok`로 넘기는 접촉 실패(턱이 윗모서리를 침, 물체 밀림·쓰러짐·미끄러짐)를 `--sim`에서 보이게 한다. 11-10 실물 실패(배출 구역 다시 집기 `no_object`)는 "턱이 물체를 실제보다 낮다고 믿고 내려가 윗면을 친다"는 물리였다. 완료 기준 (a)는 그 로그를 다시 돌리는 것이 아니라 같은 물리를 합성 시나리오로 재현한다.
 
-**용어**: 기구학 엔진 = `--sim-engine kinematic` = `SimDriver`, MuJoCo 엔진 = `--sim-engine mujoco` = `MuJoCoDriver`. 사용자에게 보이는 문장은 "MuJoCo 시뮬레이션"으로 쓴다.
+**용어**: 기구학 엔진 = `--sim-engine kinematic` = `SimDriver`, MuJoCo 엔진 = `--sim-engine mujoco` = `MuJoCoDriver`. 사용자에게 보이는 새 문장은 "MuJoCo 시뮬레이션"으로 쓴다. M2에 들어간 "물리 시뮬레이션이 멈췄습니다"(13.2)와 "물리 시뮬레이션에서는 --dry-run을 쓰지 않는다"(13.6)는 그대로 두고, GUI의 물리 멈춤 문장은 13.2 문장을 다시 쓴다.
 
 **범위 나누기**: M1~M3(완료)는 CLI와 시험만 바꿨다. GUI는 M4에서 한 번에 바꾼다. GUI 쪽 설계는 `gui-spec.md` 12.8이 기준이고, 이 절은 팔 쪽(드라이버·뷰어·CLI)만 정한다.
 - GUI의 엔진은 화면이 아니라 시작 인자로만 고른다: `so101 --sim --sim-engine mujoco [--sim-viewer] gui`.
@@ -586,9 +586,9 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
 | `arm/mujoco_model.py`(고침) | `load_model(scene=None, objects=(), *, base, table_z_mm, joint_limits=None)` → `(MjModel, warnings)`. `joint_limits`가 있으면 관절 range와 액추에이터 ctrlrange를 그 값으로 넓힌다(13.4) | M2 | 팔 |
 | `assets/mujoco/so101/` | menagerie `robotstudio_so101`에서 `load_model`이 실제로 읽는 파일만(MJCF·쓰는 메쉬)과 `LICENSE`(Apache-2.0), 가져온 menagerie 커밋을 적은 `SOURCE.md`. 원본 파일은 고치지 않는다. 우리가 더하는 것은 XML이 아니라 `load_model`(MjSpec)이 한다(13.4) | M1 | 팔 |
 | `arm/mujoco_driver.py` | `MuJoCoDriver(cfg, ws, *, scene=None, objects=(), realtime=True, viewer=False, scenario=None)`. 모델은 `connect`에서 만든다. `sim_state()`는 M2에서 `{"t_s": 시간, "objects": {}, "contacts": [], "held": None}` | M2 | 팔 |
-| `arm/sim_driver.py` | `make_sim_driver(cfg, ws, scene=None, scenario=None, viewer=False)` → `MuJoCoDriver`. M2는 `scene`만 넘기고(M1 `load_model`이 이미 받음) `scenario`는 None, `viewer`는 False로 둔다. `scenario`는 M3, `viewer`는 M4에서 쓴다. 지금 `SimDriver`와 `cli/__init__.py`의 `make_driver(sim, cfg)`는 그대로 둔다 | M2 | 팔 |
+| `arm/sim_driver.py` | `make_sim_driver(cfg, ws, scene=None, scenario=None, viewer=False)` → `MuJoCoDriver`. M2는 `scene`만 넘겼고(M1 `load_model`이 이미 받음) `scenario`는 M3에서 쓰기 시작했다. `viewer`는 M4에서 쓴다. `SimDriver`와 `cli/__init__.py`의 `make_driver(sim, cfg)`는 그대로 둔다 | M2 | 팔 |
 | `arm/sim_driver.py`(M3) | 시나리오와 `config/manual_objects.yaml` 읽기, 오류 처리(13.5) | M3 | 팔 |
-| `cli/__init__.py` | M2: 인자 `--sim-engine {kinematic,mujoco}`(기본 kinematic). `main()`의 드라이버 만들기에서 `a.sim and a.sim_engine == "mujoco"`일 때만 `make_sim_driver`를 부르고, 아니면 지금처럼 `make_driver`. `mujoco` import 실패(ImportError)는 이 자리에서 잡아 13.8 문장(`MUJOCO_MISSING_TEXT`)을 출력하고 `sys.exit(2)`. M3에 `--sim-scenario`, M4에 `--sim-viewer`(store_true). 둘 다 `--sim --sim-engine mujoco` 없이 주면 "--sim-viewer는 --sim --sim-engine mujoco와 함께 쓴다"처럼 종료 코드 1 | M2~M4 | 팔 |
+| `cli/__init__.py` | M2: 인자 `--sim-engine {kinematic,mujoco}`(기본 kinematic). `main()`의 드라이버 만들기에서 `a.sim and a.sim_engine == "mujoco"`일 때만 `make_sim_driver`를 부르고, 아니면 지금처럼 `make_driver`. `mujoco` import 실패(ImportError)는 이 자리에서 잡아 13.8 문장(`MUJOCO_MISSING_TEXT`)을 출력하고 `sys.exit(2)`. M3에 `--sim-scenario`(13.5 문장). `--sim-viewer`는 아래 M4 행 | M2~M3 | 팔 |
 | `service/diagnostics.py` | `isinstance(driver, SimDriver)` → `getattr(driver, "simulated", False)` | M2 | 팔 |
 | `service/arm_service.py` | `reload_workspace`: 드라이버가 `physical_objects`면 거부(13.5) | M2 | 팔 |
 | `config/sim_scenarios/<이름>.yaml` | 물체 시나리오(13.5). (a)용 `topedge.yaml`, (b)용 `carry30.yaml`·`carry45.yaml`·`carry58.yaml` | M3 | 팔 |
@@ -597,9 +597,11 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
 | `tests/test_mujoco_model.py` | (d) | M1 | 팔 |
 | `tests/test_mujoco_driver.py` | M2 시험(13.7 (e) 목록) | M2 | 팔 |
 | `tests/test_mujoco_scenarios.py` | (a)(b) | M3 | 팔 |
-| `arm/mujoco_driver.py`·`arm/sim_driver.py`(M4) | 뷰어(아래 "뷰어"), `sim_state()` 물체에 `size_mm` 더하기(13.6) | M4 | 팔 |
-| `cli/__init__.py`(M4) | `gui` 거부 분기를 지운다. `--sim-viewer`를 더한다. `gui.main(a)`는 Namespace를 그대로 넘기므로 GUI가 `a.sim_engine`·`a.sim_viewer`를 읽는다 | M4 | 팔 |
-| `gui/__main__.py`, `gui/app.py`, `gui/backend.py`, `gui/scene3d.py`, `tests/gui/test_mujoco_gui.py` | `gui-spec.md` 12.8이 기준이다 | M4 | GUI(팔 세션이 REQ로 요청) |
+| `arm/mujoco_driver.py`·`arm/sim_driver.py`(M4) | 뷰어(아래 "뷰어"), `sim_state()` 물체에 `size_mm` 더하기(13.6), 읽기 전용 속성 `failed_reason`(물리가 멈췄으면 그 이유 문자열, 아니면 None, 13.2), 물체 겹침 검사(13.5) | M4 | 팔 |
+| `config/manual_objects.yaml`(M4) | 기본 물체가 서로 겹치지 않게 고친다(13.5) | M4 | 팔 |
+| `tests/test_mujoco_driver.py`(M4) | 13.7 (f) 팔 시험 | M4 | 팔 |
+| `cli/__init__.py`(M4) | `gui` 거부 분기를 지운다. `--sim-viewer`(store_true)를 더하고, `--sim --sim-engine mujoco` 없이 주면 "--sim-viewer는 --sim --sim-engine mujoco와 함께 쓴다"로 종료 코드 1이다. `gui.main(a)`는 Namespace를 그대로 넘기므로 GUI가 `a.sim_engine`·`a.sim_viewer`를 읽는다 | M4 | 팔 |
+| `gui/__main__.py`, `gui/app.py`, `gui/backend.py`, `gui/scene3d.py`, `gui/sensors/manual_view.py`, `gui/pages/table.py`, `tests/gui/test_mujoco_gui.py` | `gui-spec.md` 12.8이 기준이다 | M4 | GUI(팔 세션이 REQ로 요청) |
 - 시험은 모두 `pytest.importorskip("mujoco")`로 없으면 건너뛰고, 10초 넘는 것은 `slow`로 표시한다.
 - **`--sim-engine mujoco`일 때 명령 처리**(M2, 2026-11-13 코드 대조로 정정):
   - 먼저 검사한다. `--sim` 없이 `--sim-engine mujoco`면 "--sim-engine은 --sim과 함께 쓴다"(종료 코드 1, 13.7 (c)). `--sim-engine kinematic`은 `--sim` 없이 줘도 기본값이라 오류가 아니다.
@@ -607,13 +609,13 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
   - `doctor`, `find-port`, `incident`는 위 검사만 거친 뒤 엔진을 쓰지 않고 돈다.
   - `calibrate`, `linkwatch`는 "<명령>은 시뮬레이션에서 쓸 수 없다"로 거부한다(종료 코드 1).
     - 기구학 엔진(`--sim`)에서는 다르다. `calibrate --auto`는 자동 캘리브레이션 쪽에서 거부하고(종료 코드 2), `calibrate --verify-zero`는 거부하지 않는다. `linkwatch`는 `cfg.port`를 연다(판단 필요: 시뮬레이션에서도 실포트를 여는 것이 맞는지).
-  - `gui`: M3까지는 "GUI의 MuJoCo는 M4부터입니다"로 거부했다. M4에서 팔 세션이 이 분기를 지우고, `test_cli_gui_rejected`를 `test_cli_gui_passes_engine`으로 바꾼다(`gui.main`을 monkeypatch해 받은 `a.sim_engine == "mujoco"`·`a.sim_viewer`를 확인).
+  - `gui`: M3까지는 "GUI의 MuJoCo는 M4부터입니다"로 거부했다. M4에서 팔 세션이 이 분기를 지우고, `test_cli_gui_rejected`를 `test_cli_gui_passes_engine`으로 바꾼다. 이 시험은 `tests/test_cli_share.py`처럼 가짜 gui 모듈을 넣어 받은 `a.sim_engine == "mujoco"`·`a.sim_viewer`를 확인한다(팔 세션 시험이 nicegui를 import하지 않게).
 - **뷰어**(M4, `--sim-viewer`):
   - `make_sim_driver`는 `viewer`를 `MuJoCoDriver(..., viewer=viewer)`로 넘긴다.
-  - `viewer`가 참이면 `connect`가 모델을 만든 뒤 `mujoco.viewer.launch_passive(model, data, show_left_ui=False, show_right_ui=False)`를 연다. 메인 스레드가 아니어도 되는 passive 뷰어라 GUI의 `ui.run`과 같이 쓸 수 있다.
+  - `viewer`가 참이면 `connect`가 모델을 만든 뒤 `mujoco.viewer.launch_passive(model, data, show_left_ui=False, show_right_ui=False)`를 연다. 메인 스레드가 아니어도 되는 passive 뷰어라 GUI의 `ui.run`과 같이 쓰려는 것이다(아래 첫 작업에서 확인).
   - 물리 스레드가 잠금을 쥔 채 1/30초마다 한 번 `handle.sync()`를 부른다. 뷰어의 마우스 힘 주기는 쓰지 않는다(sync 전에 `data.xfrc_applied`를 0으로).
-  - `disconnect`와 모델을 다시 만드는 `connect`는 먼저 `handle.close()`를 부른다. 사용자가 창을 닫으면(`handle.is_running()`이 거짓) sync만 멈추고 물리는 계속한다.
-  - `realtime=False`와 `viewer=True`를 함께 주면 `ValueError("뷰어는 실시간 모드에서만")`이다.
+  - `disconnect`가 `handle.close()`를 부른다(`connect`는 이미 먼저 `disconnect`를 부른다). 사용자가 창을 닫으면(`handle.is_running()`이 거짓) sync만 멈추고 물리는 계속한다.
+  - `realtime=False`와 `viewer=True`를 함께 주면 `MuJoCoDriver.__init__`에서 `ValueError("뷰어는 실시간 모드에서만")`이다.
   - M4 첫 작업으로, 설치된 mujoco 4.0 메타 휠에 `mujoco.viewer.launch_passive`가 있는지와 Windows의 메인 아닌 스레드에서 열리는지를 확인해 13.9에 남긴다. 안 되면 멈추고 기획에 알린다.
 
 ### 13.2 드라이버 규약
@@ -646,6 +648,7 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
 - **물리 실패**: 스텝 중 예외가 나거나 MuJoCo 경고 카운터(`data.warning`의 `mjWARN_BADQACC` 등)가 늘거나 관절값이 NaN이면 다음과 같이 한다.
   - 스레드가 멈추고 `SIM-PHYSICS-FAIL`(이유)을 보낸다.
   - 그 뒤 `read_joints`·`write_joints`·`read_health`는 `RuntimeError("물리 시뮬레이션이 멈췄습니다: 이유")`를 낸다. `ArmService`는 이것을 실물의 통신 오류와 같이 다룬다(지금 통신 끊김 처리로 정지).
+  - 이유는 읽기 전용 속성 `failed_reason`(M4)으로 읽는다. 멈추지 않았으면 None이고, 다시 `connect`하면 None으로 돌아간다. 물리가 멈추면 상태 루프의 `read_joints`가 예외를 내 `status_stream` 콜백이 돌지 않으므로, GUI는 이 속성으로 감지한다(`gui-spec.md` 12.8).
   - 되살리기는 `disconnect`·`connect`(모델을 새로 만듦)다.
 
 ### 13.3 시간
@@ -713,6 +716,9 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
   ```
   - (300, 275)는 `robot_base_in_table` (300, 50)·yaw 90°에서 로봇 x축(정면)으로 225mm다. 팔 원점을 다시 재면(runbook 2-A A-1) 시나리오 YAML의 `x_mm`·`y_mm`와 13.7 (a)(b)의 좌표를 로봇 정면 225mm(`carry`는 150mm) 점으로 함께 고친다.
 - **작업대 설정 다시 읽기**: MuJoCo 월드는 `connect` 때 만들어지므로, `ArmService.reload_workspace`는 드라이버가 `physical_objects`면 "MuJoCo 시뮬레이션은 작업대 설정을 바꾸면 다시 시작해야 합니다"로 거부한다.
+- **물체 겹침**(M4, 2026-11-13): 물체끼리는 충돌하므로, 처음 자리에서 바닥 사각형(길이 × 폭, `angle_deg`로 돌림)이 서로 겹치면 MuJoCo가 첫 스텝에서 밀어내 계획 쪽 좌표와 어긋난다.
+  - `make_sim_driver`는 시나리오와 `config/manual_objects.yaml` 모두에서 두 물체의 바닥 사각형이 겹치거나 닿으면(분리축 검사) "<파일>의 <이름>과 <이름>이 겹친다"로 `ValueError`를 낸다. CLI는 종료 코드 1, GUI는 "연결 실패"(gui-spec 12.8)다.
+  - 지금 `config/manual_objects.yaml` 기본 물체는 obj-1(300,190,0°)과 obj-3(350,200,90°), obj-1과 obj-2(250,210,45°)가 겹친다. 팔 M4에서 겹치지 않게 고친다. 안(모두 100×30, 높이 40, 서로 30mm 넘게 떨어짐, 집기 범위 안): obj-1 (300, 190, 0°), obj-2 (170, 170, 45°), obj-3 (400, 170, 90°)(로봇 원점에서 140·177·156mm, 서로 34mm 이상). 실제 물체를 놓은 자리가 생기면 그 값으로 바꾼다.
 - 초음파 가상 ESP32의 demo 배치와 같은 물체를 놓는 것은 나중이다(초음파 세션과 맞출 때).
 
 ### 13.6 시뮬레이션 전용 읽기와 `no_object` 규칙
@@ -725,11 +731,11 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
    "held": 물체 이름 또는 None}
   ```
   - 좌표는 모두 작업대 좌표 mm이고, `z_mm`는 작업 면 위 높이(13.4의 h)다.
-  - `objects`: 위치는 상자 바닥 가운데. `yaw_deg`는 시나리오 `angle_deg`와 같은 기준(작업대 x축에서 반시계, −180~180), `tilt_deg`는 상자 위쪽 축과 연직 사이 각. `size_mm`는 [길이, 폭, 높이](높이 0이던 물체는 40, M4에서 더함. GUI 3D가 쓴다). 쓰러진 방향(회전 행렬)은 담지 않는다.
+  - `objects`: 위치는 상자 바닥 가운데. `yaw_deg`는 시나리오 `angle_deg`와 같은 기준(작업대 x축에서 반시계, −180~180), `tilt_deg`는 상자 위쪽 축과 연직 사이 각. `size_mm`는 [길이, 폭, 높이](높이 0이던 물체는 40. M4에서 더한다. GUI 3D가 쓴다). 쓰러진 방향(회전 행렬)은 담지 않는다.
   - `tool`: `gripper_frame` site의 위치와 축(작업대 좌표·축). 미끄러짐 판정(13.7 (b))에 쓴다.
   - `contacts`: MuJoCo 접촉점 하나마다 한 항목이고, a·b 순서는 정하지 않는다(시험은 순서 없이 비교한다). `force_n`은 그 점의 법선 힘(N)이다. `a`·`b`는 역할 이름(`obj:<이름>` 포함)이고, `objects`의 키와 `held`는 접두어 없는 이름이다.
   - `held`: `jaw_fixed`와 `jaw_moving` 둘 다와 법선 힘 > 0으로 접촉한 물체의 이름(접두어 없이) 또는 None. 둘 이상이면 `force_n` 합이 큰 것.
-  - M2에서는 `objects`·`contacts`가 빈 값, `tool`이 None, `held`가 None이다.
+  - M2에서는 `objects`·`contacts`가 빈 값, `tool`이 None, `held`가 None이었다.
 - **`no_object`를 성공으로 치는 규칙**: 기구학 엔진(`SimDriver`, `--sim-engine kinematic`)은 쥘 물체가 없어서 `no_object`를 성공으로 친다. 드라이버의 `physical_objects`가 참이면 이 규칙을 쓰지 않는다.
   - CLI 작업 실행: `--dry-run`(→ `TaskRunner(accept_no_object=True)`)을 MuJoCo와 함께 주면 "물리 시뮬레이션에서는 --dry-run을 쓰지 않는다"로 거부한다(M2). `Studio`·`TaskRunner`는 고치지 않는다. `test_run_modes.py`·`test_task.py`는 기본 엔진이라 영향이 없다.
   - GUI(M4): `gui-spec.md` 12.8의 "`no_object` 규칙"을 따른다. 판정은 `getattr(driver, "physical_objects", False)`로 한다(`SimDriver`에는 이 속성이 없다).
@@ -767,14 +773,16 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
   - 물리 실패를 일부러 일으키면(시험에서 qpos에 NaN) `SIM-PHYSICS-FAIL`이 `event_sink`로 가고 `read_joints`가 `RuntimeError`다.
   - `home`·`radar_clear` 두 자세에서 팔 body와 받침 상자(`base_box`)의 접촉이 없다. base는 월드에 고정된 body라 MuJoCo가 부모-자식 접촉을 자동으로 거르지 않으므로, `load_model`이 `exclude(base, shoulder)`를 더한다(받침 상자가 어깨 모터와 늘 닿기 때문, #275).
   - **실시간 속도**(손으로, 개발 노트북): 실시간 모드로 60초 동안(쉬기 30초 + `home`↔`radar_clear` 속도 30% 왕복 30초. `home`과 `park`는 지금 같은 자세라 쓰지 않음) 연결 직후 버림(13.3)을 뺀 `dropped_count`가 0이고 `step_ms_avg`가 1ms 안이다. pytest `slow` 시험 `test_realtime_60s`로 돌리고, 결과와 CPU 이름을 `measurements.md`에 남긴다.
-  - **시험 이름**(`tests/test_mujoco_driver.py`): `test_attributes_and_shapes`(13.2 속성·7키·8키·`read_power`), `test_connect_home`, `test_torque_off_sags_and_holds`, `test_write_while_torque_off`, `test_gripper_0_50_100`, `test_not_realtime_needs_advance`, `test_physics_fail_event`, `test_base_box_no_contact`, `test_cli_engine_requires_sim`, `test_cli_dry_run_rejected`, `test_cli_gui_rejected`(M4에서 `test_cli_gui_passes_engine`으로 바뀜), `test_cli_import_error_exit2`, `test_realtime_60s`(slow).
+  - **시험 이름**(`tests/test_mujoco_driver.py`): `test_attributes_and_shapes`(13.2 속성·7키·8키·`read_power`), `test_connect_home`, `test_torque_off_sags_and_holds`, `test_write_while_torque_off`, `test_gripper_0_50_100`, `test_not_realtime_needs_advance`, `test_physics_fail_event`, `test_base_box_no_contact`, `test_ranges_widened_and_default_warning`, `test_pending_events_flush_when_sink_is_set`, `test_cli_engine_requires_sim`, `test_cli_dry_run_rejected`, `test_cli_gui_rejected`(M4에서 `test_cli_gui_passes_engine`으로 바뀜), `test_cli_import_error_exit2`, `test_cli_status_mujoco`, `test_realtime_60s`(slow).
 - (f) **보기**(M4):
   - 자동 시험(팔, `tests/test_mujoco_driver.py`):
     - `test_viewer_flag_passed`: `make_sim_driver(..., viewer=True)`의 드라이버 `viewer`가 참. `launch_passive`는 monkeypatch한다.
     - `test_viewer_requires_realtime`: `realtime=False`와 함께면 ValueError.
     - `test_cli_viewer_requires_engine`: 종료 코드 1.
     - `test_cli_gui_passes_engine`: 위 "명령 처리".
-    - `test_sim_state_size`: `size_mm`가 시나리오 값과 같다.
+    - `test_sim_state_size`: `size_mm`가 시나리오 값과 같다. 시나리오 없이(`config/manual_objects.yaml`) connect하고 1초 뒤 물체마다 `sim_state()` 위치가 파일 값과 3mm 안이고 `tilt_deg` < 5다(기본 물체가 서로 밀어내지 않는다).
+    - `test_failed_reason`: 정상이면 None이다. `qpos`에 NaN을 넣고 `advance` 뒤에는 "관절값이 NaN"이다.
+    - `test_objects_overlap_rejected`: 바닥 사각형이 겹치는 시나리오는 `make_sim_driver`가 ValueError다.
   - 자동 시험(GUI): `gui-spec.md` 12.8.
   - 손 확인(`measurements.md`에 기록): `so101.cmd --sim --sim-engine mujoco --sim-viewer gui`에서 직접 조작 집어 옮기기 1회 동안 뷰어 창과 GUI 3D에서 같은 물체가 함께 움직인다.
 
@@ -788,7 +796,7 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
 - `pyproject.toml`의 선택 의존성 `[mujoco]`는 목록 표시용으로 남긴다. 설치 안내에는 `pip install -e .[mujoco]`를 쓰지 않는다(numpy를 바꿀 수 있음).
 - `mujoco`를 import하지 못하면: CLI는 "MuJoCo가 설치되지 않았습니다. docs/guides/tooling-setup.md의 MuJoCo 줄로 설치하세요"(`MUJOCO_MISSING_TEXT`)를 출력하고 종료 코드 2로 끝난다. GUI(M4)는 화면을 띄우기 전에 같은 문장을 터미널에 출력하고 종료 코드 2로 끝난다(`gui-spec.md` 12.8).
 
-### 13.9 확인 결과 (M1 #260)
+### 13.9 확인 결과 (M1 #260, M4 뷰어)
 - 관절 이름: menagerie와 같다(`JOINT_MAP` 모두 부호 +1·오프셋 0).
 - 받침 충돌 geom: 없다 → `base_box`를 더함.
 - `gripper_frame`: 원본 site 위치가 달라 URDF origin으로 따로 더함.
