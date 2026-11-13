@@ -1,0 +1,3 @@
+# 결정 0059 막힘 시험용: 팔 앞 작업대 위의 높은 상자. 낮은 자세로 내려가는 이동이 상자 윗면에 막힌다.
+objects:
+  - {name: wall, x_mm: 300, y_mm: 200, angle_deg: 0, width_mm: 80, length_mm: 80, height_mm: 120}

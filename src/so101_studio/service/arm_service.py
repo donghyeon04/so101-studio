@@ -225,6 +225,7 @@ class ArmService:
 
     def _write_status(self, st) -> None:
         self.ctl.actual_hint = st.joints  # 링 버퍼가 쓰는 가장 최근 실제 값
+        self.ctl.check_blocked(st.joints, self.speed / 100)  # 추종 오차로 막힘·접촉 감지 (결정 0059)
         if self.logger:
             self.logger.status(self._status_data(st))
 

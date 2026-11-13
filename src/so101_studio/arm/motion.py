@@ -15,6 +15,10 @@ from .safety import HealthMonitor, Safety
 JOINTS = [f.name for f in fields(JointState)]
 HEALTH_PERIOD_S = 0.5  # 온도·부하는 2Hz로만 읽는다 (spec 6.1)
 DEADMAN_S = 0.3
+ARM_FIVE = JOINTS[:5]  # 그리퍼 앞의 팔 관절
+BLOCKED_ZONE_S = 0.2  # 막힘 감지: 궤적 앞뒤 이 시간은 가속·감속 문턱 (결정 0059)
+BLOCKED_AFTER_S = 1.0  # 동작이 끝난 뒤에도 그리퍼 닫기 막힘을 보는 시간
+BLOCKED_N = 2  # 연속으로 문턱을 넘는 상태 읽기 횟수(10Hz로 약 0.2초)
 STEP_MARGIN = 0.95  # 따라잡기로 진행할 때 한 주기 이동량 한도의 이 비율을 넘지 않는다
 MAX_TICK_ADVANCE = 2.0  # 한 틱에 궤적 시간이 최대 이만큼(틱 주기의 배수) 진행. 틱이 크게 늦어도 위치가 한 번에 건너뛰어 'step' fault가 나지 않고, 늦은 시간만큼 동작이 늦어진다
 JOG_ACCEL_JOINT = 400.0  # °/s². 조그 속도를 이 가속도로 올리고 내려 시작·정지 충격(속도 계단)을 없앤다
@@ -61,6 +65,11 @@ class MotionController:
         self.grip_hold: float | None = None  # 들고 있는 동안 그리퍼 목표(실제보다 예압만큼 닫힌 값). 궤적이 무엇을 주든 매 틱 이 값으로 덮는다 (결정 0033)
         self.grip_warn_pct: float | None = None  # 그리퍼 부하 감시(Skills가 설정에서 채운다). None이면 끔
         self.grip_load_s, self.grip_open = 1.0, 60.0
+        self.blocked_cfg = None  # 막힘·접촉 감지 문턱을 읽을 설정(Skills가 채운다, 매번 읽으므로 set_params가 바로 반영). None이면 끔 (결정 0059)
+        self._closes_gripper = False
+        self.grasp_closing = False  # Skills가 집기 닫기를 판단하는 중: 그리퍼 접촉은 막힘 감지가 보지 않는다
+        self._blocked_n = 0
+        self._blocked_until = 0.0  # 동작이 끝난 뒤 이 시각까지 그리퍼 닫기를 계속 본다
         self._grip_over_since: float | None = None
         self._grip_warned_at: float | None = None
         self._job = None  # (traj, handle, t0, kind)
@@ -116,6 +125,7 @@ class MotionController:
                 if self.grip_hold is not None:  # 쥔 채면 매 틱 그리퍼는 hold 값으로 덮이므로 기준도 hold 값이다(쥔 압력으로 hold가 실제보다 8~9단위 낮아 첫 틱이 13° 한 주기로 잡히던 것, 11-12 실물)
                     self._last = replace(self._last, gripper=self.grip_hold)
                 self._job, self.state = (traj, handle, now, "move"), "moving"
+                self._closes_gripper = traj.sample(traj.duration_s).gripper < traj.sample(0).gripper - 1.0  # 닫는 동작일 때만 그리퍼 접촉을 본다(결정 0059)
         return handle
 
     def sync(self) -> None:
@@ -365,6 +375,70 @@ class MotionController:
             self._emit("grip_overload", "ERROR", "ARM-GRIP-OVERLOAD", {"load_pct": load, "limit_pct": self.grip_warn_pct})
             self._fault("grip_overload", {"load_pct": load, "limit_pct": self.grip_warn_pct})
 
+    def _grip_contact_target(self, actual: JointState, cfg) -> float:
+        """접촉: 지금 위치에서 예압만큼 더 닫힌 쪽 (결정 0033)."""
+        return max(cfg.joint_limits_deg["gripper"][0], actual.gripper - cfg.grip_preload_units)
+
+    def _block_hold_gripper(self, actual: JointState, err: float, cfg) -> None:
+        """동작이 끝난 뒤에도 그리퍼가 명령을 따라가지 못하고 미는 중이면 지금 위치 + 예압으로 고정한다."""
+        self.grip_hold = self._grip_contact_target(actual, cfg)
+        self._last = replace(self._last, gripper=self.grip_hold)
+        try:
+            self.driver.write_joints(self._last)
+        except Exception as e:  # noqa: BLE001 통신 문제는 상태 루프와 틱이 fault로 본다
+            self._emit("blocked_hold_failed", "WARN", "ARM-BLOCKED-HOLD-FAILED", {"error": repr(e)[:120]})
+        self._emit("blocked", "WARN", "ARM-BLOCKED", {"joint": "gripper", "error": round(err, 2), "threshold": round(cfg.blocked_grip_units, 2), "profile": "grip_close"})
+
+    def check_blocked(self, actual: JointState, speed_ratio: float = 1.0) -> None:
+        """10Hz 상태 루프가 읽은 실제 위치로 추종 오차(마지막 명령 - 실제)를 본다 (결정 0059). 빈 이동·쥔 채 이동은 프로필별 문턱(궤적 앞뒤 BLOCKED_ZONE_S는 가속·감속 문턱),
+        쥐고 있지 않으면 그리퍼 닫기도 본다. 연속 BLOCKED_N번 넘으면 동작을 끝내고(stopped, reason=blocked) 목표를 지금 위치로 맞춘다. 그리퍼가 막혔으면 지금 위치 + 예압으로 고정(0033)."""
+        cfg = self.blocked_cfg
+        with self._lock:
+            job = self._job
+            if cfg is None or self.state in ("fault", "stopped") or (job is not None and (job[3] != "move" or self.state != "moving")):
+                self._blocked_n = 0
+                return
+            if job is None:  # 동작이 끝난 직후에도 잠깐은 그리퍼 닫기를 본다: 짧은 닫기는 상태 읽기 2번이 차기 전에 끝난다
+                g = actual.gripper - self._last.gripper
+                if self.grasp_closing or not self._closes_gripper or self.grip_hold is not None or time.perf_counter() > self._blocked_until or g <= cfg.blocked_grip_units:
+                    self._blocked_n = 0
+                    return
+                self._blocked_n += 1
+                if self._blocked_n >= BLOCKED_N:
+                    self._blocked_n = 0
+                    self._block_hold_gripper(actual, g, cfg)
+                return
+            traj, handle, t0, _ = job
+            t = time.perf_counter() - t0
+            held = self.grip_hold is not None
+            prof = "held" if held else "empty"
+            zone = t < BLOCKED_ZONE_S or traj.duration_s - t < BLOCKED_ZONE_S
+            # shortcut: 정속 문턱은 속도 비율의 일차식(정지 오차 25% + 속도 비례 75%), 실물 정상 실행 측정으로 맞춘다 (0059)
+            thr = getattr(cfg, f"blocked_{prof}_accel_deg") if zone else getattr(cfg, f"blocked_{prof}_cruise_deg") * (0.25 + 0.75 * speed_ratio)
+            joint, err = max(((j, abs(getattr(self._last, j) - getattr(actual, j))) for j in ARM_FIVE), key=lambda x: x[1])
+            hit = (joint, err, thr, prof) if err > thr else None
+            if hit is None and not held and self._closes_gripper and not self.grasp_closing and (g := actual.gripper - self._last.gripper) > cfg.blocked_grip_units:
+                hit = ("gripper", g, cfg.blocked_grip_units, "grip_close")
+            self._blocked_n = self._blocked_n + 1 if hit else 0
+            if self._blocked_n < BLOCKED_N:
+                return
+            self._blocked_n = 0
+            joint, err, thr, prof = hit
+            grip = self.grip_hold if held else actual.gripper
+            if joint == "gripper":
+                self.grip_hold = grip = self._grip_contact_target(actual, cfg)
+            q = replace(actual, gripper=grip)
+            try:
+                self.driver.write_joints(q)
+            except Exception as e:  # noqa: BLE001 통신 문제는 상태 루프와 틱이 fault로 본다
+                self._emit("blocked_hold_failed", "WARN", "ARM-BLOCKED-HOLD-FAILED", {"error": repr(e)[:120]})
+            self._last = q
+            self._job = None
+            self.state = "idle"
+            text = f"blocked: {joint} 추종 오차 {err:.1f} > 문턱 {thr:.1f} ({prof})"
+            handle._finish(replace(self._result("stopped", t0), reason=text))
+            self._emit("blocked", "WARN", "ARM-BLOCKED", {"joint": joint, "error": round(err, 2), "threshold": round(thr, 2), "profile": prof})
+
     def _step_over(self, q: JointState) -> float:
         """마지막 명령에서 q까지 관절 하나가 움직이는 최대 변화(°)."""
         return max(abs(a - b) for a, b in zip(astuple(q), astuple(self._last), strict=True))
@@ -420,6 +494,7 @@ class MotionController:
         self.health.comm_ok(time.perf_counter(), "write")
         if t >= traj.duration_s:
             self._job = None
+            self._blocked_until = time.perf_counter() + BLOCKED_AFTER_S
             if self.state == "moving":
                 self.state = "idle"
             handle._finish(self._result("ok" if kind == "move" else "stopped", t0, needs_read=True))

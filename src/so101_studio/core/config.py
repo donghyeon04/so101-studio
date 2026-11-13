@@ -60,6 +60,12 @@ class RobotConfig:
     gripper_load_warn_pct: float = 60  # 그리퍼 부하가 이 값을 gripper_load_s 넘게 넘으면 조임을 멈추고 WARN, 1초 더 이어지면 열고 fault. 실측 전 시작값
     gripper_load_s: float = 1.0
     gripper_open: float = 60
+    # 막힘·접촉 감지(결정 0059): 관절마다 추종 오차 |마지막 명령 - 실제|(°)가 문턱을 연속 2번(상태 루프 10Hz) 넘으면 멈춘다. 문턱 = 정상 실행 최대 x 1.3. accel = 궤적 앞뒤 0.2초, cruise = 정속(속도 비율로 늘림). 잠정값: 실물 정상 실행 5회씩으로 정한다(0059)
+    blocked_empty_accel_deg: float = 6.0
+    blocked_empty_cruise_deg: float = 4.0
+    blocked_held_accel_deg: float = 8.0  # 쥔 채 이동
+    blocked_held_cruise_deg: float = 5.0
+    blocked_grip_units: float = 10.0  # 그리퍼 닫기(집기 밖): 실제 - 명령이 이 값(그리퍼 눈금)을 넘으면 접촉. 집기의 contact_lag_units(4)가 먼저 걸리도록 더 크게
     gripper: str = "single_jaw"  # 그리퍼 종류: single_jaw(기본) | parallel. 세부 값은 config/grippers/<종류>.yaml이 robot.yaml 위에 겹쳐진다 (결정 0043)
     gripper_tip_offset_mm: float = 0.0  # 병렬 그리퍼: TCP(두 턱 중앙)에서 턱 끝까지 도구 축 방향 거리. 실물 몫(자리만)
     gripper_width_mm: list[list[float]] = field(default_factory=lambda: [[0, 0], [100, 90]])
