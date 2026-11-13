@@ -1,5 +1,6 @@
 """REQ-061 (arm-software-spec 13.7 (c)(e), M2): MuJoCoDriver 동작과 CLI 엔진 선택. mujoco가 없으면 건너뛴다."""
 import sys
+import time
 
 import numpy as np
 import pytest
@@ -148,10 +149,86 @@ def test_cli_dry_run_rejected():
     assert "--dry-run" in str(e.value)
 
 
-def test_cli_gui_rejected():
-    with pytest.raises(SystemExit) as e:
-        main(["--sim", "--sim-engine", "mujoco", "gui"])
-    assert "M4부터" in str(e.value)
+def test_cli_gui_passes_engine(monkeypatch):
+    import importlib
+    import types
+
+    got = []
+    real = importlib.import_module
+    monkeypatch.setattr(importlib, "import_module", lambda name, *a, **k: types.SimpleNamespace(main=got.append) if name == "so101_studio.gui" else real(name, *a, **k))
+    main(["--sim", "--sim-engine", "mujoco", "--sim-viewer", "gui"])
+    assert got[0].sim_engine == "mujoco" and got[0].sim_viewer is True and got[0].sim is True
+
+
+def test_cli_viewer_requires_engine():
+    for argv in (["--sim-viewer", "status"], ["--sim", "--sim-viewer", "status"]):
+        with pytest.raises(SystemExit) as e:
+            main(argv)
+        assert e.value.code == "--sim-viewer는 --sim --sim-engine mujoco와 함께 쓴다"
+
+
+def test_viewer_flag_passed_and_requires_realtime(monkeypatch):
+    import mujoco.viewer
+
+    from so101_studio.arm.sim_driver import make_sim_driver
+
+    calls = []
+
+    class Handle:
+        def is_running(self):
+            return True
+
+        def sync(self):
+            calls.append("sync")
+
+        def close(self):
+            calls.append("close")
+
+    monkeypatch.setattr(mujoco.viewer, "launch_passive", lambda *a, **k: calls.append(("launch", k)) or Handle())
+    d = make_sim_driver(CFG, WS, None, viewer=True)
+    assert d.viewer is True
+    d.connect()
+    time.sleep(0.2)
+    d.disconnect()
+    assert calls[0] == ("launch", {"show_left_ui": False, "show_right_ui": False}) and "sync" in calls and calls[-1] == "close"
+    with pytest.raises(ValueError, match="실시간"):
+        MuJoCoDriver(CFG, WS, realtime=False, viewer=True)
+
+
+def test_failed_reason(drv):
+    assert drv.failed_reason is None
+    drv.data.qpos[:] = np.nan
+    drv.advance(0.01)
+    assert drv.failed_reason == "관절값이 NaN"
+    drv.connect()
+    assert drv.failed_reason is None
+
+
+def test_sim_state_size_default_objects_stay_put():
+    from so101_studio.arm.sim_driver import make_sim_driver
+
+    d = make_sim_driver(CFG, WS, None)
+    d.connect()
+    try:
+        time.sleep(1.0)
+        st = d.sim_state()["objects"]
+        for o, name in zip(d.objects, ("obj-1", "obj-2", "obj-3")):
+            s = st[name]
+            assert s["size_mm"] == [o.length_mm, o.width_mm, o.height_mm] and s["tilt_deg"] < 5
+            assert np.hypot(s["x_mm"] - o.x_mm, s["y_mm"] - o.y_mm) < 3.0, (name, s)
+    finally:
+        d.disconnect()
+
+
+def test_objects_overlap_rejected(tmp_path):
+    from so101_studio.arm.sim_driver import make_sim_driver
+
+    f = tmp_path / "over.yaml"
+    f.write_text("objects: [{name: a, x_mm: 300, y_mm: 190, length_mm: 100, width_mm: 30, height_mm: 40}, {name: b, x_mm: 330, y_mm: 190, angle_deg: 90, length_mm: 100, width_mm: 30, height_mm: 40}]", encoding="utf-8")
+    with pytest.raises(ValueError, match="a과 b이 겹친다"):
+        make_sim_driver(CFG, WS, None, scenario=str(f))
+    f.write_text("objects: [{name: a, x_mm: 300, y_mm: 190, length_mm: 100, width_mm: 30}, {name: b, x_mm: 300, y_mm: 240, length_mm: 100, width_mm: 30}]", encoding="utf-8")
+    make_sim_driver(CFG, WS, None, scenario=str(f))  # 20mm 떨어져 있으면 통과
 
 
 def test_cli_import_error_exit2(monkeypatch, capsys):

@@ -83,6 +83,7 @@ def main(argv=None) -> None:
     ap = argparse.ArgumentParser(prog="so101_studio")
     ap.add_argument("--sim", action="store_true", help="SimDriver로 실행")
     ap.add_argument("--sim-engine", choices=["kinematic", "mujoco"], default="kinematic", help="--sim과 함께: kinematic(기본, SimDriver) 또는 mujoco(물리)")
+    ap.add_argument("--sim-viewer", action="store_true", help="--sim --sim-engine mujoco와 함께: MuJoCo 뷰어 창을 띄운다")
     ap.add_argument("--sim-scenario", help="--sim --sim-engine mujoco와 함께: 물체 시나리오 이름(config/sim_scenarios/<이름>.yaml) 또는 .yaml 경로. 없으면 config/manual_objects.yaml")
     ap.add_argument("--config", default="config/robot.yaml")
     ap.add_argument("--speed", type=float, help="속도 %% (기본: 설정값)")
@@ -129,11 +130,11 @@ def main(argv=None) -> None:
     a = ap.parse_args(argv)
     if a.sim_scenario and not (a.sim and a.sim_engine == "mujoco"):
         sys.exit("--sim-scenario는 --sim --sim-engine mujoco와 함께 쓴다")
+    if a.sim_viewer and not (a.sim and a.sim_engine == "mujoco"):
+        sys.exit("--sim-viewer는 --sim --sim-engine mujoco와 함께 쓴다")
     if a.sim_engine == "mujoco":
         if not a.sim:
             sys.exit("--sim-engine은 --sim과 함께 쓴다")
-        if a.command == "gui":
-            sys.exit("GUI의 MuJoCo는 M4부터입니다")
         if a.command in ("calibrate", "linkwatch"):
             sys.exit(f"{a.command}은 시뮬레이션에서 쓸 수 없다")
         if a.dry_run:
@@ -188,7 +189,7 @@ def main(argv=None) -> None:
         try:
             from ..arm.sim_driver import make_sim_driver
 
-            driver = make_sim_driver(cfg, ws, load_scene(), scenario=a.sim_scenario)
+            driver = make_sim_driver(cfg, ws, load_scene(), scenario=a.sim_scenario, viewer=a.sim_viewer)
         except ImportError:
             print(MUJOCO_MISSING_TEXT)
             sys.exit(2)

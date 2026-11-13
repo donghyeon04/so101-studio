@@ -24,8 +24,12 @@ CATCHUP_MAX_S = 0.1  # 이 이상 밀리면 넘는 만큼 버린다
 
 class MuJoCoDriver:
     def __init__(self, cfg, ws, *, scene=None, objects=(), realtime=True, viewer=False, scenario=None):
+        if viewer and not realtime:
+            raise ValueError("뷰어는 실시간 모드에서만")
         self.cfg, self.ws, self.scene, self.objects, self.realtime = cfg, ws, scene, list(objects), realtime
-        self.viewer = viewer  # M4
+        self.viewer = viewer
+        self._handle = None  # mujoco.viewer 핸들(뷰어를 켠 경우)
+        self._next_sync = 0.0
         self.connected = False
         self.acceleration = 10
         self.simulated = True
@@ -73,9 +77,14 @@ class MuJoCoDriver:
             self._site = self.model.site("gripper_frame").id
             self._objs = {o.name: self.model.body(f"obj:{o.name}").id for o in self.objects}
             self._half_h = {o.name: (o.height_mm if o.height_mm > 0 else DEFAULT_OBJECT_HEIGHT_MM) / 2000.0 for o in self.objects}
+            self._size = {o.name: [o.length_mm, o.width_mm, o.height_mm if o.height_mm > 0 else DEFAULT_OBJECT_HEIGHT_MM] for o in self.objects}
             for code, data in warnings:
                 self._emit("sim", "WARN", code, data)
             self._wall0, self._sim0 = time.perf_counter(), 0.0
+            if self.viewer:
+                import mujoco.viewer
+
+                self._handle = mujoco.viewer.launch_passive(self.model, self.data, show_left_ui=False, show_right_ui=False)  # 메인 스레드가 아니어도 열린다(13.9)
             self._stop.clear()
             if self.realtime:
                 self._thread = threading.Thread(target=self._run, name="mujoco-physics", daemon=True)
@@ -86,8 +95,16 @@ class MuJoCoDriver:
         t, self._thread = self._thread, None
         if t is not None and t is not threading.current_thread():
             t.join(timeout=2.0)
+        h, self._handle = self._handle, None
+        if h is not None:
+            h.close()
         self.connected = False
         self.acceleration = 10
+
+    @property
+    def failed_reason(self) -> str | None:
+        """물리가 멈췄으면 그 이유, 아니면 None(다시 connect하면 None). 상태 루프가 예외로 멈추므로 GUI는 이것으로 감지한다(13.2)."""
+        return self._failed
 
     # -- 변환 --
     def _deg_to_rad(self, deg) -> np.ndarray:
@@ -119,6 +136,9 @@ class MuJoCoDriver:
 
     def _step_n(self, n: int) -> None:
         """잠금을 쥐고 n 스텝. 예외·경고 증가·NaN이면 물리 실패."""
+        if not np.isfinite(self.data.qpos).all():  # 스텝 전에 본다: NaN을 먹은 MuJoCo는 데이터를 되돌리고 경고만 남긴다
+            self._fail("관절값이 NaN")
+            return
         t0 = time.perf_counter()
         try:
             for _ in range(n):
@@ -155,6 +175,11 @@ class MuJoCoDriver:
                     lag = CATCHUP_MAX_S
                 if lag >= dt:
                     self._step_n(int(lag / dt))
+                h = self._handle
+                if h is not None and time.perf_counter() >= self._next_sync and h.is_running():  # 창을 닫으면 sync만 멈추고 물리는 계속한다
+                    self._next_sync = time.perf_counter() + 1 / 30
+                    self.data.xfrc_applied[:] = 0  # 뷰어의 마우스 힘은 쓰지 않는다
+                    h.sync()
             time.sleep(0.001)
 
     def _emit(self, kind: str, level: str, code: str, data: dict) -> None:
@@ -265,7 +290,7 @@ class MuJoCoDriver:
                 x, y, z = self._table(d.xpos[b] - R[:, 2] * self._half_h[name])  # 상자 바닥 가운데
                 ax = self._table_dir(d.xpos[b], R[:, 0])
                 objects[name] = {"x_mm": float(x), "y_mm": float(y), "z_mm": float(z), "yaw_deg": math.degrees(math.atan2(ax[1], ax[0])),
-                                 "tilt_deg": math.degrees(math.acos(max(-1.0, min(1.0, R[2, 2]))))}
+                                 "tilt_deg": math.degrees(math.acos(max(-1.0, min(1.0, R[2, 2])))), "size_mm": self._size[name]}
             site = d.site_xpos[self._site]
             R = d.site_xmat[self._site].reshape(3, 3)
             tool = {"pos_mm": self._table(site).tolist(), "rot": np.stack([self._table_dir(site, R[:, i]) for i in range(3)], axis=1).tolist()}
