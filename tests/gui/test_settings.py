@@ -167,7 +167,7 @@ def test_table_page_shows_values_and_saves(clean, tmp_path, monkeypatch):
         await user.should_see(marker="ws-plane")
         await user.should_see("실측 전 값")
         assert await _until(lambda: clean.owner is not None)
-        _one(user, "ws-zone_x").value = 480
+        _one(user, "ws-zone_x").meta.set(480)
         user.find(marker="ws-save").click()
         assert await _until(lambda: yaml.safe_load(path.read_text(encoding="utf-8"))["drop_zones"]["right"]["x_mm"] == 480)
         await user.should_see("저장했습니다")
@@ -261,7 +261,7 @@ def test_table_ignores_out_of_range_numbers(clean):
         _one(user, "ws-table_x").value = 10_000_000
         await asyncio.sleep(0.3)
         assert plane.content == before and len(plane.content) < 100_000
-        _one(user, "ws-table_x").value = 700
+        _one(user, "ws-table_x").meta.set(700)
         assert await _until(lambda: plane.content != before)
 
     in_app(clean, "/table", check)

@@ -309,3 +309,16 @@ def test_safety_empty_box_fields_mean_default_range(clean):
         assert clean.get_safety()["box_mm"] is None
 
     in_app(clean, "/safety", check)
+
+
+# ④ 작업대
+
+def test_table_out_of_range_field_disables_save(clean):
+    async def check(user):
+        assert await _until(lambda: clean.owner is not None)
+        assert await _until(lambda: _one(user, "ws-save").enabled)
+        _one(user, "ws-margin").value = 500  # 허용 0~200 밖
+        assert await _until(lambda: not _one(user, "ws-save").enabled)
+        assert _one(user, "ws-margin").meta.value == clean.arm.ws.safety_margin_mm  # 마지막 허용 값 그대로
+
+    in_app(clean, "/table", check)
