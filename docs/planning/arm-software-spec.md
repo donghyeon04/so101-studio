@@ -501,8 +501,10 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
     - 켜면 그 순간의 관절값을 목표로 다시 잡는다(튀지 않게).
   - 토크가 꺼진 동안 `write_joints`는 목표를 저장만 하고 힘을 내지 않는다. 다시 켤 때는 저장한 값이 아니라 그 순간의 관절값을 목표로 쓴다.
   - 그리퍼 `Torque_Limit` v(0~1000)는 그리퍼 액추에이터 `forcerange`를 원래 값 × v/1000으로 줄인다.
+- **목표 선형 보간**(M3, 2026-11-13): `write_joints`는 액추에이터 목표(ctrl)를 바로 바꾸지 않고, 다음 쓰기 간격(1/`control_hz`, 기본 20ms) 동안 이전 목표에서 새 목표로 선형으로 옮긴다. 서보 kp 998에서 50Hz 계단 목표는 액추에이터 힘을 한계까지 순간적으로 튀게 해 부하 감시(`ARM-GRIP-OVERLOAD-WARN`)를 걸고 그리퍼 열기를 멈췄다. 실물 서보도 목표를 부드럽게 따라가므로 이것에 맞춘다. 서보 원본 값(kp·kv)은 그대로다. 결과: 그리퍼 열기 부하 약 24%, (a) 대조 3회 연속 통과.
 - **상태 값**(서보 모델이 없으므로 근사):
   - 부하 %: |액추에이터 힘| / **원래(줄이기 전)** `forcerange` × 100. 쥔 그리퍼는 운반 중 `gripper_hold_torque` 200이면 20% 이하, 닫는 중 `gripper_squeeze_torque` 300이면 30% 이하다. `gripper_load_warn_pct` 60 아래라 정상 집기에서 경고·fault가 나지 않는다.
+    - 액추에이터 힘에는 kv·damping(속도 항)도 들어 있다. 그래서 목표를 계단으로 바꾸면 순간적으로 한계까지 튈 수 있는데, 이것은 아래 "목표 선형 보간"으로 막는다(M3, 2026-11-13). 한때 승인했던 "위치 오차 항만 세는" 정의 변경(f173c90)은 보간으로 원인이 풀려 쓰지 않는다.
   - 전류: 관절별 부하 % × 10mA(부하 100% = 1000mA), 합이 `current_ma`.
   - 부하·전류·과열 감시는 끄지 않는다. 정상 동작에서 걸리면 모델의 서보 값(kp·forcerange)이 실물과 다른 것으로 보고 모델을 고친다.
 - **병렬 그리퍼**: MuJoCo 모델은 단동식뿐이다. 팔 파일의 그리퍼가 `parallel`이면 `make_sim_driver`가 "MuJoCo는 단동식만 지원"으로 거부한다.
@@ -608,14 +610,16 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
     - t = min(`grasp_height_mm` 20, H − `grasp_min_contact_mm` 8) = 7mm. G는 W + `gripper_margin_mm` = 78이고, 78에서 s ≈ 1.45라 (H − t)·s ≈ 11.6 ≤ G − W − 4 = 16이므로 계획대로 t = 7까지 내려간다.
     - 실제 윗면 39mm에서 턱 사이는 78 − (39 − 7)·1.45 ≈ 31.5mm < 58이라 턱이 윗모서리를 친다. 숫자는 `config/arms/so101_follower_01.yaml`의 `gripper_width_mm` 기준이다(EGM 리뷰 계산, 실행 전).
   - **기대**: `pick_and_place`가 도는 동안 시험 스레드가 `sim_state()`를 50Hz로 읽는다. {`jaw_fixed` 또는 `jaw_moving`, `obj:box58`} 접촉 가운데 `pos_mm`의 `z_mm`가 34~44mm(윗면 39 ±5)인 것이 한 번 이상 나온다.
-  - 그리고 `pick_and_place`가 끝난 직후(놓기 전) `held != "box58"`이거나 `box58`의 `tilt_deg` ≥ 10이다(제대로 쥐지 못함). 결과 status는 `ok`·`no_object`·`stopped`·`fault` 가운데 무엇이어도 된다. 윗면을 누른 채 닫혀 접촉 판정이 `ok`로 나올 수 있고, 누르면 과부하 fault가 날 수도 있기 때문이다.
+  - 판정은 위의 **윗면 접촉 하나**다(2026-11-13 결정: 재현의 핵심 물리). 결과 status와 `held`는 판정하지 않고 시험 출력에만 남긴다.
+    - 이유: M3 실측에서 턱이 윗모서리를 스친 뒤 계획 깊이(턱 끝 7mm)까지 내려가 결국 쥐었다(`held`=box58, 기울기 약 1°). 계획의 좁아짐 계수 s(URDF 메쉬 기준, 약 1.45)와 MuJoCo 턱 충돌 형상(`collision_gripper` geom)이 달라 시뮬레이션의 턱이 계획보다 덜 좁아진 것으로 본다.
+    - 실물에서도 쥐는지는 놓기 실물 재시험(runbook 2-2) 때 같은 배치(정면 225mm, 폭 58·높이 39, 각도 45, 높이 15로 알려 줌)로 본다. 실물이 쥐지 못하면 턱 충돌 형상을 URDF 메쉬에 맞추는 작업(M3.5)을 따로 판단한다.
   - **대조**: 새 드라이버와 새 `ArmService`로 다시 connect한 뒤(물체가 처음 자리로 돌아온다) `height_mm=39`로 같은 호출을 하면 `ok`이고 `held`가 `box58`, `tilt_deg` < 10이다(같은 시점에 잰다). 이때 계획은 G 90, t 약 27mm(닿는 깊이 약 12mm)다. 실패하면 모델 접촉값 문제로 보고 기준은 바꾸지 않는다.
 - (b) **집어 옮기기**(M3, 시나리오 `carry30`·`carry45`·`carry58`을 하나씩, 시나리오마다 새로 connect한다. 시험은 셋을 parametrize한다. 상자 이름은 `box`):
   - `svc.pick_and_place(obj)`(`height_mm=40`, 폭·길이는 시나리오와 같게) 뒤 `svc.place(at=(420, 170))`. 로봇 원점에서 약 170mm라 대칭 V자 범위(11.3.4, 약 200mm) 안이다. 배출 구역 칸(11.3.5)은 여기서 쓰지 않는다.
   - 시험 스레드가 `sim_state()`를 50Hz로 읽는다.
   - 미끄러짐: `held`가 `box`이고 그 `z_mm` > 5인 표본마다, `tool` 자세로 상자 바닥 가운데를 site 좌표계로 바꾼다. 그 값이 이 조건을 처음 만족한 표본의 값에서 3mm 이하다.
-  - 놓기: `svc.place`가 끝나고 1.0초 뒤 잰다. 상자 바닥 가운데와 (420, 170)의 **수평 거리가 5mm 안**이고, `tilt_deg` < 10이다.
-  - 감시: 실행 동안 `events.jsonl`에 `ARM-GRIP-OVERLOAD-WARN`·`ARM-GRIP-OVERLOAD`가 0건이고, reason이 `overload`·`overcurrent`·`overheat`로 시작하는 `ARM-FAULT`가 0건이다. `ARM-LOAD-PROBE`는 세지 않고, 건수와 최대 `load_pct`만 시험 출력에 남긴다(kp 998·forcerange ±2.94면 움직이는 동안 50%를 넘을 수 있다는 리뷰 추정. 흔들리면 13.2 부하 정의나 서보 값을 고친다).
+  - 놓기: `svc.place`가 끝나고 1.0초 뒤 잰다. 상자 바닥 가운데와 (420, 170)의 **수평 거리가 7mm 안**이고, `tilt_deg` < 10이다(2026-11-13: 5mm → 7mm. M3 실측 carry30·45·58 = 4.4·6.2·3.3mm. 실물 손끝 위치 정밀도 ±9mm(`measurements.md` 11-07)보다 작아 시뮬레이션 기준으로 충분하다).
+  - 감시: 실행 동안 `events.jsonl`에 `ARM-GRIP-OVERLOAD-WARN`·`ARM-GRIP-OVERLOAD`가 0건이고, reason이 `overload`·`overcurrent`·`overheat`로 시작하는 `ARM-FAULT`가 0건이다. `ARM-LOAD-PROBE`는 세지 않고, 건수와 최대 `load_pct`만 시험 출력에 남긴다(M3 실측: 1~2건, 최대 100%는 순간값). 목표 선형 보간(13.2) 뒤에도 감시가 걸리면 서보 kv를 낮추는 안을 따로 올린다.
 - (c) **기본값 유지**(M2): `--sim-engine`을 주지 않으면 지금 `SimDriver`이고, 지금 시험이 모두 그대로 통과한다. `--sim` 없이 `--sim-engine`만 주면 "`--sim`과 함께 쓴다"로 끝난다.
 - (d) **모델 대조**(M1, `mujoco` 모듈과 `arm/mujoco_model.py`만 쓴다. 드라이버 없이):
   - `np.random.default_rng(0)`으로 그리퍼를 뺀 다섯 관절을 `joint_limits_deg`에서 5° 안쪽으로 고른 자세 10개를 만든다.
