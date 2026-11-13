@@ -168,6 +168,8 @@ def test_zero_step_moves_then_asks_and_records(backend, real_like, monkeypatch):
             assert await _until(lambda: _one(user, "calib-zero-only").enabled)
             user.find(marker="calib-zero-only").click()
             await user.should_see(marker="calib-zero-move", retries=30)
+            await user.should_see(marker="calib-zero-help")  # 0° 자세를 처음 보는 사람용: 3D에 0° 계산 자세를 함께 보인다(사용자 11-14)
+            assert backend.scene._preview_on
             user.find(marker="calib-zero-move").click()
             await user.should_see(marker="calib-zero-yes", retries=30)  # 선 뒤에만 [맞음]·[다름]이 보인다
             user.find(marker="calib-zero-yes").click()

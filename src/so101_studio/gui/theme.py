@@ -119,6 +119,7 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 .plane {{ border-radius: 6px; }}
 .plane-large {{ max-width: 84vh; }}
 .scene3d.scene3d-short {{ height: 44vh; min-height: 280px; }}
+.scene3d.scene3d-manual {{ height: calc(100vh - 360px); min-height: 300px; }}  /* 직접 조작: 3D 밑의 현재 좌표·[이동] 줄이 스크롤 없이 보이게 (11-14) */
 .joint-chart {{ height: 30vh; min-height: 220px; }}
 .segment-bar {{ gap: 2px; }}
 .segment {{ min-width: 0; height: {CONTROL_H}px; line-height: {CONTROL_H}px; text-align: center; overflow: hidden; border-radius: 4px; font-size: 13px; }}

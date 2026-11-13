@@ -294,6 +294,15 @@ class Backend:
         """팔 준비가 덜 되어 잠겼으면 이유. 통신 끊김처럼 다시 연결로 풀리는 잠금은 뺀다."""
         return self.real.locked_reason if self.real else None
 
+    def tip_now(self) -> dict | None:
+        """지금 손끝(턱 끝 중간) 좌표: 작업대 기준 x·y, 작업대 면 위 높이 h, 손 yaw·pitch. 좌표 이동 칸과 같은 단위. 상태가 없으면 None."""
+        st = self.state.status
+        if st is None:
+            return None
+        t, arm = st.tool, self.arm
+        tip = tip_vector(arm.kin, t.pitch_deg, t.yaw_deg, st.joints.gripper, "tip")
+        return {"x": t.x_mm + tip[0], "y": t.y_mm + tip[1], "h": t.z_mm + tip[2] - arm.cfg.table_z_mm, "yaw": t.yaw_deg, "pitch": t.pitch_deg}
+
     def _real_blocked(self) -> str | None:
         if self.real is None:
             return "실제 팔이 연결되어 있지 않습니다. 시뮬레이션만 쓸 수 있습니다"
@@ -1199,9 +1208,8 @@ class Backend:
         st = self.state.status
         if st is None:
             return values
-        t = st.tool
-        tip = tip_vector(arm.kin, t.pitch_deg, t.yaw_deg, st.joints.gripper, "tip")
-        x, y, h = t.x_mm + tip[0], t.y_mm + tip[1], t.z_mm + tip[2] - arm.cfg.table_z_mm
+        p = self.tip_now()
+        x, y, h = p["x"], p["y"], p["h"]
         return values | {
             "전압": f"{st.voltage_v:.1f} V",
             "최고 온도": hottest_text(st),

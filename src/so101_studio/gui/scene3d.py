@@ -21,6 +21,7 @@ from . import theme
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8081
 TABLE_T_M = 0.01
+PEDESTAL_M = 0.1  # 받침판 한 변(m): SO-101 바닥판 크기쯤
 OBJECT_H_M = 0.03
 PREVIEW_ALPHA = 0.4
 PART_ALPHA = 0.85  # 장면 부품: 뒤의 팔·물체가 조금 비치게
@@ -247,6 +248,10 @@ class Scene3D:
         # URDF 원점은 어깨 회전축에서 PAN_AXIS_X_MM 뒤에 있다 (Kinematics.fk와 같은 오프셋)
         ox, oy = robot_to_table(-PAN_AXIS_X_MM, 0.0, base)
         root = {"position": (ox / 1000, oy / 1000, -self._table_z / 1000), "wxyz": _yaw(base.yaw_deg)}
+        lift = -self._table_z / 1000
+        if lift > 0:  # table_z_mm(실측 보정, 처짐 포함)만큼 팔이 작업대 위에 떠 보인다: 실물은 받침이 책상에 붙어 있으니 그 틈을 받침판으로 채워 그린다(화면만, 계산은 그대로)
+            scene.add_box("/pedestal", color=theme.rgb(theme.MUTED), dimensions=(PEDESTAL_M, PEDESTAL_M, lift),
+                          position=(base.x_mm / 1000, base.y_mm / 1000, lift / 2), wxyz=_yaw(base.yaw_deg))
         return table, grid, zones, axes_robot, root
 
     def set_workspace(self, ws) -> None:
