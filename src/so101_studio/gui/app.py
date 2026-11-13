@@ -31,6 +31,9 @@ from .pages import (
     workspace,
 )
 from .pages.common import Controls, jog_pads
+from .param_meta import (
+    META,  # 막대 슬라이더는 자리가 좁아 숫자 칸 없이 한계·눈금만 쓴다 (12.7.2)
+)
 from .share import LOCAL_HOST, SHARE_HOST, is_remote, share_warning
 from .state import EMPTY, component_states, page_state
 from .view_cube import VIEW_CUBE_JS
@@ -296,7 +299,7 @@ def make_root(backend: Backend):
                     "click", lambda: ui.notify(share_warning(backend.web_port), timeout=0, close_button="닫기"))
             with ui.row().classes("items-center gap-2 no-wrap"):
                 ui.label("그리퍼 속도").classes("stat-label")
-                top_grip = ui.slider(min=5, max=100, step=5, value=backend.arm.cfg.gripper_speed_pct,
+                top_grip = ui.slider(min=META["gripper_speed_pct"].hard[0], max=META["gripper_speed_pct"].hard[1], step=META["gripper_speed_pct"].step, value=backend.arm.cfg.gripper_speed_pct,
                                      on_change=lambda e: set_grip_speed(e.value)).props('dense label aria-label="그리퍼 속도"').classes("w-28").mark("top-grip-speed")
             top_mode = ui.select(RUN_MODES, value=backend.mode, on_change=lambda e: set_mode(e.value)).props(
                 'dense outlined options-dense aria-label="실행 방식"').classes("w-40").mark("top-run-mode")
@@ -327,7 +330,7 @@ def make_root(backend: Backend):
                     stats[label] = _stat(label)
             with ui.row().classes("items-center gap-2 no-wrap shrink-0"):
                 ui.label("속도").classes("stat-label")
-                bar_speed = bar.add(ui.slider(min=5, max=100, step=5, value=backend.arm.speed).props('dense label aria-label="속도"').classes("w-28").mark("bar-speed"))
+                bar_speed = bar.add(ui.slider(min=META["speed_pct"].hard[0], max=META["speed_pct"].hard[1], step=META["speed_pct"].step, value=backend.arm.speed).props('dense label aria-label="속도"').classes("w-28").mark("bar-speed"))
                 shown_speed = [backend.arm.speed]
                 bar_speed.on("change", bar.guard(lambda: run.io_bound(backend.set_speed, float(bar_speed.value))))
                 resume[:] = [ui.button("정지 해제", on_click=resume_arm).props("outline no-caps").mark("resume")]

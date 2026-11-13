@@ -9,6 +9,7 @@ from pathlib import Path
 import yaml
 
 from ..core.types import DetectedObject, JointState, MotionResult, ToolPose
+from .param_meta import META
 
 STEP_TEXT = {
     "waypoint": "자세로 이동", "move": "좌표로 이동", "gripper": "그리퍼", "pick_place": "집어 옮기기",
@@ -24,6 +25,12 @@ DEFAULTS = {
     "home": {},
     "replay": {"name": "", "speed": 1.0},
     "repeat": {"count": 2, "steps": []},
+}
+# 단계 값 -> 값 정보표 키 (gui-spec 12.7.1): 화면 칸과 validate가 같은 한계를 쓴다
+STEP_META = {
+    "x": "target.x", "y": "target.y", "place_x": "target.x", "place_y": "target.y", "h": "target.h", "yaw": "target.yaw", "pitch": "target.pitch",
+    "value": "gripper.value", "angle": "obj.angle", "width": "obj.width", "length": "obj.length", "height": "obj.height",
+    "s": "program.s", "speed": "replay.speed", "count": "program.count",
 }
 OK = MotionResult("ok", 0.0, ToolPose(0, 0, 0, 0))
 JOINTS = [f.name for f in fields(JointState)]
@@ -59,6 +66,15 @@ def validate(steps: list, waypoints: dict, depth: int = 0) -> str | None:
         missing = [k for k in DEFAULTS[t] if k not in step]
         if missing:
             return f"{i}번 단계({STEP_TEXT[t]}): {', '.join(missing)} 값이 없습니다"
+        for key, meta_key in STEP_META.items():  # 펼치지 않은 단계·파일에서 읽은 단계도 저장·실행 전에 막는다 (12.7.4)
+            if key in step and key in DEFAULTS[t]:
+                lo, hi = META[meta_key].hard
+                try:
+                    ok = lo <= float(step[key]) <= hi
+                except (TypeError, ValueError):
+                    ok = False
+                if not ok:
+                    return f"{i}번 단계: {key} 허용 {lo:g}~{hi:g} 밖"
         if t == "waypoint" and step["name"] not in waypoints:
             return f"{i}번 단계: 저장된 자세 '{step['name']}'이 없습니다"
         if t == "replay" and not step["name"]:

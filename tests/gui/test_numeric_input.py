@@ -322,3 +322,49 @@ def test_table_out_of_range_field_disables_save(clean):
         assert _one(user, "ws-margin").meta.value == clean.arm.ws.safety_margin_mm  # 마지막 허용 값 그대로
 
     in_app(clean, "/table", check)
+
+
+# ⑤ 교시·프로그램
+
+def test_programs_validate_checks_meta_limits():
+    from so101_studio.gui import programs
+
+    step = {"type": "move", **programs.DEFAULTS["move"], "x": 5000.0}
+    assert programs.validate([step], {}) == "1번 단계: x 허용 -600~900 밖"
+    inner = {"type": "gripper", "value": 150.0}
+    assert "허용 0~100 밖" in programs.validate([{"type": "repeat", "count": 2, "steps": [inner]}], {})
+    assert programs.validate([{"type": "move", **programs.DEFAULTS["move"]}], {}) is None
+
+
+def test_program_out_of_range_step_field_blocks_save_and_run(clean, monkeypatch):
+    from so101_studio.gui.pages import program as program_page
+
+    toasts = []
+    monkeypatch.setattr(program_page.ui, "notify", lambda text, **k: toasts.append(text))
+    saved = []
+    monkeypatch.setattr(clean, "save_program", lambda name, steps: saved.append(name))
+
+    async def check(user):
+        assert await _until(lambda: clean.owner is not None)
+        _one(user, "step-kind").value = "wait"
+        user.find(marker="step-add").click()
+        await user.should_see(marker="edit-s", retries=30)
+        _one(user, "program-name").value = "시험"
+        _one(user, "edit-s").value = 9999  # 허용 0~600 밖 글자, tick 전
+        user.find(marker="program-save").click()  # 누를 때 첫 줄에서 거부
+        await asyncio.sleep(0.1)
+        assert saved == [] and any("허용 밖이라 실행하지 않습니다" in t for t in toasts)
+        assert await _until(lambda: not _one(user, "program-save").enabled and not _one(user, "program-run").enabled)
+        _one(user, "edit-s").value = 2
+        assert await _until(lambda: _one(user, "program-save").enabled)
+
+    in_app(clean, "/program", check)
+
+
+def test_teach_out_of_range_speed_disables_play(clean):
+    async def check(user):
+        speed = _one(user, "replay-speed")
+        speed.value = 50  # 허용 0.05~3 밖
+        assert not speed.meta.valid and speed.meta.value == 1.0
+
+    in_app(clean, "/teach", check)
