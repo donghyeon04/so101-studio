@@ -728,7 +728,7 @@ class ArmService:
         self._log("pick", {"object": asdict(obj), "status": r.status, "grasp": self.skills.last_pick_info})
         if r.status == "ok" and target:
             r = self.skills.place_at(*target) if place_at else self.skills.place(zone)
-            self._log("place", {"zone": zone, "at": place_at, "status": r.status, "correction_mm": self._place_correction()})
+            self._log("place", {"zone": zone, "at": place_at, "status": r.status, "correction_mm": self._place_correction(), **self._place_angle()})
         return r
 
     def place(self, zone: str | None = None, at: tuple[float, float] | None = None) -> MotionResult:
@@ -741,12 +741,22 @@ class ArmService:
             return self._rejected("place", why, at=at)
         self.enable_torque()
         r = self.skills.place_at(*at) if at is not None else self.skills.place(zone)
-        return self._done("place", r, zone=zone, at=at, correction_mm=self._place_correction())
+        return self._done("place", r, zone=zone, at=at, correction_mm=self._place_correction(), **self._place_angle())
 
     def _place_correction(self) -> list[float] | None:
         """마지막 place가 두 턱 끝 중간점을 구역 점에 맞추려고 손 위치를 옮긴 양(mm, x·y). 기록용."""
         c = getattr(self.skills, "last_place_correction_mm", None)
         return None if c is None else [round(c[0], 1), round(c[1], 1)]
+
+    @property
+    def last_placed_angle_deg(self) -> float | None:
+        """마지막 place가 놓은 물체의 작업대 기준 각도(0~180°, 정사각형은 90° 주기). 모르면 None. 놓은 물체를 다시 집을 때 이 각도를 DetectedObject.angle_deg로 준다
+        (놓는 손은 반경 방향 턱 축이라 집을 때와 달라 물체가 돌아 놓인다: 실물 2-2 11-13, 각도 0으로 알려 정사각형 상자의 모서리를 집음)."""
+        return getattr(self.skills, "last_place_angle_deg", None)
+
+    def _place_angle(self) -> dict:
+        y, a = getattr(self.skills, "last_place_yaw_deg", None), self.last_placed_angle_deg
+        return {**({} if y is None else {"place_yaw_deg": round(y, 1)}), **({} if a is None else {"placed_angle_deg": round(a, 1)})}
 
     def set_gripper(self, value: float, as_width: bool = False) -> MotionResult:
         """그리퍼만 움직인다. as_width면 벌림 폭(mm)으로 해석한다(예: 카드 폭 54mm)."""
