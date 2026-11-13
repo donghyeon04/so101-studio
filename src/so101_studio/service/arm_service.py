@@ -748,11 +748,15 @@ class ArmService:
         c = getattr(self.skills, "last_place_correction_mm", None)
         return None if c is None else [round(c[0], 1), round(c[1], 1)]
 
+    @property
+    def last_placed_angle_deg(self) -> float | None:
+        """마지막 place가 놓은 물체의 작업대 기준 각도(0~180°, 정사각형은 90° 주기). 모르면 None. 놓은 물체를 다시 집을 때 이 각도를 DetectedObject.angle_deg로 준다
+        (놓는 손은 반경 방향 턱 축이라 집을 때와 달라 물체가 돌아 놓인다: 실물 2-2 11-13, 각도 0으로 알려 정사각형 상자의 모서리를 집음)."""
+        return getattr(self.skills, "last_place_angle_deg", None)
+
     def _place_angle(self) -> dict:
-        """놓은 뒤 물체 각도(작업대 기준, 0~180°, 추정): 물체는 쥔 채 놓는 손의 턱 축 방향으로 놓이므로 각도 = 손 yaw - 90(턱은 긴 변에 수직으로 집는다). 정사각형은 90° 주기.
-        놓은 물체를 다시 집으려면 이 각도를 알려 준다(실물 2-2 11-13: 각도 0으로 알려 줘서 모서리를 집음)."""
-        y = getattr(self.skills, "last_place_yaw_deg", None)
-        return {} if y is None else {"object_angle_after_deg": round((y - 90.0) % 180.0, 1)}
+        y, a = getattr(self.skills, "last_place_yaw_deg", None), self.last_placed_angle_deg
+        return {**({} if y is None else {"place_yaw_deg": round(y, 1)}), **({} if a is None else {"placed_angle_deg": round(a, 1)})}
 
     def set_gripper(self, value: float, as_width: bool = False) -> MotionResult:
         """그리퍼만 움직인다. as_width면 벌림 폭(mm)으로 해석한다(예: 카드 폭 54mm)."""

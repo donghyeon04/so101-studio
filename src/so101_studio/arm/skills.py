@@ -37,6 +37,7 @@ class Skills:
         self.speed = speed_pct if speed_pct is not None else cfg.speed_pct_default
         self.opening_fallback_reason: str | None = None  # 마지막 _opening_path가 None이었던 이유
         self.last_place_yaw_deg: float | None = None  # 마지막 place의 손(턱 축) 방향, 작업대 기준
+        self.last_place_angle_deg: float | None = None  # 마지막 place가 놓은 물체의 작업대 기준 각도(0~180°, 정사각형은 90° 주기), 모르면 None
         self.last_place_correction_mm: tuple[float, float] | None = None  # 마지막 place가 손 xy를 옮긴 양
         self._grip_orig: int | None = None  # 조임 한계를 바꾸기 전 값(놓은 뒤 되돌린다)
         self.placed: list[tuple[float, float, float]] = []  # 이 세션에서 놓은 물체 (x, y, 반경 mm): 다음 놓기의 벌림이 부딪히는지 볼 때 알려진 물체로 쓴다 (11.3)
@@ -279,7 +280,7 @@ class Skills:
             self._restore_grip_torque()
             return r
         if contact:  # 접촉: 목표를 지금 위치에서 예압만큼만 더 닫힌 쪽으로 두고(계속 미는 것을 없앤다), 들고 가는 동안 조임 한계를 낮춘다. 되돌리는 것은 place가 끝난 뒤
-            self.grip = {"tilted": bool(tilt_ok), "tip_h": float(t), "obj_h": float(obj.height_mm), "obj_w": float(obj.width_mm), "held_gap": float(self._gap_mm(self._q().gripper))}  # 놓기가 같은 기울기·높이로 내려가도록 기억한다 (11.3.2)
+            self.grip = {"tilted": bool(tilt_ok), "tip_h": float(t), "obj_h": float(obj.height_mm), "obj_w": float(obj.width_mm), "held_gap": float(self._gap_mm(self._q().gripper)), "yaw": float(yaw), "angle": float(obj.angle_deg or 0.0)}  # 놓기가 같은 기울기·높이로 내려가도록 기억한다 (11.3.2)
             near = min(self.known_objects, key=lambda o: math.hypot(o[0] - obj.x_mm, o[1] - obj.y_mm), default=None)  # 집었다: 가장 가까운 한 항목만 장애물에서 뺀다(붙어 있는 이웃은 남긴다). GUI 자동 실행은 집는 물체까지 알려 준다. no_object·집기 실패면 그대로 둔다
             if near is not None and math.hypot(near[0] - obj.x_mm, near[1] - obj.y_mm) <= 40.0:
                 self.known_objects.remove(near)
@@ -696,7 +697,9 @@ class Skills:
                 return replace(fail, reason=f"known_object: 놓을 자리가 알려진 물체와 겹친다 ({self.descent_blocked_by})") if self.descent_blocked_by else fail
             tilted, allowed = False, False
         self.last_place_correction_mm = (float(release.x_mm - x_mm), float(release.y_mm - y_mm))
-        self.last_place_yaw_deg = place_yaw  # 물체는 쥔 채 이 손 방향으로 놓이므로 놓은 뒤 물체 각도가 바뀐다(ArmService가 기록에 남긴다)
+        self.last_place_yaw_deg = place_yaw
+        # 물체는 쥔 채 놓는 손 방향으로 놓인다: 놓은 뒤 물체 각도 = 집을 때 물체 각도 + (놓을 때 턱 yaw - 집을 때 턱 yaw). 집기 기억이 없으면(옛 방식) 모른다. 다시 집을 때 이 각도로 알려 준다
+        self.last_place_angle_deg = None if grip is None or "yaw" not in grip else (grip["angle"] + place_yaw - grip["yaw"]) % 180.0
         self._place_ctx = {"target": (x_mm, y_mm), "legacy": bool(legacy), "tilted": tilted, "tilt_allowed": allowed, "obj_h": 0.0 if legacy else grip["obj_h"],
                            "obj_w": 0.0 if legacy or not grip else grip.get("obj_w", 0.0),
                            "need_lift": (grip["obj_h"] + LIFT_MARGIN_MM) if grip and grip["obj_h"] > 0 else ((grip["tip_h"] if grip else self.cfg.grasp_height_mm) + LIFT_UNKNOWN_EXTRA_MM)}  # 놓은 뒤 상승의 최소: 물체 높이 + 10mm, 모르면 t_g + 30mm (11.3.3)
