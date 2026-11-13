@@ -1,6 +1,6 @@
 # 로봇팔 소프트웨어 설계서
 
-상태: 확정 · 갱신 2026-11-02 · 11.3 놓기 동작 모양 2026-11-07, 대칭 V자 개정 2026-11-10, 상승 최소·상자 폭·높이 모름 집기 2026-11-11, 13 MuJoCo 2026-11-11 · 2026-11-13 drift-report(main ec9fd73) 반영, 막힘 감지(결정 0059, 6.5), M4 GUI는 `gui-spec.md` 12.8(13절 M4 부분은 초안, gui-spec 12.8과 함께 확정)
+상태: 확정 · 갱신 2026-11-02 · 11.3 놓기 동작 모양 2026-11-07, 대칭 V자 개정 2026-11-10, 상승 최소·상자 폭·높이 모름 집기 2026-11-11, 13 MuJoCo 2026-11-11 · 2026-11-13 drift-report(main ec9fd73) 반영, 집기 기울기 기본값 equal_tips(결정 0060), 막힘 감지(결정 0059, 6.5), M4 GUI는 `gui-spec.md` 12.8(13절 M4 부분은 초안, gui-spec 12.8과 함께 확정)
 
 로컬 개발 세션이 이 문서만 보고 팔 모듈을 구현할 수 있도록, 구조·인터페이스·출력값·작업 순서를 정한다. 범위는 개발 0~2단계(구동 점검, 동작 라이브러리, 작업 공간 확정)다. 인식 모듈과 GUI는 팔 모듈과 맞닿는 인터페이스만 정한다.
 
@@ -206,7 +206,7 @@ class MotionResult:
     - `fit`: 폭을 알면 W + `gripper_margin_mm`, 모르면 최대.
     - 닫는 끝은 폭을 알면 폭 − 10mm(접촉 감지에 필요한 명령 차이), 모르면 끝까지다.
   - 닫을 때 틈이 d 줄면 손을 가동 턱 쪽으로 d/2 같이 보내 닫는 내내 중심을 유지한다.
-  - 턱이 앞뒤로 벌어질 때만 손을 벌림 각도의 절반만큼 기울여(최대 35°) 보기에 대칭인 V자로 닫는다.
+  - 턱이 앞뒤로 벌어질 때만 손을 기울인다(`grasp_tilt_mode`, 최대 `grasp_tilt_deg` 35°). 기본 `equal_tips`(결정 0060)는 두 턱 끝 높이가 같아지는 기울기로, 두 턱 끝이 함께 `grasp_height_mm`에 와서 깊게 문다(58mm 상자에서 약 4.7°, 거의 닫히면 0). 옵션 `symmetric`(0012)은 벌림 각도의 절반만큼 기울여 보기에 대칭인 V자로 닫지만, 낮은 턱 끝만 `grasp_height_mm`에 와서 넓은 물체는 높은 턱이 얕게 문다(실물 58mm 상자에서 9mm, `no_object` 2/2).
   - 접촉 판정: 실제 그리퍼 값이 명령보다 4값 넘게 앞서 멈춤(`contact_lag_units`).
   - 조임 (`decisions/0033`): 접촉하면 목표를 지금 위치에서 **닫는 쪽으로**(그리퍼 값이 작아지는 쪽, 0 = 닫힘) `grip_preload_units`(2)만큼 더 간 값으로 고정한다(결정 0033의 "지금 위치 + 예압"은 이 뜻이다). 그리퍼를 여는 명령(`set_gripper`, `place`의 열기, `no_object` 열기)이 오면 고정을 풀고 조임 한계를 원래 값으로 되돌린다. 정지·E-STOP에서는 물체를 놓치지 않게 고정과 200을 유지한다. 조임 한계는 RAM `Torque_Limit`(48번)으로 바꾸고 EEPROM(`Max_Torque_Limit`)에는 쓰지 않는다. 닫는 동안 `gripper_squeeze_torque` 300, 들고 옮기는 동안 `gripper_hold_torque` 200(연결 때 쓰는 그리퍼 `Overload_Torque` 25% 아래), 놓은 뒤 원래 값.
   - 그리퍼 부하 감시: `gripper_load_warn_pct`를 `gripper_load_s` 넘게 넘으면 먼저 목표를 지금 위치로 맞추고 WARN, 그래도 이어지면 열고 fault. 시작값은 정상 집기 5회 부하 최대값의 1.3배, 1초.
@@ -316,7 +316,7 @@ GUI에서 점 찍기는 `point_pose` → `preview_tool` → `move_tool` 순서�
 | 속도 | 기본 30%, 관절 최대 90°/s, 직교 최대 100mm/s, 조그 30°/s·80mm/s | |
 | 궤적 | `trajectory_profile: quintic` (선택 `ruckig`) | measurements.md |
 | 높이 | `table_z_mm` −15(팔 파일, 2026-11-07 실측), `tip_floor_mm` 5, `approach_height_mm` 40, `grasp_height_mm` 20(REQ-033), `place_height_mm` 30(옛 방식 놓기의 손 기준점 높이, 11.3.3) | `measurements.md` |
-| 집기 | `grasp_open_policy: max`(6.6), `grasp_max_open_mm` 90(REQ-033), `gripper_margin_mm` 20, `grasp_tilt_mode: symmetric`, `grasp_tilt_deg` 35, `contact_lag_units` 4, `gripper_squeeze_torque` 300 | `decisions/0010~0012` |
+| 집기 | `grasp_open_policy: max`(6.6), `grasp_max_open_mm` 90(REQ-033), `gripper_margin_mm` 20, `grasp_tilt_mode: equal_tips`(옵션 `symmetric`), `grasp_tilt_deg` 35, `contact_lag_units` 4, `gripper_squeeze_torque` 300 | `decisions/0010·0011·0060` |
 | 교시 | `record_hz` 20, `record_max_s` 90, 구간 기준 3·40°/s, 최소 0.5초 | `decisions/0019` |
 | 놓기 | `place_drop_mm` 3, `place_release_mm` 6, `place_clearance_mm` 30, `place_open_s` 1.0 | 11.3 |
 | 작업대 (`workspace.yaml`) | 600×400mm(임시), 로봇 원점 (300, 50) 90°(긴 변 가운데, 임시), 배출 구역 `right: {x_mm: 480, y_mm: 150, w_mm: 100, h_mm: 80, slot_mm: 75}`(칸 격자, 11.3.5), `drop_zone_ignore_radius_mm` 75(점 구역을 초음파가 무시하는 반경, 11.3.5), 도달 반경 90~250mm | 배치 미정 |
@@ -450,7 +450,8 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
   - 기록 기준(고정 턱 이동 20mm 이상)은 통과했다. 고정 턱 이동 30.8·32.1mm, 두 턱 중간점 이동 4.5·5.3mm, 1.0초.
   - 영상 기준은 불합격이다. 고정 턱은 수직인 채 옆으로 비켜나고, 가동 턱만 거의 수평까지 돌아 올라간다.
 - 첫판은 손을 수직(pitch −90°)에 둔 채 손을 옆으로만 옮겼다. 그래서 두 턱 끝 위치는 어느 정도 맞았지만 턱 **각도**는 대칭이 아니었다.
-- 집을 때는 `grasp_tilt_mode: symmetric`으로 손을 θ/2만큼 기울인다(θ = 가동 턱이 닫힌 데서 벌어진 각도 = `VALUE_TO_Q[1]`·v, 손목 한계 `grasp_tilt_deg` 35°까지). 놓을 때는 이 기울기를 쓰지 않았다.
+- 당시 집기는 `grasp_tilt_mode: symmetric`으로 손을 θ/2만큼 기울였다(θ = 가동 턱이 닫힌 데서 벌어진 각도 = `VALUE_TO_Q[1]`·v, 손목 한계 `grasp_tilt_deg` 35°까지). 놓을 때는 이 기울기를 쓰지 않았다.
+- 2026-11-13부터 집기 기본값은 `equal_tips`다(결정 0060, 6.6). `symmetric`은 옵션이다. 놓기는 집기 기울기를 그대로 이어받는다(판단 J5 = A, 11-13 사용자 결정). 그래서 아래 11.3.2~11.3.4의 대칭 V자 정의와 기준은 `symmetric`일 때만 쓰고, 기본값에서는 놓을 때 보기의 대칭을 맞추지 않는다(실물 equal_tips 놓기·떠나기 10/10, 손 기울기 5.0~5.3°→18.5°, `sym_err_max` 33.1°, runs/20261113-231006).
 - 같은 이유로, 기울인 채 집은 물체는 첫판 놓기에서 수직 손으로 내려가 기운 채 놓였다.
 
 ### 11.3.2 용어
@@ -525,6 +526,7 @@ T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작�
 **파일**(REQ-053·058 구현됨): `arm/skills.py`(`place`, `place_at`, `_descent`, `_scan_opening`·`_route_skip`·`_try_route`·`_build_route`(경로 고르기), `_leave`·`_untilt_goal`(상승), `_emit_opening`, 집기 기억), `arm/gripper.py`(`closing_path`의 `tilt_scale`), `config/robot.yaml`(`place_drop_mm: 3`, `place_release_mm: 6`, `place_clearance_mm: 30`, `place_open_s: 1.0`). `place_*` 키의 범위 검사(`service/params.py`의 `LIMITS`)는 REQ-064다.
 
 ### 11.3.4 완료 기준
+- 아래 대칭 기준(①·②의 대칭 오차·각도)은 `grasp_tilt_mode: symmetric`일 때만 판정한다. 기본값 `equal_tips`(결정 0060, J5 = A)에서는 대칭을 판정하지 않고 `ARM-OPENING-PATH`의 `sym_err_*` 값만 기록한다. 이때 놓기 성공은 물체 바닥 높이, 이웃 물체(부딪힘 없음), `skipped` 이유, 떠나기 상승(`low_lift` 없이 최소 높이 도달)으로 본다. 이 기준들은 두 방식 모두에 적용한다.
 - 시뮬레이션: 폭 30·45·58mm(높이 40mm), 놓는 곳 배출 구역과 (300, 200)에서 다음을 모두 만족한다.
   - 배출 구역은 반경 90~250mm 안에서 옮길 수 있다(`workspace.yaml`). 대칭 V자(①·②)는 sim 기준 반경 약 200mm까지 된다(넓힌 손목 한계면 폭 30mm는 225mm까지). 그보다 먼 곳의 넓은 물체가 ③`fixed_tilt`로 가는 것은 팔 구조의 한계로 받아들인다. 그래서 아래 기준은 반경 200mm 안의 놓는 곳에 적용한다.
   - ②의 기울기 배율은 k(v) = 1 − θ_A(1 − s)/θ(v)로 구현한다(θ_A는 A 구간 끝의 θ, s는 B 구간 진행 0→1). 이렇게 하면 "B 구간에서 대칭 오차가 줄어들기만 한다"는 기준이 지켜진다. 11.3.3의 "그리퍼 값에 비례해 0→1"을 이 식으로 바꾼다.
