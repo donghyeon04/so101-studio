@@ -585,7 +585,7 @@ class Skills:
         n = max(9, math.ceil(swing / SWING_STEP_DEG) + 1)  # 가장 크게 도는 관절이 SWING_STEP_DEG마다 한 자세씩 지나도록 촘촘히 본다
         states = [JointState(*(q0 + (q1 - q0) * k)) for k in np.linspace(0.0, 1.0, n)]
         gaps = [self._box_gap(st, self.kin.fk(st), held) for st in states] if held is not None else []
-        if gaps and min(gaps) < BOX_GAP_MM and not (gaps[0] > 0.2 and gaps[-1] >= BOX_GAP_MM and min(gaps) >= gaps[0] - 0.5):  # 단동식은 놓은 직후 고정 턱이 상자 옆에 닿아 있다(간격 0~2mm): 시작이 겹치지 않고(0.2mm 넘게 떨어짐) 시작보다 더 가까워지지 않고 끝에 BOX_GAP_MM 이상 벌어지면 허용
+        if gaps and min(gaps) < BOX_GAP_MM and not (gaps[0] > 0.2 and gaps[-1] >= BOX_GAP_MM and min(gaps) > 0.2 and min(gaps) >= gaps[0] - 0.5):  # 단동식은 놓은 직후 고정 턱이 상자 옆에 닿아 있다(간격 0~2mm): 시작이 겹치지 않고(0.2mm 넘게 떨어짐) 풀기 내내 0.2mm를 넘게 떨어져 있고(_box_gap은 겹치면 0으로 잘린다) 시작보다 더 가까워지지 않고 끝에 BOX_GAP_MM 이상 벌어지면 허용
             self.untilt_rejected = f"box:{min(gaps):.0f}mm"
         elif (why := self._hits_objects(states, tolerate_start=False)) is not None:
             self.untilt_rejected = f"object:{why}"

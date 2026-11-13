@@ -31,7 +31,7 @@ def test_untilt_allows_starting_against_the_box_but_not_closing_in(tmp_path):
         held = SimpleNamespace(center=SimpleNamespace(x_mm=360.0, y_mm=200.0), box_w=58.0, obj_h=39.0)
         assert sk._untilt_goal(sk._q(), 39.0, held) is not None, sk.untilt_rejected
         orig = sk._box_gap
-        for profile, ok in (([0.5, 1.0, 3.0], True), ([0.5, 0.5, 0.4, 3.0], True), ([1.5, 0.3, 3.0], False), ([0.5, 1.0, 1.5], False)):  # 시작보다 0.5mm 넘게 가까워지거나 끝이 2mm 미만이면 거절
+        for profile, ok in (([0.5, 1.0, 3.0], True), ([0.5, 0.5, 0.4, 3.0], True), ([1.5, 0.3, 3.0], False), ([0.5, 1.0, 1.5], False), ([0.5, 0.0, 3.0], False)):  # 마지막: 풀기 중간에 상자 안을 지나면(간격 0으로 잘림) 거절  # 시작보다 0.5mm 넘게 가까워지거나 끝이 2mm 미만이면 거절
             n = {"i": 0}
 
             def gap(st, p, h, profile=profile, n=n):
