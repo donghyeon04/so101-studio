@@ -422,34 +422,38 @@ G0~G4가 기본 골자의 핵심이다. G12~G16은 11절의 1차다. 막히는 R
 - 수동 입력: "새 물체" 모드에서 칸이 허용 밖이면 작업대 클릭이 물체를 더하지 않고, "고른 물체 옮기기" 모드는 그대로 옮긴다.
 - 파라미터 화면의 [기본값으로]는 설정 파일 값으로 바꾸고 바꾼 값 강조를 켠다(적용 전).
 
-### 12.8 MuJoCo 물리 시뮬레이션 (M4, 결정 0053, arm-software-spec 13절, 2026-11-13 초안 — EGM Stage 9 M4 전 지적 반영)
-팔 쪽(드라이버, 뷰어, CLI)은 arm-software-spec 13절이 기준이고, 이 절은 GUI 쪽만 정한다. 이 절이 확정되기 전에는 M4의 GUI 작업을 시작하지 않는다. 표시는 12절과 같다(모두 **신규**).
+### 12.8 MuJoCo 물리 시뮬레이션 (M4, 결정 0053, arm-software-spec 13절, 2026-11-13 초안 — EGM Stage 9 M4 1·2라운드 반영)
+팔 쪽(드라이버, 뷰어, CLI, 물체 파일)은 arm-software-spec 13절이 기준이고, 이 절은 GUI 쪽만 정한다. 이 절이 확정되기 전에는 M4의 GUI 작업을 시작하지 않는다. 팔 M4 PR(`size_mm`, `failed_reason`, 뷰어, CLI, 물체 파일)이 먼저 합쳐진 뒤 GUI M4를 시작한다. 표시 규칙은 12절과 같고, 이 절은 모두 **신규**다.
 
 **범위**: MuJoCo는 실제 팔 없는 `--sim` GUI에서만 쓴다. 엔진은 화면이 아니라 시작 인자로만 고르고, 화면에 엔진 고르기를 두지 않는다. 실제 팔과 같이 띄우는 쌍둥이 시뮬레이션은 늘 `SimDriver`다.
 
+**고치는 파일**: `gui/__main__.py`, `gui/app.py`, `gui/backend.py`, `gui/scene3d.py`, `gui/sensors/manual_view.py`, `gui/pages/table.py`, `tests/gui/test_mujoco_gui.py`. `gui/programs.py`는 고치지 않는다.
+
 | 항목 | 정한 것 |
 |---|---|
-| 시작 인자 | `so101.cmd --sim --sim-engine mujoco [--sim-viewer] gui`. CLI가 Namespace를 그대로 `gui.main(a)`에 넘긴다(팔 M4가 CLI `gui` 거부를 지운다). `python -m so101_studio.gui`(`gui/__main__.py`)에도 `--sim-engine {kinematic,mujoco}`(기본 kinematic)과 `--sim-viewer`를 CLI와 같은 이름·기본값으로 더한다. `--sim` 없이 `--sim-engine mujoco`를 주거나 `--sim --sim-engine mujoco` 없이 `--sim-viewer`를 주면 CLI와 같은 문장으로 종료 코드 1이다 |
-| 드라이버 만들기 | `app.main`은 `engine = getattr(args, "sim_engine", "kinematic")`, `viewer = getattr(args, "sim_viewer", False)`를 `Backend(..., sim_engine=engine, sim_viewer=viewer)`로 넘긴다. `Backend.__init__`은 실제 팔이 없고(`real_driver is None`) `sim_engine == "mujoco"`일 때만 지금 `SimDriver(...)` 자리에서 `make_sim_driver(cfg, ws, load_scene(), viewer=sim_viewer)`를 부른다. `cfg`가 `Backend` 안에서 읽히기 때문에 드라이버도 여기서 만든다. 그 밖에는 지금처럼 `SimDriver`다 |
-| 시나리오 | GUI는 `--sim-scenario`를 받지 않는다. 주면 `app.main`이 "GUI는 config/manual_objects.yaml 물체만 씁니다"로 종료 코드 1이다. 그래서 MuJoCo 물체와 `ManualSource`는 같은 파일·같은 이름(`obj-1`, `obj-2`, …)이다(arm-software-spec 13.5) |
-| 시작 실패 | `app.main`의 `Backend` 만들기 `try`에서 `ImportError`를 잡으면 `link.stop()` 뒤 `cli.MUJOCO_MISSING_TEXT`를 터미널에 출력하고 종료 코드 2로 끝난다. 화면은 뜨지 않고, 기구학 엔진으로 바꿔 띄우지도 않는다. `ValueError`(예: 병렬 그리퍼)는 "연결 실패: <문장>"으로 종료 코드 1이다. 지금 잡는 `RuntimeError`·`ArmSelectionError`·`PortChoiceError`는 그대로 둔다 |
-| 판정 함수 | `backend.py`에 `_physical()`(= `getattr(self.sim.driver, "physical_objects", False)`)과 `_no_object_ok(arm)`(= `arm is self.sim and not self._physical()`)을 둔다. `SimDriver`에는 `physical_objects`가 없으므로 속성 접근이 아니라 `getattr`로 읽는다 |
-| `no_object` 규칙 | 집어 옮기기(517행 `arm is self.sim and r.status == "no_object"`)는 `self._no_object_ok(arm)`로 바꾼다. `run_program`(591행)은 `programs.action`에 `self._no_object_ok`를 넘긴다(`programs.py`는 고치지 않는다). `_make_studio`는 `dry_run=self.real is None and not self._physical()`로 한다. `MOTION_TEXT`에 `"no_object": "물체를 쥐지 못했습니다"`를 더하고, "시뮬레이션에는 잡히는 물체가 없어" 주석을 "기구학 엔진에는 …"으로 고친다 |
-| 수동 물체 편집 | `_physical()`이 참이면 물체 더하기·옮기기·밀기·돌리기·높이 바꾸기·지우기·되돌리기(`add_object`, `move_object`, `nudge_object`, `set_object_height`, `remove_object`, `reset_objects`)는 "MuJoCo 시뮬레이션은 물체를 시작할 때 놓습니다. 바꾸려면 앱을 다시 시작하세요"로 거부한다. 그 버튼과 3D 끌기는 끈다. 작업이 집는 좌표는 지금처럼 `ManualSource`의 처음 좌표다. 물리에서 밀린 자리를 따라가지 않는 것은 인식 없는 실물과 같다 |
-| 3D 물리 물체 | `_physical()`이 참이면 `Backend`가 `self.sim.status_stream`(10Hz, 지금 3D가 쓰는 통로)에 콜백을 하나 더 건다. 콜백은 `driver.connected`가 참일 때만 `driver.sim_state()["objects"]`를 읽어 `Scene3D.set_sim_objects(objects)`(새 함수)를 부른다 |
-| `set_sim_objects` | `/sim_objects/<이름>` 상자를 처음 한 번 만들고, 그 뒤에는 위치·방향만 바꾼다. 크기는 `size_mm`([길이, 폭, 높이], 팔 M4가 `sim_state()`에 더함)다. 위치는 `x_mm`·`y_mm`, 높이는 `z_mm` + 높이/2(작업 면 위, m), 방향은 `yaw_deg`다. `tilt_deg` ≥ 10이면 경고색으로 칠하고 기울기는 그리지 않는다. `held`인 물체는 ACCENT다 |
-| 계획 쪽 물체 | 기존 `/objects`(수동 입력, `set_objects`)는 그대로 두고, `_physical()`이면 반투명으로 그린다. 작업 이벤트·스캔·편집이 `set_objects`를 다시 불러도 `/sim_objects`는 지워지지 않는다. 두 노드는 레이어 "objects"로 함께 켜고 끈다 |
+| 시작 인자 | `so101.cmd --sim --sim-engine mujoco [--sim-viewer] gui`. CLI가 Namespace를 그대로 `gui.main(a)`에 넘긴다(팔 M4가 CLI `gui` 거부를 지운다). `python -m so101_studio.gui`(`gui/__main__.py`)에도 `--sim-engine {kinematic,mujoco}`(기본 kinematic)과 `--sim-viewer`(store_true)를 CLI와 같은 이름·기본값으로 더한다. `__main__.py`에는 `--sim-scenario`가 없으므로 argparse가 거부한다(종료 코드 2). GUI는 레포 루트에서 띄운다(`so101.cmd`. `ManualSource`가 작업 폴더 기준 경로를 읽는다) |
+| 인자 검사 | 두 입구를 함께 덮도록 `app.main` 첫 줄(`WatchdogLink`를 만들기 전)에서 `getattr`로 한 번만 한다. 순서: ① `sim_scenario`가 있으면 "GUI는 config/manual_objects.yaml 물체만 씁니다", ② `--sim` 없이 `sim_engine == "mujoco"`면 "--sim-engine은 --sim과 함께 쓴다", ③ `sim_viewer`인데 `--sim --sim-engine mujoco`가 아니면 "--sim-viewer는 --sim --sim-engine mujoco와 함께 쓴다". 모두 종료 코드 1이다 |
+| 드라이버 만들기 | `app.main`은 `engine = getattr(args, "sim_engine", "kinematic")`, `viewer = getattr(args, "sim_viewer", False)`를 `Backend(..., sim_engine=engine, sim_viewer=viewer)`로 넘긴다. 서명은 `Backend.__init__(..., sim_engine: str = "kinematic", sim_viewer: bool = False)`라 기존 `Backend(log_root=None)` 호출은 그대로 돈다. 실제 팔이 없고(`real_driver is None`) `sim_engine == "mujoco"`일 때만 지금 `SimDriver(...)` 자리에서 `make_sim_driver(cfg, ws, load_scene(), viewer=sim_viewer)`를 부른다(`cfg`가 `Backend` 안에서 읽히기 때문). import는 `from ..arm.sim_driver import SimDriver, make_sim_driver`와 `from ..core.scene import load_scene`이다. 그 밖에는 지금처럼 `SimDriver`다 |
+| 시작 실패 | `app.main`의 `Backend` 만들기 `try`에서 `ImportError`를 잡으면 `link.stop()` 뒤 `cli.MUJOCO_MISSING_TEXT`를 터미널에 출력하고 종료 코드 2로 끝난다. 화면은 뜨지 않고, 기구학 엔진으로 바꿔 띄우지도 않는다. `ValueError`(병렬 그리퍼, 물체 겹침(arm-software-spec 13.5), `load_scene()` 오류)는 "연결 실패: <문장>"으로 종료 코드 1이다. 지금 잡는 `RuntimeError`·`ArmSelectionError`·`PortChoiceError`는 그대로 둔다 |
+| 판정 함수 | `backend.py`에 셋을 둔다. `SimDriver`에는 이 속성들이 없으므로 모두 `getattr`로 읽는다. ① `_physical()` = `getattr(self.sim.driver, "physical_objects", False)`. ② `_no_object_ok(arm)` = `arm is self.sim and not self._physical()`. ③ `physics_failed()` = `getattr(self.sim.driver, "failed_reason", None)` |
+| `no_object` 규칙 | 집어 옮기기(`backend.py:517`의 `arm is self.sim and r.status == "no_object"`)는 `self._no_object_ok(arm)`로 바꾼다. `run_program`(`backend.py:591`)은 `programs.action`에 `self._no_object_ok`를 넘긴다. `_make_studio`는 `dry_run=self.real is None and not self._physical()`로 한다. `MOTION_TEXT`에 `"no_object": "물체를 쥐지 못했습니다"`를 더한다. `backend.py:193`·`:516`의 "시뮬레이션에는(팔은) 쥘 물체가 없어" 주석을 "기구학 엔진에는 …"으로 고친다(`programs.py:146` 주석은 그대로) |
+| 물체 편집 거부(서비스) | `backend.py`에 `OBJECTS_LOCKED_TEXT = "MuJoCo 시뮬레이션은 물체를 시작할 때 놓습니다. 바꾸려면 앱을 다시 시작하세요"`를 둔다. `add_object`, `move_object`, `nudge_object`, `set_object_height`, `remove_object`, `reset_objects`는 `_physical()`이면 첫 줄에서 `raise ValueError(OBJECTS_LOCKED_TEXT)`다 |
+| 물체 편집 거부(화면) | `gui/sensors/manual_view.py`에서 미리 막는다. `backend._physical()`이면 [처음 물체로]·[지우기]·[고른 물체에 이 높이]·조금씩 패드·"클릭하면" 토글을 끄고, 칸 위에 `OBJECTS_LOCKED_TEXT`를 보인다. 작업대 클릭(`clicked`)은 첫 줄에서 그 문장을 `warning` 알림으로 띄우고 끝낸다. 3D에는 물체 끌기가 없다. 집기 점 손잡이(`/handle`)는 그대로 둔다. 작업이 집는 좌표는 지금처럼 `ManualSource`의 처음 좌표다. 물리에서 밀린 자리를 따라가지 않는 것은 인식 없는 실물과 같다 |
+| 3D 물리 물체 | `backend.py:185`의 `if viser_port is not None:` 블록 안에서 `_physical()`이면 `self.sim.status_stream(self._on_sim_objects)`를 건다. `_on_sim_objects(_status)`는 `driver.connected`가 참이고 `physics_failed()`가 None일 때만 `s = driver.sim_state()`를 읽어 `self.scene.set_sim_objects(s["objects"], s["held"])`를 부른다 |
+| `set_sim_objects(objects, held)` | 처음 부를 때 `self._sim_root = add_frame("/sim_objects", visible=self.layers["objects"])`를 만들고, 물체마다 `/sim_objects/<이름>` 상자를 한 번 만든다. 그 뒤에는 위치·방향·색만 바꾼다. 크기는 `size_mm`([길이, 폭, 높이] mm, 팔 M4가 `sim_state()`에 더함)이고, 길이 축을 `yaw_deg` 방향에 둔다(`set_objects`와 같은 순서). 상자 가운데는 (`x_mm`, `y_mm`, `z_mm` + 높이/2) mm이고, 그릴 때 1000으로 나눠 m로 바꾼다. 색은 보통 `theme.MUTED`, `tilt_deg` ≥ 10이면 `theme.WARN`, 이름이 `held`와 같으면 `theme.ACCENT`다. 기울기는 그리지 않는다 |
+| 계획 쪽 물체 | 기존 `/objects`(수동 입력, `set_objects`)는 그대로 둔다. `Scene3D.plan_opacity`(기본 1.0)를 두고, `_physical()`이면 `Backend`가 0.4로 둔 뒤 `set_objects`를 부른다. `set_objects`는 `add_box(..., opacity=self.plan_opacity)`로 그린다. 작업 이벤트·스캔·편집이 `set_objects`를 다시 불러도 `/sim_objects`는 지워지지 않는다. `set_layer`의 `objects` 가지는 `_objects_root`와 `_sim_root`를 함께 켜고 끈다 |
 | 뷰어 | `--sim-viewer`면 팔 드라이버가 MuJoCo 뷰어 창을 따로 연다(arm-software-spec 13.1 "뷰어"). GUI는 아무것도 하지 않는다 |
-| 물리 멈춤 | MuJoCo에서 `SIM-PHYSICS-FAIL`이 나면 팔은 통신 끊김처럼 fault가 된다(13.2). GUI는 fault 문장 대신 "물리 시뮬레이션이 멈췄습니다: <이유>. 앱을 다시 시작하세요"를 보이고, [다시 연결]은 끈다. M4에서는 GUI 안에서 다시 연결하는 기능을 만들지 않는다 |
-| 작업대 설정 | `_physical()`이 참이면 작업대 설정을 저장한 뒤 "저장했습니다. MuJoCo 시뮬레이션은 앱을 다시 시작해야 적용됩니다"만 보인다("동작이 끝난 뒤 다시 저장" 안내는 섞지 않는다) |
-| 표시 | 상태줄의 "팔" 값은 MuJoCo일 때 "시뮬레이션(MuJoCo)"다. 시작 화면 [시뮬레이션으로 다시 시작](11절 A-3)은 지금의 `--sim-engine`·`--sim-viewer`를 그대로 붙여 다시 띄운다 |
+| 물리 멈춤 | 물리가 멈추면 `read_joints`가 예외를 내 상태 콜백이 돌지 않는다(`ArmService._status_loop`). 그래서 상태로 감지하지 않고 `physics_failed()`로 감지한다. 문장은 `PHYSICS_FAILED_TEXT = "물리 시뮬레이션이 멈췄습니다: {}. 앱을 다시 시작하세요"`이고, `{}`에 `failed_reason`을 넣는다(13.2 문장을 다시 쓰고, 예외 문장을 겹쳐 넣지 않는다). 값이 있으면 ① `move_lock()`이 `real is None`일 때도 이 문장을 돌려줘 잠금 띠와 움직이는 버튼 잠금이 이 문장을 쓴다, ② `app.refresh`의 상태 배지는 "오류"이고 [정지 해제]는 숨긴다, ③ `_run_on`은 동작을 부르지 않고 이 문장을 돌려준다. [다시 연결]은 시뮬레이션에서 원래 보이지 않으므로 바꾸지 않는다. M4에서는 GUI 안에서 다시 연결하는 기능을 만들지 않는다 |
+| 작업대 설정 | `_physical()`이면 `save_workspace`는 파일만 저장하고 `SAVED_RESTART_TEXT = "저장했습니다. MuJoCo 시뮬레이션은 앱을 다시 시작해야 적용됩니다"`를 돌려준다("동작이 끝난 뒤 다시 저장" 안내는 섞지 않는다). `gui/pages/table.py`는 돌려받은 문장이 이것이면 `info` 알림, 그 밖의 문장은 지금처럼 `negative`다 |
+| 표시 | 상태줄의 "팔" 값은 MuJoCo일 때 "시뮬레이션(MuJoCo)"다. 11절 A-3의 다시 시작 버튼은 M4에서 만들지 않는다. 2차에서 만들 때 [실물로 다시 시작]은 `--sim-engine`·`--sim-viewer`를 빼고 띄우고, [시뮬레이션으로 다시 시작]은 `so101.cmd --sim gui`(기구학 엔진)를 띄운다 |
 
-- **시험**(`tests/gui/test_mujoco_gui.py`, `pytest.importorskip("mujoco")`, 실시간 드라이버라 `slow`):
-  1. MuJoCo `Backend`에서 물체 없는 점의 집어 옮기기가 실패 문장("물체를 쥐지 못했습니다")을 돌려주고 놓기를 부르지 않는다.
-  2. `programs.action`에 넘긴 판정이 거짓이고, `Studio`의 `dry_run`이 거짓이다.
-  3. 수동 물체 더하기·옮기기가 거부되고 `ManualSource`가 그대로다.
-  4. 상태 콜백 한 번 뒤 `/sim_objects/obj-1` 노드가 있고, 위치가 `sim_state()` 값과 1mm 안이다. 그 뒤 `set_objects`를 불러도 노드가 남는다.
-  5. `--sim-scenario`를 주면 종료 코드 1, `ImportError`면 종료 코드 2다(`make_sim_driver`를 monkeypatch).
+- **시험**(`tests/gui/test_mujoco_gui.py`, `pytest.importorskip("mujoco")`, 실시간 드라이버라 `slow`, viser 포트는 쓰지 않는 8193):
+  1. MuJoCo `Backend`에서 물체 없는 점 `pick_place((300, 275), 0, 30, 30, None, height_mm=40)`이 "물체를 쥐지 못했습니다"를 돌려주고 놓기를 부르지 않는다.
+  2. `self._no_object_ok(self.sim)`이 거짓이고, `Studio`의 `dry_run`이 거짓이다.
+  3. 여섯 편집 함수가 `pytest.raises(ValueError)`이고 `objects()`가 그대로다.
+  4. `_on_sim_objects(None)`을 직접 한 번 부른 뒤 `/sim_objects/obj-1` 노드가 있고, 위치가 `sim_state()` 값과 1mm 안이다. 그 뒤 `set_objects`를 불러도 노드가 남는다.
+  5. `sim_scenario`를 주면 종료 코드 1이다. `so101_studio.gui.backend.make_sim_driver`를 monkeypatch해 `ImportError`를 내면 종료 코드 2다.
   6. 기구학 엔진(`--sim`만)에서는 지금 시험이 모두 그대로 통과한다(`no_object`를 성공으로 본다).
+  7. 드라이버의 `failed_reason`을 monkeypatch로 채우면 `move_lock()`이 "물리 시뮬레이션이 멈췄습니다"로 시작하고, 집어 옮기기가 그 문장을 돌려준다.
 - 팔 쪽 시험과 손 확인은 arm-software-spec 13.7 (f)다.
-- **결정**(2026-11-13, 사용자 승인): ① 3D에 물리 물체를 더하는 것은 결정 0053 상태 줄에 적었다, ② GUI에서 시나리오를 막는 최소안, ③ 쓰러진 방향(회전 행렬)은 M4에 넣지 않는다. 위 표가 그 내용이다.
+- **결정**(2026-11-13, 사용자 승인): ① M4는 GUI 3D에 물리 물체를 표시한다(결정 0053 상태 줄), ② GUI는 `--sim-scenario`를 막는다(최소안), ③ 쓰러진 방향(회전 행렬)은 M4에 넣지 않는다.
