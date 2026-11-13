@@ -67,6 +67,7 @@ class MotionController:
         self.grip_load_s, self.grip_open = 1.0, 60.0
         self.blocked_cfg = None  # 막힘·접촉 감지 문턱을 읽을 설정(Skills가 채운다, 매번 읽으므로 set_params가 바로 반영). None이면 끔 (결정 0059)
         self._closes_gripper = False
+        self._track = self._new_track()
         self.grasp_closing = False  # Skills가 집기 닫기를 판단하는 중: 그리퍼 접촉은 막힘 감지가 보지 않는다
         self._blocked_n = 0
         self._blocked_until = 0.0  # 동작이 끝난 뒤 이 시각까지 그리퍼 닫기를 계속 본다
@@ -125,6 +126,7 @@ class MotionController:
                 if self.grip_hold is not None:  # 쥔 채면 매 틱 그리퍼는 hold 값으로 덮이므로 기준도 hold 값이다(쥔 압력으로 hold가 실제보다 8~9단위 낮아 첫 틱이 13° 한 주기로 잡히던 것, 11-12 실물)
                     self._last = replace(self._last, gripper=self.grip_hold)
                 self._job, self.state = (traj, handle, now, "move"), "moving"
+                self._track = self._new_track()
                 self._closes_gripper = traj.sample(traj.duration_s).gripper < traj.sample(0).gripper - 1.0  # 닫는 동작일 때만 그리퍼 접촉을 본다(결정 0059)
         return handle
 
@@ -375,6 +377,21 @@ class MotionController:
             self._emit("grip_overload", "ERROR", "ARM-GRIP-OVERLOAD", {"load_pct": load, "limit_pct": self.grip_warn_pct})
             self._fault("grip_overload", {"load_pct": load, "limit_pct": self.grip_warn_pct})
 
+    def _emit_tracking(self) -> None:
+        """동작이 끝날 때 그 동작의 추종 오차 최대(출발·정지 0.2초 / 정속, 그리퍼 닫기)를 INFO로 남긴다(REQ-067). 상태 읽기가 한 번도 없었던 짧은 동작은 남기지 않는다."""
+        tr, self._track = self._track, self._new_track()
+        if tr["profile"] is None:
+            return
+        zone = {k: {"err_deg": round(max(tr[k][0], 0.0), 3) if tr[k][1] else None, "joint": tr[k][1]} for k in ("accel", "cruise")}  # 그 구간에서 읽은 적이 없으면 null
+        data = {"profile": tr["profile"], "speed_ratio": tr["speed_ratio"], **zone}
+        if self._closes_gripper:
+            data["grip_close"] = {"err_units": round(max(tr["grip"], 0.0), 3)}
+        self._emit("tracking", "INFO", "ARM-TRACKING", data)
+
+    @staticmethod
+    def _new_track() -> dict:
+        return {"profile": None, "speed_ratio": 1.0, "accel": (-1.0, None), "cruise": (-1.0, None), "grip": 0.0}
+
     def _grip_contact_target(self, actual: JointState, cfg) -> float:
         """접촉: 지금 위치에서 예압만큼 더 닫힌 쪽 (결정 0033)."""
         return max(cfg.joint_limits_deg["gripper"][0], actual.gripper - cfg.grip_preload_units)
@@ -416,6 +433,12 @@ class MotionController:
             # shortcut: 정속 문턱은 속도 비율의 일차식(정지 오차 25% + 속도 비례 75%), 실물 정상 실행 측정으로 맞춘다 (0059)
             thr = getattr(cfg, f"blocked_{prof}_accel_deg") if zone else getattr(cfg, f"blocked_{prof}_cruise_deg") * (0.25 + 0.75 * speed_ratio)
             joint, err = max(((j, abs(getattr(self._last, j) - getattr(actual, j))) for j in ARM_FIVE), key=lambda x: x[1])
+            tr = self._track
+            tr["profile"], tr["speed_ratio"] = prof, round(speed_ratio, 3)  # 문턱을 정하려고 정상 동작의 오차 최대를 모은다(REQ-067)
+            if err > tr["accel" if zone else "cruise"][0]:
+                tr["accel" if zone else "cruise"] = (err, joint)
+            if self._closes_gripper and not self.grasp_closing:
+                tr["grip"] = max(tr["grip"], actual.gripper - self._last.gripper)
             hit = (joint, err, thr, prof) if err > thr else None
             if hit is None and not held and self._closes_gripper and not self.grasp_closing and (g := actual.gripper - self._last.gripper) > cfg.blocked_grip_units:
                 hit = ("gripper", g, cfg.blocked_grip_units, "grip_close")
@@ -438,6 +461,7 @@ class MotionController:
             text = f"blocked: {joint} 추종 오차 {err:.1f} > 문턱 {thr:.1f} ({prof})"
             handle._finish(replace(self._result("stopped", t0), reason=text))
             self._emit("blocked", "WARN", "ARM-BLOCKED", {"joint": joint, "error": round(err, 2), "threshold": round(thr, 2), "profile": prof})
+            self._emit_tracking()
 
     def _step_over(self, q: JointState) -> float:
         """마지막 명령에서 q까지 관절 하나가 움직이는 최대 변화(°)."""
@@ -495,6 +519,8 @@ class MotionController:
         if t >= traj.duration_s:
             self._job = None
             self._blocked_until = time.perf_counter() + BLOCKED_AFTER_S
+            if kind == "move":
+                self._emit_tracking()
             if self.state == "moving":
                 self.state = "idle"
             handle._finish(self._result("ok" if kind == "move" else "stopped", t0, needs_read=True))
