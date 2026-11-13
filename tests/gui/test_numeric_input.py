@@ -404,3 +404,58 @@ def test_input_out_of_range_field_blocks_add_but_not_move(clean, monkeypatch):
         clean.reset_objects()
 
     in_app(clean, "/input", check)
+
+
+# code-review 반영
+
+def test_half_step_field_takes_decimals_even_if_yaml_value_is_int(clean):
+    async def check(user):
+        meta = _one(user, "param-grasp_bias_mm").meta
+        assert not meta.integer  # 한 칸 0.5: 정수 칸이 아니다
+        assert meta.set(0.5) and meta.value == 0.5
+
+    in_app(clean, "/params", check)
+
+
+def test_set_same_value_does_not_send_again(clean):
+    async def check(user):
+        meta = _one(user, "param-grasp_height_mm").meta
+        seen = []
+        meta.on_change = seen.append
+        assert meta.set(meta.value)
+        assert seen == []
+
+    in_app(clean, "/params", check)
+
+
+def test_blur_event_commits_typed_value(clean):
+    async def check(user):
+        meta = _one(user, "param-grasp_height_mm").meta
+        seen = []
+        meta.on_change = seen.append
+        meta.number.value = 25
+        user.find(marker="param-grasp_height_mm").trigger("blur")
+        assert await _until(lambda: seen == [25])
+
+    in_app(clean, "/params", check)
+
+
+def test_program_run_right_after_out_of_range_typing_is_rejected(clean, monkeypatch):
+    from so101_studio.gui.pages import program as program_page
+
+    toasts, runs = [], []
+    monkeypatch.setattr(program_page.ui, "notify", lambda text, **k: toasts.append(text))
+    monkeypatch.setattr(clean, "run_program", lambda *a: runs.append(a))
+
+    async def check(user):
+        assert await _until(lambda: clean.owner is not None)
+        _one(user, "step-kind").value = "wait"
+        user.find(marker="step-add").click()
+        await user.should_see(marker="edit-s", retries=30)
+        assert await _until(lambda: _one(user, "program-run").enabled)
+        _one(user, "edit-s").value = 9999  # tick 전에 누른다
+        user.find(marker="program-run").click()
+        await asyncio.sleep(0.3)
+        assert runs == [] and any("허용 밖이라 실행하지 않습니다" in t for t in toasts)
+
+    in_app(clean, "/program", check)
