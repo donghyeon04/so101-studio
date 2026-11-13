@@ -7,7 +7,7 @@ from visual_helpers import LAYOUT_JS, open_page
 pytestmark = pytest.mark.slow
 
 MASKS = ['iframe[title="3D 보기"]', "div:has(> .stat-value)",  # 값 길이가 바뀌면 가림 상자 크기도 바뀌어 칸 전체를 가린다
-          ".event-line", ".q-notification", ".viewcube", ".mode-detail", ".reach-text"]
+          ".event-line", ".q-notification", ".viewcube", ".mode-detail", ".reach-text", ".current-pose"]
 SHOTS = [("/start", "wide"), ("/", "wide"), ("/manual", "wide"), ("/input", "wide"), ("/calibration", "wide"), ("/operator", "wide"),
          ("/table", "wide"), ("/params", "wide"), ("/safety", "wide"), ("/teach", "wide"), ("/start", "pane"), ("/manual", "pane")]
 
