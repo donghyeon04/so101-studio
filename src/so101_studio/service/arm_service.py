@@ -58,13 +58,21 @@ def plan_goto(kin, cfg, q0: JointState, goal: ToolPose, speed_pct: float):
     return None
 
 
+class _SimBlocked:
+    """막힘 판정이 읽는 설정: sim_blocked에 있는 키는 그 값, 나머지는 살아 있는 cfg 값."""
+
+    def __init__(self, cfg):
+        self._cfg = cfg
+
+    def __getattr__(self, name):
+        return self._cfg.sim_blocked.get(name, getattr(self._cfg, name))
+
+
 class ArmService:
     def __init__(self, driver, cfg: RobotConfig, ws: WorkspaceConfig | None = None, speed_pct: float | None = None,
                  log_root: str | None = "runs", proc: str | None = None):
-        if getattr(driver, "physical_objects", False) and cfg.sim_blocked:  # MuJoCo는 추종 오차가 작아 실물 막힘 문턱을 시뮬레이션 값으로 바꾼다(robot.yaml sim_blocked)
-            if bad := [k for k in cfg.sim_blocked if not k.startswith("blocked_") or not hasattr(cfg, k)]:
-                raise ValueError(f"sim_blocked에 모르는 키: {bad}")
-            cfg = replace(cfg, **cfg.sim_blocked)
+        if bad := [k for k in cfg.sim_blocked if not k.startswith("blocked_") or not hasattr(cfg, k)]:
+            raise ValueError(f"sim_blocked에 모르는 키: {bad}")
         self.driver, self.cfg = driver, cfg
         self.ws = ws or load_workspace()
         self.speed = speed_pct if speed_pct is not None else cfg.speed_pct_default
@@ -130,6 +138,8 @@ class ArmService:
         self.ctl = MotionController(self.driver, self.kin, self.safety, self.cfg.control_hz)
         old = self.skills
         self.skills = Skills(self.ctl, self.kin, self.cfg, self.ws, self.speed)
+        if getattr(self.driver, "physical_objects", False) and self.cfg.sim_blocked:  # MuJoCo는 추종 오차가 작아 판정할 때만 막힘 문턱을 시뮬레이션 값(robot.yaml sim_blocked)으로 본다. cfg·프리셋 저장값은 실제 설정 그대로
+            self.ctl.blocked_cfg = _SimBlocked(self.cfg)
         if old is not None:  # 다시 연결하며 Skills를 새로 만들어도 집기 기억과 알려진 물체는 넘긴다 (11.3.3)
             self.skills.grip, self.skills.placed, self.skills.known_objects = old.grip, old.placed, old.known_objects
         self.teach = Teach(self.ctl, self.cfg)
