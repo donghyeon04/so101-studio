@@ -23,6 +23,7 @@ from .kinematics import (
     JAW_TIP_B,
     VALUE_TO_Q,
     _rotation,
+    locked,
 )
 from .trajectory import LineTrajectory, QuinticShape
 
@@ -127,6 +128,7 @@ class SingleJawGripper:
         """placo 로봇의 그리퍼 관절을 그리퍼 값 v에 맞춘다(단동식: gripper 회전 관절, rad)."""
         robot.set_joint("gripper", math.radians(min(max(VALUE_TO_Q[0] + VALUE_TO_Q[1] * v, -10.0), 100.0)))  # URDF gripper 관절 범위
 
+    @locked
     def lowest_z(self, q: JointState) -> float:
         """고정 턱(손 메쉬)과 움직이는 턱 메쉬의 가장 낮은 꼭짓점 높이(모델 z, mm; fk의 z_mm와 같은 기준). 기울기와 벌림을 반영한 실제 턱 몸체 아래 모서리까지 본다 (REQ-036)."""
         meshes = _jaw_meshes()  # 메쉬를 먼저 읽는다(관절을 맞춘 뒤 처음 읽을 때 첫 결과가 틀리게 나온 일이 있었다)
@@ -268,6 +270,7 @@ class ParallelGripper:
             if name in names:
                 robot.set_joint(name, val)
 
+    @locked
     def lowest_z(self, q: JointState) -> float:
         """손 본체와 두 클램프 메쉬의 가장 낮은 꼭짓점 높이(모델 z, mm). 클램프는 닫힌 자리에서 간격/2만큼 좌우로 벌린다 (assets/so101_parallel.urdf)."""
         meshes = _parallel_meshes(self.cfg.urdf)

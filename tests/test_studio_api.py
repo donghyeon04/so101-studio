@@ -179,6 +179,17 @@ def test_req062_every_limit_key_exists_and_config_values_are_inside(svc):
     assert all(LIMITS[k][0] <= p[k]["saved"] <= LIMITS[k][1] for k in LIMITS)
 
 
+def test_req062_float_params_keep_fractions_and_int_params_reject_fractions(svc):
+    svc.cfg.grasp_bias_mm = 0  # YAML이 0처럼 정수로 적은 값
+    svc.set_params({"grasp_bias_mm": 0.5, "gripper_load_s": 0.7})
+    assert svc.cfg.grasp_bias_mm == 0.5 and svc.cfg.gripper_load_s == 0.7
+    svc.set_params({"control_hz": "40", "servo_acceleration": 20.0})
+    assert svc.cfg.control_hz == 40 and isinstance(svc.cfg.control_hz, int) and svc.cfg.servo_acceleration == 20
+    for k in ("control_hz", "record_hz", "servo_acceleration", "gripper_acceleration", "gripper_squeeze_torque", "gripper_hold_torque"):
+        with pytest.raises(ValueError):
+            svc.set_params({k: 20.5})
+
+
 def test_req062_preset_outside_limits_is_rejected(svc, tmp_path):
     import yaml
     d = tmp_path / "presets"
