@@ -7,7 +7,7 @@ from nicegui import run, ui
 from ...core.config import WorkspaceConfig
 from .. import theme
 from ..backend import MOTION_TEXT
-from ..pages.common import HEIGHT_HINT, Controls, nudge_pad
+from ..pages.common import HEIGHT_HINT, Controls, meta_number, nudge_pad
 
 
 def plane_svg(table_mm: dict, objects, zones: dict, base, reach_mm: dict, selected: str | None = None) -> str:
@@ -103,7 +103,10 @@ def page(backend, client_id: str, actions) -> None:
         if mode.value == "move" and state["selected"]:
             backend.move_object(state["selected"], x, y)
         else:
-            state["selected"] = backend.add_object(x, y, float(angle.value or 0), float(width.value or 30), float(length.value or 100), float(height.value or 0))
+            if not all(m.valid for m in (angle, width, length, height)):  # 더하기만 칸을 읽는다: 옮기기는 막지 않는다 (12.7.4)
+                ui.notify("각도·폭·길이·높이를 먼저 고치세요", type="warning")
+                return
+            state["selected"] = backend.add_object(x, y, float(angle.value), float(width.value), float(length.value), float(height.value))
         refresh_table()
 
     async def plane_clicked(e) -> None:  # guard는 이벤트 인자를 넘기지 않는다
@@ -139,14 +142,16 @@ def page(backend, client_id: str, actions) -> None:
                 mode = controls.add(
                     ui.toggle({"add": "새 물체", "move": "고른 물체 옮기기"}, value="add").props("no-caps spread").classes("w-full").mark("plane-mode")
                 )
-                with ui.row().classes("w-full no-wrap gap-2"):
-                    angle = controls.add(ui.number("각도 (°)", value=0, min=0, max=180, step=15).props("outlined dense").classes("flex-1").mark("new-angle"))
-                    width = controls.add(ui.number("폭 (mm)", value=30, min=5, max=110, step=5).props("outlined dense").classes("flex-1").mark("new-width"))
-                    length = controls.add(ui.number("길이 (mm)", value=100, min=5, max=300, step=5).props("outlined dense").classes("flex-1").mark("new-length"))
-                    height = controls.add(ui.number("높이 (mm)", value=0, min=0, max=200, step=5).props("outlined dense").classes("flex-1")
-                                          .tooltip(HEIGHT_HINT).mark("new-height"))
+                fields = {}
+                for key, text, value, hard in (("angle", "각도 (°)", 0.0, (0, 180)), ("width", "폭 (mm)", 30.0, (5, 110)),
+                                               ("length", "길이 (mm)", 100.0, (5, 300)), ("height", "높이 (mm, 0 = 모름)", 0.0, None)):
+                    ui.label(text).classes("stat-label")  # 수동 입력은 지금 범위 그대로(hard 덮어쓰기, 12.7.1 obj.*)
+                    fields[key] = meta_number(f"obj.{key}", value, label=f"물체 {text.split(' ')[0]}", mark=f"new-{key}", hard=hard, add=controls.add)
+                angle, width, length, height = fields["angle"], fields["width"], fields["length"], fields["height"]
+                height.number.tooltip(HEIGHT_HINT)
                 need_text = ui.label("").classes("page-body text-negative").mark("height-needed")
-                apply_button = controls.add(ui.button("고른 물체에 이 높이", on_click=controls.guard(lambda: apply_height())).props("outline no-caps dense").mark("apply-height"))
+                apply_button = controls.add(ui.button("고른 물체에 이 높이", on_click=controls.guard(lambda: apply_height(), needs=[height]))
+                                            .props("outline no-caps dense").mark("apply-height"), needs=[height])
             with ui.card().classes("w-full gap-2"):
                 ui.label("고른 물체 조금씩").classes("card-title")
 
@@ -166,11 +171,11 @@ def page(backend, client_id: str, actions) -> None:
         controls.refresh()
         table.rows = rows()
         remove_button.enabled = bool(controls.allowed and state["selected"])
-        apply_button.enabled = bool(controls.allowed and state["selected"] and (height.value or 0) > 0)
+        apply_button.enabled = bool(controls.allowed and state["selected"] and (height.value or 0) > 0 and controls.valid([height]))
         needed = sorted(backend.height_needed())  # 결정 0052: 수직으로 집는데 높이를 몰라 집지 않은 물체 (REQ-057)
         need_text.text = f"{', '.join(needed)}: {MOTION_TEXT['height_required']}. 표에서 고르고 높이를 넣은 뒤 [고른 물체에 이 높이]" if needed else ""
         need_text.visible = bool(needed)
-        height.props(add="error" if needed else "", remove="" if needed else "error")
+        height.set_error(MOTION_TEXT["height_required"] if needed else None)
 
     ui.timer(0.5, tick)
 

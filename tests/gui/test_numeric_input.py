@@ -368,3 +368,94 @@ def test_teach_out_of_range_speed_disables_play(clean):
         assert not speed.meta.valid and speed.meta.value == 1.0
 
     in_app(clean, "/teach", check)
+
+
+# ⑥ 수동 입력
+
+def test_input_out_of_range_field_blocks_add_but_not_move(clean, monkeypatch):
+    from nicegui.events import GenericEventArguments
+
+    from so101_studio.gui.sensors import manual_view
+
+    toasts = []
+    monkeypatch.setattr(manual_view.ui, "notify", lambda text, **k: toasts.append(text))
+
+    async def check(user):
+        assert await _until(lambda: clean.owner is not None)
+        width = _one(user, "new-width")
+        assert width.meta.hard == (5.0, 110.0)  # 수동 입력은 지금 범위 그대로
+        plane = _one(user, "plane")
+        listener = next(v for v in plane._event_listeners.values() if v.type == "mouse")
+        args = {"mouse_event_type": "click", "image_x": 100, "image_y": 100, "button": 0, "buttons": 0,
+                "altKey": False, "ctrlKey": False, "metaKey": False, "shiftKey": False}
+
+        def click():
+            for handler in listener.handler if isinstance(listener.handler, list) else [listener.handler]:
+                handler(GenericEventArguments(sender=plane, client=user.client, args=args))
+
+        count = len(clean.objects())
+        width.value = 500  # 사람이 친 글자
+        click()
+        await asyncio.sleep(0.3)
+        assert len(clean.objects()) == count and "각도·폭·길이·높이를 먼저 고치세요" in toasts
+        width.value = 30
+        click()
+        assert await _until(lambda: len(clean.objects()) == count + 1)
+        clean.reset_objects()
+
+    in_app(clean, "/input", check)
+
+
+# code-review 반영
+
+def test_half_step_field_takes_decimals_even_if_yaml_value_is_int(clean):
+    async def check(user):
+        meta = _one(user, "param-grasp_bias_mm").meta
+        assert not meta.integer  # 한 칸 0.5: 정수 칸이 아니다
+        assert meta.set(0.5) and meta.value == 0.5
+
+    in_app(clean, "/params", check)
+
+
+def test_set_same_value_does_not_send_again(clean):
+    async def check(user):
+        meta = _one(user, "param-grasp_height_mm").meta
+        seen = []
+        meta.on_change = seen.append
+        assert meta.set(meta.value)
+        assert seen == []
+
+    in_app(clean, "/params", check)
+
+
+def test_blur_event_commits_typed_value(clean):
+    async def check(user):
+        meta = _one(user, "param-grasp_height_mm").meta
+        seen = []
+        meta.on_change = seen.append
+        meta.number.value = 25
+        user.find(marker="param-grasp_height_mm").trigger("blur")
+        assert await _until(lambda: seen == [25])
+
+    in_app(clean, "/params", check)
+
+
+def test_program_run_right_after_out_of_range_typing_is_rejected(clean, monkeypatch):
+    from so101_studio.gui.pages import program as program_page
+
+    toasts, runs = [], []
+    monkeypatch.setattr(program_page.ui, "notify", lambda text, **k: toasts.append(text))
+    monkeypatch.setattr(clean, "run_program", lambda *a: runs.append(a))
+
+    async def check(user):
+        assert await _until(lambda: clean.owner is not None)
+        _one(user, "step-kind").value = "wait"
+        user.find(marker="step-add").click()
+        await user.should_see(marker="edit-s", retries=30)
+        assert await _until(lambda: _one(user, "program-run").enabled)
+        _one(user, "edit-s").value = 9999  # tick 전에 누른다
+        user.find(marker="program-run").click()
+        await asyncio.sleep(0.3)
+        assert runs == [] and any("허용 밖이라 실행하지 않습니다" in t for t in toasts)
+
+    in_app(clean, "/program", check)

@@ -82,7 +82,7 @@ class MetaNumber:
         self.name = label or key
         self.on_change, self.on_valid, self.default = on_change, on_valid, default
         self.hard = tuple(float(x) for x in (hard or self.meta.hard))
-        self.integer = isinstance(value, int) and not isinstance(value, bool) or key == "program.count"
+        self.integer = float(self.meta.step).is_integer() and (isinstance(value, int) and not isinstance(value, bool) or key == "program.count")  # 한 칸이 0.5처럼 소수면 YAML 값이 정수여도 소수를 받는다
         self.other_error: str | None = None
         self._enabled, self._syncing = True, False
         mark = mark or f"meta-{key}"
@@ -209,8 +209,10 @@ class MetaNumber:
         """값 바꾸기. 허용 밖이면 바꾸지 않고 False. 성공하면 quiet가 아닐 때 on_change(v)."""
         if not self._ok(v):
             return False
+        same = self._norm(v) == self._norm(self.value)
         self.number.value = self._norm(v)
-        self._accept(v, quiet)
+        if not same:  # 같은 값이면 다시 보내지 않는다(끝값에서 +10, 기본값에서 [기본값으로])
+            self._accept(v, quiet)
         return True
 
     def load(self, v) -> None:
