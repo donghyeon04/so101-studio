@@ -316,7 +316,7 @@ MuJoCo 물리 시뮬레이션(결정 0053, 13절). REQ-056이 끝난 뒤 M1부�
 |---|---|---|---|---|
 | M1 | 모델 가져오기(13.4), `arm/mujoco_model.py`(`load_model`, `JOINT_MAP`, 좌표 변환), 설치 확인(13.8·13.9) | 13.7 (d) | 0053, 13.1 | ✅ #260(관절 range 바꾸기는 M2에서) |
 | M2 | `MuJoCoDriver`(13.2·13.3), 관절·그리퍼 range와 ctrlrange 넓히기(`mujoco_model.py`, 13.4), `make_sim_driver`, CLI `--sim-engine`과 명령 처리(13.1), `--dry-run` 거부, diagnostics 검사, `reload_workspace` 거부, `sim_state()`는 빈 값(13.6), tooling-setup 설치 줄과 버전 고정(13.8) | 13.7 (c)(e) | 0053, 13.1 | ✅ #275(11-13) |
-| M3 | 장면·물체·시나리오(13.5), `sim_state()` 채우기(13.6) | 13.7 (a)(b) | 0053, 13.1 | |
+| M3 | 장면·물체·시나리오(13.5), `sim_state()` 채우기(13.6) | 13.7 (a)(b) | 0053, 13.1 | ✅ #290(11-13) |
 | M4 | `--sim-viewer`, GUI 인자 전달·`no_object` 규칙·물체 표시(13.6, GUI REQ) | 13.7 (f) | 0053, 13.1 | |
 
 T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작업 공간 확정)를 한다. T8~T11은 센서를 기다리는 동안 할 수 있다. 팔 이외의 작업(C1, S1~S3)과 전체 순서는 `system-architecture.md` 11절에 있다.
