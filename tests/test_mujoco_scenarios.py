@@ -109,7 +109,7 @@ def test_carry_does_not_slip_and_lands_on_target(tmp_path, size):
         print(f"size {size}: 미끄러짐 최대 {worst_slip:.2f}mm, 놓은 자리 차이 {miss:.2f}mm, 기울기 {o['tilt_deg']:.1f}°, 최대 부하 {s.max_load:.0f}%, OVERLOAD 경고 {len(warns)}건, ARM-LOAD-PROBE {len(probes)}건")
         # 미끄러짐 기준은 13.7 (b)의 3mm인데 carry45가 2.95~3.03mm로 경계라 3.5로 둠(기획 확인 중, PR 본문)
         assert worst_slip <= 3.5 and miss < 7 and o["tilt_deg"] < 10, (worst_slip, miss, o)
-        bad = [e for e in ev if e.get("code") in ("ARM-GRIP-OVERLOAD-WARN", "ARM-GRIP-OVERLOAD")
+        bad = [e for e in ev if e.get("code") in ("ARM-GRIP-OVERLOAD-WARN", "ARM-GRIP-OVERLOAD", "ARM-BLOCKED")  # ARM-BLOCKED: 쥔 채 이동·빈 이동 오탐 0 (결정 0059)
                or (e.get("code") == "ARM-FAULT" and str(e.get("data", {}).get("reason", "")).startswith(("overload", "overcurrent", "overheat")))]
         assert not bad, bad
     finally:

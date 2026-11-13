@@ -196,6 +196,7 @@ def test_samples_use_actual_joint_reads_not_commands(svc):
 
     s = ArmService(Lagging(CFG.poses["home"]), CFG, WS, speed_pct=100, log_root=None)
     s.connect()
+    s.ctl.blocked_cfg = None  # 일부러 뒤처진 읽기: 막힘 감지(결정 0059)는 끈다
     s.set_sensor_offset(OFF)
     pts = [(240.0, 200.0), (340.0, 200.0)]
     smp = s.follow_path(pts, Z, 60.0)

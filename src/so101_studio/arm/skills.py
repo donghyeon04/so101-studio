@@ -51,6 +51,7 @@ class Skills:
         self.grip: dict | None = None  # 집기 기억(11.3.2): tilted(집기의 tilt_ok), tip_h(낮은 턱 끝 높이 t_g, mm), obj_h(물체 높이, 0=모름). 놓기가 끝나면·집기가 실패하면·새 집기를 시작하면 지운다
         self._place_ctx: dict | None = None  # 지금 놓기의 자세 정보(_opening_path가 읽는다)
         ctl.grip_warn_pct, ctl.grip_load_s, ctl.grip_open = cfg.gripper_load_warn_pct, cfg.gripper_load_s, cfg.gripper_open  # 그리퍼 부하 감시 (결정 0033)
+        ctl.blocked_cfg = cfg  # 막힘·접촉 감지 문턱(결정 0059)
 
     def _set_grip_torque(self, value: int) -> None:
         if self._grip_orig is None:
@@ -141,6 +142,7 @@ class Skills:
         """경로를 실행하다가 그리퍼가 명령보다 앞서 멈추면(물체에 닿음) 그 자리에서 정지한다."""
         lo = self.cfg.joint_limits_deg["gripper"][0]
         h, count, contact = self.ctl.execute(traj), 0, False
+        self.ctl.grasp_closing = True  # 집기 닫기의 접촉은 아래가 판단한다(막힘 감지가 그리퍼를 먼저 고정하지 않게, 결정 0059)
         while h.result is None:
             time.sleep(0.04)
             lag = self._q().gripper - self.ctl._last.gripper  # 실제 - 명령. 닫는 중에 양수로 커지면 물체가 막고 있다
@@ -151,6 +153,7 @@ class Skills:
                 break
         r = h.wait()
         self.ctl.wait_idle()
+        self.ctl.grasp_closing, self.ctl._blocked_until = False, 0.0
         return contact, r
 
     def _closing_path(self, q_start: JointState, obj, yaw_t: float, tilt_ok: bool, v0: float, v_end: float, gap0: float, gap_end: float, tip_z: float | None = None,
