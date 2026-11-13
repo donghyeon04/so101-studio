@@ -50,6 +50,7 @@ class Skills:
         self.last_pick_info: dict | None = None  # 마지막 집기가 닫힌 자세(목표 높이·기울기·관절): PICK 기록에 붙는다
         self.last_pick_tilted: bool | None = None  # 마지막 pick이 기울여 집으려 했는지(수직 집기 no_object를 작업 실행이 알아본다, 결정 0052)
         self.grip: dict | None = None  # 집기 기억(11.3.2): tilted(집기의 tilt_ok), tip_h(낮은 턱 끝 높이 t_g, mm), obj_h(물체 높이, 0=모름). 놓기가 끝나면·집기가 실패하면·새 집기를 시작하면 지운다
+        self._box_after_low_lift = None  # low_lift로 멈춘 뒤 방금 놓은 상자(center·box_w·obj_h): home 경로 검사에 쓴다
         self._place_ctx: dict | None = None  # 지금 놓기의 자세 정보(_opening_path가 읽는다)
         ctl.grip_warn_pct, ctl.grip_load_s, ctl.grip_open = cfg.gripper_load_warn_pct, cfg.gripper_load_s, cfg.gripper_open  # 그리퍼 부하 감시 (결정 0033)
         ctl.blocked_cfg = cfg  # 막힘·접촉 감지 문턱(결정 0059)
@@ -110,7 +111,19 @@ class Skills:
         return self.gripper.width_to_value(width_mm)
 
     def home(self) -> MotionResult:
-        return self._run([self._joint_move(JointState(*self.cfg.poses["home"]))])
+        goal = JointState(*self.cfg.poses["home"])
+        held = self._box_after_low_lift
+        if held is not None:  # 떠나기가 low_lift로 멈춘 뒤: 홈 가는 관절 보간이 방금 놓은 상자를 쓸면 가지 않는다(실물 2-2 11-13: 간격 0.1mm까지 붙음)
+            q0, q1 = np.array(astuple(self._q()), float), np.array(astuple(goal), float)
+            sts = [JointState(*(q0 + (q1 - q0) * k)) for k in np.linspace(0.0, 1.0, 60)]
+            gap = min(self._box_gap(st, self.kin.fk(st), held) for st in sts)
+            if gap < BOX_GAP_MM:
+                self.ctl._emit("home_blocked", "WARN", "ARM-HOME-BLOCKED", {"gap_mm": round(gap, 1), "box_center": [held.center.x_mm, held.center.y_mm]})
+                return MotionResult("stopped", 0.0, ToolPose(0, 0, 0, 0), reason=f"home_blocked: 방금 놓은 물체와 {gap:.1f}mm로 지나간다(간격 {BOX_GAP_MM:.0f}mm 미만). 먼저 직접 조작으로 위로 빼 주세요")
+        r = self._run([self._joint_move(goal)])
+        if r.status == "ok":
+            self._box_after_low_lift = None
+        return r
 
     def park(self) -> MotionResult:
         return self._run([self._joint_move(JointState(*self.cfg.poses["park"]))])
@@ -238,6 +251,7 @@ class Skills:
         m = (math.cos(math.radians(yaw)), math.sin(math.radians(yaw)))
         tilt_ok = self._tilt_ok(obj, yaw)
         self.last_pick_tilted = tilt_ok
+        self._box_after_low_lift = None
         self.last_pick_info = None
         height_required = MotionResult("height_required", 0.0, ToolPose(0, 0, 0, 0), reason=HEIGHT_REQUIRED_REASON)
         if self.gripper.name == "single_jaw" and not tilt_ok and obj.height_mm <= 0:  # (단동식만: 위 모서리 문제는 V자 턱이 위로 좁아지는 데서 나온다. 병렬은 해당 없음) 수직으로만 집는데 높이를 모르면 위 모서리를 친다: 움직이지 않고 높이를 요구한다 (결정 0052, 6.6)
@@ -642,6 +656,7 @@ class Skills:
                         return r  # E-STOP·fault는 low_lift로 덮지 않는다
                     lifted = h
                     break
+            self._box_after_low_lift = held
             return self._low_lift(lifted, need)
         up, goal, lifted = plan
         if goal is None:
@@ -652,6 +667,7 @@ class Skills:
                 return r
             goal = self._untilt_goal(self._q(), need - lifted, held)  # 실제로 올라간 자세에서 다시 푼다
             if goal is None:
+                self._box_after_low_lift = held
                 return self._low_lift(lifted, need)
         return self._run([self._joint_move(goal)])
 
