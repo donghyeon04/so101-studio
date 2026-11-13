@@ -754,6 +754,11 @@ class ArmService:
         (놓는 손은 반경 방향 턱 축이라 집을 때와 달라 물체가 돌아 놓인다: 실물 2-2 11-13, 각도 0으로 알려 정사각형 상자의 모서리를 집음)."""
         return getattr(self.skills, "last_place_angle_deg", None)
 
+    def placed_angle_at(self, x_mm: float, y_mm: float, tol_mm: float = 40.0) -> float | None:
+        """(x, y) 근처(tol_mm 안, 가장 가까운 것)에 이 세션이 놓은 물체의 작업대 기준 각도(0~180°). 없거나 모르면 None. 여러 개를 놓은 자동 작업·GUI가 앞서 놓은 물체를 다시 집을 때 쓴다."""
+        near = min(self.skills.placed_angle.items(), key=lambda kv: math.hypot(kv[0][0] - x_mm, kv[0][1] - y_mm), default=None)
+        return near[1] if near is not None and math.hypot(near[0][0] - x_mm, near[0][1] - y_mm) <= tol_mm else None
+
     def _place_angle(self) -> dict:
         y, a = getattr(self.skills, "last_place_yaw_deg", None), self.last_placed_angle_deg
         return {**({} if y is None else {"place_yaw_deg": round(y, 1)}), **({} if a is None else {"placed_angle_deg": round(a, 1)})}
