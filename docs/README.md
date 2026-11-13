@@ -90,3 +90,4 @@
 | `docs/decisions/0055-numeric-input-ui.md` | 결정 | 확정 | 숫자 입력은 값 정보표 하나(허용·추천·기본)와 입력 방식 규칙(목록·슬라이더+칸·칸+간격 버튼), gui-spec 새 절 뒤 구현 |
 | `docs/decisions/0056-egm-run-by-coordinator.md` | 결정 | 확정 | EGM 설계서 점검(Stage 9·drift-report)은 총괄이 egm-synthesizer 하위 에이전트로 직접 돌린다(0048 실행 방식 대체) |
 | `docs/decisions/0057-so101-mcp.md` | 결정 | 확정 | C11 so101-mcp는 Tibe31/so101-mcp를 `C:\tools`에 설치하고 local 범위로만 등록, 우리 코드 실행 전에는 끈다 |
+| `docs/decisions/0058-camera-esp32-cam.md` | 결정 | 확정 | 비교 실험 카메라는 AI-Thinker ESP32-CAM 1대, Wi-Fi(노트북 핫스팟), 작업대 위 고정, ArUco+minAreaRect, VLA 때 USB 카메라 추가 |
