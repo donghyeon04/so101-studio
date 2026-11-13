@@ -11,7 +11,7 @@ from ..cli import make_driver
 from ..core.config import ArmSelectionError, load_robot_ex
 from ..core.ports import PortChoiceError, list_serial_ports, pick_port
 from ..doctor import doctor
-from . import scene3d, sensors, theme
+from . import port_check, scene3d, sensors, theme
 from .backend import RUN_MODES, Backend
 from .health import LEVEL_TEXT, describe
 from .pages import (
@@ -377,16 +377,21 @@ def main(args) -> None:
     # so101.cmd gui의 --port는 서보 시리얼 포트다. 웹 포트는 python -m so101_studio.gui --port(web_port)로만 바꾼다(gui-spec 12.6)
     web_port = getattr(args, "web_port", None) or DEFAULT_PORT
     wd_port = getattr(args, "watchdog_port", None) or WATCHDOG_PORT  # 시험용 서버는 다른 포트로 띄워 실제 팔 GUI의 감시 프로세스와 겹치지 않게
+    viser_port = getattr(args, "viser_port", None) or scene3d.DEFAULT_PORT
+    if why := port_check.check_ports({web_port, viser_port, wd_port}, {wd_port + 1}):  # 팔을 연결하기 전에: 이전 GUI가 남아 있으면 포트 오류로 죽었다
+        sys.exit(why)
     link = WatchdogLink(sim=sim, port=wd_port, stop_port=wd_port + 1)
     try:
         arm_name = getattr(args, "arm", None)
         backend = Backend(
-            speed=getattr(args, "speed", None), link=link, viser_port=getattr(args, "viser_port", None) or scene3d.DEFAULT_PORT,
+            speed=getattr(args, "speed", None), link=link, viser_port=viser_port,
             arm_name=arm_name, viser_host=host, share=share, web_port=web_port, **({} if sim else real_arm_args(arm_name)),
         )
     except (RuntimeError, ArmSelectionError, PortChoiceError) as e:
         link.stop()
-        sys.exit(f"연결 실패: {e}")
+        others = [] if sim else port_check.so101_processes()  # 시리얼 포트를 다른 so101 프로그램이 쥐고 있는 경우가 많다
+        hint = ("\n지금 켜진 SO-101 프로그램(이 중 하나가 팔 포트를 쓰고 있을 수 있습니다. 끈 뒤 다시 실행하세요):\n  " + "\n  ".join(others)) if others else ""
+        sys.exit(f"연결 실패: {e}{hint}")
     link.start(backend.run_dir)  # 실행 폴더는 연결한 뒤에 생긴다
     app.on_startup(lambda: background_tasks.create(link.run(), name="watchdog heartbeat"))
     app.on_shutdown(backend.close)

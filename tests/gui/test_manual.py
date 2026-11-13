@@ -280,7 +280,8 @@ def test_height_required_and_low_lift_get_their_own_text(backend):
     assert "충분히 올라가지 못해" in text and "49mm" in text and text != MOTION_TEXT["stopped"]
     for status, reason, words in (("ik_fail", "known_object: 놓을 자리가 알려진 물체와 겹친다 (object@(350,200))", "겹칩니다"),
                                   ("stopped", "drop_zone_full: 칸 3개가 모두 찼다", "칸이 모두 차서"),
-                                  ("stopped", "low_hover: hover가 55mm 이상이어야", "10mm를 지키며")):  # REQ-058
+                                  ("stopped", "low_hover: hover가 55mm 이상이어야", "10mm를 지키며"),  # REQ-058
+                                  ("stopped", "blocked: wrist_flex 추종 오차 2.3 > 문턱 1.9 (empty)", "막힘 감지로")):  # 결정 0059: 정지 해제 안내 대신
         text = Backend._run_on(backend.sim, lambda arm, s=status, r=reason: MotionResult(s, 0.0, zero, reason=r))
         assert words in text and reason.split(":", 1)[1].strip() in text  # 팔이 준 세부 내용도 그대로 보인다
 
