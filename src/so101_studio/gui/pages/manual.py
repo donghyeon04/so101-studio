@@ -11,7 +11,14 @@ from ..backend import (
     JOINT_TEXT,
     MOTION_TEXT,
 )
-from .common import HEIGHT_HINT, Controls, jog_pads, offer_free_edge, scene_frame
+from .common import (
+    HEIGHT_HINT,
+    Controls,
+    jog_pads,
+    meta_number,
+    offer_free_edge,
+    scene_frame,
+)
 
 STEPS = {0: "누르기", 1: "1", 5: "5", 10: "10"}
 DEFAULT_TARGET = {"x": 300.0, "y": 200.0, "h": 40.0, "yaw": 90.0, "pitch": -90.0}
@@ -39,15 +46,20 @@ def build(backend, client_id: str, actions) -> None:
     def mark_dirty() -> None:
         plan_state["dirty"] = True
 
-    def number(label: str, key: str, step: float) -> ui.number:
-        def changed(e) -> None:
-            if e.value is not None:
-                target[key] = float(e.value)
-                mark_dirty()
+    def number(label: str, key: str):
+        """좌표 칸 (gui-spec 12.7, target.*): 허용 값을 칸을 떠날 때·Enter·간격 버튼에서 받는다."""
+        def changed(v) -> None:
+            target[key] = float(v)
+            mark_dirty()
 
-        return control(
-            ui.number(label, value=target[key], step=step, on_change=changed).props("outlined dense").classes("flex-1").mark(f"target-{key}")
-        )
+        ui.label(label).classes("stat-label")
+        return meta_number(f"target.{key}", target[key], changed, label=label, mark=f"target-{key}", add=control)
+
+    def joint_limits(i: int) -> tuple:
+        """관절 각도로 칸의 한계: 고른 관절의 실제 가동 범위(없으면 설정 한계) (12.7.1 joint.deg)."""
+        name = JOG_JOINTS[i]
+        lim = backend.get_safety().get("physical_limits_deg") or {}
+        return tuple(lim.get(name) or backend.arm.cfg.joint_limits_deg[name])
 
     async def move() -> None:
         plan = plan_state["plan"]
@@ -74,13 +86,9 @@ def build(backend, client_id: str, actions) -> None:
         with ui.column().classes("control-column gap-3"):
             with ui.card().classes("w-full gap-2"):
                 ui.label("좌표 이동").classes("card-title")
-                with ui.row().classes("w-full no-wrap gap-2"):
-                    fields = {"x": number("x (mm)", "x", 5), "y": number("y (mm)", "y", 5)}
-                with ui.row().classes("w-full no-wrap gap-2"):
-                    fields |= {"h": number("높이 (mm)", "h", 5), "yaw": number("yaw (°)", "yaw", 15)}
-                with ui.row().classes("w-full no-wrap gap-2 items-center"):
-                    fields["pitch"] = number("손끝 각도 (°)", "pitch", 15).props("min=-90 max=0").tooltip("-90 = 수직 아래(집기), 0 = 수평")
-                    ui.label("−90 아래 · 0 수평").classes("page-body")
+                fields = {"x": number("x (mm)", "x"), "y": number("y (mm)", "y"), "h": number("높이 (mm)", "h"), "yaw": number("yaw (°)", "yaw"),
+                          "pitch": number("손끝 각도 (°) — −90 아래 · 0 수평", "pitch")}
+                coords = list(fields.values())
                 with ui.row().classes("w-full items-center no-wrap gap-2"):
                     reach_icon = ui.icon("help", size="24px").mark("reach-icon")
                     reach = ui.label("계산 중").classes("flex-1 reach-text").mark("reach")  # 예상 시간은 팔 자세에 따라 바뀐다(화면 시험은 가린다)
@@ -88,13 +96,13 @@ def build(backend, client_id: str, actions) -> None:
                     "outline no-caps dense color=warning").mark("edge-offer")
                 edge_button.visible = False
                 with ui.row().classes("w-full no-wrap gap-2"):
-                    move_button = ui.button("이동", on_click=guarded(move)).props("no-caps").classes("flex-1").mark("move")
+                    move_button = ui.button("이동", on_click=guarded(move, needs=coords)).props("no-caps").classes("flex-1").mark("move")
                     ui.button("점 처음 자리로", icon="restart_alt", on_click=lambda: reset_target()).props("outline no-caps").tooltip(
                         f"점을 x {DEFAULT_TARGET['x']:.0f}, y {DEFAULT_TARGET['y']:.0f}, 높이 {DEFAULT_TARGET['h']:.0f}, 아래 방향으로 되돌린다(팔은 움직이지 않는다)").mark("target-reset")
 
                 def reset_target() -> None:  # 3D 손잡이를 실수로 멀리 끌었을 때. 입력칸을 바꾸면 계산과 3D 점이 따라온다
                     for key, value in DEFAULT_TARGET.items():
-                        fields[key].value = value
+                        fields[key].set(value)
 
             with ui.card().classes("w-full gap-2"):
                 ui.label("조그").classes("card-title")
@@ -110,7 +118,9 @@ def build(backend, client_id: str, actions) -> None:
                         with ui.row().classes("w-full no-wrap items-center gap-1 mt-2"):
                             target_joint = control(ui.select({i: JOINT_TEXT[n] for i, n in enumerate(JOG_JOINTS)}, value=0)
                                                    .props("outlined dense").classes("flex-1").mark("joint-to-name"))
-                            target_deg = control(ui.number("각도 (°)", value=0, step=1, format="%.1f").props("outlined dense").classes("w-24").mark("joint-to-deg"))
+                            target_joint.on_value_change(lambda e: target_deg.set_hard(*joint_limits(int(e.value))))
+                        target_deg = meta_number("joint.deg", 0.0, label="관절 각도", mark="joint-to-deg", hard=joint_limits(0), add=control)
+                        with ui.row().classes("w-full no-wrap items-center gap-1"):
 
                             async def joint_to() -> None:
                                 if target_deg.value is None:
@@ -119,7 +129,7 @@ def build(backend, client_id: str, actions) -> None:
                                 if reason:
                                     ui.notify(reason, type="negative")
 
-                            control(ui.button("이동", on_click=guarded(joint_to)).props("outline no-caps").mark("joint-to"))
+                            control(ui.button("관절 이동", on_click=guarded(joint_to, needs=[target_deg])).props("outline no-caps").mark("joint-to"), needs=[target_deg])
                     with ui.tab_panel(cart_tab).classes("p-0 gap-1"):
                         jog_pads(backend, gate)
                         for i, name in enumerate(CART_AXES):
@@ -128,17 +138,12 @@ def build(backend, client_id: str, actions) -> None:
 
             with ui.card().classes("w-full gap-2"):
                 ui.label("그리퍼").classes("card-title")
-                grip = control(
-                    ui.slider(min=0, max=100, step=1, value=round(status.joints.gripper) if (status := backend.state.status) else 0)
-                    .props("label-always").classes("mt-6").mark("grip-value")
-                )
-                grip.on("change", guarded(lambda: act(backend.gripper, float(grip.value))))
-                with ui.row().classes("w-full no-wrap items-center gap-2"):
-                    width = control(ui.number("폭 (mm)", value=50, min=0, max=111, step=5).props("outlined dense").classes("flex-1"))
-                    control(
-                        ui.button("폭으로", on_click=guarded(lambda: act(backend.gripper_width, float(width.value or 0))))
-                        .props("outline no-caps").mark("grip-width")
-                    )
+                meta_number("gripper.value", round(status.joints.gripper) if (status := backend.state.status) else 0,
+                            guarded(lambda v: act(backend.gripper, float(v))), label="그리퍼 값", mark="grip-value", add=control)
+                ui.label("폭 (mm)").classes("stat-label")
+                width = meta_number("gripper.width_mm", 50.0, label="그리퍼 폭", mark="grip-width-mm", add=control)
+                control(ui.button("폭으로", on_click=guarded(lambda: act(backend.gripper_width, float(width.value)), needs=[width]))
+                        .props("outline no-caps").mark("grip-width"), needs=[width])
 
             with ui.card().classes("w-full gap-2").mark("pick-place"):
                 ui.label("집어 옮기기").classes("card-title")
@@ -151,42 +156,51 @@ def build(backend, client_id: str, actions) -> None:
                     (pick_text if kind == "pick" else place_text).text = f'{"집기" if kind == "pick" else "놓기"} 점: x {target["x"]:.0f}, y {target["y"]:.0f}'
 
                 with ui.row().classes("w-full no-wrap gap-2"):
-                    control(ui.button("지금 좌표를 집기 점으로", on_click=lambda: set_point("pick")).props("outline no-caps dense").mark("pp-set-pick"))
-                    control(ui.button("놓기 점으로", on_click=lambda: set_point("place")).props("outline no-caps dense").mark("pp-set-place"))
-                with ui.row().classes("w-full no-wrap gap-2"):
-                    obj_w = control(ui.number("폭 (mm)", value=30, min=0, step=5).props("outlined dense").classes("flex-1"))
-                    obj_l = control(ui.number("길이 (mm)", value=30, min=0, step=5).props("outlined dense").classes("flex-1"))
-                    obj_a = control(ui.number("각도 (°)", value=0, step=15).props("outlined dense").classes("flex-1"))
-                    obj_h = control(ui.number("높이 (mm)", value=0, min=0, step=5).props("outlined dense").classes("flex-1")
-                                    .tooltip(HEIGHT_HINT).mark("pp-height"))
+                    control(ui.button("지금 좌표를 집기 점으로", on_click=guarded(lambda: set_point("pick"), needs=coords))
+                            .props("outline no-caps dense").mark("pp-set-pick"), needs=coords)
+                    control(ui.button("놓기 점으로", on_click=guarded(lambda: set_point("place"), needs=coords))
+                            .props("outline no-caps dense").mark("pp-set-place"), needs=coords)
+                objs = {}
+                for key, text, value in (("width", "폭 (mm, 0 = 모름)", 30.0), ("length", "길이 (mm, 0 = 모름)", 30.0), ("angle", "각도 (°)", 0.0),
+                                         ("height", "높이 (mm, 0 = 모름)", 0.0)):
+                    ui.label(text).classes("stat-label")
+                    objs[key] = meta_number(f"obj.{key}", value, label=f"물체 {text.split(' ')[0]}", mark="pp-height" if key == "height" else f"pp-{key}", add=control)
+                obj_w, obj_l, obj_a, obj_h = objs["width"], objs["length"], objs["angle"], objs["height"]
+                obj_h.number.tooltip(HEIGHT_HINT)
+                obj_list = list(objs.values())
 
                 async def pick_place() -> None:
                     if points["pick"] is None:
                         ui.notify("먼저 집기 점을 고르세요(3D를 클릭하거나 좌표를 넣고 [지금 좌표를 집기 점으로])", type="warning")
                         return
-                    reason = await run.io_bound(backend.pick_place, points["pick"], float(obj_a.value or 0), float(obj_w.value or 0),
-                                                float(obj_l.value or 0), points["place"], float(obj_h.value or 0))
-                    obj_h.props(add="error" if reason == MOTION_TEXT["height_required"] else "", remove="" if reason == MOTION_TEXT["height_required"] else "error")  # 높이 칸 강조 (REQ-057)
+                    reason = await run.io_bound(backend.pick_place, points["pick"], float(obj_a.value), float(obj_w.value),
+                                                float(obj_l.value), points["place"], float(obj_h.value))
+                    obj_h.set_error(reason if reason == MOTION_TEXT["height_required"] else None)  # 높이 칸 강조 (REQ-057)
                     if reason == EDGE_TEXT:
                         offer_free_edge(backend, pick_place)
                     else:
                         ui.notify(reason or "집어 옮겼습니다", type="negative" if reason else "positive")
 
-                control(ui.button("집어 옮기기", on_click=guarded(pick_place)).props("no-caps").classes("w-full").mark("pp-run"))
+                control(ui.button("집어 옮기기", on_click=guarded(pick_place, needs=obj_list)).props("no-caps").classes("w-full").mark("pp-run"), needs=obj_list)
 
             with ui.card().classes("w-full gap-2"):
                 ui.label("속도 (%)").classes("card-title")
-                speed = control(ui.slider(min=5, max=100, step=5, value=backend.arm.speed).props("label-always").classes("mt-6").mark("speed"))
-                speed.on("change", guarded(lambda: run.io_bound(backend.set_speed, float(speed.value))))
+                meta_number("speed_pct", backend.arm.speed, guarded(lambda v: run.io_bound(backend.set_speed, float(v))), label="속도", mark="speed", add=control)
 
     async def refresh_plan() -> None:
         seq, x, y, h = backend.scene.picked
         if seq != plan_state["seq"]:  # 3D에서 고른 점을 입력칸에 옮긴다. 알림은 띄우지 않는다: 손잡이를 끄는 동안 수십 번 쌓여 화면을 가린다(입력칸과 닿는지 줄이 바로 바뀐다)
             plan_state["seq"] = seq
-            for key, value in (("x", x), ("y", y), ("h", h)):
-                target[key] = round(value, 1)
-                fields[key].value = target[key]
-            plan_state["dirty"] = True
+            point = {"x": round(x, 1), "y": round(y, 1), "h": round(h, 1)}
+            inside = all(fields[k]._ok(v) for k, v in point.items())
+            if inside:  # 셋 다 넣거나 하나도 넣지 않는다 (12.7.4)
+                for key, value in point.items():
+                    fields[key].set(value, quiet=True)
+                    target[key] = value
+                plan_state["dirty"] = True
+            elif not plan_state.get("out_warned"):
+                ui.notify("점이 허용 범위 밖입니다", type="warning")
+            plan_state["out_warned"] = not inside
         arm_state = backend.state.status.state if backend.state.status else None
         if arm_state == "idle" and plan_state.get("arm") != "idle":  # 팔이 움직였으면 경로와 시간이 달라진다
             plan_state["dirty"] = True
@@ -216,7 +230,7 @@ def build(backend, client_id: str, actions) -> None:
         status = backend.state.status
         idle = status is not None and status.state == "idle"
         plan = plan_state["plan"]
-        move_button.enabled = bool(mine and idle and plan and plan.ok and not plan_state["dirty"])
+        move_button.enabled = bool(mine and idle and plan and plan.ok and not plan_state["dirty"] and gate.valid(coords))
         if held:  # 데드맨: 이 호출이 끊기면 팔이 스스로 멈춘다
             backend.jog(*held[0])
 

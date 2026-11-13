@@ -3,7 +3,7 @@
 import asyncio
 import inspect
 
-from nicegui import run, ui
+from nicegui import background_tasks, run, ui
 
 from .. import theme
 from ..param_meta import GAPS, META, fmt, hint_text, widget_for
@@ -200,7 +200,9 @@ class MetaNumber:
     def _accept(self, v, quiet: bool = False) -> None:
         self.value = self._norm(v)
         if not quiet and self.on_change is not None:
-            self.on_change(self.value)
+            result = self.on_change(self.value)
+            if inspect.isawaitable(result):  # guard로 감싼 처리 함수(팔을 움직이는 칸)
+                background_tasks.create(result, name=f"meta {self.key}")
 
     # 코드에서
     def set(self, v, quiet: bool = False) -> bool:
