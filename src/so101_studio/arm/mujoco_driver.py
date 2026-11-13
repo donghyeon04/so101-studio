@@ -2,6 +2,7 @@
 
 `SimDriver`와 같은 메서드로 하드웨어 자리에 끼운다. 물리는 백그라운드 스레드가 벽시계에 맞춰 돌린다(제어 주기와 무관).
 `realtime=False`면 스레드가 없고 `advance(seconds)`만 시간을 흘린다(시험용)."""
+import math
 import threading
 import time
 
@@ -10,7 +11,13 @@ import numpy as np
 from ..core.types import JointState
 from .driver import JOINTS
 from .kinematics import VALUE_TO_Q
-from .mujoco_model import JOINT_MAP, load_model
+from .mujoco_model import (
+    DEFAULT_OBJECT_HEIGHT_MM,
+    JOINT_MAP,
+    geom_roles,
+    load_model,
+    model_to_table_mm,
+)
 
 CATCHUP_MAX_S = 0.1  # 이 이상 밀리면 넘는 만큼 버린다
 
@@ -37,6 +44,7 @@ class MuJoCoDriver:
         self._failed: str | None = None
         self._torque = False
         self._target = np.zeros(6)  # 우리 관절 순서, MuJoCo 각도(rad)
+        self._from, self._t_write = np.zeros(6), 0.0  # 목표가 바뀐 시각(시뮬레이션 시간): 액추에이터 목표를 다음 쓰기 간격(1/control_hz) 동안 선형으로 옮긴다(13.2)
 
     # -- 연결 --
     def connect(self, port: str = "sim", calibration_id: str = "sim") -> None:
@@ -54,15 +62,19 @@ class MuJoCoDriver:
             self.torque_limit = 1000
             home = self._deg_to_rad(self.cfg.poses["home"])
             self.data.qpos[self._qadr] = home
-            self._target = home
+            self._target = self._from = home
             self.data.ctrl[self._aid] = home
             mujoco.mj_forward(self.model, self.data)
             self._warn_base = self._warn_count()
             self._torque = True
             self.model.opt.disableactuator = 0
             self.connected = True
-            for code in warnings:
-                self._emit("sim", "WARN", code, {})
+            self._roles = geom_roles(self.model)
+            self._site = self.model.site("gripper_frame").id
+            self._objs = {o.name: self.model.body(f"obj:{o.name}").id for o in self.objects}
+            self._half_h = {o.name: (o.height_mm if o.height_mm > 0 else DEFAULT_OBJECT_HEIGHT_MM) / 2000.0 for o in self.objects}
+            for code, data in warnings:
+                self._emit("sim", "WARN", code, data)
             self._wall0, self._sim0 = time.perf_counter(), 0.0
             self._stop.clear()
             if self.realtime:
@@ -110,6 +122,9 @@ class MuJoCoDriver:
         t0 = time.perf_counter()
         try:
             for _ in range(n):
+                if self._torque:  # kp가 커서 목표가 계단으로 바뀌면 힘이 한계까지 튄다: 쓰기 간격 동안 선형으로 옮긴다(실물 서보의 내부 궤적 근사)
+                    frac = min(1.0, (self.data.time - self._t_write) / (1.0 / self.cfg.control_hz))
+                    self.data.ctrl[self._aid] = self._from + (self._target - self._from) * frac
                 self._mj.mj_step(self.model, self.data)
         except Exception as e:  # noqa: BLE001
             self._fail(f"스텝 예외 {e!r}"[:120])
@@ -168,9 +183,10 @@ class MuJoCoDriver:
     def write_joints(self, q: JointState) -> None:
         with self._lock:
             self._check()
-            self._target = self._deg_to_rad([getattr(q, j) for j in JOINTS])
             if self._torque:
-                self.data.ctrl[self._aid] = self._target
+                self._from = self.data.ctrl[self._aid].copy()
+                self._t_write = self.data.time
+            self._target = self._deg_to_rad([getattr(q, j) for j in JOINTS])
 
     def torque_enabled(self) -> bool:
         return self._torque
@@ -179,7 +195,7 @@ class MuJoCoDriver:
         """모든 관절에 한 번에. 끄면 액추에이터 힘이 0(중력으로 처짐), 켜면 그 순간의 관절값을 목표로 잡는다."""
         with self._lock:
             if on:
-                self._target = self.data.qpos[self._qadr].copy()
+                self._target = self._from = self.data.qpos[self._qadr].copy()
                 self.data.ctrl[self._aid] = self._target
             self.model.opt.disableactuator = 0 if on else 1  # 액추에이터 그룹 0 전체
             self._torque = on
@@ -201,6 +217,7 @@ class MuJoCoDriver:
         return {m: {"Acceleration": self.acceleration} for m in JOINTS}
 
     def _load_pct(self) -> dict:
+        """13.2: 부하 % = |액추에이터 힘| / 원래 forcerange."""
         with self._lock:
             return {m: float(abs(self.data.actuator_force[a]) / self._force0[a][1] * 100.0) if self._torque else 0.0 for m, a in zip(JOINTS, self._aid)}
 
@@ -229,7 +246,40 @@ class MuJoCoDriver:
                 "torque_limit": {m: 1000 for m in JOINTS}, "status": {m: 0 for m in JOINTS}, "voltage_dv": {m: 120 for m in JOINTS},
                 "ids": {m: i + 1 for i, m in enumerate(JOINTS)}, "expected_acceleration": exp}
 
+    def _table(self, p_m) -> np.ndarray:
+        """모델 좌표 점(m) -> 작업대 좌표 (x, y, 작업 면 위 높이) mm."""
+        return np.array(model_to_table_mm(*(np.asarray(p_m) * 1000.0), self.ws.base, self.cfg.table_z_mm))
+
+    def _table_dir(self, p_m, v) -> np.ndarray:
+        """모델 좌표의 방향 v -> 작업대 좌표의 단위 방향."""
+        d = self._table(np.asarray(p_m) + 0.1 * np.asarray(v)) - self._table(p_m)
+        return d / np.linalg.norm(d)
+
     def sim_state(self) -> dict:
-        """M2: 물체·접촉은 없다(M3에서 채운다)."""
+        """13.6: 시뮬레이션 전용 읽기. 좌표는 작업대 좌표 mm, z는 작업 면 위 높이."""
         with self._lock:
-            return {"t_s": float(self.data.time), "objects": {}, "contacts": [], "held": None}
+            d, m = self.data, self.model
+            objects = {}
+            for name, b in self._objs.items():
+                R = d.xmat[b].reshape(3, 3)
+                x, y, z = self._table(d.xpos[b] - R[:, 2] * self._half_h[name])  # 상자 바닥 가운데
+                ax = self._table_dir(d.xpos[b], R[:, 0])
+                objects[name] = {"x_mm": float(x), "y_mm": float(y), "z_mm": float(z), "yaw_deg": math.degrees(math.atan2(ax[1], ax[0])),
+                                 "tilt_deg": math.degrees(math.acos(max(-1.0, min(1.0, R[2, 2]))))}
+            site = d.site_xpos[self._site]
+            R = d.site_xmat[self._site].reshape(3, 3)
+            tool = {"pos_mm": self._table(site).tolist(), "rot": np.stack([self._table_dir(site, R[:, i]) for i in range(3)], axis=1).tolist()}
+            contacts, jaw_force = [], {}
+            f6 = np.zeros(6)
+            for i in range(d.ncon):
+                c = d.contact[i]
+                self._mj.mj_contactForce(m, d, i, f6)
+                a, b = self._roles[c.geom1], self._roles[c.geom2]
+                contacts.append({"a": a, "b": b, "force_n": float(f6[0]), "pos_mm": self._table(c.pos).tolist()})
+                if f6[0] > 0:
+                    for jaw, other in ((a, b), (b, a)):
+                        if jaw in ("jaw_fixed", "jaw_moving") and other.startswith("obj:"):
+                            jaw_force.setdefault(other[4:], {}).setdefault(jaw, 0.0)
+                            jaw_force[other[4:]][jaw] += float(f6[0])
+            both = {o: sum(f.values()) for o, f in jaw_force.items() if len(f) == 2}
+            return {"t_s": float(d.time), "objects": objects, "tool": tool, "contacts": contacts, "held": max(both, key=both.get) if both else None}

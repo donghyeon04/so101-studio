@@ -122,7 +122,7 @@ def test_ranges_widened_and_default_warning():
     assert w == [] and np.degrees(m.joint("shoulder_pan").range[1]) == pytest.approx(CFG.physical_limits_deg["shoulder_pan"][1])
     assert np.degrees(m.actuator("shoulder_pan").ctrlrange[1]) == pytest.approx(CFG.physical_limits_deg["shoulder_pan"][1])
     assert np.degrees(m.actuator("gripper").ctrlrange[1]) == pytest.approx(-10 + 1.214 * 100 + 1)
-    assert load_model(base=WS.base, table_z_mm=CFG.table_z_mm)[1] == ["SIM-JOINT-RANGE-DEFAULT"]
+    assert load_model(base=WS.base, table_z_mm=CFG.table_z_mm)[1] == [("SIM-JOINT-RANGE-DEFAULT", {})]
     assert JOINT_MAP["gripper"][0] == "gripper"
 
 
