@@ -12,6 +12,11 @@ WS = load_workspace("config/workspace.yaml")
 TABLE = sorted((mm, v) for v, mm in CFG.gripper_width_mm)
 
 
+@pytest.fixture(autouse=True)
+def _symmetric_mode(monkeypatch):
+    monkeypatch.setattr(CFG, "grasp_tilt_mode", "symmetric")  # "기울이기 실패 -> 수직 대체"는 symmetric에서 본다. equal_tips는 기울기가 작아 250mm에서도 풀린다 (결정 0060)
+
+
 def make(tmp_path, width):
     block = float(np.interp(width, [p[0] for p in TABLE], [p[1] for p in TABLE]))
     s = ArmService(SimDriver(CFG.poses["home"], grip_block=block), CFG, WS, speed_pct=30, log_root=str(tmp_path))
