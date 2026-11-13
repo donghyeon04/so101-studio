@@ -210,9 +210,8 @@ def test_close_finishes_while_unplugged(monkeypatch):
 
 def test_linkwatch_disconnects_keeps_moves_locked_and_reconnects(backend, monkeypatch):
     from so101_studio.cli import linkwatch
-    from so101_studio.service import diagnostics
 
-    monkeypatch.setattr(diagnostics, "SimDriver", type("NotThisDriver", (), {}))  # 진단은 가짜 포트를 시뮬레이션으로 보지 않게 한다
+    monkeypatch.setattr(backend.real.driver, "simulated", False)  # 진단은 가짜 포트를 시뮬레이션으로 보지 않게 한다(diagnostics는 driver.simulated를 본다)
     monkeypatch.setattr(backend, "_pick_port", lambda: "COM7")
     seen = {}
 
@@ -235,9 +234,8 @@ def test_linkwatch_disconnects_keeps_moves_locked_and_reconnects(backend, monkey
 
 def test_linkwatch_failure_still_reconnects_and_a_lost_reconnect_offers_the_button(backend, monkeypatch):
     from so101_studio.cli import linkwatch
-    from so101_studio.service import diagnostics
 
-    monkeypatch.setattr(diagnostics, "SimDriver", type("NotThisDriver", (), {}))
+    monkeypatch.setattr(backend.real.driver, "simulated", False)
     monkeypatch.setattr(backend, "_pick_port", lambda: backend.real.cfg.port)
 
     def busy(*_a, **_kw):
