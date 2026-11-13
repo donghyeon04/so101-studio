@@ -430,8 +430,7 @@ class MotionController:
             held = self.grip_hold is not None
             prof = "held" if held else "empty"
             zone = t < BLOCKED_ZONE_S or traj.duration_s - t < BLOCKED_ZONE_S
-            # shortcut: 정속 문턱은 속도 비율의 일차식(정지 오차 25% + 속도 비례 75%), 실물 정상 실행 측정으로 맞춘다 (0059)
-            thr = getattr(cfg, f"blocked_{prof}_accel_deg") if zone else getattr(cfg, f"blocked_{prof}_cruise_deg") * (0.25 + 0.75 * speed_ratio)
+            thr = getattr(cfg, f"blocked_{prof}_{'accel' if zone else 'cruise'}_deg")  # 정속 문턱을 속도 비율로 줄이지 않는다: 실물 30%에서도 정속 오차가 2~12°로 줄지 않았다 (11-13)
             joint, err = max(((j, abs(getattr(self._last, j) - getattr(actual, j))) for j in ARM_FIVE), key=lambda x: x[1])
             tr = self._track
             tr["profile"], tr["speed_ratio"] = prof, round(speed_ratio, 3)  # 문턱을 정하려고 정상 동작의 오차 최대를 모은다(REQ-067)
