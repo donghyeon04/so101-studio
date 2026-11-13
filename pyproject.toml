@@ -5,7 +5,7 @@ requires-python = ">=3.12"
 dependencies = ["pyyaml", "ruckig", "pyserial", "scipy", "trimesh"]
 
 [project.optional-dependencies]
-gui = ["viser[urdf]", "nicegui"]
+gui = ["viser[urdf]", "nicegui", "psutil"]  # psutil: 켤 때 GUI 포트를 잡은 이전 GUI 찾기(gui/port_check.py)
 # 화면 시험(tests/gui_visual, 결정 0054). 설치 뒤 한 번: python -m playwright install chromium
 test = ["pytest", "pytest-playwright", "pytest-playwright-visual-snapshot"]
 mujoco = ["mujoco>=4.0,<5"]  # 물리 시뮬레이션 (결정 0053, arm-software-spec 13). numpy가 conda 2.2.6에서 바뀌면 `pip install --no-deps` 로 설치한다(13.8)

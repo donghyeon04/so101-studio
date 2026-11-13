@@ -143,6 +143,12 @@ def test_main_binds_localhost_and_connects_the_real_arm_without_sim(monkeypatch)
     monkeypatch.setattr(gui_app.app, "on_shutdown", lambda fn: None)
     monkeypatch.setattr(gui_app, "make_root", lambda backend: backend)
     monkeypatch.setattr(gui_app.ui, "run", lambda root, **k: calls.append((root, k)))
+    checked = []
+    monkeypatch.setattr(gui_app.port_check, "check_ports", lambda tcp, udp, url: checked.append((tcp, udp, url)) or "이미 켜진 GUI")
+    with pytest.raises(SystemExit, match="이미 켜진 GUI"):  # 포트를 잡은 이전 GUI가 있으면 팔을 연결하기 전에 끝낸다
+        gui_app.main(argparse.Namespace(sim=True))
+    assert checked == [({gui_app.DEFAULT_PORT, gui_app.scene3d.DEFAULT_PORT, gui_app.WATCHDOG_PORT}, {gui_app.WATCHDOG_PORT + 1}, f"http://127.0.0.1:{gui_app.DEFAULT_PORT}")] and calls == []
+    monkeypatch.setattr(gui_app.port_check, "check_ports", lambda tcp, udp, url: None)
     gui_app.main(argparse.Namespace(sim=True, web_port=9000, speed=20))  # python -m so101_studio.gui --port 9000
     gui_app.main(argparse.Namespace(sim=True, port="COM5"))  # so101.cmd gui의 --port는 서보 시리얼 포트라 웹 포트로 쓰지 않는다(gui-spec 12.6)
     gui_app.main(argparse.Namespace(sim=True, share=True))  # --share면 NiceGUI·Viser 모두 0.0.0.0
