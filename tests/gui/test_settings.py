@@ -185,7 +185,7 @@ def test_cards_cover_known_params(clean):
     params = clean.arm.get_params()
     listed = {key for _, group in CARDS for key in group}
     assert listed <= set(params)
-    assert len(CARDS) == 3  # 실행 방식 카드는 따로 그린다
+    assert len(CARDS) == 4  # 실행 방식 카드는 따로 그린다
     assert set(TIMING_TEXT) == {v["timing"] for v in params.values()}
 
 
