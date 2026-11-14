@@ -397,6 +397,8 @@ def main(args) -> None:
         )
     except ImportError:  # mujoco가 없다. 기구학 엔진으로 바꿔 띄우지 않는다
         link.stop()
+        if engine != "mujoco":
+            raise
         print(MUJOCO_MISSING_TEXT, flush=True)
         sys.exit(2)
     except (RuntimeError, ValueError, ArmSelectionError, PortChoiceError) as e:  # ValueError: 병렬 그리퍼·물체 겹침·scene.yaml 오류(MuJoCo)

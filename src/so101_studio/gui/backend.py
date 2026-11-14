@@ -68,6 +68,11 @@ PHYSICS_FAILED_TEXT = "물리 시뮬레이션이 멈췄습니다: {}. 앱을 다
 SAVED_RESTART_TEXT = "저장했습니다. MuJoCo 시뮬레이션은 앱을 다시 시작해야 적용됩니다"
 LINKWATCH_TEXT = "linkwatch를 실행 중입니다. 끝나면 팔을 다시 연결합니다"
 LOG_LEVELS = {"DEBUG": "INFO", "INFO": "INFO", "WARN": "WARNING", "ERROR": "ERROR", "FATAL": "ERROR"}
+def failed_reason(arm) -> str | None:
+    """MuJoCo 물리가 멈췄으면 이유(gui-spec 12.8). SimDriver·실물 드라이버나 시험용 가짜 팔에는 속성이 없다."""
+    return getattr(getattr(arm, "driver", None), "failed_reason", None)
+
+
 MOTION_TEXT = {
     "ik_fail": reason_text("ik_fail"),
     "out_of_bounds": "허용 범위 밖이라 움직이지 않았습니다",
@@ -215,7 +220,7 @@ class Backend:
         return arm is self.sim and not self._physical()
 
     def physics_failed(self) -> str | None:
-        return getattr(self.sim.driver, "failed_reason", None)
+        return failed_reason(self.sim)
 
     def _on_sim_objects(self, _status) -> None:
         """MuJoCo 물체 자리를 3D에 옮긴다. 물리가 멈췄거나 연결 전이면 읽지 않는다."""
@@ -356,7 +361,7 @@ class Backend:
 
     @staticmethod
     def _run_on(arm: ArmService, action) -> str | None:
-        if failed := getattr(getattr(arm, "driver", None), "failed_reason", None):  # 물리가 멈춘 MuJoCo는 동작을 부르지 않는다
+        if failed := failed_reason(arm):  # 물리가 멈춘 MuJoCo는 동작을 부르지 않는다
             return PHYSICS_FAILED_TEXT.format(failed)
         try:
             result = action(arm)
