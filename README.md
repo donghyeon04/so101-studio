@@ -4,11 +4,12 @@
 
 *Pick-and-place with an SO-101 arm using two low-cost ultrasonic sensors instead of a camera, with a web GUI, a kinematic and a MuJoCo physics simulator. Windows, Python 3.12. Docs are in Korean.*
 
-## 지금 상태 (2026-11)
-- 시뮬레이션에서는 처음부터 끝까지 돈다: 초음파 인식, 작업 실행(가까운 순으로 집어 배출 구역에 놓기), GUI.
-- 실물 팔로는 전원·자동 캘리브레이션·집기·놓기까지 확인했다. 초음파 센서와 카메라의 실물 연결은 아직이다.
-- 현황 한 장은 [`docs/planning/project-status.md`](docs/planning/project-status.md)에 있다.
-- 진행 중인 일과 사용자 결정 모음은 [`docs/planning/work-queue.md`](docs/planning/work-queue.md)에 있다.
+## 지금 상태 (2026-11-14)
+- 시뮬레이션에서는 처음부터 끝까지 돈다: 초음파 인식, 작업 실행(가까운 순으로 집어 배출 구역에 놓기), GUI. 물리 시뮬레이션(MuJoCo)도 CLI·GUI에서 된다.
+- 실물 팔로는 전원·자동 캘리브레이션·집기·놓기를 확인했다. 58mm 상자 집어 옮기기 5회 왕복이 속도 30%·50%에서 10/10이다.
+- 초음파 센서·레이더와 카메라의 실물 연결은 아직이다(부품·작업대·브래킷 출력 대기).
+- 다음은 MuJoCo를 시험장으로 키워 집기·초음파 흐름을 실물 전에 반복해서 재는 일이다(결정 0062).
+- 현황 한 장은 [`docs/planning/project-status.md`](docs/planning/project-status.md), 진행 중인 일과 사용자 결정은 [`docs/planning/work-queue.md`](docs/planning/work-queue.md)에 있다.
 
 ## 무엇을 하나
 | 부분 | 내용 |
@@ -80,7 +81,7 @@
 ```
 - `arm`과 `perception`은 서로 모르고, 둘을 잇는 것은 작업 실행뿐이다.
 - 앱(CLI, GUI)은 서비스만 부른다.
-- 자세한 것은 [`docs/planning/system-architecture.md`](docs/planning/system-architecture.md)와 모듈 설계서(`arm-software-spec.md`, `ultrasonic-spec.md`, `gui-spec.md`)에 있다.
+- 자세한 것은 [`docs/planning/system-architecture.md`](docs/planning/system-architecture.md)와 모듈 설계서(`arm-software-spec.md`, `mujoco-spec.md`, `ultrasonic-spec.md`, `gui-spec.md`)에 있다.
 
 ## 시험
 ```

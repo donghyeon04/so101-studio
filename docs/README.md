@@ -18,7 +18,8 @@
 | `docs/planning/work-queue.md` | 기획 | 초안 | 작업 대기열: 지금 순서, 사용자 결정 대기, 세션별 다음 일, 실물로만 할 일, 열린 PR. 압축·세션 교체 뒤 여기부터 읽는다 |
 | `docs/planning/features.md` | 기획 | 초안 | 기능명세서와 메뉴트리, 시연 시나리오, 기능별 범위 층 |
 | `docs/planning/system-architecture.md` | 기획 | 확정 | 시스템 구성, 모듈 경계, 공통 타입, 인식 규격, 작업 실행 상태 머신, ESP32 통신 틀, 폴더 구조, 0~2단계 작업 순서 |
-| `docs/planning/arm-software-spec.md` | 기획 | 확정 | 팔 모듈 계층 구조, 데이터 타입, 모듈 API, 설정·출력 형식, 구현 작업 순서(T1~T11) |
+| `docs/planning/arm-software-spec.md` | 기획 | 확정 | 팔 모듈 계층 구조, 데이터 타입, 모듈 API, 설정·출력 형식, 안전·막힘 감지, 집기·놓기(11.3), 구현 작업 순서. MuJoCo(13절)는 `mujoco-spec.md`로 옮김 |
+| `docs/planning/mujoco-spec.md` | 기획 | 확정 | MuJoCo 물리 시뮬레이션·시험장 설계서(13.1~13.9 드라이버·모델·장면·완료 기준, 13.10 시험장 M5~M9, 결정 0053·0062). arm-software-spec 13절에서 옮김 |
 | `docs/planning/measurements.md` | 기획 | 초안 | 로컬 개발 세션의 측정 기록 (T0~T11, 떨림·전원·그리퍼 시험) |
 | `docs/planning/workbench-hardware-requirements.md` | 기획 | 초안 | 작업대(판) 하드웨어 설계 요구사항: 작업 면 600×400·좌표 원점, 팔 고정, 레이더 높이 20mm·시야, 손목 센서, 테두리, 그리드 단위·표시, 돌려받을 수치 |
 | `docs/planning/arm-dev-status.md` | 기획 | 초안 | 팔 개발 현황과 인수인계: 상태, 구현 목록, 이 세션에서 한 일, 현재 설정값, 설계서와 다른 점, 사용법, GUI 연결 API, 조사·측정 결과, 알려진 문제, 남은 일 |
@@ -33,6 +34,7 @@
 | `docs/guides/real-arm-runbook.md` | 가이드 | 초안 | 실물 팔 절차서: 매번 시작할 때, GUI 실물 켜기, 남은 실물 확인(턱 높이·집기·교시 변환본·AC4·table_z 등), 초음파 실물 순서, 문제가 나면 |
 | `docs/guides/tooling-setup.md` | 가이드 | 확정 | 계정마다 설치할 플러그인, MCP, 스킬 |
 | `docs/guides/session-workflow.md` | 가이드 | 확정 | 세션 역할(로컬 셋, GUI 세션 총괄), worktree와 브랜치, REQ 요청·완료 양식, 기획 요청, 포트 같이 쓰기, 질문과 승인은 총괄로, 새 계정·새 PC로 옮길 때 |
+| `docs/guides/release-checklist.md` | 가이드 | 초안 | 배포·공개 준비 점검표: 레포 위생(브랜치·폴더·git 제외·CAD 파일), 깨끗한 PC 설치 시험, 시험과 코드, 공개 문서(README·라이선스·개인 정보·버전 태그) |
 | `docs/decisions/0001-claude-md-authoring.md` | 결정 | 확정 | CLAUDE.md는 짧게, 절차는 skill로 |
 | `docs/decisions/0002-docs-structure.md` | 결정 | 확정 | 문서 유형 4종, 색인, 상태값, 조사 원문 비보관 |
 | `docs/decisions/0003-arm-control-stack.md` | 결정 | 확정 | LeRobot SOFollower + placo IK, MoveJ/L/P는 얇게 직접 구현 |
@@ -94,3 +96,4 @@
 | `docs/decisions/0059-blocked-contact-stop.md` | 결정 | 확정(문턱은 → 0061) | 막힘·접촉 즉시 정지는 추종 오차(명령−실제, 10Hz 위치 재사용)로, 빈 이동·쥔 채 이동·닫기 프로필별 문턱(정상 최대×1.3), 부하 감시는 두 번째 안전망 |
 | `docs/decisions/0060-grasp-tilt-equal-tips.md` | 결정 | 확정 | 집기 손 기울기 기본값을 equal_tips(두 턱 끝 높이를 맞춤)로, symmetric(0012)은 옵션. 실물 58mm 상자 symmetric 0/2 → equal_tips 10/10 |
 | `docs/decisions/0061-blocked-threshold-by-speed.md` | 결정 | 확정 | 막힘 감지 문턱: 30% 이하 고정(#307 값), 30% 초과는 정속 문턱만 속도/30%배, 50% 초과는 판정 없이 ARM-TRACKING 기록만(0059 문턱 대체) |
+| `docs/decisions/0062-mujoco-test-bench.md` | 결정 | 확정 | MuJoCo 시험장: 공통 층 하나 + 실행기 A(우리 알고리즘)·B(강화학습, 12/4 뒤), 순서 M7a→M5·M6→M5b·M5c→M8→M9, 대기 중엔 시험장이 정식 작업, GUI 잠금은 M8까지 |
