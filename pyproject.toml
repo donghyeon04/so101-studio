@@ -16,7 +16,7 @@ testpaths = ["tests"]
 # 화면 시험 기준 사진과 실패 사진(레포 루트에서 pytest를 돌린다)
 playwright_visual_snapshots_path = "tests/gui_visual/__snapshots__"
 playwright_visual_snapshot_failures_path = "runs/snapshot_failures"
-markers = ["slow: 10초 넘게 걸리는 시험 (-m \"not slow\"로 건너뛴다, 결정 0064)"]
+markers = ["slow: 5초 넘게 걸리는 시험 (-m \"not slow\"로 건너뛴다, 결정 0064)", "measure: 수치를 재서 남기는 시험. 부하에 흔들려 전체 묶음에서 뺀다 (-m \"not measure\", 결정 0064)"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
