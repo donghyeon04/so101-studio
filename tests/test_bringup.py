@@ -53,7 +53,7 @@ def test_real_config_loads_the_same_values_as_before_the_split():
     assert info["arm"] == "so101_follower_01" and cfg.arm_name == "so101_follower_01"
     assert cfg.calibration_id == "so101_follower_01" and cfg.joint_offsets_deg == {"shoulder_pan": -3.0}
     assert cfg.joint_limits_deg["elbow_flex"] == [-97.7, 95] and cfg.table_z_mm == -15 and len(cfg.gripper_width_mm) == 8
-    assert cfg.port == "COM3" and cfg.board_serial
+    assert cfg.port == "" and cfg.board_serial  # COM 번호는 PC별 값이라 robot.yaml에 없다
 
 
 # ---- 팔 고르기

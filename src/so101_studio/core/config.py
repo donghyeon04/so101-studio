@@ -17,9 +17,9 @@ def _load(cls, path: str | Path):
 
 @dataclass
 class RobotConfig:
-    port: str
     calibration_id: str
     urdf: str
+    port: str = ""  # PC별 값이라 robot.yaml에 없다. 보통 비어 있고 cli·GUI가 pick_port로 정해 넣는다(local.yaml의 port로 고정할 수 있다)
     control_hz: int = 50
     pid: dict = field(default_factory=lambda: {"p": 16, "i": 0, "d": 32})
     speed_pct_default: int = 30
