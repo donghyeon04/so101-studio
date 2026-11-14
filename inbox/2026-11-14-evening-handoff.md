@@ -63,3 +63,8 @@
 ## 6. 시험 상태 (이 보고 기준)
 - 합친 main 관련 묶음: #355 GUI 67 passed, #356·#357 합본 test_scene3d·test_backend·known_objects·parts_eval 49 passed, MuJoCo 관련 37~43 passed. ruff 0건.
 - **합친 main 전체 시험은 오늘 끝까지 다시 돌리지 않았다**(마지막 전체 eded098). 새 PC 첫 일로 돌린다.
+
+## 7. 추가: 초음파 센서 오프셋 기준점 (초음파 세션, 결정 필요)
+- 초음파 세션이 REQ 1단계를 확인했다. 축과 부호는 CAD와 같다(x 벌림 축, y 옆, z 손끝에서 손목 쪽). **원점이 다르다.** 코드의 "손끝"(`arm_service.tool_position` = `jaw_tip_offsets()[0]`)은 병렬일 때 **한쪽 턱 끝**(+x, TCP에서 gap/2)이다. CAD 값 {0.6, 66.5, 99.5}는 **두 턱 끝 가운데** 기준이다. 그대로 넣으면 x가 벌림/2(최대 42mm)만큼 어긋나고, CHECK 위치 오차로 바로 간다. z·y는 맞다(CHECK 높이 55에서 센서 약 154.5mm).
+- 고치는 길: (a) 병렬일 때 tool_position(센서 기준)을 가운데로(팔 영역, arm_service·follow_path 영향, 팔 REQ) / (b) CHECK 중 그리퍼를 닫힘(0)으로 고정한다고 약속하고 CAD 값 그대로(가장 작음, runner가 실제로 닫는지 확인 필요).
+- 총괄 추천 (a). 값은 바꾸지 않았다(초음파 세션 대기). 기획이 정해 다음 세션 REQ로.
