@@ -498,11 +498,16 @@ class ArmService:
         return float(tip[0]), float(tip[1]), float(tip[2] - self.cfg.table_z_mm)
 
     def sensor_position(self, q: JointState) -> tuple[float, float, float]:
-        """손목 센서의 작업대 좌표 = 손끝 + 손목 yaw로 돌린 센서 오프셋(set_sensor_offset)."""
+        """손목 센서의 작업대 좌표 = 기준점 + 손목 yaw로 돌린 센서 오프셋(set_sensor_offset).
+        기준점: 단동식은 고정 턱 끝(tool_position), 병렬은 두 턱 끝 가운데(센서는 손에 고정이라 벌림에 따라 움직이면 안 된다: 실제 CAD 오프셋이 두 턱 끝 가운데 기준)."""
         if self.sensor_offset_mm is None:
             raise ValueError("set_sensor_offset으로 센서 오프셋을 먼저 넘겨야 합니다")
         off = self.sensor_offset_mm
         x, y, h = self.tool_position(q)
+        if self.cfg.gripper == "parallel":
+            ref = self.kin.fk(q)
+            f, m = self.kin.jaw_tip_offsets(ref.pitch_deg, ref.yaw_deg, q.gripper)
+            x, y, h = x + (m[0] - f[0]) / 2.0, y + (m[1] - f[1]) / 2.0, h + (m[2] - f[2]) / 2.0
         d = self.kin.tool_axes(q) @ np.array([off["x"], off["y"], 0.0])
         return float(x + d[0]), float(y + d[1]), float(h + off["z"])
 

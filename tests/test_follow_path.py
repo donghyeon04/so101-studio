@@ -65,6 +65,25 @@ def test_sensor_is_offset_from_tip_by_config_value(svc):
     assert svc.sensor_position(q)[2] == pytest.approx(tip[2] + 10.0, abs=0.5)
 
 
+def test_parallel_sensor_position_does_not_move_with_the_jaw_opening(tmp_path):
+    """병렬은 센서 기준이 두 턱 끝 가운데라 그리퍼 값 0과 100에서 같다(예전엔 한쪽 턱 끝 기준이라 벌림/2만큼 어긋났다). 손끝(tool_position)은 그대로 한쪽 턱 끝."""
+    from dataclasses import replace
+    from pathlib import Path
+
+    local = Path(tmp_path) / "local.yaml"
+    local.write_text("gripper: parallel\n", encoding="utf-8")
+    s = ArmService(SimDriver(CFG.poses["home"]), load_robot("config/robot.yaml", local_path=local), WS, speed_pct=100, log_root=str(tmp_path))
+    assert s.connect()[0]
+    s.set_sensor_offset(OFF)
+    try:
+        q = s.driver.read_joints()
+        closed, opened = replace(q, gripper=0.0), replace(q, gripper=100.0)
+        assert np.allclose(s.sensor_position(closed), s.sensor_position(opened), atol=0.5)
+        assert not np.allclose(s.tool_position(closed), s.tool_position(opened), atol=5.0)  # 한쪽 턱 끝은 벌림만큼 움직인다(바꾸지 않음)
+    finally:
+        s.disconnect()
+
+
 def test_tip_tracks_polyline_within_tolerance(svc):
     pts = [(260.0, 180.0), (320.0, 180.0), (320.0, 240.0)]
     svc.follow_path(pts, Z, 60.0)
