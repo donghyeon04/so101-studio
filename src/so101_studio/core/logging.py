@@ -3,7 +3,6 @@
 모든 줄은 JSON Lines이고 공통 머리 t(벽시계 ns), proc, pid, seq, level, code, kind, data를 가진다.
 제어·상태 루프는 큐에만 넣고 기록 스레드가 쓴다. 줄마다 flush, WARN 이상은 fsync.
 큐가 차면 상태 줄만 버리고 수를 센다(다음 상태 줄의 data.dropped). 이벤트는 버리지 않는다."""
-import csv
 import dataclasses
 import itertools
 import json
@@ -175,7 +174,6 @@ class RunLogger:
         self._status.close()
 
 
-CSV_COLUMNS = ["t", "shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper", "x_mm", "y_mm", "z_mm", "max_temp_c", "max_load_pct", "voltage_v", "current_a"]
 
 
 def status_files(run_dir: str | Path) -> list[Path]:
@@ -183,21 +181,3 @@ def status_files(run_dir: str | Path) -> list[Path]:
     return ([run_dir / "status.jsonl"] if (run_dir / "status.jsonl").exists() else []) + sorted(run_dir.glob("status.[0-9][0-9][0-9].jsonl"))
 
 
-def status_to_csv(run_dir: str | Path, out: str | Path | None = None) -> Path:
-    """status.jsonl(나눈 파일 포함)을 옛 status.csv 열로 내보낸다(F2 CSV 내보내기). 깨진 줄은 건너뛴다."""
-    run_dir = Path(run_dir)
-    out = Path(out) if out else run_dir / "status.csv"
-    with out.open("w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        w.writerow(CSV_COLUMNS)
-        for p in status_files(run_dir):
-            for line in p.read_text(encoding="utf-8").splitlines():
-                try:
-                    r = json.loads(line)
-                    d = r["data"]
-                    j, tool = d["joints"], d["tool"]
-                    w.writerow([f"{r['t'] / 1e9:.3f}", *(f"{j[n]:.3f}" for n in CSV_COLUMNS[1:7]), f"{tool['x_mm']:.3f}", f"{tool['y_mm']:.3f}", f"{tool['z_mm']:.3f}",
-                                f"{max(d['temperature_c'].values()):.3f}", f"{max(d['load_pct'].values()):.3f}", f"{d['voltage_v']:.3f}", f"{d['current_ma'] / 1000:.3f}"])
-                except (ValueError, KeyError, TypeError):
-                    continue
-    return out

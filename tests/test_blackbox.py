@@ -15,7 +15,7 @@ from so101_studio.arm.trajectory import move_j
 from so101_studio.core.blackbox import RingBuffer, install_excepthooks
 from so101_studio.core.config import load_robot, load_workspace
 from so101_studio.core.incident import create_incident
-from so101_studio.core.logging import JsonlFile, RunLogger, status_to_csv
+from so101_studio.core.logging import JsonlFile, RunLogger
 from so101_studio.core.logread import (
     list_incidents,
     list_runs,
@@ -97,16 +97,13 @@ def test_warn_and_above_are_fsynced(tmp_path, monkeypatch):
     assert n == 0 and len(calls) == 1
 
 
-def test_status_rotates_and_csv_export(tmp_path):
+def test_status_rotates(tmp_path):
     log = RunLogger(tmp_path, status_rotate_bytes=600, prune=False)
     for _ in range(12):
         log.status(status_data())
     log.close()
     assert (log.dir / "status.001.jsonl").exists()
     assert len(read_status(log.dir)) == 12
-    csv_path = status_to_csv(log.dir)
-    lines = csv_path.read_text(encoding="utf-8").splitlines()
-    assert lines[0].startswith("t,") and len(lines) == 13
 
 
 def test_old_format_runs_still_read(tmp_path):

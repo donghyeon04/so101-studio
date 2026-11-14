@@ -12,7 +12,7 @@ from ..core.config import ArmSelectionError, load_robot_ex, load_workspace
 from ..core.types import DetectedObject, JointState, ToolPose
 from ..service.arm_service import ArmService, plan_goto  # noqa: F401  plan_goto는 테스트가 이 경로로도 쓴다
 
-COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "jog", "keys", "powertest", "shaketest", "servoinfo", "linkwatch", "info", "record", "replay", "seq", "gui", "doctor", "find-port", "incident", "calibrate"]
+COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "keys", "powertest", "shaketest", "servoinfo", "linkwatch", "info", "record", "replay", "seq", "gui", "doctor", "find-port", "incident", "calibrate"]
 
 
 MUJOCO_MISSING_TEXT = "MuJoCo가 설치되지 않았습니다. docs/guides/tooling-setup.md의 MuJoCo 줄로 설치하세요"
@@ -65,20 +65,6 @@ def print_info(info: dict) -> None:
         print(f"  구간 {s['index']}: {s['start_s']:5.1f}~{s['end_s']:5.1f}초  {s['label']}  평균 {s['mean_deg_s']:4.0f}°/s  최대 {s['max_deg_s']:4.0f}°/s")
 
 
-def run_jog(svc: ArmService, a) -> None:
-    import msvcrt
-
-    from ..arm.teleop import keyboard_loop
-
-    def get_key():
-        return msvcrt.getwch() if msvcrt.kbhit() else None
-
-    mode = "cartesian" if a.cartesian else "joint"
-    if not svc.enable_torque():
-        raise RuntimeError(svc.locked_reason)  # 잠긴 팔은 읽기만 된다
-    keyboard_loop(svc.ctl, mode, svc.ws.base.yaw_deg, 20.0 if mode == "joint" else 40.0, get_key)
-
-
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(prog="so101_studio")
     ap.add_argument("--sim", action="store_true", help="SimDriver로 실행")
@@ -97,7 +83,6 @@ def main(argv=None) -> None:
     ap.add_argument("--us-port", help="run --source ultrasonic: ESP32 시리얼 포트 (기본: config/ultrasonic.yaml의 port)")
     ap.add_argument("--dry-run", action="store_true", help="run: 물체 없이 동작만 (접촉이 없어도 성공으로 보고 이어간다)")
     ap.add_argument("--step", action="store_true", help="run: 상태가 바뀔 때마다 Enter를 기다린다")
-    ap.add_argument("--cartesian", action="store_true", help="jog: 직교 모드(앞뒤·좌우·위아래)")
     ap.add_argument("--jog-speed", type=float, default=30.0, help="keys: 관절 모드 이동 속도 (°/s)")
     ap.add_argument("--cart-speed", type=float, default=80.0, help="keys: 직교 조그 속도 (mm/s, 60 넘게도 가능)")
     ap.add_argument("--hz", type=int, help="제어 주기 Hz를 이번만 바꿔 시험 (기본: 설정값 50). 서보 목표를 더 자주 보내 떨림이 줄어드는지 보는 용도")
@@ -143,7 +128,7 @@ def main(argv=None) -> None:
         from ..bringup import run
 
         sys.exit(run(a))
-    if a.command in ("keys", "jog") and sys.platform != "win32":
+    if a.command == "keys" and sys.platform != "win32":
         sys.exit("keys·jog는 Windows 전용이다(msvcrt). 다른 명령(status, movej, goto, run 등)은 쓸 수 있다")
     port_list = [] if a.sim else ports_mod.list_serial_ports()  # 목록만 읽는다(포트를 열지 않는다)
     try:
@@ -248,8 +233,6 @@ def main(argv=None) -> None:
             print(fmt(svc.place(a.place or ap.error("place: --place <구역 이름>이 필요하다"))))
         elif c == "run":
             print(run_task(svc, a))
-        elif c == "jog":
-            run_jog(svc, a)
         elif c == "powertest":
             from .powertest import run_powertest
 
