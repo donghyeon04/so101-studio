@@ -7,7 +7,7 @@
 ## A. 레포 위생
 | 항목 | 기준 | 확인 |
 |---|---|---|
-| 브랜치 | 원격에 `main`, `planning-inbox`(기획 요청함), 기획 승인 대기 브랜치만. 합쳐진 `dev/*`는 지운다 | |
+| 브랜치 | 원격에 `main`, `planning-inbox`(기획 요청함), 기획 승인 대기 브랜치만. 합쳐진 `dev/*`는 지운다. 지우기 전에 그 브랜치를 쓰는 worktree 폴더를 `main`으로 돌리고, `gh pr merge --delete-branch`는 쓰지 않는다(`session-workflow.md` 2절) | |
 | 로컬 폴더 | 세션 폴더 넷 모두 `main`(또는 진행 중인 `dev/*`)이고 `git status`가 깨끗하다. 추적 안 한 결과 파일은 `runs/`로 옮기거나 지운다 | |
 | git 제외 | `config/local.yaml`, `runs/`, `config/ultrasonic_baseline.json`, 캐시·빌드 산출물이 `.gitignore`에 있다 | |
 | PC별 값 | 공통 설정(`config/robot.yaml`)에 COM 번호 같은 PC별 값이 없다(지금 `port: COM3`이 남아 있음 → `local.yaml`로) | |

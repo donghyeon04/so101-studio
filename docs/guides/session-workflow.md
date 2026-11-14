@@ -1,6 +1,6 @@
 # 세션 역할과 협업 방법
 
-상태: 확정 · 갱신 2026-11-06
+상태: 확정 · 갱신 2026-11-14(합친 뒤 브랜치 지우기 순서) · 2026-11-06
 
 근거: `decisions/0024`, `0036`(로컬 세션 셋, GUI 세션 총괄). 요청 기록은 `docs/planning/session-requests.md`에 남긴다.
 
@@ -33,6 +33,10 @@ git worktree add ../so101-studio-us -b dev/us-sim origin/main
 - GUI 세션은 `../so101-studio-gui`에서, 초음파 세션은 `../so101-studio-us`에서, 팔 세션은 원래 폴더에서 실행한다. 초음파 폴더에서 실행할 때도 `PYTHONPATH`를 그 폴더의 `src`로 지정한다.
 - 작업 하나를 위해 worktree를 더 만들면(예: `so101-arm2`) PR이 합쳐진 뒤 지운다(`git worktree remove`). `main` 브랜치는 한 폴더만 체크아웃할 수 있으니 다른 폴더는 `origin/main`에서 `dev/<작업>`을 따거나 detached로 둔다(2026-11-07 정리 때 바탕화면은 세 폴더만 남겼다).
 - conda 환경 `so101`은 같이 쓴다. GUI 의존성(viser, nicegui)은 GUI 세션이 설치하고, 팔 세션은 쓰지 않는다.
+- **합친 뒤 브랜치 지우기**(2026-11-14 사고): `gh pr merge`는 `--delete-branch` 없이 합친다. 이 플래그는 원격 브랜치뿐 아니라 그 브랜치를 체크아웃한 worktree 폴더까지 지워, 추적 안 한 파일(`runs/`, `.claude` 로컬 설정 등)이 되살릴 수 없게 사라진다(`so101-studio-sim`). 순서는 다음과 같다.
+  1. 플래그 없이 합친다.
+  2. 그 브랜치를 쓰는 폴더에서 `git status`로 추적 안 한 파일을 확인하고 `git switch main && git pull --ff-only`로 돌린다(임시 worktree는 확인 뒤 `git worktree remove`).
+  3. 원격 브랜치는 `git push origin --delete <브랜치>`로 따로 지운다.
 - 각자 작업 단위마다 PR을 만들고, 사용자가 승인하면 `main`에 합친다. 상대 세션의 결과가 필요하면 `main`에 합쳐진 뒤 `git fetch origin && git merge origin/main`으로 받는다.
 
 ## 3. 요청 흐름 (GUI 세션 → 팔 세션)
