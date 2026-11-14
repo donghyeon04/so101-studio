@@ -168,11 +168,6 @@ def resolve_arm(arms_dir: Path, local: dict, arm: str | None = None, serials=())
 GRIPPER_TYPES = ("single_jaw", "parallel")
 
 
-def gripper_files(grippers_dir: Path) -> dict[str, Path]:
-    """config/grippers/*.yaml (종류 이름 = 파일 이름)."""
-    return {p.stem: p for p in sorted(grippers_dir.glob("*.yaml"))} if grippers_dir.is_dir() else {}
-
-
 def load_robot_ex(path: str | Path = "config/robot.yaml", arm: str | None = None, serials=(), arms_dir: str | Path | None = None,
                   local_path: str | Path | None = None) -> tuple[RobotConfig, dict]:
     """robot.yaml <- config/arms/<팔>.yaml <- config/grippers/<종류>.yaml <- config/local.yaml 순서로 겹쳐 읽는다(뒤가 앞을 덮고, 키 단위로 통째로 바꾼다).

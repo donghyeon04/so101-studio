@@ -1,5 +1,4 @@
 import json
-import math
 
 import pytest
 
@@ -32,11 +31,6 @@ def test_tool_pose_yaw_wraps_and_roundtrips():
     back = frames.tool_robot_to_table(r, BASE)
     assert (back.x_mm, back.y_mm, back.yaw_deg) == pytest.approx((300, 150, 170))
     assert frames._wrap_deg(190) == pytest.approx(-170)
-
-
-def test_units():
-    assert frames.mm_to_m(250) == 0.25 and frames.m_to_mm(0.25) == 250
-    assert math.isclose(frames.mm_to_m(frames.m_to_mm(1.23)), 1.23)
 
 
 def test_load_configs():

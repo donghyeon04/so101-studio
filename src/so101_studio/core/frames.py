@@ -12,14 +12,6 @@ class Pose2D:  # 작업대 좌표계에서 본 로봇 원점 (workspace.yaml의 
     yaw_deg: float
 
 
-def mm_to_m(mm: float) -> float:
-    return mm / 1000.0
-
-
-def m_to_mm(m: float) -> float:
-    return m * 1000.0
-
-
 def _wrap_deg(a: float) -> float:
     return (a + 180.0) % 360.0 - 180.0
 

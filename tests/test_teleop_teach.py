@@ -9,7 +9,7 @@ from so101_studio.arm.motion import DEADMAN_S, MotionController
 from so101_studio.arm.safety import Safety
 from so101_studio.arm.sim_driver import SimDriver
 from so101_studio.arm.teach import Teach, smooth
-from so101_studio.arm.teleop import keyboard_loop, robot_to_table
+from so101_studio.arm.teleop import robot_to_table
 from so101_studio.arm.trajectory import move_j
 from so101_studio.core.config import load_robot, load_workspace
 from so101_studio.core.types import JointState
@@ -82,14 +82,6 @@ def test_cartesian_jog_moves_the_tip_forward(kin):
     ctl.close()
     p1 = kin.fk(d.read_joints())
     assert (p1.x_mm - p0.x_mm, p1.y_mm - p0.y_mm) == pytest.approx((f * 1.0, left * 1.0), abs=5)
-
-
-def test_keyboard_loop_maps_keys_and_exits():
-    keys = iter(["q"] * 8 + ["x"])
-    d, ctl = rig()
-    keyboard_loop(ctl, "joint", WS.base.yaw_deg, 20.0, lambda: next(keys), out=lambda *_: None, tick_s=0.02)
-    ctl.close()
-    assert d.read_joints().shoulder_pan > HOME.shoulder_pan + 1  # q 키 = 1번 관절 +
 
 
 # ---------------- T11: retarget
