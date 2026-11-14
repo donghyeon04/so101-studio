@@ -42,7 +42,7 @@
 | 총괄 | 전체 시험, EGM drift-report(mujoco-spec), gui_visual `.mode-detail` 가림 폭 고정 + 스냅숏(보드 뽑고), CHECK 기준점은 REQ-064로 냄(11-14) | - |
 | 팔 | 새 PC 첫 연결(캐시 복사 → doctor → 20% home, 사용자와), CHECK 기준점 REQ-064(a). U5 뒤 로보나인 2-10·2-2 | U5 |
 | MuJoCo | 병렬 손으로 13.7 (a)(b)·`sim_blocked`·부하 문턱 다시 재기 | - |
-| 초음파 | CHECK 높이·경로 다시 고르기(벤치마크), 부품 뒤 B1~ | H1·H2·U4 |
+| 초음파 | CHECK 높이·경로 다시 고르기(벤치마크. 병렬 손은 손끝 55mm에서 `follow_path`가 ik_fail이라 `--sim run --source ultrasonic`이 CHECK unreachable로 끝난다, 80mm는 풀림: 팔 세션 #364 보고), 부품 뒤 B1~ | H1·H2·U4 |
 
 ## 시험 결과 (11-14, 총괄)
 - 전체 `python -m pytest -q`(eded098, 1:38): 1192 passed, `tests/gui_visual` 실패 6·오류 4(실물 시험과 같이 돌아 CPU가 바빴던 때). ruff 0건.
