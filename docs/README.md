@@ -22,7 +22,7 @@
 | `docs/planning/mujoco-spec.md` | 기획 | 확정 | MuJoCo 물리 시뮬레이션·시험장 설계서(13.1~13.9 드라이버·모델·장면·완료 기준, 13.10 시험장 M5~M9, 결정 0053·0062). arm-software-spec 13절에서 옮김 |
 | `docs/planning/measurements.md` | 기획 | 초안 | 로컬 개발 세션의 측정 기록 (T0~T11, 떨림·전원·그리퍼 시험) |
 | `docs/planning/workbench-hardware-requirements.md` | 기획 | 초안 | 작업대(판) 하드웨어 설계 요구사항: 작업 면 600×400·좌표 원점, 팔 고정, 레이더 높이 20mm·시야, 손목 센서, 테두리, 그리드 단위·표시, 돌려받을 수치 |
-| `docs/planning/arm-dev-status.md` | 기획 | 초안 | 팔 개발 현황과 인수인계: 상태, 구현 목록, 이 세션에서 한 일, 현재 설정값, 설계서와 다른 점, 사용법, GUI 연결 API, 조사·측정 결과, 알려진 문제, 남은 일 |
+| `docs/planning/arm-dev-status.md` | 기획 | 초안 | 팔 개발 현황과 인수인계: 지금 상태, 남은 일, 알려진 함정, 설정값, GUI 연결 API(14~22절) |
 | `docs/planning/gui-spec.md` | 기획 | 확정 | GUI 설계서(1차 기본 골자): 원칙, 공통 틀, 13개 페이지, 디자인 기본값, 범위, 폴더 구조, 실행 구조, 작업 순서 G0~G10 |
 | `docs/planning/gui-dev-status.md` | 기획 | 초안 | GUI 개발 현황과 인수인계: 지금 상태, 실행, 알려진 함정, 설계 메모, 남은 GUI 일 |
 | `docs/planning/us-dev-status.md` | 기획 | 초안 | 초음파 개발 현황과 인수인계: 작업 진행(U0~U9), 측정, 보낸 요청 (초음파 세션이 처음 만든다) |

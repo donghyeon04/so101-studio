@@ -2,143 +2,39 @@
 
 상태: 초안
 
-작성: 2026-11-01. 브랜치 `dev/arm-t0-t7`. 측정 원본은 `measurements.md`, 결정은 `docs/decisions/0008~0019`, 하드웨어 연결은 `docs/guides/arm-hardware-setup.md`.
+갱신: 2026-11-14 (main 5e8a1c8 기준). 옛 이력(T0~T11, 떨림·전원 조사, 11-01~07 인수인계)은 git 기록과 `decisions/0008~0061`, `measurements.md`에 있다. 이 문서는 지금 상태·남은 일·함정과, GUI가 쓰는 API 요약(14절~)만 남긴다.
 
-## 인수인계 (2026-11-07, main f64a7c0 기준)
-읽는 순서: `CLAUDE.md` → `docs/guides/session-workflow.md` → 이 절 → `session-requests.md`. 요청 대장은 총괄(GUI 세션)이 관리하고 팔 세션은 상태 변화를 총괄에게 알린다. 질문·승인·합치기는 총괄을 거친다(사용자에게 직접 묻지 않는다, 7절). 실제 팔·COM 포트는 총괄이 사용자와 쓰고 반납을 알리기 전에는 쓰지 않는다(전부 `--sim`·가짜 버스·`FakeESP32`).
+## 인수인계 (2026-11-14)
+읽는 순서: `CLAUDE.md` → `docs/guides/session-workflow.md` → `work-queue.md` → 이 절. 요청 대장 `session-requests.md`는 총괄(GUI 세션)이 관리하고, 팔 세션은 상태 변화를 총괄에게 알린다. 실제 팔·COM 포트는 총괄이 사용자와 쓰고 반납을 알리기 전에는 열지 않는다(전부 `--sim`·가짜 버스·`FakeESP32`·MuJoCo).
 
-**끝난 일 (REQ-023~037, 모두 합쳐짐)**
-| REQ | PR | 한 줄 |
-|---|---|---|
-| 023·026·027 | #73·#78·#85·#89 | `follow_path`·팔 링크 점·`summary.json`, 읽기 실패 시 동작이 끝나 돌아옴, 잠긴 팔에 토크 안 켬(`enable_torque`) |
-| 025 | #109 | 작업 실행 `CHECK`·`RESCAN`·`prefetch`·`note_failure`·`give_up`, `run --source ultrasonic`. 초음파일 때 PREPARE는 `radar_clear`(결정 0039)로 첫 사이클·RESCAN·집기 실패 뒤에만 |
-| 029 | #110 | 팀원 설치 스크립트(`설치.cmd` 등)와 README "팀원 설치" |
-| 030·031 | #117 | `plan_goto` 호버 IK 여러 시드, `place` 턱 가운데 보정(`correction_mm`), `place(at=)`·`pick_and_place(place_at=)`, powertest 표본 스레드 예외 |
-| 032 | #132 | 버스 오류 뒤 영구 "Port is in use" 복구(`ARM-WRITE-TIMEOUT`), 이동 중 comm_lost 0.5초(읽기·쓰기 시계 분리), 토크 반복·끊김 중 프로브 정리, AC4 guard 연속 2회·안내 문구, `table_z_mm` −35, `servoinfo` 전압 레지스터 |
-| 033 | #133 | `place` 들어 올리기가 옆으로 되돌아가지 않음, 집기 시험값 `grasp_height_mm` 20·`grasp_max_open_mm` 90(실물 결과가 나쁘면 15·70) |
-| 034 | #128·#135 | `DetectedObject.height_mm`와 높이에 맞춘 집는 높이, `gripper_speed_pct`, 교시 재생 `mode=original|fitted`와 `record_info()["fit"]`, fault 상세(`ArmStatus.fault_text`), `reload_workspace()`, 컨트롤러 따라잡기를 한 주기 이동량의 95%로 제한 |
-| 036 | #137 | 놓을 때 opening path 대체 경고(`ARM-OPENING-PATH-FALLBACK`), 바닥 안전 검사가 턱 메쉬 최저점(`jaw_lowest_z`)을 봄, 폭·높이에 맞춘 벌림 |
-| 037 | #143 | 손끝 방향 `point_pose(..., pitch=)`·직교 조그 pitch, 집기 범위(`pick_reach_mm`)와 움직임 범위(`reach_ranges`) 분리 |
-| 그리퍼 2단계 | #156 | `arm/gripper.py`: `Gripper` 인터페이스와 `SingleJawGripper`(동작 변경 0, 기존 이름은 위임) |
-| 작은 정리 | #157 | 부하에 흔들리던 `follow_path` 시험 강화, 시뮬레이션 `connect` 이벤트 port `"sim"` |
+**지금 상태**: 받은 REQ(-001~067)가 모두 끝났고 합쳐졌다. 마지막 묶음은 #314(놓은 각도 물체마다 보관) #317(집기 기울기 기본 `equal_tips`, 결정 0060) #320(놓을 때 턱 끝 최소 13mm) #321(정사각형 턱 축 고르기) #323(막힘 문턱 속도별, 결정 0061) #325(MuJoCo 막힘 문턱 `sim_blocked`). 팔 폴더 `so101-studio`는 detach로 origin/main을 따라간다(`so101.cmd`가 이 폴더 코드를 돌리므로 옛 브랜치에 두지 않는다).
 
-**기억할 설계 결과** (자세한 API는 14~21절)
-- 컨트롤러는 틱이 늦어도 한 주기 이동량 한도(5°)의 95%까지만 따라잡고 늦은 시간을 `time_lost_s`에 쌓는다(`step fault` 대신 동작이 늦어짐). 교시 `fit`·`fitted`의 속도 한도는 약 237°/s, 가속 한도 `replay_a_max_deg_s2` 600°/s²는 **추정값**이다(실물에서 떨림을 보고 고친다).
-- 바닥 검사는 끝점 근사와 URDF 메쉬 최저점 중 낮은 쪽이다. `--sim`은 집기·놓기 전 구간에서 턱 최저 약 18.8mm(5mm 기준 충분)인데 영상은 책상 높이까지 내려와 **모델과 실제가 약 19mm 다르다**(기울인 자세의 `table_z_mm`·처짐 의심). 실물 줄자 측정이 필요하다(절차서 2-1).
-- IK 결과가 직전 호출 이력에 영향을 받는 경우가 있다(LeRobot `inverse_kinematics`가 `update_kinematics` 없이 푼다). `smooth_l`은 IK 반복 100으로, `plan_goto`는 여러 시드로 막아 두었다. 근본 수정은 하지 않았다.
-- 새 집기 설정(최대 벌림 90)에서는 (300,250, 각도 0)처럼 먼 정면 점이 집히지 않을 수 있다(`ik_fail`).
-- 그리퍼는 `arm/gripper.py`로 모았다. 병렬 그리퍼(3단계)와 설정 선택(`gripper: single_jaw | parallel`)은 사용자 결정 D3 뒤에 한다(설계안은 총괄에게 보냄, `work-queue.md` 5-3).
+**실물 확인(11-13~14)**: 집기·놓기 5회 왕복이 속도 30%·50%에서 10/10. 45° 정사각형은 구조 한계라 A+B로 정했다(`arm-software-spec.md` 6.6). 시연 속도는 50% 이하(넘으면 막힘 감지 꺼짐, 결정 0061). 기록은 `runs/real-eval-20261113/`(git 제외), 수치는 `measurements.md` 11-13 절.
 
-**대기·남은 일**
-1. 사용자 결정 **D3**(그리퍼: 병렬 TCP 정의, URDF·메쉬 담당, 접촉 기준, 기본값)와 **AC4**(전원: 전압 기준 11.0V 유지 여부, 근거는 결정 0028과 STS3215 조사: 데이터시트에 저전압 리셋 전압 없음, 입력 6~12.6V) 결정을 기다린다.
-2. **실물 확인은 `guides/real-arm-runbook.md` 2절을 따른다**(턱 최저 높이, 집기·놓기 5회, 교시 변환본, AC4 측정, `--verify-zero`, `table_z_mm`, 그리퍼 부하, `radar_clear` 케이블, 새 기능, 손끝 방향 2-9a). 문제가 나면 같은 문서의 "문제가 나면".
-3. PR #41(`dev/arm-autocal-repeat`, 자동 캘리브레이션 반복·`--verify-zero`)은 AC4가 합격한 뒤 사용자가 정한다(합치기 전에 `origin/main`을 합치고 전체 pytest·ruff).
+**기억할 설계 결과**
+- `grasp_tilt_mode`: `equal_tips`(기본, 결정 0060) | `symmetric`. equal_tips는 기울기가 작아 반경 250mm·폭 58mm에서도 풀린다. 그래서 "기울이기 실패 → 수직 대체"(`ARM-PICK-TILT-UNREACHABLE`, `height_required`)는 symmetric에서만 보이고 `tests/test_req055.py`는 symmetric을 고정해 시험한다. equal_tips에서 그 대체가 일어나는 조건은 못 찾았다.
+- 기울여 집기는 턱 축이 반경 방향과 거의 같을 때만 풀린다(**U6**): 5~15°만 벗어나도 손목 한계로 안 풀려 수직 집기로 떨어진다. `grasp_tilt_tol_deg`(15°) 정리는 사용자 결정 대기.
+- 막힘 문턱은 속도별이다(결정 0061: 30% 이하 그대로, 30~50% 정속만 문턱 완화, 50% 초과 끔). 시뮬레이션 문턱은 `robot.yaml`의 `sim_blocked`(프리셋에 저장되는 문제는 MuJoCo 쪽 후속).
+- 놓을 때 낮은 턱 끝은 `tip_floor_mm + 8`(13mm) 아래로 내리지 않는다. 놓은 각도는 물체마다 보관하고 재연결 때 넘긴다.
+- H4 브래킷(braket ver1) 센서 오프셋은 {0.6, 66.5, 99.5}. 출력 방향은 센서 앞쪽이 위(**U7**, 사용자 결정 대기).
+- 컨트롤러는 틱이 늦어도 한 주기 이동량 한도(5°)의 95%까지만 따라잡고 늦은 시간을 `time_lost_s`에 쌓는다. `follow_path`는 `set_sensor_offset`이 먼저다.
+- IK 결과가 직전 호출 이력에 영향받을 수 있다(LeRobot `inverse_kinematics`가 `update_kinematics` 없이 푼다). `smooth_l`은 반복 100, `plan_goto`는 여러 시드로 막았고 근본 수정은 안 했다.
+
+**남은 일**
+1. 사용자 결정 U6(`grasp_tilt_tol_deg`)·U7(브래킷 출력 방향)·U8(시연 속도).
+2. 실물(`guides/real-arm-runbook.md`·`measurements.md` "실물 시험 순서"): 합친 main으로 2-2 한 번, 2-2a 90° 정사각형, 병렬 그리퍼(U5), 초음파 B1~·센서 오프셋 REQ는 초음파 세션 몫.
+3. MuJoCo 시험장 M5~(기획 계획, 실물 작업이 생기면 멈춘다). 막힘·접촉 즉시 정지 조사는 기획 몫.
+4. 낮은 우선순위: 안전 설정에 속도 상한(`max_speed_pct`), 서보 시동 힘(`Minimum_Startup_Force`) 시험.
 
 **알려진 함정**
-- `follow_path`는 `set_sensor_offset`을 먼저 해야 한다(없으면 `ValueError`). 한 호출은 서지 않고 이어 가며, 먼 자세에서 오는 첫 호출은 접근을 합치지 못해 안전 경로를 먼저 간다.
-- 잠긴 팔에는 토크를 켜지 않는다: 움직이는 명령은 `ArmService.enable_torque()`만 쓴다(이미 켜져 있으면 다시 쓰지 않는다).
-- 이 PC는 conda가 `C:\miniforge3`(사용자 폴더 한글). 전체 `python -m pytest -q`는 약 40~46분이고 동시에 돌리면 일부 시험이 부하로 흔들린다(`test_server_heartbeat_and_status`, `test_port_pulled_during_a_move_faults_within_0_6s`, `test_resume_button_appears_only_when_stopped`, `test_follow_path_starts_from_radar_clear_pose` 등: 따로 돌리면 통과). `test_doctor_cli_json_in_sim`은 서보 보드가 PC에 없으면 실패가 정상이다.
-- 설치 스크립트로 `conda env update`를 하면 `-e .[gui]`가 실행한 폴더를 가리키도록 다시 설치된다. 한 PC에서 레포 폴더를 둘 쓸 때(worktree) 주의한다. worktree에서 시험할 때는 `PYTHONPATH=<worktree>/src`.
-- git에 없는 파일: `config/local.yaml`, `config/ultrasonic_baseline.json`.
+- 잠긴 팔에는 토크를 켜지 않는다: 움직이는 명령은 `ArmService.enable_torque()`만 쓴다. 0° 확인(`calibrate --verify-zero`) 기록이 없거나 캘리브레이션 해시가 다르면 `locked`(home은 허용, 결정 0051).
+- 설치 스크립트로 `conda env update`를 하면 `-e .[gui]`가 실행한 폴더를 가리키도록 다시 설치된다. worktree에서 시험할 때는 `PYTHONPATH=<worktree>/src`.
+- 시험: `python -m pytest -q --ignore=tests/gui`는 약 12~16분이고 동시에 돌리면 일부 시험이 부하로 흔들린다(따로 돌리면 통과). `test_doctor_cli_json_in_sim`은 서보 보드가 PC에 없으면 실패가 정상이다.
+- git에 없는 파일: `config/local.yaml`, `config/ultrasonic_baseline.json`. MuJoCo가 만드는 `MUJOCO_LOG.TXT`·충돌 결과 JSON은 `runs/`로 옮긴다.
+- 팔은 클램프로 고정하고 속도 30% 이하·전원 스위치 옆에서 지켜본다. 실제 팔을 열기 전에 총괄에게 알린다.
 
-## 1. 한 줄 요약
-SO-101 팔의 동작 라이브러리(이동, 직교·좌표 이동, 집기·놓기, 교시·재생, 안전 검사, 자동 작업)와 서비스 API, 블랙박스 기록, 통신·그리퍼 안전 보완이 구현돼 `--sim`과 실제 팔에서 확인됐다. GUI는 GUI 세션이 따로 만들고(`decisions/0024`), 초음파 인식은 초음파 세션이 만든다(`decisions/0036`, `ultrasonic-spec.md`). 팔 쪽 남은 일은 실물 측정이고, 순서는 `measurements.md`의 "실물 시험 순서"를 따른다.
-
-## 2. 지금 상태
-시뮬레이션 테스트와 린트(`ruff`)는 `python -m pytest -q`(약 16분)와 `python -m ruff check src tests`로 확인한다. 실제 팔은 사용자가 있을 때만 쓰고 포트(COM3)는 총괄(GUI 세션)이 조율한다(`session-workflow.md` 6·7절).
-
-| 구분 | 항목 |
-|---|---|
-| 실제 팔로 확인함 | 구동·영점·방향 매핑, 이동·집기·놓기(물체 없이), 안전 검사, `run --dry-run`, 키보드 조그, 교시·재생, 진단 명령(`powertest`, `shaketest`, `servoinfo`, `linkwatch`), G10(E-STOP 세 경우, 포트 빠짐, 재연결) |
-| `--sim`만 거침 | 블랙박스 기록(15절), 통신 끊김·XY 복귀 안전(16절), 그리퍼 예압·부하 감시(17절), 오프라인 준비(18절), 과부하 추가 읽기(19절), `follow_path`·팔 링크 점·summary.json(20절) |
-| 실물 측정 대기 | `guides/real-arm-runbook.md` 2절이 기준: 턱 최저 높이, 집기·놓기 5회, 교시 변환본, AC4 측정, `--verify-zero`(PR #41), `table_z_mm`, 그리퍼 부하, 손끝 방향 |
-
-## 3. 구현된 것 (작업 순서표 기준)
-| 작업 | 내용 |
-|---|---|
-| T0~T2 | 모터 ID(1~6, 이미 설정됨), 영점 보정, 환경(conda `so101`, Python 3.12, LeRobot 0.6.1), `ArmDriver`/`SimDriver`, `status` |
-| T3 | FK/IK (LeRobot `RobotKinematics` + placo 0.9.25), 방향 매핑, FK 원점을 어깨 회전축으로 보정 |
-| T4~T5 | `move_j`, `MotionController`(정지·비상정지), `safety.py`(관절 한계, 작업 영역, 바닥, 한 주기 이동량, 과열·과부하·통신 끊김·과전류) |
-| T6 | `move_l`, `goto`, 수직 하강 도달 영역. 줄자 실측은 못 함 |
-| T7 | `skills`: home, park, pick, place. 고정 턱 1개 그리퍼 보정(결정 0008~0012) |
-| T8 | 원격 조종: 옛 `jog`와 새 `keys`(관절/직교 조그/좌표 입력, 결정 0013) |
-| T9 | 녹화·재생(`record`/`replay`/`seq`/`info`), 토크를 끈 방식(결정 0018·0019) |
-| T10 | `ArmService`, `runs/`(events.jsonl, status.csv) 기록. CLI와 이후 GUI가 모두 이것을 거침 |
-| T11 | `retarget` (Ruckig). 이동 중 목표를 바꿔도 끊기지 않음 |
-| C1, S1~S3 | core, `ManualSource`, 작업 상태 머신, `Studio`, `run` |
-
-## 4. 이 세션에서 한 일 (시간순)
-1. **환경·하드웨어 설정**: Miniforge 환경, pip의 placo 설치 실패 → conda-forge로 해결, 캘리브레이션(4번째 시도에서 공식 영상 자세로 성공), 모터 ID 확인, 첫 구동에서 그리퍼가 작업대에 닿아 과부하 → 안전 검사 도입.
-2. **기구학·동작**: FK/IK, 궤적(quintic, Ruckig 선택), `move_l`, 직교 이동, 안전 모듈.
-3. **집기 보정**: 그리퍼가 고정 턱 1개라 한쪽으로 벌어짐 → 턱 기하(URDF) 기반 중심 맞춤, 대칭 V자 기울기, 닫는 내내 중심 유지, 접촉은 명령-실측 지연으로 감지(결정 0008~0012). 레퍼런스 조사로 LeRobot 도구(draccus 설정, `ensure_safe_goal_position`)와 Ruckig 도입.
-4. **T8~T11, 자동 작업**: 원격 조종, 녹화·재생, `ArmService`, `retarget`, `ManualSource`/상태 머신/`run`, 런처 `so101.cmd`.
-5. **키보드 모드와 좌표계**: 관절/직교 조그/좌표 입력 3모드(Tab 전환), 좌표계 table(world)/robot(base)/tool, 높이는 작업대 면 위, 끝점 tip/ref(결정 0013). 조그 속도 램프, 시간 기준 적분, 막힘 이유 표시.
-6. **떨림 조사**: 조원 제안서(S-Curve 중심)를 코드와 대조 → 이미 5차 다항식을 쓰고 있음을 확인. 가속 한계·속도·제어 주기·전원을 측정으로 비교해 서보 가속 10, 50Hz 유지로 결정(결정 0014). 진단 명령 `powertest`, `shaketest`, `servoinfo`, `keys --trace` 추가.
-7. **전원 사건**: 서보 6개가 동시에 토크를 잃는 일이 세 번 있었고, 한 번은 서보 전체가 응답하지 않았다. 12V 어댑터를 뽑아 불이 꺼진 뒤 다시 꽂자 복구되어 과전류 보호나 접촉 불량으로 추정한다. 과전류 감시(4A 연속 2회 멈춤), `status.csv`에 전압·전류 열, `linkwatch`(응답 끊김 감시)를 추가했다.
-8. **안전 설정**: normal/free/off 모드, 관절 여유(안전율), XYZ 허용 범위, 한계 밖에서 빠져나오기, 경로 0.1초 검사(결정 0015). 레퍼런스(UR 안전 평면·복구 모드, Franka 가상 벽, MoveIt 소프트 한계)와 대응됨을 확인.
-9. **직접 교시**: 토크를 켠 채 손으로 미는 추종 교시를 여섯 번 시험(토크 제한, P·D, 중력 보정, 방향 보조) → 모두 기어 마찰로 뻑뻑해 제거. 레퍼런스 26개 조사 결과 같은 서보 팔로워에서의 선례가 없고, LeRobot은 기어비가 낮은 리더를 따로 둔다. 토크를 끈 `record`로 확정(결정 0016~0018). 이어서 기록 설정 파라미터화와 속도 구간 분석·구간별 배율 재생(결정 0019).
-10. **문서**: 하드웨어 연결 가이드, 결정 기록 0008~0019, 이 인수인계 문서, 측정 기록.
-
-## 5. 현재 설정값 (`config/robot.yaml`)
-| 항목 | 값 | 근거 |
-|---|---|---|
-| 통신 | COM3, 1Mbps, 서보 ID 1~6 | `arm-hardware-setup.md` |
-| 서보 가속 한계 | 팔 10, 그리퍼 25 | 결정 0014. 그리퍼는 접촉 감지를 25에서 맞춰 따로 둠 |
-| PID | P16 I0 D32 | 변경 시험에서 기본이 가장 나았음 |
-| 제어 주기 | 50Hz | 100·200Hz와 0.1~0.2초 간격은 더 떨림 |
-| 팔꿈치 한계 / 홈·파크 | 위쪽 95 / 팔꿈치 93 (`[0,-90,93,0,0,3]`) | 96이 J2 모터에 닿기 직전, 서보가 0.4° 더 감 |
-| 영점 보정 | shoulder_pan −3.0° | |
-| 작업대 높이 `table_z_mm` / 바닥 한계 `tip_floor_mm` | −15 / 5 | 2026-11-07 실물 재실측으로 −15 (REQ-046, 11-06의 −35는 `goto`의 z를 턱 끝 높이로 잘못 읽은 값). 접촉 4곳 실측으로 다시 확인 |
-| 속도 | 기본 30%, 조그 관절 30°/s·직교 80mm/s | |
-| 기록 | `record_hz` 20, `record_max_s` 90, 구간 기준 3·40°/s, 최소 0.5초 | 결정 0019 |
-| 과전류 | 4A 연속 2회 → fault | 어댑터 5A 보호가 걸리기 전에 멈춤 |
-
-## 6. 설계서(arm-software-spec.md)와 다르거나 설계서에 없는 것 (기획 세션에서 반영)
-- 홈·파크 자세와 팔꿈치 한계(위 표), `table_z_mm`·`tip_floor_mm` 높이 기준, 서보 가속 한계 설정.
-- 궤적: 기본 quintic에 Ruckig 선택(`trajectory_profile`)과 T11 `retarget`. 설정 읽기는 draccus, 한 주기 이동량 제한은 LeRobot `ensure_safe_goal_position`.
-- `ToolPose.yaw`는 턱이 벌어지는 축의 방향이고, 집기 각도는 물체 각도 + 90°. 높이 z는 작업대 면 위(좌표 입력 기준).
-- `ArmService`에 추가된 것: `point_pose`, `preview_tool`, `get_safety`/`set_safety`, `record_info`, `replay(..., until_limit, segment_speeds)`, `record_start(hz, max_s)`. `status`에 전류(`current_ma`) 추가, `status.csv`에 `voltage_v`, `current_a` 열.
-- CLI: `keys`, `info`, `powertest`, `shaketest`, `servoinfo`, `linkwatch`, 안전 옵션(`--free`, `--unsafe`, `--safety-margin`, `--box`), `replay --until-limit --seg-speed`, `--hz`, `--speeds`, `--trace`.
-- 안전: 모드 normal/free/off, 과전류 감시, 한계 밖에서 빠져나오기, `physical_limits_deg`(캘리브레이션 실제 범위).
-
-## 7. 사용법
-레포 밖에서는 `C:\Users\c\Desktop\so101-studio\so101.cmd`로 부른다(conda 활성화 불필요). 실제 팔은 클램프로 고정하고 속도 30% 이하, 전원 스위치 옆에서 지켜본다. 자세한 명령은 `CLAUDE.md`.
-- 이동: `status`, `home`, `movej`, `goto`, `pick x y 각도 폭`, `place 구역`, `gripper`, 자동 작업 `run --source manual [--dry-run] [--step]`.
-- 조종: `keys`(Tab으로 관절 → 직교 조그 → 좌표 입력. 좌표: `x y 높이 [yaw]`, `d dx dy dz`, `frame table|robot|tool`, `tcp tip|ref`, `safety ...`).
-- 교시: `record <이름>`(홈 이동 → 팔 잡기 확인 → 3초 → 토크 꺼짐 → Enter로 끝), `info <이름>`(길이·속도·구간), `replay <이름> [--seg-speed 1=0.5,3=2] [--until-limit]`.
-- 진단: `powertest`(전압·전류·부하), `shaketest`(가속·속도별 떨림), `servoinfo`, `linkwatch`(응답 끊김 위치 찾기).
-
-## 8. GUI와 시뮬레이션에 붙이는 방법
-GUI는 `ArmService`만 호출한다.
-- 상태: `status()`, `status_stream(callback)`(10Hz).
-- 이동: `move_joints`, `move_tool`, `home`, `park`, `pick_and_place`, `place`, `set_gripper`, `jog`, `retarget`, `stop`, `estop`, `set_speed`.
-- 점 찍기: `point_pose(x, y, 높이, yaw, frame, tcp)` → `preview_tool(pose)`(움직이지 않고 가능 여부·이유·풀린 관절값) → `move_tool(pose)`.
-- 안전율: `get_safety()` / `set_safety(mode, joint_margin_deg, box_mm)`(결정 0015).
-- 교시: `record_start(hz, max_s)`, `record_stop(name)`, `record_info(name)`(구간 목록), `replay(name, speed, until_limit, segment_speeds)`.
-- 시뮬레이션: URDF와 `SimDriver`가 있어 FK로 화면을 그릴 수 있다. 사용자는 시뮬레이션에서 GUI로 점을 찍는 것까지 가고 싶어 한다. 기술 선택은 미정.
-
-## 9. 주요 조사·측정 결과
-- **떨림**: 느리고 서보 가속이 높을수록 체감 떨림이 크다(254/20°/s가 가장 심함). 가속 10이 20·60·200°/s 모두 가장 낫거나 같다. 서보에 목표를 보내는 간격은 50Hz가 최선이고 5~10Hz도 100·200Hz도 더 떨린다. 남은 떨림은 느린 키보드 조그에서 체감될 정도(서보 내부 설정이나 기구 하중 의심).
-- **전원(12V 5A)**: 거친 동작(최대 200°/s, 팔을 끝까지 폄)에서 전압 12.2 → 11.8V, 전류 합 최대 1.7A(5A의 34%), 어깨 들기 부하 100%가 0.25초. 병목이라는 증거는 없다. 그러나 서보 전체가 꺼지는 사건이 세 번 있어 전원 계통 점검이 필요하다.
-- **직접 교시**: 교시 중 서보 부하는 작고 뻑뻑함은 1/345 기어 마찰이다. 정지 부하는 중력보다 접근 방향·마찰에 좌우되어 중력 모델과 맞지 않았다. 같은 서보에서 추종·중력 보상을 구현한 사례는 레퍼런스 26개에서 찾지 못했다.
-- **녹화·재생**: 표본 시각을 저장하므로 빠른·느린 구간이 평균이 아니라 그대로 재생된다. 격한 45초 녹화(910점)는 한계·작업대 밖·바닥을 넘어 기본 재생이 거부되고, `--unsafe`로는 151초 동안 끝까지 정상 재생됐다. 끝 자세 오차는 최대 약 2.7°(팔꿈치).
-- **안전 설정**: 관절 여유·XYZ 범위·모드·복구 규칙은 UR, Franka, MoveIt, Kinova 문서와 대응된다. 빠진 것은 속도 상한을 안전 설정에 넣는 것(MoveIt의 속도 스케일링 계수)이다.
-
-## 10. 알려진 문제와 주의
-- **전원/연결**: 서보 6개가 동시에 토크를 잃거나 응답이 사라지는 일이 반복됐다. 12V 어댑터를 뽑고 불이 꺼진 뒤 다시 꽂으면 복구됐다. 커넥터 접촉이나 어댑터 보호 회로가 의심된다. `linkwatch`를 켜 둔 채 커넥터를 흔들어 위치를 찾는다.
-- **토크 꺼짐**: 전원이 끊기면 팔이 받침으로 떨어진다. 팔을 받치고 시작하고, 클램프로 고정한다.
-- **`table_z_mm` 추정값**: 높이 0 근처, 바닥 안전 검사의 정확도가 이 값에 달려 있다. 종이 한 장이 끼일 때까지 내려서 재는 절차가 필요하다(자 필요).
-- **그리퍼**: 단동식(한쪽 턱만 열림)이라 집기·놓기에서 손 위치를 보정한다(17절). 병렬 그리퍼로 바꾸는 것은 `arm/gripper.py`의 인터페이스에 구현을 더하는 방식으로 설계했고 D3 결정을 기다린다.
-- 키보드 `keys`는 창과 상관없이 키를 읽는다. 실행 중 다른 창에 타이핑하지 않는다.
-
-## 11. 남은 일 (우선순위)
-위 인수인계 절의 "대기·남은 일"이 최신이다. 실물 시험의 순서와 포트 사용은 `guides/real-arm-runbook.md`와 `measurements.md`의 "실물 시험 순서"가 기준이다. 낮은 우선순위: 안전 설정에 속도 상한(`max_speed_pct`), 서보 시동 힘(`Minimum_Startup_Force`) 시험(느린 조그 떨림).
-
-## 12. 기획 세션에 요청할 결정·반영
-총괄(GUI 세션)이 [기획 요청](`session-workflow.md` 5절)으로 모아 사용자에게 준다. 지금 올라간 것: 확인 경로 도달 범위(`measurements.md` "확인 경로 도달 계산"), 속도 180mm/s와 `tool_v_max_mm_s`(결정됨: 설정은 그대로, 실제 속도 = min(요청, 설정 × 속도%)).
-
-## 13. 저장소 상태
-GitHub `donghyeon04/so101-studio`, 개발은 `main`에서 딴 `dev/<작업>` 브랜치와 PR로 합친다(`decisions/0007`). 요청 대장 `session-requests.md`는 총괄이 관리한다(팔 세션은 상태 변화를 총괄에게 알린다).
+## 지금 설정값
+값의 원본은 `config/robot.yaml` ← `config/arms/<팔>.yaml` ← `config/local.yaml`(실제 값은 거기서 읽는다). 기억할 것: 서보 가속 팔 10·그리퍼 25와 제어 50Hz(결정 0014), `table_z_mm` −15(11-07 재실측, 11-14 유지), 바닥 한계 `tip_floor_mm` 5, 과전류 4A 연속 2회 fault, 홈·파크 `[0,-90,93,0,0,3]`, 관절 한계는 `physical_limits_deg`(REQ-054).
 
 ## 14. GUI용 추가 API 사용법 (REQ, 기존 동작은 바꾸지 않음)
 기획 세션이 설계서에 옮긴다. 대장은 `session-requests.md`.
