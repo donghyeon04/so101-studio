@@ -1,13 +1,13 @@
 # 작업 대기열 (총괄이 유지)
 
-상태: 초안 · 2026-11-14 밤 (기획이 새 PC 이전 전에 다시 씀, main 299bea9. 이후 총괄이 단계마다 갱신)
+상태: 초안 · 2026-11-14 밤 (기획이 새 PC 이전 전에 다시 씀, main 299bea9. 첫날 순서는 새 PC 기획 세션이 절차를 따라가 보고 고침. 이후 총괄이 단계마다 갱신)
 
 > 새 PC·새 세션은 `project-status.md`(총정리) → 이 문서 순서로 읽는다. 사용자 결정이 필요한 것은 "사용자 결정 대기"에 쌓고, 그 밖의 일은 기다리지 않고 진행한다.
 
 ## 새 PC 첫날 순서
-1. **이전**(`session-workflow.md` 8절 "새 PC로"): 클론, 환경, 폴더 넷, `so101-이전-1114.zip` 풀기, 세션 다섯을 시작 프롬프트로.
-2. **합친 main 전체 시험**(총괄): 11-14에 끝까지 못 돌렸다. 보드를 뽑고 `python -m pytest -q`, `python -m ruff check src tests`. 통과 수와 실패 이름을 이 문서에 적는다.
-3. **실물 팔 0° 확인 다시**(사용자 + 팔 세션): 새 PC에는 LeRobot 캐시가 없다. `config/calibration/`의 파일로 연결한 뒤 `so101.cmd calibrate --verify-zero`(속도 20%, 클램프·전원 스위치 옆). 기록은 팔 파일에 PR로.
+1. **이전**(`session-workflow.md` 8절 "새 PC로"): 클론, 환경(+ `python -m playwright install chromium`, MuJoCo는 `tooling-setup.md` C24), 폴더 넷(2절: 팔 폴더만 `main`, 나머지 셋은 `--detach origin/main`), `so101-이전-1114.zip` 풀기, 세션 다섯을 시작 프롬프트로.
+2. **합친 main 전체 시험**(총괄): 11-14에 끝까지 못 돌렸다. **팔 보드를 꽂기 전에**, 다른 GUI·감시 프로세스를 끄고 `python -m pytest -q`(지금 방식 그대로, 약 1시간 40분. 결정 0064의 `-n auto`·`--testmon`·`measure` 표시는 아래 "이어지는 순서" 5번이 끝나야 쓸 수 있다), `python -m ruff check src tests`. 도는 동안 다른 세션은 `tests/gui`·`tests/gui_visual`을 돌리지 않는다(고정 포트). 통과 수와 실패 이름을 이 문서에 적는다.
+3. **실물 팔 첫 연결**(사용자 + 팔 세션, 2번이 끝난 뒤): 새 PC에는 LeRobot 캐시가 없다. `config/calibration/so101_follower_01.json`을 `%USERPROFILE%\.cache\huggingface\lerobot\calibration\robots\so_follower\`로 복사 → `so101.cmd doctor` → `so101.cmd status` → `so101.cmd --speed 20 home`(클램프·전원 스위치 옆). 복사하지 않으면 "캘리브레이션 불일치"로 잠긴다. 0° 확인 기록은 git의 팔 파일에 있고 해시가 맞아(#344) `calibrate --verify-zero`를 다시 하지 않아도 움직인다(다시 하는 때: 캘리브레이션 파일이 바뀐 뒤, 로보나인 교체 뒤).
 4. **EGM drift-report**(총괄): 대상 `mujoco-spec.md`(13.9·13.10 vs M4b 코드 #348~#357). 결과의 꼭 고칠 것만 `planning-inbox` `inbox/`로.
 5. 그다음은 아래 "이어지는 순서".
 
@@ -40,7 +40,7 @@
 | 세션 | 다음 일 | 기다리는 것 |
 |---|---|---|
 | 총괄 | 전체 시험, EGM drift-report(mujoco-spec), gui_visual `.mode-detail` 가림 폭 고정 + 스냅숏(보드 뽑고), CHECK 기준점 REQ 내기 | - |
-| 팔 | 0° 확인(사용자와), CHECK 기준점 REQ(a). U5 뒤 로보나인 2-10·2-2 | U5 |
+| 팔 | 새 PC 첫 연결(캐시 복사 → doctor → 20% home, 사용자와), CHECK 기준점 REQ(a). U5 뒤 로보나인 2-10·2-2 | U5 |
 | MuJoCo | 병렬 손으로 13.7 (a)(b)·`sim_blocked`·부하 문턱 다시 재기 | - |
 | 초음파 | CHECK 높이·경로 다시 고르기(벤치마크), 부품 뒤 B1~ | H1·H2·U4 |
 
