@@ -24,12 +24,28 @@ SWING_STEP_DEG = 2.0  # 기울기 풀기 보간에서 가장 크게 도는 관�
 SAME_SPOT_MM = 30.0  # 놓을 자리에서 이 안에 있는 놓은 물체는 같은 자리(배출 구역에 쌓는 것)로 보고 피하지 않는다
 SQUARE_TOL_MM = 3.0  # 폭과 길이가 이만큼 안으로 같으면 정사각형으로 본다: 턱 축 후보가 변 법선 둘(각도+90, 각도)이다
 RELEASE_SAG_MARGIN_MM = 8.0  # 놓는 순간 낮은 턱 끝은 tip_floor_mm + 이 값(13mm) 아래로 내리지 않는다: 낮게 집은 물체(낮은 높이로 알려 줌)를 놓으며 열고 기울이는 동안 처짐·추종 오차로 턱 끝이 바닥을 긁었다(실물 2-2a 11-14)
+FINE_SLOT_MM = 5.0  # 기본 칸에 물체가 안 들어갈 때 같은 구역 안에서 쓰는 촘촘한 후보 간격
+RECT_MARGIN_MM = 10.0  # 놓인 물체 사이 최소 간격(MIN_CLEARANCE_MM). 더 벌리면 구역 w100×h80에 3개가 안 들어간다
 LIFT_MARGIN_MM = 10.0  # 놓은 뒤 상승의 최소 = 물체 높이 + 이 값 (11.3.3)
 LIFT_UNKNOWN_EXTRA_MM = 30.0  # 물체 높이를 모르면 t_g + 이 값
 NEIGHBOUR_H_MM = 40.0  # 이웃 물체 높이를 모를 때 가정하는 높이: 이보다 낮게 지나는 두 턱 끝은 알려진 물체와의 거리를 본다
 ROUTES = ("tilted", "released_then_tilted", "fixed_tilt")
 
 SEEDS = [JointState(0, -30, 30, 60, 0, 0), JointState(0, -60, 60, 30, 0, 0), JointState(0, 0, 60, 30, 0, 0)]
+
+def _rects_overlap(a: tuple, b: tuple, margin: float) -> bool:
+    """회전한 두 사각형 (cx, cy, 폭, 길이, 각도°: 길이 방향이 x축에서 반시계 각도)이 margin 안으로 겹치는가(분리축 검사)."""
+    def corners(r):
+        cx, cy, w, l, ang = r
+        c, s = math.cos(math.radians(ang)), math.sin(math.radians(ang))
+        return [(cx + c * dx - s * dy, cy + s * dx + c * dy) for dx, dy in ((l / 2, w / 2), (l / 2, -w / 2), (-l / 2, -w / 2), (-l / 2, w / 2))]
+    ca, cb = corners(a), corners(b)
+    for ang in (a[4], a[4] + 90.0, b[4], b[4] + 90.0):
+        ax = (math.cos(math.radians(ang)), math.sin(math.radians(ang)))
+        pa, pb = [p[0] * ax[0] + p[1] * ax[1] for p in ca], [p[0] * ax[0] + p[1] * ax[1] for p in cb]
+        if max(pa) + margin <= min(pb) + 1e-6 or max(pb) + margin <= min(pa) + 1e-6:  # 부동소수 오차 허용
+            return False
+    return True
 
 
 class Skills:
@@ -49,6 +65,7 @@ class Skills:
         self.opening_info: dict | None = None  # 마지막 놓기 벌림의 계획 값(clearance 등)
         self.opening_blocked_by: str | None = None
         self.placed_angle: dict[tuple[float, float], float] = {}  # 놓은 물체 (x, y) -> 놓은 뒤 작업대 기준 각도(0~180°). 집기·놓기가 placed를 비울 때 같이 비운다
+        self.placed_size: dict[tuple[float, float], tuple[float, float]] = {}  # 놓은 물체 (x, y) -> (폭, 길이) mm. 칸을 고를 때 사각형 겹침을 본다
         self.placed_height: dict[tuple[float, float], float] = {}  # 놓은 물체 (x, y) -> 높이(mm). 모르면 NEIGHBOUR_H_MM
         self.hover_need_mm = 0.0  # 마지막 _descent의 hover 높이 하한
         self.untilt_rejected: str | None = None  # 마지막 _untilt_goal이 거절한 이유(ik | box:<mm> | object:<..> | check_goal:<..> | already_vertical)
@@ -275,6 +292,7 @@ class Skills:
         (4) 그리퍼가 명령보다 앞서 멈추면(접촉) 그 자리에서 정지한다. 물체 크기를 몰라도 된다."""
         self.placed = [o for o in self.placed if math.hypot(o[0] - obj.x_mm, o[1] - obj.y_mm) > 40.0]  # 집어 간 물체는 더 이상 장애물이 아니다
         self.placed_angle = {k: v for k, v in self.placed_angle.items() if math.hypot(k[0] - obj.x_mm, k[1] - obj.y_mm) > 40.0}
+        self.placed_size = {k: v for k, v in self.placed_size.items() if math.hypot(k[0] - obj.x_mm, k[1] - obj.y_mm) > 40.0}
         self.grip = None
         yaw = self._pick_yaw(obj)
         lo_g = self.cfg.joint_limits_deg["gripper"][0]  # 턱 축이 물체 긴 변에 수직이 되도록 (spec 6.6: 물체 각도 + 90°)
@@ -546,10 +564,14 @@ class Skills:
         if slots is None:
             return self.place_at(z["x_mm"], z["y_mm"])
         half = float(z["slot_mm"]) / 2.0
-        free = [p for p in slots if not any(math.hypot(o[0] - p[0], o[1] - p[1]) < half for o in self.placed)]
+        g = self.grip or {}
+        big = max(g.get("obj_w", 0.0), g.get("obj_l", 0.0)) + RECT_MARGIN_MM > float(z["slot_mm"])  # 쥔 물체가 한 칸(slot_mm)에 안 들어간다: 칸 격자 대신 촘촘한 후보에서 고른다
+        free = [] if big else [p for p in slots if not any(math.hypot(o[0] - p[0], o[1] - p[1]) < half for o in self.placed) and self._fits(p)]
+        if big:  # 칸에 안 들어가면(칸 75mm < 물체 길이 100) 같은 구역 안의 촘촘한 후보에서 놓인 물체와 겹치지 않는 자리를 찾는다. 칸에 들어가는 물체는 칸이 다 차면 가득 찬 것이다
+            free = [p for p in self.ws.zone_slots(zone, FINE_SLOT_MM) or [] if self._fits(p)]
         if not free:
             self.ctl._emit("drop_zone_full", "ERROR", "ARM-DROP-ZONE-FULL", {"zone": zone, "slots": len(slots)})
-            return MotionResult("stopped", 0.0, ToolPose(0, 0, 0, 0), reason=f"drop_zone_full: 배출 구역 {zone}의 칸 {len(slots)}개가 모두 차서 놓지 않았다. 손에 물체를 쥔 채이니 비운 뒤 다시 한다")
+            return MotionResult("stopped", 0.0, ToolPose(0, 0, 0, 0), reason=f"drop_zone_full: 배출 구역 {zone}에 쥔 물체가 놓인 물체와 겹치지 않고 들어갈 자리가 없어 놓지 않았다. 손에 물체를 쥔 채다: 사람이 받거나 구역을 비운 뒤 다시 놓는다")
         held_r = max(self.grip.get("obj_w", 0.0), self.grip.get("obj_l", 0.0)) / 2.0 if self.grip else 0.0  # 쥔 물체를 원으로 본 반지름(길이가 길면 옆 물체에 닿는다)
         near = lambda p: any(math.hypot(k[0] - p[0], k[1] - p[1]) < k[2] + held_r for k in self.known_objects)
         free = sorted(free, key=near)  # 아직 남은 물체에 닿을 칸은 맨 뒤로(없애지는 않는다: 다른 칸이 없으면 예전처럼 거기에 놓는다). 안정 정렬이라 먼저 오는 순서는 그대로
@@ -560,6 +582,22 @@ class Skills:
             if r.status == "ok" or released or not (r.status == "ik_fail" or (r.status == "stopped" and (r.reason or "").startswith("low_hover"))):
                 return r
         return r
+
+    def _fits(self, p: tuple[float, float]) -> bool:
+        """쥔 물체를 p에 놓았을 때(놓을 각도 기준 사각형) 이미 놓인 물체와 RECT_MARGIN_MM 안으로 겹치지 않는가. 쥔 물체 크기를 모르면 True(예전과 같다)."""
+        g = self.grip or {}
+        w, l = g.get("obj_w", 0.0), g.get("obj_l", 0.0)
+        if w <= 0 and l <= 0:
+            return True
+        ang = (g["angle"] + self._place_yaw(*p) - g["yaw"]) % 180.0 if "yaw" in g and "angle" in g else None
+        mine = (p[0], p[1], w, l, ang) if ang is not None else (p[0], p[1], max(w, l), max(w, l), 0.0)  # 각도를 모르면 변이 긴 쪽인 정사각형으로(안전한 쪽)
+        for o in self.placed:
+            ow, ol = self.placed_size.get((o[0], o[1]), (0.0, 0.0))
+            oa = self.placed_angle.get((o[0], o[1]))
+            other = (o[0], o[1], ow, ol, oa) if ow > 0 and oa is not None else (o[0], o[1], max(ow, ol, 2 * o[2]), max(ow, ol, 2 * o[2]), 0.0)
+            if _rects_overlap(mine, other, RECT_MARGIN_MM):
+                return False
+        return True
 
     def _place_yaw(self, x_mm: float, y_mm: float) -> float:
         """놓는 손 방향: 단동식이면 놓는 점에서 팔이 뻗은 방향(턱 축이 방사 방향이라 기울일 수 있다), 아니면 0 (11.3.3)."""
@@ -728,6 +766,7 @@ class Skills:
             self.placed = [o for o in self.placed if o not in same]
             for o in same:
                 self.placed_angle.pop((o[0], o[1]), None)
+                self.placed_size.pop((o[0], o[1]), None)
         fail = MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0))
         v = self._q().gripper
         grip, plan, legacy = self.grip, None, None
@@ -764,7 +803,7 @@ class Skills:
         # 물체는 쥔 채 놓는 손 방향으로 놓인다: 놓은 뒤 물체 각도 = 집을 때 물체 각도 + (놓을 때 턱 yaw - 집을 때 턱 yaw). 집기 기억이 없으면(옛 방식) 모른다. 다시 집을 때 이 각도로 알려 준다
         self.last_place_angle_deg = None if grip is None or "yaw" not in grip else (grip["angle"] + place_yaw - grip["yaw"]) % 180.0
         self._place_ctx = {"target": (x_mm, y_mm), "legacy": bool(legacy), "tilted": tilted, "tilt_allowed": allowed, "obj_h": 0.0 if legacy else grip["obj_h"],
-                           "obj_w": 0.0 if legacy or not grip else grip.get("obj_w", 0.0),
+                           "obj_w": 0.0 if legacy or not grip else grip.get("obj_w", 0.0), "obj_l": 0.0 if legacy or not grip else grip.get("obj_l", 0.0),
                            "need_lift": (grip["obj_h"] + LIFT_MARGIN_MM) if grip and grip["obj_h"] > 0 else ((grip["tip_h"] if grip else self.cfg.grasp_height_mm) + LIFT_UNKNOWN_EXTRA_MM)}  # 놓은 뒤 상승의 최소: 물체 높이 + 10mm, 모르면 t_g + 30mm (11.3.3)
         q_hover, down, self._place_ctx["hover_mm"] = plan
         r = self._run([self._joint_move(q_hover), down])
@@ -794,6 +833,7 @@ class Skills:
                 if held_gap < self._gap_mm(min(self.cfg.gripper_open, self.cfg.joint_limits_deg["gripper"][1])) - 1.0:  # 그리퍼가 이미 열린 값(gripper_open)까지 열려 있었으면 쥔 물체가 없었다(드라이런·집기 실패): 놓은 물체로 세지 않는다
                     self.placed.append((x_mm, y_mm, held_gap / 2.0))  # 다음 놓기의 벌림이 이 물체를 피하도록 알려진 물체로 둔다
                     self.placed_height[(x_mm, y_mm)] = float(self._place_ctx.get("obj_h") or NEIGHBOUR_H_MM)
+                    self.placed_size[(x_mm, y_mm)] = (float(self._place_ctx.get("obj_w") or 0.0), float(self._place_ctx.get("obj_l") or 0.0))
                     if self.last_place_angle_deg is not None:
                         self.placed_angle[(x_mm, y_mm)] = self.last_place_angle_deg
         finally:
