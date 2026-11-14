@@ -244,6 +244,7 @@ def test_cli_status_mujoco(capsys):
 
 
 @pytest.mark.slow
+@pytest.mark.measure  # 벽시계 속도 측정이라 다른 프로세스가 CPU를 쓰면 놓침이 난다(결정 0064)
 def test_realtime_60s():
     """13.7 (e) 실시간 속도: 쉬기 30초 + home<->radar_clear 속도 30% 왕복 30초. 결과와 CPU는 measurements.md에 손으로 옮긴다."""
     import platform

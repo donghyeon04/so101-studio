@@ -73,3 +73,24 @@ def test_sim_blocked_applies_at_judgement_only_for_mujoco_and_rejects_unknown_ke
     kin.disconnect()
     with pytest.raises(ValueError, match="sim_blocked"):
         ArmService(make_sim_driver(CFG, WS, None, scenario="carry30"), replace(CFG, sim_blocked={"speed_pct_default": 5}), WS, log_root=None)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("speed", [30, 50])
+def test_parallel_hand_move_into_a_tall_box_is_stopped_and_held(tmp_path, speed):
+    """병렬 손(시험장 기준 설정: gripper parallel, local.yaml 안 읽음)은 blocker_parallel 벽에서 stopped·ARM-BLOCKED 1건·fault 0건이고, radar_clear 이동은 막히지 않는다."""
+    lp = tmp_path / "local.yaml"
+    lp.write_text("gripper: parallel" + chr(10), encoding="utf-8")
+    cfg = load_robot("config/robot.yaml", local_path=str(lp))
+    svc = ArmService(make_sim_driver(cfg, WS, None, scenario="blocker_parallel"), cfg, WS, speed_pct=speed, log_root=str(tmp_path))
+    ok, msg = svc.connect()
+    assert ok, msg
+    try:
+        assert svc.move_joints(JointState(*cfg.poses["radar_clear"])).status == "ok"
+        r = svc.move_tool(svc.point_pose(300, 140, 10))
+        ev = blocked_events(svc)
+        assert r.status == "stopped" and r.reason.startswith("blocked:"), r
+        assert len(ev) == 1 and ev[0]["data"]["profile"] == "empty"
+        assert svc.ctl.state == "idle" and svc.ctl._job is None
+    finally:
+        svc.disconnect()
