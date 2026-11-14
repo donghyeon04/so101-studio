@@ -18,6 +18,8 @@ DEADMAN_S = 0.3
 ARM_FIVE = JOINTS[:5]  # 그리퍼 앞의 팔 관절
 BLOCKED_ZONE_S = 0.2  # 막힘 감지: 궤적 앞뒤 이 시간은 가속·감속 문턱 (결정 0059)
 BLOCKED_AFTER_S = 1.0  # 동작이 끝난 뒤에도 그리퍼 닫기 막힘을 보는 시간
+BLOCKED_FULL_RATIO = 0.30  # 막힘 감지 속도별 적용(결정 0061): 이 속도 이하는 문턱 그대로, 이 값을 넘으면 정속 문턱만 속도/이 값 배
+BLOCKED_OFF_RATIO = 0.50  # 이 속도를 넘으면 판정하지 않고 ARM-TRACKING 기록만 남긴다
 BLOCKED_N = 2  # 연속으로 문턱을 넘는 상태 읽기 횟수(10Hz로 약 0.2초)
 STEP_MARGIN = 0.95  # 따라잡기로 진행할 때 한 주기 이동량 한도의 이 비율을 넘지 않는다
 MAX_TICK_ADVANCE = 2.0  # 한 틱에 궤적 시간이 최대 이만큼(틱 주기의 배수) 진행. 틱이 크게 늦어도 위치가 한 번에 건너뛰어 'step' fault가 나지 않고, 늦은 시간만큼 동작이 늦어진다
@@ -45,6 +47,16 @@ BUS_ERROR_MARKERS = ("RxPacketError", "TxRxResult")  # LeRobot 버스가 서보 
 def is_bus_error(e: Exception) -> bool:
     """통신(serial, ConnectionError, TimeoutError는 OSError) 또는 서보가 알린 하드웨어 오류. 이 밖의 예외(KeyError, TypeError 등)는 코드 버그다."""
     return isinstance(e, OSError) or (isinstance(e, RuntimeError) and any(m in str(e) for m in BUS_ERROR_MARKERS))
+
+
+def blocked_threshold(cfg, profile: str, zone: bool, speed_ratio: float) -> float | None:
+    """프로필(empty|held)·구간(zone=True면 가속·감속, 아니면 정속)·동작 속도(0~1)에 맞는 막힘 문턱(°). 속도가 BLOCKED_OFF_RATIO를 넘으면 None(판정 안 함). 결정 0061."""
+    if speed_ratio > BLOCKED_OFF_RATIO + 1e-9:
+        return None
+    if zone:
+        return getattr(cfg, f"blocked_{profile}_accel_deg")
+    scale = 1.0 if speed_ratio <= BLOCKED_FULL_RATIO + 1e-9 else speed_ratio / BLOCKED_FULL_RATIO
+    return getattr(cfg, f"blocked_{profile}_cruise_deg") * scale
 
 
 class MotionController:
@@ -417,7 +429,7 @@ class MotionController:
                 return
             if job is None:  # 동작이 끝난 직후에도 잠깐은 그리퍼 닫기를 본다: 짧은 닫기는 상태 읽기 2번이 차기 전에 끝난다
                 g = actual.gripper - self._last.gripper
-                if self.grasp_closing or not self._closes_gripper or self.grip_hold is not None or time.perf_counter() > self._blocked_until or g <= cfg.blocked_grip_units:
+                if speed_ratio > BLOCKED_OFF_RATIO + 1e-9 or self.grasp_closing or not self._closes_gripper or self.grip_hold is not None or time.perf_counter() > self._blocked_until or g <= cfg.blocked_grip_units:
                     self._blocked_n = 0
                     return
                 self._blocked_n += 1
@@ -430,7 +442,7 @@ class MotionController:
             held = self.grip_hold is not None
             prof = "held" if held else "empty"
             zone = t < BLOCKED_ZONE_S or traj.duration_s - t < BLOCKED_ZONE_S
-            thr = getattr(cfg, f"blocked_{prof}_{'accel' if zone else 'cruise'}_deg")  # 정속 문턱을 속도 비율로 줄이지 않는다: 실물 30%에서도 정속 오차가 2~12°로 줄지 않았다 (11-13)
+            thr = blocked_threshold(cfg, prof, zone, speed_ratio)  # 속도별 문턱(결정 0061): 30% 이하 그대로, 30~50% 정속만 s/0.3배, 50% 초과는 None(판정 안 함)
             joint, err = max(((j, abs(getattr(self._last, j) - getattr(actual, j))) for j in ARM_FIVE), key=lambda x: x[1])
             tr = self._track
             tr["profile"], tr["speed_ratio"] = prof, round(speed_ratio, 3)  # 문턱을 정하려고 정상 동작의 오차 최대를 모은다(REQ-067)
@@ -438,6 +450,9 @@ class MotionController:
                 tr["accel" if zone else "cruise"] = (err, joint)
             if self._closes_gripper and not self.grasp_closing:
                 tr["grip"] = max(tr["grip"], actual.gripper - self._last.gripper)
+            if thr is None:  # 50% 초과: 판정하지 않는다(위 tracking 기록만 남는다)
+                self._blocked_n = 0
+                return
             hit = (joint, err, thr, prof) if err > thr else None
             if hit is None and not held and self._closes_gripper and not self.grasp_closing and (g := actual.gripper - self._last.gripper) > cfg.blocked_grip_units:
                 hit = ("gripper", g, cfg.blocked_grip_units, "grip_close")
