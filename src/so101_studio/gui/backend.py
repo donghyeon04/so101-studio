@@ -574,8 +574,9 @@ class Backend:
         shortcut: 작업 시작 때 한 번 찍은 자리라 집어 옮긴 뒤 옛 자리가 남는다(배출 구역과 멀어 놓기를 막지 않음). 물체가 많아지면 놓을 때마다 다시 넘긴다."""
         if getattr(arm, "skills", None) is None:
             return
-        arm.skills.known_objects = [(o.x_mm, o.y_mm, max(o.width_mm or 0.0, o.length_mm or 0.0) / 2.0) for o in self.objects()
-                                    if near is None or math.hypot(o.x_mm - near[0], o.y_mm - near[1]) > 40.0]
+        kept = [o for o in self.objects() if near is None or math.hypot(o.x_mm - near[0], o.y_mm - near[1]) > 40.0]
+        arm.skills.known_objects = [(o.x_mm, o.y_mm, max(o.width_mm or 0.0, o.length_mm or 0.0) / 2.0) for o in kept]
+        arm.skills.known_height = {(o.x_mm, o.y_mm): o.height_mm for o in kept}  # 집은 뒤 이 높이보다 들어 옮긴다(#352, TaskRunner와 같은 규칙)
 
     # ---- 자세 즐겨찾기와 프로그램 (결정 0044). 실패하면 이유 문장, 성공하면 None
     def waypoints(self) -> dict:
