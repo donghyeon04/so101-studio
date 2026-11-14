@@ -39,6 +39,7 @@ def _tip(svc, q):
     return np.array([ref.x_mm + f[0], ref.y_mm + f[1], ref.z_mm + f[2] - CFG.table_z_mm])
 
 
+@pytest.mark.slow
 def test_follow_straight_line_samples_monotonic_about_50hz(svc):
     pts = [(260.0, 200.0), (340.0, 200.0)]
     _goto(svc, *pts[0])
@@ -95,6 +96,7 @@ def test_parallel_sensor_position_does_not_move_with_the_jaw_opening(tmp_path):
         s.disconnect()
 
 
+@pytest.mark.slow
 def test_tip_tracks_polyline_within_tolerance(svc):
     pts = [(260.0, 180.0), (320.0, 180.0), (320.0, 240.0)]
     svc.follow_path(pts, Z, 60.0)
@@ -115,6 +117,7 @@ def _ring(c=(300.0, 180.0), r=45.0, n=37):
     return [(c[0] + r * math.cos(math.radians(i * 360 / (n - 1))), c[1] + r * math.sin(math.radians(i * 360 / (n - 1)))) for i in range(n)]
 
 
+@pytest.mark.slow
 def test_circle_is_one_continuous_run_not_36_stops(svc):
     ring = _ring()
     calls = _count_executes(svc, ring[0])
@@ -124,6 +127,7 @@ def test_circle_is_one_continuous_run_not_36_stops(svc):
     assert np.ptp(xy[:, 0]) > 80  # 원을 한 바퀴 돈 센서 궤적
 
 
+@pytest.mark.slow
 def test_any_corner_is_one_call_and_one_motion(svc):
     calls = _count_executes(svc, (260.0, 180.0))
     svc.follow_path([(260.0, 180.0), (320.0, 180.0), (320.0, 240.0)], Z, 60.0)  # 90° 꺾임
@@ -318,6 +322,7 @@ def test_arm_links_are_shoulder_elbow_wrist_tip_in_table_xy(svc):
     assert d2[3] > 150 and d2[2] > d2[1] > d2[0]  # 손끝과 손목이 멀리 나가고 어깨→팔꿈치→손목 순으로 멀어진다
 
 
+@pytest.mark.slow
 def test_samples_carry_tool_and_sensor_and_yaw_is_held(svc):
     _goto(svc, 260.0, 200.0, yaw=0.0)
     smp = svc.follow_path([(260.0, 200.0), (340.0, 200.0)], Z, 60.0, yaw_deg=0.0)
@@ -368,6 +373,7 @@ def _wait(cond, limit=10.0):
     return cond()
 
 
+@pytest.mark.slow
 def test_read_failure_during_path_ends_with_comm_lost_fault(tmp_path):
     s = _flaky_service(tmp_path)
     th, _out = _run_async(lambda: s.follow_path([(240.0, 200.0), (420.0, 200.0)], Z, 40.0))
