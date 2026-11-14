@@ -20,7 +20,7 @@ SO-101(SO-ARM101) 로봇 암 프로젝트. 문서 색인은 `docs/README.md`에 
 
 ## 개발 세션 규칙
 - 작업 전에 `docs/planning/system-architecture.md`와 해당 모듈 설계서(`arm-software-spec.md` 등)를 읽고, 작업 순서표의 다음 작업부터 한다.
-- `main`에서 `dev/<작업>` 브랜치를 따서 작업하고, 끝나면 PR로 합친다 (`decisions/0007`). PR이 합쳐지면 그 폴더를 `main`으로 돌려 pull한다(`so101.cmd`는 그 폴더의 코드를 실행한다).
+- `main`에서 `dev/<작업>` 브랜치를 따서 작업하고, 끝나면 PR로 합친다 (`decisions/0007`). PR이 합쳐지면 그 폴더를 최신 main으로 돌린다: 팔 폴더는 `git switch main && git pull --ff-only`, GUI·MuJoCo·초음파 폴더(worktree라 `main`을 체크아웃하지 못한다)는 `git fetch origin && git switch --detach origin/main`(`so101.cmd`는 그 폴더의 코드를 실행한다).
 - 설계서와 다르게 구현해야 하면 멈추고 사용자에게 알린다. 설계서는 기획 세션에서 고친다.
 - 하드웨어 없이 `--sim`으로 먼저 테스트한다. 실제 팔은 속도 30% 이하로 처음 움직이고, 사람이 전원 스위치 옆에서 대기한다.
 - 측정값은 `docs/planning/measurements.md`에 기록한다.
@@ -54,5 +54,6 @@ SO-101(SO-ARM101) 로봇 암 프로젝트. 문서 색인은 `docs/README.md`에 
 ## 주의사항
 - HC-SR04는 5V, ESP32는 3.3V다. Echo 핀은 분압 저항이나 레벨 시프터를 거쳐 연결한다.
 - 같은 실수를 두 번 바로잡았다면 여기에 한 줄로 추가한다.
-- 로컬 폴더가 합쳐져 지워진 브랜치에 남으면 `so101.cmd gui`가 옛 코드로 돌다 꺼진다(2026-11-14 팔·MuJoCo 폴더). 세션을 시작할 때 `git status -sb`로 브랜치를 보고, 지워진 브랜치면 `main`으로 돌린다.
+- 실물 팔을 처음 쓰는 PC는 `config/calibration/<id>.json`을 `%USERPROFILE%\.cache\huggingface\lerobot\calibration\robots\so_follower\`에 복사해야 한다. `doctor`는 레포 사본으로 통과해도 실제 연결은 "캘리브레이션 불일치"로 잠긴다.
+- 로컬 폴더가 합쳐져 지워진 브랜치에 남으면 `so101.cmd gui`가 옛 코드로 돌다 꺼진다(2026-11-14 팔·MuJoCo 폴더). 세션을 시작할 때 `git status -sb`로 브랜치를 보고, 지워진 브랜치면 위 방법으로 최신 main으로 돌린다.
 - 로컬 폴더에서는 `git add -A`·`git commit -a`를 쓰지 않고, `git status --short`로 확인한 뒤 바꾼 파일만 이름으로 더한다. GUI 실행이 바꾼 설정·추적 안 한 백업·교시 기록이 커밋에 섞인 적이 두 번 있다(2026-11-06 GUI 폴더, 2026-11-11 #234).

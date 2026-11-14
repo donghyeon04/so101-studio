@@ -1,6 +1,6 @@
 # 툴링 셋업
 
-상태: 확정 · 갱신 2026-11-06
+상태: 확정 · 갱신 2026-11-14(C-1을 environment.yml 설치와 새 PC에 맞춤) · 2026-11-06
 
 > 기획 계정과 개발 계정 모두 같은 도구를 갖추기 위한 체크리스트다.
 
@@ -44,11 +44,11 @@
 | # | 이름 | 용도 | 비고 |
 |---|---|---|---|
 | C1 | Git for Windows | 레포 작업. Windows용 Claude Code도 Git Bash를 쓴다 | |
-| C2 | Miniforge (conda) | Python 3.12 이상 가상환경. LeRobot 공식 문서가 conda를 권장한다 | LeRobot은 Python 3.12 이상 필요 |
-| C3 | LeRobot | 팔 제어, 기구학 (`decisions/0003`) | `pip install "lerobot[feetech,kinematics]"`. `kinematics`가 설치하는 placo는 Windows 휠이 없어 실패할 수 있다 → T1에서 확인 |
-| C4 | USB 시리얼 드라이버 (CH340 또는 CP210x) | 버스 서보 보드와 ESP32의 COM 포트 인식 | 장치 관리자에서 COM 번호 확인 |
+| C2 | Miniforge (conda) | Python 3.12 이상 가상환경. LeRobot 공식 문서가 conda를 권장한다 | LeRobot은 Python 3.12 이상 필요. `C:\miniforge3`처럼 한글이 없는 경로에 설치한다(`so101.cmd`가 찾는 곳) |
+| C3 | LeRobot, placo, 시험 도구 | 팔 제어, 기구학 (`decisions/0003`) | 따로 설치하지 않는다. `conda env create -f environment.yml`이 `lerobot[feetech]==0.6.1`, placo 0.9.25(conda), 레포(`-e .[gui,test]`)를 함께 설치한다. 설치 뒤 한 번 `python -m playwright install chromium`(화면 시험). pip의 `lerobot[kinematics]`는 Windows에서 실패하므로 쓰지 않는다 |
+| C4 | USB 시리얼 드라이버 (팔 보드는 CH343, ESP32는 CH340 또는 CP210x) | 버스 서보 보드와 ESP32의 COM 포트 인식 | 장치 관리자에 `USB-Enhanced-SERIAL CH343 (COMx)`가 보이면 된다. 안 보이면 WCH CH343 드라이버를 설치한다 |
 | C5 | ruff, pytest | 코드 형식 검사, `--sim` 단위 테스트 | |
-| C6 | Arduino IDE 2 또는 PlatformIO + ESP32 보드 패키지 3.x | ESP32 스캔 펌웨어 | Windows 사용자 폴더 이름이 한글이면 펌웨어 링크(xtensa ld)가 실패한다. core를 영문 경로에 설치한다: `ARDUINO_DIRECTORIES_DATA=C:\arduino15`, `ARDUINO_DIRECTORIES_USER=C:\arduino15\user`를 설정한 뒤 core 설치. 상세는 `us-dev-status.md` 알려진 함정 8번 |
+| C6 | Arduino IDE 2 또는 PlatformIO + ESP32 보드 패키지 3.x | ESP32 스캔 펌웨어 | Windows 사용자 폴더 이름이 한글이면 펌웨어 링크(xtensa ld)가 실패한다. core를 영문 경로에 설치한다: `ARDUINO_DIRECTORIES_DATA=C:\arduino15`, `ARDUINO_DIRECTORIES_USER=C:\arduino15\user`를 설정한 뒤 core 설치. 상세는 `us-dev-status.md` 알려진 함정 7번. 레이더 서보 펌웨어(`firmware/openrb_servo`)에는 보드 패키지 `OpenRB-150:samd`와 Dynamixel2Arduino 0.8.2가 더 필요하다(같은 문서 8번) |
 
 ### C-2. Claude Code 플러그인·MCP·스킬
 | # | 이름 | 용도 | 비고 |

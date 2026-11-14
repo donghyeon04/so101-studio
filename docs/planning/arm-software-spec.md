@@ -318,7 +318,7 @@ GUI에서 점 찍기는 `point_pose` → `preview_tool` → `move_tool` 순서�
 ## 7. 설정 파일 (주요 값, 실제 값은 `config/*.yaml`이 기준)
 | 항목 | 값 | 근거 |
 |---|---|---|
-| 통신 | 1Mbps, 서보 ID 1~6. 포트는 7.1절 순서로 고른다(이 PC는 COM3) | `arm-hardware-setup.md`, `decisions/0027` |
+| 통신 | 1Mbps, 서보 ID 1~6. 포트는 7.1절 순서로 고른다(PC마다 다르다) | `arm-hardware-setup.md`, `decisions/0027` |
 | 제어 주기, PID | 50Hz, P16 I0 D32 | `decisions/0014` |
 | 서보 가속 한계 | 팔 10, 그리퍼 25 | `decisions/0014` |
 | 홈·파크 자세 | `[0, -90, 93, 0, 0, 3]` (파크는 센서 위치가 정해지면 바꿈) | 팔꿈치 한계 95 |

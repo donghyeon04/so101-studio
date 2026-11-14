@@ -10,7 +10,7 @@ SO-101 팔이 초음파로 물체를 찾아 집어 옮기는 시스템(12/4 시�
 ## 2. 부분별 지금 상태 (main 299bea9 기준)
 | 부분 | 된 것 | 남은 것 | 기준 문서 |
 |---|---|---|---|
-| 팔 | 동작·안전 검사·CLI·교시·자동 캘리브레이션(0° 확인까지), 작업 실행 `CHECK`·`RESCAN`, 그리퍼 두 종(단동식·병렬), 장면 부품 충돌, 막힘 감지(0059·0061), 포트 PC별 자동(#337), CLI `run`도 남은 물체를 팔에 알림(#346), 집은 뒤 상승이 남은 물체보다 높게(#352), 배출 칸 겹침 검사(#356), 병렬 센서 기준점 가운데(#358) | 새 PC에서 0° 확인 다시, CHECK 경로 기준점(병렬은 가운데, REQ), 로보나인 교체 뒤 2-10·2-2 재시험 | `arm-software-spec.md`, `arm-dev-status.md` |
+| 팔 | 동작·안전 검사·CLI·교시·자동 캘리브레이션(0° 확인까지), 작업 실행 `CHECK`·`RESCAN`, 그리퍼 두 종(단동식·병렬), 장면 부품 충돌, 막힘 감지(0059·0061), 포트 PC별 자동(#337), CLI `run`도 남은 물체를 팔에 알림(#346), 집은 뒤 상승이 남은 물체보다 높게(#352), 배출 칸 겹침 검사(#356), 병렬 센서 기준점 가운데(#358) | 새 PC 첫 연결(캘리브레이션 파일을 LeRobot 캐시에 복사), CHECK 경로 기준점(병렬은 가운데, REQ), 로보나인 교체 뒤 2-10·2-2 재시험 | `arm-software-spec.md`, `arm-dev-status.md` |
 | GUI | 페이지 15개 + 운영자 화면, `--share`, 캘리브레이션 마법사, 직접 조작(현재 좌표·되돌리기, 12.9 #355), MuJoCo GUI(M4) | 화면 비교 시험 안정화(`.mode-detail`), 장면 부품 편집기 | `gui-spec.md`, `gui-dev-status.md` |
 | MuJoCo | M1~M4, **M4b 로보나인 손 모델**(#348·#350·#357, FK 0.002mm 일치, carry 30/45/58 통과, kp·힘은 잠정), 손목 브래킷·센서 조립을 뷰어로 사용자 확인 | 병렬 손으로 (a)(b)·문턱 다시 재기 → M5 집기 시험장·M6 초음파를 MuJoCo에 | `mujoco-spec.md` 13.10 |
 | 초음파 | 레이더 + 팔 확인 인식, 가상 ESP32·벤치마크, OpenRB-150 + XL330 펌웨어(컴파일만), 센서 오프셋 {0.6, 66.5, 99.5}·`ring_r_mm` 60(#359) | 센서 높이 154.5mm로 성능이 떨어졌다(`ultrasonic-spec.md` 1절). CHECK 높이·경로 다시 고르기, 부품 뒤 B1~B4 → R1 → A0·A1 → I1 | `ultrasonic-spec.md`, `us-dev-status.md` |
@@ -62,7 +62,7 @@ SO-101 팔이 초음파로 물체를 찾아 집어 옮기는 시스템(12/4 시�
 | 팔 | `so101-studio` | 그 밖의 코드, `arm-software-spec.md` |
 | MuJoCo | `so101-studio-sim` | `arm/mujoco_*`, `assets/mujoco/`, `config/sim_scenarios/`, `tests/test_mujoco_*`, `mujoco-spec.md` |
 | 초음파 | `so101-studio-us` | `perception/ultrasonic/`, `firmware/`, `config/ultrasonic.yaml`, `ultrasonic-spec.md` |
-- `so101.cmd`는 **그 폴더의 코드**를 실행한다. 세션을 시작할 때 `git status -sb`로 브랜치를 보고, 합쳐져 지워진 브랜치면 `main`으로 돌린다.
+- `so101.cmd`는 **그 폴더의 코드**를 실행한다. 세션을 시작할 때 `git status -sb`로 브랜치를 보고, 합쳐져 지워진 브랜치면 최신 main으로 돌린다(팔 폴더는 `git switch main && git pull --ff-only`, 나머지 세 폴더는 `main`을 체크아웃하지 못하므로 `git fetch origin && git switch --detach origin/main`).
 - 합칠 때 `gh pr merge --delete-branch`를 쓰지 않는다(worktree 폴더가 지워진다). 순서는 `session-workflow.md` 2절.
 - 대화 기억은 계정·세션을 넘어가지 않는다. 넘어가야 할 것은 모두 git 안 문서(이 문서, `work-queue.md`, `*-dev-status.md`, `session-requests.md`, `measurements.md`, 결정)에 있어야 한다.
 
@@ -77,4 +77,4 @@ SO-101 팔이 초음파로 물체를 찾아 집어 옮기는 시스템(12/4 시�
 | 팀 CAD 원본 `브라켓 설계 초안/`(약 37MB) | 레포에 넣지 않는다. 팀 드라이브 한 곳에 두고 `assets/scene/NOTICE.txt`에 위치를 적는다 |
 | 팀 공유 3D 페이지(브래킷 출력 방향) | claude.ai 아티팩트(사용자 계정)라 옮길 것 없음 |
 | `so101-studio-view`(MuJoCo 확인용 로컬 폴더) | 새 PC에는 만들지 않는다. 로보나인 확인은 MuJoCo 폴더에서 `--sim --sim-engine mujoco --sim-viewer`로 |
-| 캘리브레이션 | 파일은 git(`config/calibration/`). 새 PC에서 0° 확인(`calibrate --verify-zero`)을 다시 해야 움직인다 |
+| 캘리브레이션 | 파일은 git(`config/calibration/`). 새 PC에서는 이 파일을 LeRobot 캐시(`%USERPROFILE%\.cache\huggingface\lerobot\calibration\robots\so_follower\`)에 복사해야 연결이 잠기지 않는다. 0° 확인 기록은 팔 파일(git)에 있어 다시 하지 않아도 된다(`session-workflow.md` 8절 "새 PC로" 6) |
