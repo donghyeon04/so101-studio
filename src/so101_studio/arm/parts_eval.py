@@ -5,7 +5,7 @@
 조립 STL(로보나인 병렬 그리퍼 + 브래킷 + HC-SR04, 145개 바디, 이름 없음)의 0~43과 142는 그리퍼(이미 URDF에 있음, ICP로 손 메쉬에 맞음)이고
 44~141·143은 HC-SR04 모듈(143은 기판), 144는 출력할 브래킷 판이다(바디 번호는 CAD 내보내기 순서라 조립이 바뀌면 다시 확인한다: 추정).
 --export는 모듈과 브래킷을 gripper_link 좌표로 옮겨 assets/scene/에 쓴다. 평가는 그 파일과 URDF만으로 돈다.
-좌표 변환(조립 -> gripper_link, mm)은 조립의 판 바디(0번)를 URDF의 parallel_hand 메쉬에 맞춰 구했다(99%가 1.6mm 안).
+좌표 변환(조립 -> gripper_link, mm)은 조립의 판 바디(0번)를 URDF의 parallel_hand(_nocam) 메쉬에 맞춰 구했다(99%가 1.6mm 안).
 shortcut: placo가 한글 경로를 못 읽어 URDF를 상대 경로로 연다(레포 루트에서 실행). 질량은 출력 바디마다 벽 2겹(0.8mm)+채움 20% 보정, HC-SR04는 8.5g 고정(추정, 슬라이서 무게·실측이 오면 바꾼다)."""
 import argparse
 import json
@@ -243,9 +243,9 @@ def overhang(parts) -> dict:
 
 
 def hand_overlap(parts) -> dict:
-    """URDF 손 메쉬(손목 쪽 형상 포함) 표면 점이 부품의 경계 상자 안에 몇 개나 들어오는지(30만 점 중). 0이 아니면 CAD 조립에 없는 형상과 겹칠 수 있다(상자라 거칠다)."""
+    """URDF 손 메쉬(손목 카메라를 뺀 parallel_hand_nocam, 그 밖의 손목 쪽 형상은 포함) 표면 점이 부품의 경계 상자 안에 몇 개나 들어오는지(30만 점 중). 0이 아니면 CAD 조립에 없는 형상과 겹칠 수 있다(상자라 거칠다)."""
     from scipy.spatial.transform import Rotation as Rot
-    ph = trimesh.load(SCENE_DIR.parent / "assets" / "parallel" / "parallel_hand.stl", force="mesh")
+    ph = trimesh.load(SCENE_DIR.parent / "mujoco" / "parallel" / "parallel_hand_nocam.stl", force="mesh")  # URDF gripper_link의 손 메쉬(손목 카메라를 뺀 파생, 결정 0063)
     v = Rot.from_euler("x", 1.570796).apply(ph.vertices) + np.array([-7.062, 152.066, 120.627])
     pts = trimesh.Trimesh(v, ph.faces).sample(300000)
     return {k: int(((pts >= m.bounds[0]) & (pts <= m.bounds[1])).all(1).sum()) for k, m in parts.items()}

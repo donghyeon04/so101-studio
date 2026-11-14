@@ -263,12 +263,12 @@
     <!-- Robonine Parallel Gripper main body (link5_1.stl) -->
     <visual>
       <origin xyz="-0.007062 0.152066 0.120627" rpy="1.570796 0 0"/>
-      <geometry><mesh filename="assets/parallel/parallel_hand.stl" scale="0.001 0.001 0.001"/></geometry>
+      <geometry><mesh filename="mujoco/parallel/parallel_hand_nocam.stl" scale="0.001 0.001 0.001"/></geometry>
       <material name="3d_printed"/>
     </visual>
     <collision>
       <origin xyz="-0.007062 0.152066 0.120627" rpy="1.570796 0 0"/>
-      <geometry><mesh filename="assets/parallel/parallel_hand.stl" scale="0.001 0.001 0.001"/></geometry>
+      <geometry><mesh filename="mujoco/parallel/parallel_hand_nocam.stl" scale="0.001 0.001 0.001"/></geometry>
     </collision>
   </link>
 
