@@ -166,6 +166,8 @@ class Backend:
         self._started_ns = time.time_ns()
         self.run_focus: tuple | None = None  # 로그에서 고른 줄: (실행 이름, 시각). 실행 기록 페이지가 읽는다
         self._next_object = 0
+        self._object_undo: list[list[DetectedObject]] = []  # 수동 입력 물체를 바꾸기 전 목록들(gui-spec 12.9 (나), Ctrl+Z)
+        self._object_undo_t = 0.0
         self._listener = None
         self.owner: str | None = None  # 조작권을 가진 브라우저. NiceGUI 이벤트 루프에서만 바꾼다
         ws = load_workspace()
@@ -684,6 +686,7 @@ class Backend:
         for arm in self._arms():
             self._tell_known_objects(arm)
         self.studio.start(step_mode=step_mode)
+        self._object_undo.clear()  # 실행한 작업은 되돌리지 않는다(gui-spec 12.9)
         return None
 
     def step_task(self) -> str | None:
@@ -715,6 +718,7 @@ class Backend:
     def add_object(self, x: float, y: float, angle: float = 0.0, width: float = 30.0, length: float = 100.0, height: float = 0.0) -> str:
         """클릭한 자리에 물체를 놓고 id를 돌려준다."""
         self._objects_locked()
+        self._remember_objects(coalesce=False)
         self._next_object += 1
         object_id = f"added-{self._next_object}"
         self.source.add(DetectedObject(object_id, x, y, angle, width, length, 1.0, "manual", height_mm=height))
@@ -723,6 +727,7 @@ class Backend:
 
     def move_object(self, object_id: str, x: float, y: float) -> None:
         self._objects_locked()
+        self._remember_objects(coalesce=True)
         old = next(o for o in self.objects() if o.id == object_id)
         self.source.remove(object_id)
         self.source.add(replace(old, x_mm=x, y_mm=y))
@@ -731,6 +736,7 @@ class Backend:
     def nudge_object(self, object_id: str, dx: float, dy: float, dangle: float = 0.0) -> None:
         """고른 물체를 조금 옮기고 돌린다(G16). 각도는 0~180으로 감는다(물체는 180° 돌리면 같다)."""
         self._objects_locked()
+        self._remember_objects(coalesce=True)
         old = next((o for o in self.objects() if o.id == object_id), None)
         if old is None:
             return
@@ -741,6 +747,7 @@ class Backend:
     def set_object_height(self, object_id: str, height: float) -> None:
         """수동 입력 물체의 높이를 고친다(결정 0052: 수직으로 집는 물체는 높이가 있어야 집는다)."""
         self._objects_locked()
+        self._remember_objects(coalesce=False)
         old = next((o for o in self.objects() if o.id == object_id), None)
         if old is None:
             return
@@ -755,12 +762,14 @@ class Backend:
 
     def remove_object(self, object_id: str) -> None:
         self._objects_locked()
+        self._remember_objects(coalesce=False)
         self.source.remove(object_id)
         self._changed_objects()
 
     def reset_objects(self) -> None:
         """파일에 적힌 처음 물체로 되돌린다(옮긴 표시도 지운다). 지금 있는 물체는 지운다."""
         self._objects_locked()
+        self._remember_objects(coalesce=False)
         for obj in self.objects():
             self.source.remove(obj.id)
         for obj in ManualSource().scan().objects:
@@ -826,6 +835,29 @@ class Backend:
         except (ValueError, FileNotFoundError) as e:
             return str(e)
         return None
+
+    def _remember_objects(self, coalesce: bool) -> None:
+        """바꾸기 전 물체 목록을 되돌리기 기록에 둔다. coalesce면 0.6초 안에 이어진 끌기·조금 옮기기는 한 번으로 친다(중간값을 하나씩 되돌리지 않게)."""
+        now = time.monotonic()
+        if not (coalesce and self._object_undo and now - self._object_undo_t < 0.6):
+            self._object_undo.append(list(self.objects()))
+            del self._object_undo[:-50]
+        self._object_undo_t = now
+
+    def undo_objects(self) -> bool:
+        """수동 입력 물체를 바로 전 목록으로 되돌린다(gui-spec 12.9 (나)). 되돌릴 것이 없으면 False. MuJoCo에서는 편집처럼 잠겨 있다."""
+        self._objects_locked()
+        if not self._object_undo:
+            return False
+        before = self._object_undo.pop()
+        for obj in self.objects():
+            self.source.remove(obj.id)
+        for obj in before:
+            with contextlib.suppress(KeyError):
+                self.source.remove(obj.id)
+            self.source.add(obj)
+        self._changed_objects()
+        return True
 
     def _objects_locked(self) -> None:
         if self._physical():  # MuJoCo는 물체를 시작할 때 놓는다(gui-spec 12.8)
