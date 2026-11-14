@@ -35,7 +35,7 @@ def test_tool_pose_yaw_wraps_and_roundtrips():
 
 def test_load_configs():
     robot = load_robot("config/robot.yaml")
-    assert robot.port == "COM3" and robot.pid == {"p": 16, "i": 0, "d": 32}
+    assert robot.port == "" and robot.pid == {"p": 16, "i": 0, "d": 32}
     assert len(robot.poses["home"]) == 6
     ws = load_workspace("config/workspace.yaml")
     assert ws.base == BASE and ws.drop_zones["right"]["x_mm"] == 480 and ws.zone_slots("right")
