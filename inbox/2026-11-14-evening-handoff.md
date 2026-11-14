@@ -74,3 +74,11 @@
 - **U4·U5**: 사용자가 "무엇을 하면 되는지 모르겠다"고 했다. 기획이 사용자가 할 일을 쉬운 체크리스트로 풀어 달라. 예) U5: 로보나인 그리퍼 부품이 있는지·출력했는지 → 교체할 날짜. U4: OpenRB 보드 VIN 단자에 12V가 들어가는지 테스터로 보기, 작업대 조립 날짜.
 - **git 밖 파일 이전**: 바탕화면 `so101-이전-1114.zip`(6.4MB)에 모았다(팀 CAD 원본 폴더 `브라켓 설계 초안` 37MB 포함, README.txt에 각 파일이 새 PC 어디로 가는지). 레포 전체 `runs/`(약 700MB 실행 기록)는 넣지 않았다.
 - **CAD 원본을 git에 올릴지(사용자 질문)**: 총괄 의견은 레포에 넣지 않는다. 배포 점검표 A절("STEP 원본은 레포 밖, 3D·충돌에 쓰는 STL만 assets/에")과 맞고, 36MB 바이너리가 모든 클론과 기록에 영원히 남는다. 레포에는 파생 STL이 이미 있다. 원본은 팀 드라이브(또는 따로 비공개 레포·GitHub Release 첨부) 한 곳을 기준으로 두고 `assets/scene/NOTICE.txt`에 그 위치를 적자. 기획이 정해 달라.
+
+## 9. 추가: 센서 기준점 (a)로 처리함 (사용자 "오늘 끝내자")
+- #358(팔): 병렬일 때 `sensor_position` 기준점을 두 턱 끝 가운데로(단동식 그대로, tool_position·follow_path는 그대로). 합본 not slow test_follow_path·test_task_check 40 passed.
+- #359(초음파): `arm_sensor_offset_mm` {0.6, 66.5, 99.5}, `check.ring_r_mm` 45 → 60. 합본 tests/perception + test_follow_path not slow 73 passed. main은 이 보고 시점에 #359까지.
+- **기획이 봐야 할 것 셋**:
+  1. 벤치마크 성능이 떨어졌다(single 비관 모델 성공률 78% → 62%, 물체 3개 인식 시간 기준을 70초 → 130초로 완화). 주원인은 센서 높이 154.5mm(빔이 넓어짐). ultrasonic-spec 1절 임시 기준과 결정 0037(설계서 숫자는 고정 시나리오 결과)을 고쳐 달라. 낙관 모델·demo 시나리오 표는 ring 60으로 다시 재지 않았다. 빔 반경은 B1 실측 전 가정값.
+  2. **남은 어긋남**: `follow_path`(CHECK 경로)는 여전히 한쪽 턱 끝(`tool_position`)을 움직이는데, `sensor_to_tip`은 오프셋 기준점(이제 가운데)을 경로 점으로 가정한다. 그리퍼가 열려 있으면 벌림/2(최대 42mm)만큼 CHECK 경로가 어긋난다. 지금 CHECK 전에 그리퍼를 닫는 코드가 없다(runner._check). 고칠 길: 병렬일 때 tool_position·follow_path 기준도 가운데(TCP)로 / CHECK 전에 그리퍼를 닫는다. 다음 세션 팔 REQ로.
+  3. ultrasonic-spec 3.3·`set_sensor_offset` 문구 "고정 턱 끝 기준"을 "병렬은 두 턱 끝 가운데"로(#358 [기획 요청]).
