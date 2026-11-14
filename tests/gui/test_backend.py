@@ -122,3 +122,24 @@ def test_manual_objects_are_told_to_the_arm_as_known_obstacles(backend):
     backend._tell_known_objects(backend.arm)
     assert len(backend.arm.skills.known_objects) == len(objs)
     assert backend.arm.skills.known_height == {(o.x_mm, o.y_mm): o.height_mm for o in objs}
+
+
+def test_object_edits_undo_in_order_and_a_run_clears_them(backend):
+    """수동 입력 물체 되돌리기(gui-spec 12.9 나): 더하기·옮기기·지우기를 차례로 되돌린다. 0.6초 안의 옮기기 연타는 한 번, 작업을 시작하면 기록을 비운다."""
+    backend.reset_objects()
+    start = backend.objects()
+    backend._object_undo.clear()
+    oid = backend.add_object(200, 150, 0, 30, 60, 40)
+    time.sleep(0.7)
+    backend.nudge_object(oid, 5, 0)
+    backend.nudge_object(oid, 5, 0)  # 연타: 한 번으로
+    time.sleep(0.7)
+    backend.remove_object(oid)
+    assert backend.undo_objects() and any(o.id == oid for o in backend.objects())
+    assert backend.undo_objects() and next(o for o in backend.objects() if o.id == oid).x_mm == 200
+    assert backend.undo_objects() and backend.objects() == start
+    assert not backend.undo_objects()
+    backend.add_object(220, 150)
+    assert backend.start_task() is None
+    assert not backend.undo_objects()  # 실행한 작업은 되돌리지 않는다
+    backend.stop_all()

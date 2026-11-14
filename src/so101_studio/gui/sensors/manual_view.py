@@ -135,7 +135,21 @@ def page(backend, client_id: str, actions) -> None:
         state["selected"] = None
         refresh_table()
 
+    async def undo() -> None:  # gui-spec 12.9 (나): 화면에서만 바꾼 물체를 바로 전으로. 중간 값 알림은 띄우지 않는다
+        if not backend.undo_objects():
+            ui.notify("되돌릴 물체 변경이 없습니다", type="info")
+            return
+        if state["selected"] not in {o.id for o in backend.objects()}:
+            state["selected"] = None
+        refresh_table()
+
+    if not locked:
+        ui.keyboard(on_key=lambda e: controls.guard(undo)() if e.action.keydown and not e.action.repeat and e.modifiers.ctrl
+                    and str(e.key).lower() == "z" else None)  # 입력칸 안의 Ctrl+Z는 브라우저가 그 칸을 되돌린다
+
     with actions:
+        lock(ui.button("되돌리기", icon="undo", on_click=controls.guard(undo)).props("outline no-caps").tooltip(
+            "물체를 바로 전으로 되돌린다(Ctrl+Z). 팔은 움직이지 않는다").mark("objects-undo"))
         lock(ui.button("처음 물체로", on_click=controls.guard(reset)).props("outline no-caps").mark("reset-objects"))
         remove_button = ui.button("지우기", on_click=controls.guard(remove)).props("outline no-caps").mark("remove-object")
 

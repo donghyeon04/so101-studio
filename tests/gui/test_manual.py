@@ -206,13 +206,17 @@ def test_target_undo_restores_typed_and_picked_points_without_moving(backend):
         before = _tip(backend)
         x.meta.set(320.0)
         assert await _until(lambda: x.value == 320.0)
+        await asyncio.sleep(0.7)  # 0.6초 안의 변경은 한 번으로 친다(12.9 가)
         backend.scene.pick(280.0, 230.0, 60.0)
         assert await _until(lambda: (x.value, y.value, h.value) == (280.0, 230.0, 60.0))
+        backend.scene.pick(285.0, 235.0, 60.0)  # 끄는 중의 중간 점: 따로 되돌리지 않는다
+        assert await _until(lambda: x.value == 285.0)
         user.find(marker="target-undo").click()
         assert await _until(lambda: (x.value, y.value, h.value) == (320.0, 200.0, 40.0))
         user.find(marker="target-undo").click()
         assert await _until(lambda: x.value == 300.0)
         assert np.linalg.norm(_tip(backend) - before) < 1.0  # 되돌리기는 목표만 바꾼다
+        assert not user.notify.contains("되돌릴")  # 되돌릴 것이 있는 동안은 알림이 없다(12.9 가)
 
     in_app(backend, check)
 

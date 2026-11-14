@@ -1,5 +1,7 @@
 """직접 조작 페이지 (gui-spec 3절): 3D, 조그, 좌표 이동(미리보기 -> 이동), 그리퍼, 속도, 홈·파크."""
 
+import time
+
 from nicegui import run, ui
 
 from .. import theme
@@ -49,10 +51,15 @@ def build(backend, client_id: str, actions) -> None:
 
     history: list[dict] = []  # 목표 좌표의 이전 값들 (Ctrl+Z·[되돌리기]). 팔은 움직이지 않는다
 
+    last = {"t": 0.0}
+
     def remember() -> None:
-        if not history or history[-1] != target:
+        """바꾸기 전 목표를 기록한다. 0.6초 안에 이어진 변경(손잡이 끌기·패드 연타)은 한 번으로 친다: 중간 좌표를 하나씩 되돌리지 않게(gui-spec 12.9 (가))."""
+        now = time.monotonic()
+        if (not history or history[-1] != target) and now - last["t"] >= 0.6:
             history.append(dict(target))
             del history[:-UNDO_MAX]
+        last["t"] = now
 
     def undo() -> None:
         if not history:
@@ -61,6 +68,7 @@ def build(backend, client_id: str, actions) -> None:
         for key, value in history.pop().items():  # 입력칸에 조용히 넣고(다시 기록하지 않게) 목표를 바꾼다. 3D 점과 계산이 따라온다
             fields[key].set(value, quiet=True)
             target[key] = value
+        plan_state["quiet"] = True  # 되돌린 중간 좌표의 계산 결과는 알리지 않는다(칸·3D만 바뀐다)
         mark_dirty()
 
     def number(label: str, key: str):
@@ -94,6 +102,8 @@ def build(backend, client_id: str, actions) -> None:
             offer_free_edge(backend, move)
         elif reason:
             ui.notify(reason, type="negative")
+        else:
+            history.clear()  # 실행한 이동은 되돌리지 않는다(gui-spec 12.9)
         plan_state["dirty"] = True
 
     with ui.row().classes("w-full no-wrap items-start gap-4"):
@@ -205,6 +215,8 @@ def build(backend, client_id: str, actions) -> None:
                     reason = await run.io_bound(backend.pick_place, points["pick"], float(obj_a.value), float(obj_w.value),
                                                 float(obj_l.value), points["place"], float(obj_h.value))
                     obj_h.set_error(reason if reason == MOTION_TEXT["height_required"] else None)  # 높이 칸 강조 (REQ-057)
+                    if not reason:
+                        history.clear()  # 실행한 집어 옮기기는 되돌리지 않는다(gui-spec 12.9)
                     if reason == EDGE_TEXT:
                         offer_free_edge(backend, pick_place)
                     else:
@@ -249,7 +261,8 @@ def build(backend, client_id: str, actions) -> None:
             icon, color = theme.REACH_STYLES[plan.ok]
             reach_icon.name = icon
             reach_icon.props(f"color={color}")
-            if not plan.ok and plan.text != plan_state.get("warned"):  # 손잡이를 끄는 동안 같은 이유가 수십 번 쌓이지 않게 바뀔 때만 알린다
+            quiet, plan_state["quiet"] = plan_state.get("quiet"), False
+            if not plan.ok and plan.text != plan_state.get("warned") and not quiet:  # 손잡이를 끄는 동안 같은 이유가 수십 번 쌓이지 않게 바뀔 때만 알린다
                 ui.notify(plan.text, type="warning")
             plan_state["warned"] = None if plan.ok else plan.text
             edge_button.visible = plan.reason == "workspace"  # 작업대 가장자리 때문에만 안 닿을 때 그 자리에서 끌 수 있게
