@@ -16,4 +16,6 @@ if [ "$(uname -s)" = "Linux" ] && ! id -nG | tr ' ' '\n' | grep -qx dialout; the
   echo "serial permission: add yourself to the dialout group, then log in again:  sudo usermod -aG dialout \$USER" >&2
 fi
 cd "$(dirname "${BASH_SOURCE[0]}")"
+# Run this folder's code even if the editable install points at another folder (worktrees share one conda env).
+export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
 exec "$SO101_ENV_DIR/bin/python" -m so101_studio "$@"

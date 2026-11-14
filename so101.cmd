@@ -14,4 +14,6 @@ if not defined SO101_ENV_DIR (
 )
 set "PATH=%SO101_ENV_DIR%\Library\bin;%SO101_ENV_DIR%;%SO101_ENV_DIR%\Scripts;%PATH%"
 cd /d "%~dp0"
+rem Run this folder's code even if the editable install points at another folder (worktrees share one conda env).
+set "PYTHONPATH=%~dp0src;%PYTHONPATH%"
 "%SO101_ENV_DIR%\python.exe" -m so101_studio %*
