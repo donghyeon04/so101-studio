@@ -22,6 +22,7 @@ from .common import (
 
 STEPS = {0: "누르기", 1: "1", 5: "5", 10: "10"}
 DEFAULT_TARGET = {"x": 300.0, "y": 200.0, "h": 40.0, "yaw": 90.0, "pitch": -90.0}
+UNDO_MAX = 50  # 되돌리기로 기억하는 목표 좌표 수
 
 
 def build(backend, client_id: str, actions) -> None:
@@ -46,9 +47,26 @@ def build(backend, client_id: str, actions) -> None:
     def mark_dirty() -> None:
         plan_state["dirty"] = True
 
+    history: list[dict] = []  # 목표 좌표의 이전 값들 (Ctrl+Z·[되돌리기]). 팔은 움직이지 않는다
+
+    def remember() -> None:
+        if not history or history[-1] != target:
+            history.append(dict(target))
+            del history[:-UNDO_MAX]
+
+    def undo() -> None:
+        if not history:
+            ui.notify("되돌릴 좌표가 없습니다", type="info")
+            return
+        for key, value in history.pop().items():  # 입력칸에 조용히 넣고(다시 기록하지 않게) 목표를 바꾼다. 3D 점과 계산이 따라온다
+            fields[key].set(value, quiet=True)
+            target[key] = value
+        mark_dirty()
+
     def number(label: str, key: str):
         """좌표 칸 (gui-spec 12.7, target.*): 허용 값을 칸을 떠날 때·Enter·간격 버튼에서 받는다."""
         def changed(v) -> None:
+            remember()
             target[key] = float(v)
             mark_dirty()
 
@@ -80,8 +98,24 @@ def build(backend, client_id: str, actions) -> None:
 
     with ui.row().classes("w-full no-wrap items-start gap-4"):
         with ui.column().classes("flex-1 min-w-0 gap-2 scene-column"):
-            scene_frame(backend)
+            scene_frame(backend, classes="scene3d scene3d-manual")
+            # 3D 칸은 따라 내려온다(sticky): 현재 좌표와 [이동]을 여기 두어 입력칸을 내려도 스크롤 없이 누른다 (사용자 요청 11-14)
+            move_click: list = [lambda: None]
+            current = ui.label("현재 좌표  -").classes("page-body current-pose").mark("current-pose")
+            with ui.row().classes("w-full items-center no-wrap gap-2"):
+                reach_icon = ui.icon("help", size="24px").mark("reach-icon")
+                reach = ui.label("계산 중").classes("flex-1 reach-text").mark("reach")  # 예상 시간은 팔 자세에 따라 바뀐다(화면 시험은 가린다)
+            edge_button = ui.button("작업대 가장자리 검사 끄기", on_click=lambda: offer_free_edge(backend, mark_dirty)).props(
+                "outline no-caps dense color=warning").mark("edge-offer")
+            edge_button.visible = False
+            with ui.row().classes("w-full no-wrap gap-2"):
+                move_button = ui.button("이동", on_click=lambda: move_click[0]()).props("no-caps").classes("flex-1").mark("move")
+                ui.button("되돌리기", icon="undo", on_click=lambda: undo()).props("outline no-caps").tooltip(
+                    "목표 좌표를 바로 전 값으로 되돌린다(Ctrl+Z). 팔은 움직이지 않는다").mark("target-undo")
+                ui.button("점 처음 자리로", icon="restart_alt", on_click=lambda: reset_target()).props("outline no-caps").tooltip(
+                    f"점을 x {DEFAULT_TARGET['x']:.0f}, y {DEFAULT_TARGET['y']:.0f}, 높이 {DEFAULT_TARGET['h']:.0f}, 아래 방향으로 되돌린다(팔은 움직이지 않는다)").mark("target-reset")
             ui.label("작업대를 클릭하거나 손잡이를 끌어 점을 고릅니다. 초록 호 = 집기 범위, 파란 호 = 고른 손끝 각도로 갈 수 있는 높이별 범위").classes("page-body")
+        ui.keyboard(on_key=lambda e: undo() if e.action.keydown and not e.action.repeat and e.modifiers.ctrl and str(e.key).lower() == "z" else None)  # 입력칸 안의 Ctrl+Z는 브라우저가 그 칸을 되돌린다
 
         with ui.column().classes("control-column gap-3"):
             with ui.card().classes("w-full gap-2"):
@@ -89,20 +123,14 @@ def build(backend, client_id: str, actions) -> None:
                 fields = {"x": number("x (mm)", "x"), "y": number("y (mm)", "y"), "h": number("높이 (mm)", "h"), "yaw": number("yaw (°)", "yaw"),
                           "pitch": number("손끝 각도 (°) — −90 아래 · 0 수평", "pitch")}
                 coords = list(fields.values())
-                with ui.row().classes("w-full items-center no-wrap gap-2"):
-                    reach_icon = ui.icon("help", size="24px").mark("reach-icon")
-                    reach = ui.label("계산 중").classes("flex-1 reach-text").mark("reach")  # 예상 시간은 팔 자세에 따라 바뀐다(화면 시험은 가린다)
-                edge_button = ui.button("작업대 가장자리 검사 끄기", on_click=lambda: offer_free_edge(backend, mark_dirty)).props(
-                    "outline no-caps dense color=warning").mark("edge-offer")
-                edge_button.visible = False
-                with ui.row().classes("w-full no-wrap gap-2"):
-                    move_button = ui.button("이동", on_click=guarded(move, needs=coords)).props("no-caps").classes("flex-1").mark("move")
-                    ui.button("점 처음 자리로", icon="restart_alt", on_click=lambda: reset_target()).props("outline no-caps").tooltip(
-                        f"점을 x {DEFAULT_TARGET['x']:.0f}, y {DEFAULT_TARGET['y']:.0f}, 높이 {DEFAULT_TARGET['h']:.0f}, 아래 방향으로 되돌린다(팔은 움직이지 않는다)").mark("target-reset")
+                move_click[0] = guarded(move, needs=coords)  # [이동]은 입력칸보다 먼저(3D 칸 밑에) 만들어서, 누를 때 칸 검사를 여기서 묶는다
 
                 def reset_target() -> None:  # 3D 손잡이를 실수로 멀리 끌었을 때. 입력칸을 바꾸면 계산과 3D 점이 따라온다
+                    remember()
                     for key, value in DEFAULT_TARGET.items():
-                        fields[key].set(value)
+                        fields[key].set(value, quiet=True)
+                        target[key] = value
+                    mark_dirty()
 
             with ui.card().classes("w-full gap-2"):
                 ui.label("조그").classes("card-title")
@@ -194,6 +222,7 @@ def build(backend, client_id: str, actions) -> None:
             point = {"x": round(x, 1), "y": round(y, 1), "h": round(h, 1)}
             inside = all(fields[k]._ok(v) for k, v in point.items())
             if inside:  # 셋 다 넣거나 하나도 넣지 않는다 (12.7.4)
+                remember()  # 3D에서 끌어 옮긴 점도 되돌릴 수 있게
                 for key, value in point.items():
                     fields[key].set(value, quiet=True)
                     target[key] = value
@@ -225,6 +254,8 @@ def build(backend, client_id: str, actions) -> None:
             edge_button.visible = plan.reason == "workspace"  # 작업대 가장자리 때문에만 안 닿을 때 그 자리에서 끌 수 있게
         elif not owner() and plan_state["plan"] is None:
             reach.text = "보기 전용이라 계산하지 않습니다"
+        if (pose := backend.tip_now()) is not None:
+            current.text = "현재 좌표  x {x:.0f} · y {y:.0f} · 높이 {h:.0f} mm · yaw {yaw:.0f}° · 손끝 각도 {pitch:.0f}°".format(**pose)
         mine = gate.allowed
         gate.refresh()
         status = backend.state.status

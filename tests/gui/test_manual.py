@@ -197,6 +197,26 @@ def test_picked_point_from_3d_fills_the_inputs(backend, monkeypatch):
     in_app(backend, check)
 
 
+def test_target_undo_restores_typed_and_picked_points_without_moving(backend):
+    """목표 좌표 되돌리기(Ctrl+Z·[되돌리기], 사용자 11-14): 입력칸으로 바꾼 값과 3D에서 고른 점을 차례로 되돌리고, 팔은 움직이지 않는다. 3D 밑에 현재 좌표가 보인다."""
+    async def check(user):
+        x, y, h = _one(user, "target-x"), _one(user, "target-y"), _one(user, "target-h")
+        assert await _until(lambda: _one(user, "reach").text != "계산 중")
+        assert await _until(lambda: _one(user, "current-pose").text.startswith("현재 좌표  x "))
+        before = _tip(backend)
+        x.meta.set(320.0)
+        assert await _until(lambda: x.value == 320.0)
+        backend.scene.pick(280.0, 230.0, 60.0)
+        assert await _until(lambda: (x.value, y.value, h.value) == (280.0, 230.0, 60.0))
+        user.find(marker="target-undo").click()
+        assert await _until(lambda: (x.value, y.value, h.value) == (320.0, 200.0, 40.0))
+        user.find(marker="target-undo").click()
+        assert await _until(lambda: x.value == 300.0)
+        assert np.linalg.norm(_tip(backend) - before) < 1.0  # 되돌리기는 목표만 바꾼다
+
+    in_app(backend, check)
+
+
 def test_handle_drag_becomes_a_picked_point(backend):
     scene = backend.scene
     seq = scene.picked[0]

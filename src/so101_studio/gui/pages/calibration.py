@@ -7,7 +7,8 @@ import time
 
 from nicegui import run, ui
 
-from .common import Controls
+from ...core.types import JointState
+from .common import Controls, scene_frame
 
 MIN_VOLT = 11.0  # 측정 엔진 기준과 같다(결정 0028, 0043-3)
 STEPS = ("1 준비", "2 측정", "3 비교", "4 저장", "5 0° 확인")
@@ -69,6 +70,9 @@ def build(backend, client_id: str, actions) -> None:
 
     # 5 0° 확인
     with ui.card().classes("w-full gap-2").mark("calib-zero") as zero_card:
+        # 처음 보는 사람은 0° 자세를 모른다(사용자 11-14): 계산 자세(보라 반투명)로 0° 자세를 함께 보인다
+        ui.label("3D의 보라색 반투명 팔이 0° 자세입니다(어깨 정면, 팔이 앞으로 곧게, 손목 회전 0, 그리퍼 닫힘). 진한 팔이 지금 실물 자세입니다. 두 팔이 겹치면 [맞음]입니다").classes("page-body").mark("calib-zero-help")
+        scene_frame(backend, classes="scene3d scene3d-short")
         zero_now = ui.label("").classes("page-body").mark("calib-zero-now")
         with ui.row().classes("gap-2"):
             zero_start = controls.add(ui.button("0° 자세로 이동", on_click=controls.guard(lambda: verify())).props("no-caps").mark("calib-zero-move"))
@@ -86,6 +90,7 @@ def build(backend, client_id: str, actions) -> None:
         state["step"] = step
         if step == 4:
             state["zero"] = "before"
+        backend.scene.set_preview(JointState(0, 0, 0, 0, 0, 0) if step == 4 else None)
 
     def out(text) -> None:
         state["lines"] = (state["lines"] + [line for line in str(text).splitlines() if line.strip()])[-200:]
