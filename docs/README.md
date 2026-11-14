@@ -14,7 +14,7 @@
 | 경로 | 유형 | 상태 | 설명 |
 |---|---|---|---|
 | `docs/planning/overview.md` | 기획 | 초안 | 기획서: 한 줄 정의, 일정·평가, 산출물, 역할, 기획 진행 순서, 범위, 주간 일정 |
-| `docs/planning/project-status.md` | 기획 | 초안 | 프로젝트 현황 한 장(팀 공유·인수인계): 처음 읽는 순서, 부분별 된 것과 남은 것, 실물 확인 결과, 세션과 폴더 |
+| `docs/planning/project-status.md` | 기획 | 초안 | 총정리(새 세션은 여기부터): 한 줄, 부분별 상태, 큰 결정, 다음 순서, 문서 지도와 읽는 순서, 세션과 폴더, git 밖 파일 |
 | `docs/planning/work-queue.md` | 기획 | 초안 | 작업 대기열: 지금 순서, 사용자 결정 대기, 세션별 다음 일, 실물로만 할 일, 열린 PR. 압축·세션 교체 뒤 여기부터 읽는다 |
 | `docs/planning/features.md` | 기획 | 초안 | 기능명세서와 메뉴트리, 시연 시나리오, 기능별 범위 층 |
 | `docs/planning/system-architecture.md` | 기획 | 확정 | 시스템 구성, 모듈 경계, 공통 타입, 인식 규격, 작업 실행 상태 머신, ESP32 통신 틀, 폴더 구조, 0~2단계 작업 순서 |
@@ -33,7 +33,7 @@
 | `docs/guides/arm-hardware-setup.md` | 가이드 | 확정 | 팔 하드웨어 구성, COM 포트, 서보 ID 1~6, 캘리브레이션 파일 복사, 다른 PC에서 처음 연결하는 순서, 문제 해결 |
 | `docs/guides/real-arm-runbook.md` | 가이드 | 초안 | 실물 팔 절차서: 매번 시작할 때, GUI 실물 켜기, 남은 실물 확인(턱 높이·집기·교시 변환본·AC4·table_z 등), 초음파 실물 순서, 문제가 나면 |
 | `docs/guides/tooling-setup.md` | 가이드 | 확정 | 계정마다 설치할 플러그인, MCP, 스킬 |
-| `docs/guides/session-workflow.md` | 가이드 | 확정 | 세션 역할(로컬 셋, GUI 세션 총괄), worktree와 브랜치, REQ 요청·완료 양식, 기획 요청, 포트 같이 쓰기, 질문과 승인은 총괄로, 새 계정·새 PC로 옮길 때 |
+| `docs/guides/session-workflow.md` | 가이드 | 확정 | 세션 역할(기획 + 로컬 넷, GUI 세션 총괄), worktree와 브랜치(합친 뒤 지우기 순서), REQ 양식, 기획 요청, 보고 체계(7a), 새 계정·새 PC로 옮길 때와 세션별 시작 프롬프트(8) |
 | `docs/guides/release-checklist.md` | 가이드 | 초안 | 배포·공개 준비 점검표: 레포 위생(브랜치·폴더·git 제외·CAD 파일), 깨끗한 PC 설치 시험, 시험과 코드, 공개 문서(README·라이선스·개인 정보·버전 태그) |
 | `docs/decisions/0001-claude-md-authoring.md` | 결정 | 확정 | CLAUDE.md는 짧게, 절차는 skill로 |
 | `docs/decisions/0002-docs-structure.md` | 결정 | 확정 | 문서 유형 4종, 색인, 상태값, 조사 원문 비보관 |
@@ -69,7 +69,7 @@
 | `docs/decisions/0032-mattpocock-skills.md` | 결정 | 확정 | mattpocock/skills는 11개만 `.claude/skills/`에 넣고 프로젝트 규칙에 맞게 고침(용어·결정 위치, 임시 디렉터리 산출물, 한국어), `/grill-me`는 여러 질문 라운드 |
 | `docs/decisions/0033-gripper-hold-preload-and-place-compensation.md` | 결정 | 확정 | 그리퍼 접촉 뒤 예압으로 잡기, 조임 한계는 RAM Torque_Limit(닫기 300·들기 200·놓은 뒤 복원), no_object면 올라와서 열기, 그리퍼 부하 2단계 감시, 놓기 중심 보정 (0010~0012 보완) |
 | `docs/decisions/0034-ultrasonic-radar-plus-arm-check.md` | 결정 | 확정 | 초음파 인식은 앞 변 가운데 레이더(서보 1개)로 후보를 찾고 팔 손목 센서가 십자·원형으로 확인하는 2단계, 작업 순서에 CHECK, 시간 줄이기 기법을 설정으로, 정확·빠른 모드(→ 0038로 하나) (0006 보완) |
-| `docs/decisions/0035-scan-servo-and-power.md` | 결정 | 대체됨(→ 0043 일부) | 스캔 서보 MG90S 2개(예비 1), 서보 전원은 기존 12V 5A를 Y 케이블 + 12V→5V 강압 모듈로, 브래킷은 모두 출력(손목은 SO-ARM100 손목 카메라 마운트 개조, 레이더는 공개 받침 + 새 클램프) (0034 보완) |
+| `docs/decisions/0035-scan-servo-and-power.md` | 결정 | 대체됨(→ 0043 일부), 손목→0063 | 스캔 서보 MG90S 2개(예비 1), 서보 전원은 기존 12V 5A를 Y 케이블 + 12V→5V 강압 모듈로, 브래킷은 모두 출력(손목은 SO-ARM100 손목 카메라 마운트 개조, 레이더는 공개 받침 + 새 클램프) (0034 보완) |
 | `docs/decisions/0036-three-local-sessions-with-hub.md` | 결정 | 확정 | 로컬 세션을 GUI(Opus, 총괄)·팔(Sonnet)·초음파(Sonnet) 셋으로, 총괄이 일 나누기·요청 대장·Sonnet PR 검토, 진행 상황은 문서에 (0024 보완) |
 | `docs/decisions/0037-single-shared-calculator.md` | 결정 | 확정 | 검증용 계산기는 주제마다 하나만, 레포 안 실제 코드 위에(초음파는 8.5절 벤치마크, 도달은 팔 세션 계산), 아이디어는 옵션으로, 기획은 가정을 정하고 검토, 설계서 숫자는 고정 시나리오 결과만 |
 | `docs/decisions/0038-single-check-mode.md` | 결정 | 확정 | 초음파 확인 모드는 하나(빠른 모드 없앰, 벤치마크에서 시간 -3~+4%), T8은 옵션 `check.approach_line` |
@@ -77,7 +77,7 @@
 | `docs/decisions/0040-team-local-install.md` | 결정 | 확정 | 팀원 배포는 Miniforge 무인 설치 + 배치 스크립트(`설치.cmd`, 시뮬레이션·실물 실행 `.cmd`)로 로컬 설치. 서버(웹 링크) 배포는 안 함 |
 | `docs/decisions/0041-radar-clear-upright-pose.md` | 결정 | 확정 | `radar_clear` 기본 자세는 위로 세운 `[0, -90, 85, -90, 0, 3]`(0039의 원점 위 150mm 접은 자세는 기구학상 없음). 벤치마크도 이 값을 읽음 |
 | `docs/decisions/0042-after-real-test-batch.md` | 결정 | 확정 | 실물 시험 뒤 묶음: 물체 높이 전달(`DetectedObject.height_mm`), 그리퍼 속도 설정, 호버 도달 띠 유지, 교시 재생 변환본, 원인별 오류 문구, 작업대 설정 바로 적용, 조그 값 입력 (사용자가 로컬 총괄과 정함) |
-| `docs/decisions/0043-overnight-decisions.md` | 결정 | 확정 | 밤샘 작업 결정 묶음: 그리퍼 두 종(TCP 두 턱 중앙, 병렬은 설정으로), 레이더 서보 OpenRB-150 + XL330(UART, 5V), 자동 캘리브레이션 11.0V 유지·전원 경로 점검, 장면 부품 STL 목록, 다음 기능 순서, 레포 정리 (0035 일부 대체) |
+| `docs/decisions/0043-overnight-decisions.md` | 결정 | 확정, 기본 그리퍼→0063 | 밤샘 작업 결정 묶음: 그리퍼 두 종(TCP 두 턱 중앙, 병렬은 설정으로), 레이더 서보 OpenRB-150 + XL330(UART, 5V), 자동 캘리브레이션 11.0V 유지·전원 경로 점검, 장면 부품 STL 목록, 다음 기능 순서, 레포 정리 (0035 일부 대체) |
 | `docs/decisions/0044-gui-structure-and-next-features.md` | 결정 | 확정 | GUI는 지금 구조를 고쳐 씀(아래 조작 막대, 어디서나 조그 패널, 자세 즐겨찾기, 프로그램 트리, 운영자 화면, 메뉴 정리), 다음 기능은 블록 프로그래밍·캘리브레이션 마법사·장면 부품 편집기 → MuJoCo, 1·2·3·11 뺌, 4·10은 카메라 뒤 (0043-5 순서 대체) |
 | `docs/decisions/0045-test-and-verification-tooling.md` | 결정 | 확정 | 테스트·검증: 느린 테스트 slow 표시, pr-review-toolkit 테스트 감사, PR마다 code-review, 고친 파일 ruff 훅, GUI PR 화면 확인, 완료 보고에 실행 결과 |
 | `docs/decisions/0046-merge-with-related-tests.md` | 결정 | 확정 | PR은 main과 합쳐 관련 테스트만 돌리고 합침, 전체 테스트는 하루 마칠 때·실물 시험 전에 총괄이 한 번, 리뷰는 PR마다 |
@@ -97,3 +97,4 @@
 | `docs/decisions/0060-grasp-tilt-equal-tips.md` | 결정 | 확정 | 집기 손 기울기 기본값을 equal_tips(두 턱 끝 높이를 맞춤)로, symmetric(0012)은 옵션. 실물 58mm 상자 symmetric 0/2 → equal_tips 10/10 |
 | `docs/decisions/0061-blocked-threshold-by-speed.md` | 결정 | 확정 | 막힘 감지 문턱: 30% 이하 고정(#307 값), 30% 초과는 정속 문턱만 속도/30%배, 50% 초과는 판정 없이 ARM-TRACKING 기록만(0059 문턱 대체) |
 | `docs/decisions/0062-mujoco-test-bench.md` | 결정 | 확정 | MuJoCo 시험장: 공통 층 하나 + 실행기 A(우리 알고리즘)·B(강화학습, 12/4 뒤), 순서 M7a→M5·M6→M5b·M5c→M8→M9, 대기 중엔 시험장이 정식 작업, GUI 잠금은 M8까지 |
+| `docs/decisions/0063-robonine-wrist-bracket-topview.md` | 결정 | 확정 | 그리퍼는 로보나인 병렬(교체 뒤 기본), 손목은 짧은 초음파 브래킷만(0°, 오프셋 {0.0, 66.5, 99.5}), 카메라는 탑뷰 하나, 실물·MuJoCo·초음파를 다시 맞추는 순서 |
