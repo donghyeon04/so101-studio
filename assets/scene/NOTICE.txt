@@ -1,4 +1,4 @@
-wrist_bracket.stl, wrist_hcsr04.stl: 손목 초음파 브래킷(H4)과 HC-SR04 모델. 팀(송민준)이 만든 조립 "Gripper(브라켓 짧은 버전)"(2026-11-14, 로보나인 SO-ARM100-101-Parallel-Gripper
+wrist_bracket.stl, wrist_hcsr04.stl: 손목 초음파 브래킷(H4)과 HC-SR04 모델. so101-studio 팀 CAD 조립 "Gripper(브라켓 짧은 버전)"(2026-11-14, 로보나인 SO-ARM100-101-Parallel-Gripper
 https://github.com/roboninecom/SO-ARM100-101-Parallel-Gripper 위에 설계, 모따기·디자인 정리 버전)에서 바디 44~141·143(센서 모듈)과 144(브래킷 판)만 떼어
 gripper_link 좌표(mm)로 옮겼다(`python -m so101_studio.arm.parts_eval --assembly <조립>.stl --export`). 메쉬 모양은 바꾸지 않았다.
 STEP·조립 원본은 레포 밖에 있다. 라이선스: 브래킷 판은 팀 설계(레포 라이선스를 따른다), 로보나인 파생 부분은 assets/assets/parallel/NOTICE.txt(CERN-OHL-P-2.0·Apache-2.0)를 따른다.
