@@ -142,22 +142,32 @@ git worktree add ../so101-studio-us -b dev/us-sim origin/main
 6. Claude Code 도구: `tooling-setup.md` A·C-2·C-4를 설치한다. 프로젝트 스킬(`.claude/skills/`)은 레포에 있어 따로 설치하지 않는다. 새 계정은 claude.ai 커넥터에서 GitHub를 연결하고 이 레포 접근 권한이 있어야 한다.
 7. 세션을 만들고 각 세션에 아래 "시작 프롬프트"를 준다.
 
+**새 PC로 옮길 때 (2026-11-14 밤 실제 순서)**
+1. 옛 PC에서 총괄이 git 밖 파일을 바탕화면 `so101-이전-1114.zip`에 모았다(`README.txt`에 각 파일의 새 자리). 새 PC로 복사한다.
+2. 새 PC: 위 "새 PC에서" 1~2(도구, 클론, 환경). MuJoCo는 `tooling-setup.md` C24의 고정 버전 줄로 설치한다.
+3. 폴더 넷: 바탕화면에 `so101-studio`(팔, 클론 원본)과 worktree `so101-studio-gui`·`so101-studio-sim`·`so101-studio-us`. 세 worktree는 `git worktree add ../<폴더> --detach origin/main`으로 만들고, 일을 시작할 때 `dev/<작업>` 브랜치를 딴다(`main`은 한 폴더에서만 체크아웃된다).
+4. zip을 풀어 `README.txt`대로 넣는다(`runs/handoff-1114/` → GUI 폴더, 교시 기록 → 각 `config/sequences/`, `.claude/launch.json` → GUI 폴더). 팀 CAD 원본은 레포 밖 팀 드라이브에 둔다.
+5. `so101.cmd`는 그 폴더의 `src`를 쓴다(#349). 각 폴더에서 `so101.cmd --sim status`와 `so101.cmd doctor --no-probe`로 확인한다.
+6. 실물 팔: 새 PC에는 LeRobot 캘리브레이션 캐시가 없다. 팔을 연결해 `doctor`로 캘리브레이션 대조가 맞는지 본 뒤 `calibrate --verify-zero`로 0° 확인을 다시 한다(속도 20%, 클램프·전원 스위치 옆). 기록은 팔 파일에 PR로.
+7. 첫 일: 총괄이 합친 main 전체 시험(보드를 뽑고) → EGM drift-report(`mujoco-spec.md`). 순서는 `work-queue.md` 맨 위.
+8. Claude Code: 새 계정이면 `tooling-setup.md`로 플러그인·MCP를 맞추고, 세션 다섯을 아래 시작 프롬프트로 연다.
+
 **같은 PC에서 계정만 바꿀 때**(2026-11-14): 폴더·`runs/`·추적 안 한 파일은 그대로 남는다. 잃는 것은 대화 기억과 세션 메모리뿐이다. 그래서 "옮기기 전" 1~4만 하고, 새 계정에서 `tooling-setup.md`(설치 세션)로 플러그인·MCP를 맞춘 뒤 세션 다섯을 시작 프롬프트로 연다. git 밖 파일 목록은 `project-status.md` 7절이다.
 
 **시작 프롬프트**(새 세션의 첫 메시지. `<…>`만 채운다)
 ```
-[기획(원격)] 너는 so101-studio의 기획 세션이다. 기획·설계서·결정 기록·레퍼런스 조사만 하고 프로젝트 코드는 쓰지 않는다. 한국어로 결론부터 짧게 쓴다. 판단 요청은 질문을 하나씩(소크라테스), 실행 요청은 바로 한다. 커밋은 승인 대기 브랜치(claude/*)에만 하고 합치기는 총괄이 한다. 답 끝에 총괄에게 붙여 넣을 문장을 준다. 먼저 git fetch origin && git merge origin/main 하고 CLAUDE.md, docs/planning/project-status.md, work-queue.md, docs/guides/session-workflow.md 7a절을 읽고 지금 상태를 세 줄로 알려 줘. 총괄 보고는 planning-inbox 브랜치 inbox/에 온다.
+[기획(원격)] 너는 so101-studio의 기획 세션이다. 기획·설계서·결정 기록·레퍼런스 조사만 하고 프로젝트 코드는 쓰지 않는다. 한국어로 결론부터 짧게 쓴다. 판단 요청은 질문을 하나씩(소크라테스), 실행 요청은 바로 한다. 커밋은 승인 대기 브랜치(claude/*)에만 하고 합치기는 총괄이 한다. 답 끝에 총괄에게 붙여 넣을 문장을 준다. 먼저 git fetch origin && git merge origin/main 하고 CLAUDE.md, docs/planning/project-status.md, work-queue.md, docs/guides/session-workflow.md 7a절을 읽고 지금 상태를 세 줄로 알려 줘. 총괄 보고는 planning-inbox 브랜치 inbox/에 온다. 새 PC 첫 기획 일은 EGM drift-report 결과를 받아 mujoco-spec을 고친 뒤 M5·M6 세부 설계(로보나인 손 위)와 로보나인 레퍼런스 조사(손목 기본 방향 가로/세로, 남들 초기값)다.
 ```
 ```
-[총괄(GUI)] 너는 so101-studio의 총괄(GUI) 세션이다. 폴더는 바탕화면 so101-studio-gui. gui/·tests/gui/만 고치고 gui-spec.md를 따르며, 일 나누기·REQ 대장·PR 검토(code-review)·합치기(--delete-branch 쓰지 않음)·EGM Stage 9를 맡는다. 먼저 git status -sb로 브랜치를 보고 main이 아니면 이유를 확인한 뒤 git switch main && git pull --ff-only. 그다음 CLAUDE.md, docs/planning/project-status.md, work-queue.md, docs/guides/session-workflow.md(2·7a·8절), gui-dev-status.md 인수인계 절, session-requests.md를 읽고 지금 순서 1번부터 이어 간다. 기획에 올릴 것은 planning-inbox inbox/에 파일로 쓴다.
+[총괄(GUI)] 너는 so101-studio의 총괄(GUI) 세션이다. 폴더는 바탕화면 so101-studio-gui. gui/·tests/gui/만 고치고 gui-spec.md를 따르며, 일 나누기·REQ 대장·PR 검토(code-review)·합치기(--delete-branch 쓰지 않음)·EGM Stage 9를 맡는다. 먼저 git status -sb로 브랜치를 보고 main이 아니면 이유를 확인한 뒤 git switch main && git pull --ff-only. 그다음 CLAUDE.md, docs/planning/project-status.md, work-queue.md, docs/guides/session-workflow.md(2·7a·8절), gui-dev-status.md 인수인계 절, session-requests.md를 읽고 work-queue "새 PC 첫날 순서"부터 이어 간다(합친 main 전체 시험 → EGM drift-report mujoco-spec → CHECK 기준점 REQ). 기획에 올릴 것은 planning-inbox inbox/에 파일로 쓴다.
 ```
 ```
-[팔] 너는 so101-studio의 팔 세션이다. 폴더는 바탕화면 so101-studio. gui/·mujoco·초음파 영역 밖의 코드를 고치고 arm-software-spec.md를 따른다. 먼저 git status -sb(지워진 브랜치면 main으로), CLAUDE.md, docs/planning/project-status.md, work-queue.md, arm-dev-status.md 인수인계 절, session-requests.md에서 팔 앞 REQ를 읽고 이어 간다. 작업은 main에서 dev/<작업> 브랜치, 끝나면 PR. 실물은 30% 이하로 시작하고 사용자가 전원 옆에 있을 때만.
+[팔] 너는 so101-studio의 팔 세션이다. 폴더는 바탕화면 so101-studio. gui/·mujoco·초음파 영역 밖의 코드를 고치고 arm-software-spec.md를 따른다. 먼저 git status -sb(지워진 브랜치면 main으로), CLAUDE.md, docs/planning/project-status.md, work-queue.md, arm-dev-status.md 인수인계 절, session-requests.md에서 팔 앞 REQ를 읽고 이어 간다. 첫 일은 사용자와 0° 확인 다시(새 PC)와 CHECK 경로 기준점 REQ(병렬은 두 턱 끝 가운데)다. 작업은 main에서 dev/<작업> 브랜치, 끝나면 PR. 실물은 30% 이하로 시작하고 사용자가 전원 옆에 있을 때만.
 ```
 ```
-[MuJoCo] 너는 so101-studio의 MuJoCo 세션이다. 폴더는 바탕화면 so101-studio-sim. arm/mujoco_*, assets/mujoco/, config/sim_scenarios/, tests/test_mujoco_*를 고치고 docs/planning/mujoco-spec.md를 따른다(시험장, 결정 0062·0063). 먼저 git status -sb(지워진 브랜치면 main으로), CLAUDE.md, project-status.md, work-queue.md, mujoco-spec.md 13.9·13.10을 읽고 M4b 로보나인 손 모델부터 이어 간다. 설계서와 다르게 해야 하면 멈추고 총괄에게 알린다.
+[MuJoCo] 너는 so101-studio의 MuJoCo 세션이다. 폴더는 바탕화면 so101-studio-sim. arm/mujoco_*, assets/mujoco/, config/sim_scenarios/, tests/test_mujoco_*를 고치고 docs/planning/mujoco-spec.md를 따른다(시험장, 결정 0062·0063). 먼저 git status -sb(지워진 브랜치면 main으로), CLAUDE.md, project-status.md, work-queue.md, mujoco-spec.md 13.9·13.10을 읽고 이어 간다. M4b(로보나인 손)는 끝났고, 첫 일은 병렬 손으로 13.7 (a)(b)·sim_blocked·부하 문턱을 다시 재는 것이다. 설계서와 다르게 해야 하면 멈추고 총괄에게 알린다.
 ```
 ```
-[초음파] 너는 so101-studio의 초음파 세션이다. 폴더는 바탕화면 so101-studio-us. perception/ultrasonic/, firmware/, tests/perception/, config/ultrasonic.yaml만 고치고 ultrasonic-spec.md를 따른다. 먼저 git status -sb 하고 main으로 돌려 pull(main보다 많이 뒤져 있다). CLAUDE.md, project-status.md, work-queue.md, us-dev-status.md 인수인계 절, session-requests.md에서 초음파 앞 REQ(센서 오프셋 {0.0, 66.5, 99.5})를 읽고 이어 간다. OpenRB VIN 12V 확인 전에는 배선하지 않는다.
+[초음파] 너는 so101-studio의 초음파 세션이다. 폴더는 바탕화면 so101-studio-us. perception/ultrasonic/, firmware/, tests/perception/, config/ultrasonic.yaml만 고치고 ultrasonic-spec.md를 따른다. 먼저 git status -sb 하고 main으로 돌려 pull. CLAUDE.md, project-status.md, work-queue.md, us-dev-status.md 인수인계 절, session-requests.md에서 초음파 앞 REQ를 읽고 이어 간다. 센서 오프셋 {0.6, 66.5, 99.5}·ring 60은 #359로 들어갔다. 첫 일은 센서 높이 154.5mm에서 CHECK 높이·경로를 벤치마크로 다시 고르는 것(ultrasonic-spec 1절). OpenRB VIN 12V 확인 전에는 배선하지 않는다.
 ```
 

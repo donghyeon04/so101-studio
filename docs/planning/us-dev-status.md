@@ -25,7 +25,7 @@
 4. 사람 몫 가정(실측이 나오면 `MODELS`를 고친다): 확인 직선 180mm, 도달 clip 60~255mm, 서보 지연(pwm 3.0°, dxl 0.3°)·읽기 잡음 0.1°, 시간 기준 평균 70초.
 5. git에 없는 것: `config/ultrasonic_baseline.json`(레이더 기준값, 첫 `calibrate()`가 만든다, `.gitignore`는 내 영역 밖), `config/local.yaml`, arduino-cli(PC마다 위치가 다르다. 새 PC는 Arduino IDE 2 + ESP32 보드 패키지 3.x).
 6. 서보는 부팅·포트 열기마다 90°로 움직인다. 서보를 달 때 손을 대지 않고 회전 범위(10~170°)를 비운다.
-7. **한글 사용자 폴더**(`C:\Users\김동현`): 기본 Arduino15 경로에서 ESP32 링크가 `cannot find -lcxx`로 실패한다. `C:\arduino15`에 core를 새로 설치하고 `ARDUINO_DIRECTORIES_DATA=C:\arduino15`, `ARDUINO_DIRECTORIES_USER=C:\arduino15\user`를 준 뒤 `arduino-cli compile --fqbn esp32:esp32:esp32 --build-path C:\tmp\fw firmware/esp32_scanner`.
+7. **한글 사용자 폴더**(`C:\Users\<한글 이름>`): 기본 Arduino15 경로에서 ESP32 링크가 `cannot find -lcxx`로 실패한다. `C:\arduino15`에 core를 새로 설치하고 `ARDUINO_DIRECTORIES_DATA=C:\arduino15`, `ARDUINO_DIRECTORIES_USER=C:\arduino15\user`를 준 뒤 `arduino-cli compile --fqbn esp32:esp32:esp32 --build-path C:\tmp\fw firmware/esp32_scanner`.
 8. OpenRB 펌웨어 컴파일: 보드 패키지 `OpenRB-150:samd`(인덱스 `https://raw.githubusercontent.com/ROBOTIS-GIT/OpenRB-150/master/package_openrb_index.json`) + Dynamixel2Arduino 0.8.2를 `C:\arduino15`에 설치하고 `arduino-cli compile --fqbn OpenRB-150:samd:OpenRB-150 --warnings all --build-path C:\tmpw2 firmware/openrb_servo`(경고 없음, 플래시 12%). XL330은 5V이고 OpenRB VIN에 12V를 넣지 않는다(H2).
 9. 펌웨어 규약(`ultrasonic-spec.md` 7절): `sync`의 `pc`는 64비트 ns라 문자열 그대로 돌려준다. 측정 줄의 `us`는 트리거 시각이다(메아리 왕복 절반은 보정하지 않는다). stream이 켜지면 레이더 회전은 멈춘다. `gap`·`done`·`k:"ra"`·`driver`가 정식 규약이다. 외부 라이브러리 없음.
 10. PR 열기: `gh`가 없으면 내장 브라우저로 `compare/main...<브랜치>?quick_pull=1`을 열어 제목·본문을 넣고 `form.requestSubmit()`(버튼이 안 눌리면 입력 뒤 1.5초 기다린다). 질문·승인은 총괄에게 `SendMessage`, 자기 `dev/` 브랜치 커밋·푸시·PR은 묻지 않는다(session-workflow 7절).
