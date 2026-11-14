@@ -38,3 +38,14 @@
 ## 4. 그 밖
 - code-review(#364) 남은 지적: `Kinematics.link_points`의 손끝 점은 병렬에서도 한쪽 턱 끝이다(레이더 가림 계산, 최대 약 42mm 차이). 병렬 분기를 `targets.py`가 그리퍼 이름 문자열로 한다. 급하지 않아 REQ로 내지 않았다.
 - 병렬 손은 손끝 55mm에서 yaw 90 고정 CHECK 경로가 거의 안 닿는다(3-1로 해결).
+
+## 5. 추가(밤 사이)
+- #370 합침(main 2253a6e): 병렬용 `blocker_parallel.yaml`·시험, 병렬 carry 시험은 held·놓은 자리 7mm·기울기 10°·과부하/BLOCKED/FAULT 0건만 판정, 미끄러짐은 `test_parallel_hand_carry_slip`(slow + measure, 임시 4.0mm)으로 분리.
+- **병렬 58mm 미끄러짐이 갈린다**(MuJoCo 세션 14회: 0.8mm 근처가 절반, 나머지 2~10mm. 총괄 폴더 4.17·8.59·9.62mm). 30·45mm는 0.7~1.4mm. 지터인지 물리 편차인지 못 갈랐다. 미끄러짐 기준과 조임 힘(kp·forcerange 잠정)은 사용자 결정 U15(실물 2-10 뒤 추천).
+
+### 3-6. [기획 요청] 결정 스텝 시험(시계 주입) — M5b와 한 묶음으로 계획
+- 막힌 곳: 제어가 벽시계에 묶여 있다(`arm/motion.py` `_loop`, `skills.py`, `arm_service.py`의 perf_counter·sleep 약 49곳). `realtime=False` 드라이버는 `advance()` 없이 시간이 안 흘러 `ArmService` 위 시험을 결정 스텝으로 못 돌린다.
+- 제안(MuJoCo 세션): `MotionController`·`Skills`·`ArmService`에 시계 객체 `clock`(now, sleep)을 주입, 기본은 time 모듈 래퍼(실제 팔·`SimDriver`·실시간 동작 그대로). 시험용 `StepClock(driver)`는 sleep에서 `driver.advance(s)`. 약 80~100줄(팔 영역 3파일 + `mujoco_driver.py`). 로그 시각(`time_ns`)은 건드리지 않는다.
+- 13.3과의 관계: 규약을 깨지 않고 "StepClock이 advance를 부르는 시험 전용 경로"를 더한다. 13.3에 한 줄.
+- 한계: 스레드 셋(틱·상태 10Hz·ArmService)이 시계를 나눠 써 완전 결정적이려면 스케줄러를 하나로 모아야 한다(규모 2~3배). 첫 단계는 틱 스레드 하나 + 상태 루프는 틱마다 직접 호출.
+- 기존 API에 인자가 늘어나는 변경이라 기획 확인이 필요하다. M5 세부 설계 때 M5b와 같이 정해 달라.
