@@ -33,7 +33,8 @@ def test_bracket_keeps_clear_of_the_arm_links_at_the_wrist_limits(parts, kin):
 
 
 def test_overhang_has_a_zero_support_orientation(parts):
-    assert pe.overhang(parts)["best_pct"] < 5
+    o = pe.overhang(parts)
+    assert o["best_pct"] < 5 and o["best_floor_face"] == "+z" and o["support_area_pct_by_floor_face"]["-z"] > 30  # +z(손목 쪽 평평한 면)를 바닥에 두면 서포트 0%
 
 
 def test_scene_yaml_can_attach_the_parts_to_gripper_link(tmp_path):

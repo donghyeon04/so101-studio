@@ -227,18 +227,19 @@ def sensor_offset(parts) -> dict:
 
 
 def overhang(parts) -> dict:
-    """출력 방향 6가지(축 정렬)마다 서포트가 필요한 아랫면 면적 비율(법선이 수직 아래에서 45° 안, 바닥에 닿는 면 제외)."""
+    """출력 방향 6가지(축 정렬)마다 서포트가 필요한 아랫면 면적 비율(법선이 바닥 쪽에서 45° 안, 바닥에 닿는 면 제외).
+    라벨 = 빌드 플레이트(바닥)에 닿는 면의 바깥 법선(gripper_link 좌표). "+z"는 +z 면(손목 쪽 평평한 면)을 바닥에 둔다는 뜻이다."""
     out = {}
-    for label, down in (("+x", [1, 0, 0]), ("-x", [-1, 0, 0]), ("+y", [0, 1, 0]), ("-y", [0, -1, 0]), ("+z", [0, 0, 1]), ("-z", [0, 0, -1])):
+    for label, floor in (("+x", [1, 0, 0]), ("-x", [-1, 0, 0]), ("+y", [0, 1, 0]), ("-y", [0, -1, 0]), ("+z", [0, 0, 1]), ("-z", [0, 0, -1])):
         m = parts["bracket"]
         n, a = m.face_normals, m.area_faces
-        d = -np.array(down, float)  # 빌드 플레이트 쪽 방향
+        d = np.array(floor, float)  # 빌드 플레이트 쪽 방향 = 바닥에 닿는 면의 법선
         facing = n @ d > math.cos(math.radians(45))
         base = m.triangles_center @ d >= (m.triangles_center @ d).max() - 0.3  # 맨 아래 접촉면
         out[label] = round(float(a[facing & ~base].sum() / a.sum()) * 100, 1)
     best = min(out, key=out.get)
-    return {"support_area_pct_by_down_axis": out, "best_down_axis": best, "best_pct": out[best],
-            "note": "아랫방향 축 = 빌드 플레이트에 닿는 쪽(gripper_link 좌표). 센서 앞쪽이 위인 방향은 U7"}
+    return {"support_area_pct_by_floor_face": out, "best_floor_face": best, "best_pct": out[best],
+            "note": "라벨 = 바닥(빌드 플레이트)에 닿는 면의 법선(gripper_link 좌표). 센서 앞쪽이 위인 방향은 U7"}
 
 
 def hand_overlap(parts) -> dict:
