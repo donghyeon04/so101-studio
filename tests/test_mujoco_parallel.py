@@ -126,7 +126,7 @@ def test_camera_arm_is_cut_from_the_hand_mesh(tmp_path):
     from so101_studio.arm import mujoco_hand
 
     v = mujoco_hand.hand_geometry()["hand"]["verts"] * 1000.0
-    assert v[:, 1].min() > mujoco_hand.CAMERA_Y_GL_MM - 10.0, v[:, 1].min()  # 카메라 마운트·렌즈(y -85까지)가 없다. 경계를 걸친 큰 삼각형 때문에 몇 mm 여유
+    assert v[:, 1].min() > mujoco_hand.CAMERA_Y_GL_MM - 0.01, v[:, 1].min()  # 카메라 마운트·렌즈(y -85까지)가 없다: 평면으로 잘라 경계 삼각형도 y -36 안
     out = tmp_path / "nocam.stl"
     removed, kept = mujoco_hand.make_nocam_stl(out)
     import trimesh
