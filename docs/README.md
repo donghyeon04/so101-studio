@@ -94,3 +94,4 @@
 | `docs/decisions/0059-blocked-contact-stop.md` | 결정 | 확정(문턱은 → 0061) | 막힘·접촉 즉시 정지는 추종 오차(명령−실제, 10Hz 위치 재사용)로, 빈 이동·쥔 채 이동·닫기 프로필별 문턱(정상 최대×1.3), 부하 감시는 두 번째 안전망 |
 | `docs/decisions/0060-grasp-tilt-equal-tips.md` | 결정 | 확정 | 집기 손 기울기 기본값을 equal_tips(두 턱 끝 높이를 맞춤)로, symmetric(0012)은 옵션. 실물 58mm 상자 symmetric 0/2 → equal_tips 10/10 |
 | `docs/decisions/0061-blocked-threshold-by-speed.md` | 결정 | 확정 | 막힘 감지 문턱: 30% 이하 고정(#307 값), 30% 초과는 정속 문턱만 속도/30%배, 50% 초과는 판정 없이 ARM-TRACKING 기록만(0059 문턱 대체) |
+| `docs/decisions/0062-mujoco-test-bench.md` | 결정 | 확정 | MuJoCo 시험장: 공통 층 하나 + 실행기 A(우리 알고리즘)·B(강화학습, 12/4 뒤), 순서 M7a→M5·M6→M5b·M5c→M8→M9, 대기 중엔 시험장이 정식 작업, GUI 잠금은 M8까지 |
