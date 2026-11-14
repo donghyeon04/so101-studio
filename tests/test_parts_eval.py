@@ -32,6 +32,12 @@ def test_bracket_keeps_clear_of_the_arm_links_at_the_wrist_limits(parts, kin):
     assert pe.joint_end_interference(parts, kin)["min_mm"] > 5
 
 
+def test_wrist_camera_arm_no_longer_blocks_the_beam(parts):
+    b = pe.beam_clearance(parts)
+    assert all(v is None for k in ("닫힘", "최대 열림") for v in b[k].values())  # 손 메쉬(카메라 뺀 것)도 턱도 원뿔 안에 없다
+    assert pe.hand_overlap(parts) == {"sensor": 0, "bracket": 0}
+
+
 def test_overhang_has_a_zero_support_orientation(parts):
     o = pe.overhang(parts)
     assert o["best_pct"] < 5 and o["best_floor_face"] == "+z" and o["support_area_pct_by_floor_face"]["-z"] > 30  # +z(손목 쪽 평평한 면)를 바닥에 두면 서포트 0%
