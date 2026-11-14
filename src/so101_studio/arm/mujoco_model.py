@@ -88,10 +88,11 @@ def _mat_quat(R: np.ndarray) -> np.ndarray:
     return q
 
 
-def load_model(scene=None, objects=(), *, base: frames.Pose2D, table_z_mm: float, joint_limits: dict | None = None):
+def load_model(scene=None, objects=(), *, base: frames.Pose2D, table_z_mm: float, joint_limits: dict | None = None, parallel_hand: bool = False):
     """(MjModel, warnings)를 만든다. joint_limits(팔 파일의 physical_limits_deg)가 있으면 관절 range와 액추에이터 ctrlrange를 그 값으로 넓힌다(13.4). 없으면 원본 range를 쓰고 warnings에 ("SIM-JOINT-RANGE-DEFAULT", {})를 담는다. warnings 항목은 (코드, 데이터)이고 높이 0 물체마다 ("SIM-OBJECT-HEIGHT-DEFAULT", {"object", "height_mm"})도 담긴다.
     모델: 원본 so101.xml + 받침 상자 + gripper_frame site + 작업대 평면 + 장면 부품 + 물체, 턱 충돌 geom 접촉값(condim 4, 마찰), 전역 옵션(타원 원뿔, impratio 10, implicitfast, timestep 2ms).
-    scene는 core.scene.Scene 또는 None, objects는 SimObject 목록(이름이 서로 달라야 한다). `mujoco`가 없으면 ImportError."""
+    scene는 core.scene.Scene 또는 None, objects는 SimObject 목록(이름이 서로 달라야 한다). `mujoco`가 없으면 ImportError.
+    손목 초음파 부품(WRIST_PARTS)과 `wrist_sonar` site는 병렬 그리퍼의 gripper_link 좌표라서 parallel_hand=True일 때만 붙인다(MuJoCo 손은 아직 단동식뿐이라 기본은 `SIM-PART-SKIPPED` 경고와 함께 건너뜀, M7a)."""
     import mujoco
 
     spec = mujoco.MjSpec.from_file(str(MODEL_XML))
@@ -107,6 +108,8 @@ def load_model(scene=None, objects=(), *, base: frames.Pose2D, table_z_mm: float
 
     gripper = spec.body("gripper")
     gripper.add_site(name="gripper_frame", pos=list(GRIPPER_FRAME_POS), quat=list(GRIPPER_FRAME_QUAT), group=3)
+    if parallel_hand:
+        gripper.add_site(name="wrist_sonar", pos=[v / 1000.0 for v in SONAR_POS_MM], quat=[0, 1, 0, 0], group=3)  # 센서 막 중심. site z축이 광선 방향 = gripper_link -z(턱 끝 쪽)
     spec.body("base").add_geom(name="base_box", type=mujoco.mjtGeom.mjGEOM_BOX, pos=list(BASE_BOX_POS), size=list(BASE_BOX_HALF), group=3, rgba=[0.5, 0.5, 0.5, 0.0])
 
     # base는 월드에 붙은 body라 MuJoCo가 base-shoulder(부모-자식) 접촉을 거르지 않는다: 받침 상자가 어깨 모터와 겹쳐 늘 닿으므로 쌍을 뺀다
@@ -122,7 +125,7 @@ def load_model(scene=None, objects=(), *, base: frames.Pose2D, table_z_mm: float
     world.add_geom(name="table", type=mujoco.mjtGeom.mjGEOM_PLANE, pos=[0, 0, table_z], size=[2.0, 2.0, 0.01], friction=list(TABLE_FRICTION), rgba=[0.8, 0.8, 0.8, 1.0])
 
     if scene is not None:
-        _add_scene(spec, scene, base, table_z_mm)
+        warnings += _add_scene(spec, scene, base, table_z_mm, parallel_hand)
     seen = set()
     for o in objects:
         if o.name in seen:
@@ -159,12 +162,18 @@ def _add_object(spec, o: SimObject, base, table_z_mm: float) -> None:
                friction=[1.0, 0.005, 0.0001], rgba=[0.9, 0.4, 0.1, 1.0])
 
 
-def _add_scene(spec, scene, base, table_z_mm: float) -> None:
+def _add_scene(spec, scene, base, table_z_mm: float, parallel_hand: bool = False) -> list:
     """장면 부품: attach가 table이면 월드 고정 body, 링크면 그 링크 body의 자식. collide: false는 보이기만(contype=0 conaffinity=0). box 또는 메쉬(STL, mm)."""
     import mujoco
 
+    warnings = []
+    if parallel_hand:
+        _wrist_mass(scene)
     for p in scene.parts:
         T = np.asarray(p.T, float)
+        if p.name in WRIST_PARTS and not parallel_hand:
+            warnings.append(("SIM-PART-SKIPPED", {"part": p.name, "reason": "병렬 그리퍼 전용(MuJoCo 손은 단동식)"}))
+            continue
         if p.attach == "table":
             pos = np.array(table_to_model_mm(T[0, 3], T[1, 3], T[2, 3], base, table_z_mm)) / 1000.0
             quat = _mat_quat(_rotz(-base.yaw_deg) @ T[:3, :3])  # 작업대 축 -> 모델 축 회전(로봇 yaw만큼)
@@ -175,6 +184,9 @@ def _add_scene(spec, scene, base, table_z_mm: float) -> None:
                 raise ValueError(f"장면 부품 {p.name}: 알 수 없는 링크 {p.attach!r}")
             pos, quat, parent = T[:3, 3] / 1000.0, _mat_quat(T[:3, :3]), spec.body(body)
         b = parent.add_body(name=f"scene:{p.name}", pos=list(pos), quat=list(quat))
+        if p.name == "wrist_bracket" and parallel_hand:  # 브래킷+센서 합계 질량·관성을 브래킷 body 하나에(센서 body는 질량 0). 동역학은 같다
+            b.explicitinertial = 1
+            b.mass, b.ipos, b.fullinertia = _wrist_mass(scene, T)
         lo, hi = p.mesh.bounds
         kw = {} if p.collide else {"contype": 0, "conaffinity": 0}
         if p.attach != "table":
@@ -186,7 +198,28 @@ def _add_scene(spec, scene, base, table_z_mm: float) -> None:
         else:
             mesh_name = f"scene_mesh:{p.name}"
             spec.add_mesh(name=mesh_name, uservert=(p.mesh.vertices / 1000.0).astype(float).reshape(-1).tolist(), userface=p.mesh.faces.astype(int).reshape(-1).tolist())
-            b.add_geom(name=f"scene:{p.name}_geom", type=mujoco.mjtGeom.mjGEOM_MESH, meshname=mesh_name, **kw)
+            b.add_geom(name=f"scene:{p.name}_geom", type=mujoco.mjtGeom.mjGEOM_MESH, meshname=mesh_name, **kw)  # shortcut: 메시 충돌은 볼록 껍질, 오목한 브래킷은 CoACD 분해로 바꿀 때 정밀해진다
+    return warnings
+
+
+def _wrist_mass(scene, T=None):
+    """(질량 kg, 무게중심 m, fullinertia kg·m²)를 부품 body 프레임으로. 값은 arm/parts_eval.mass_properties(PLA 벽+채움 추정, 슬라이서 무게가 오면 거기서 바뀐다). T=None이면 두 부품이 있는지만 확인."""
+    by = {p.name: p for p in scene.parts}
+    if not WRIST_PARTS <= by.keys():
+        raise ValueError(f"손목 초음파 부품은 {sorted(WRIST_PARTS)} 둘 다 있어야 한다")
+    if T is None:
+        return None
+    from . import parts_eval
+
+    mp = parts_eval.mass_properties({"bracket": by["wrist_bracket"].mesh, "sensor": by["wrist_hcsr04"].mesh})
+    R, t = T[:3, :3], T[:3, 3]
+    com = R.T @ (np.array(mp["com_mm"]) - t)  # gripper_link 좌표 -> body 프레임
+    I = R.T @ np.array(mp["inertia_g_mm2"]) @ R * 1e-9  # g·mm² -> kg·m²
+    return mp["mass_g"] / 1000.0, (com / 1000.0).tolist(), [I[0, 0], I[1, 1], I[2, 2], I[0, 1], I[0, 2], I[1, 2]]
+
+
+WRIST_PARTS = {"wrist_bracket", "wrist_hcsr04"}
+SONAR_POS_MM = (0.0, -66.5, -32.3)  # 센서 막 중심(gripper_link). URDF 손 메쉬와 센서 면 간격을 CAD로 확인 중이라 바뀔 수 있다
 
 
 def _rotz(deg: float) -> np.ndarray:
