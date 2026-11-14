@@ -277,6 +277,7 @@ def test_the_hash_ignores_file_formatting(conf):
     assert calibration_sha256(find_calibration("test_arm", conf)[0]) == calibration_sha256(cal)
 
 
+@pytest.mark.slow
 def test_verify_zero_moves_at_20_percent_asks_a_human_and_records_the_hash(tmp_path, conf):
     svc = service(tmp_path, conf)
     speeds, said, prompts = [], [], []
@@ -299,6 +300,7 @@ def test_verify_zero_moves_at_20_percent_asks_a_human_and_records_the_hash(tmp_p
     assert zero_check(reloaded, conf)["state"] == "checked"  # 다음 연결부터 움직인다
 
 
+@pytest.mark.slow
 def test_verify_zero_without_yes_records_nothing(tmp_path, conf):
     svc = service(tmp_path, conf)
     arm_file = conf / "arms" / "test_arm.yaml"
@@ -319,6 +321,7 @@ def test_verify_zero_without_yes_records_nothing(tmp_path, conf):
         svc.disconnect()
 
 
+@pytest.mark.slow
 def test_verify_zero_goes_home_when_the_start_pose_cannot_be_read_or_reached(tmp_path, conf):
     svc = service(tmp_path, conf)
     said, result = [], {}

@@ -32,6 +32,7 @@ def midpoint(s, row):
 
 
 @pytest.mark.parametrize("target", ["zone", (300.0, 200.0)])
+@pytest.mark.slow
 def test_opening_path_is_used_and_keeps_jaw_midpoint_on_the_point(svc, target):
     sk = svc.skills
     sk._run([sk._gripper(block_for(58.0))])  # 58mm 물체를 쥔 값
@@ -47,6 +48,7 @@ def test_opening_path_is_used_and_keeps_jaw_midpoint_on_the_point(svc, target):
     assert max(math.dist(midpoint(svc, row), goal) for row in path.pts) < 1.0  # 매 단계 턱 중간점이 놓을 점 1mm 안
 
 
+@pytest.mark.slow
 def test_fallback_is_reported_with_a_reason_when_the_gripper_is_already_open(svc):
     svc.skills._run([svc.skills._gripper(CFG.joint_limits_deg["gripper"][1])])  # 쥔 것이 없고 그리퍼는 이미 최대로 열려 있다(11.3: 벌림 끝은 쥔 틈 + 양쪽 30mm, 최대까지)
     r = svc.place(at=(300.0, 200.0))

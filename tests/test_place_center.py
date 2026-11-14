@@ -73,6 +73,7 @@ def test_powertest_sample_thread_survives_read_failure(tmp_path):
         s.disconnect()
 
 
+@pytest.mark.slow
 def test_place_at_arbitrary_point_puts_jaw_midpoint_on_it(svc):
     """REQ-031: 배출 구역이 아닌 작업대 점에도 같은 보정을 적용한다."""
     svc.skills._run([svc.skills._gripper(15.0)])

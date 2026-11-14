@@ -65,6 +65,7 @@ def test_powertest_from_the_resting_pose_ends_at_home(svc, monkeypatch):
     assert res["return"] == "ok" and near(svc.driver.read_joints(), HOME)  # 편 자세에 남지 않는다
 
 
+@pytest.mark.slow
 def test_powertest_aborted_still_returns(svc, monkeypatch):
     monkeypatch.setattr(powertest, "SETTLE_S", 0.2)
     calls = {"n": 0}

@@ -53,6 +53,7 @@ def test_a_reachable_tilted_grasp_is_not_changed(tmp_path):
     assert r.status == "ok" and grip["tilted"] is True and not [1 for c, _ in ev if c == "ARM-PICK-TILT-UNREACHABLE"]
 
 
+@pytest.mark.slow
 def test_cli_pick_takes_an_optional_height(monkeypatch):
     from so101_studio import cli
 
