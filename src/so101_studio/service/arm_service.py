@@ -128,6 +128,8 @@ class ArmService:
         self.skills = Skills(self.ctl, self.kin, self.cfg, self.ws, self.speed)
         if old is not None:  # 다시 연결하며 Skills를 새로 만들어도 집기 기억과 알려진 물체는 넘긴다 (11.3.3)
             self.skills.grip, self.skills.placed, self.skills.known_objects = old.grip, old.placed, old.known_objects
+            self.skills.placed_height, self.skills.placed_angle = old.placed_height, old.placed_angle  # 놓은 물체의 높이·각도도(GUI [다시 연결] 뒤 다시 집을 때 각도 0으로 집지 않게)
+            self.skills.last_place_yaw_deg, self.skills.last_place_angle_deg = old.last_place_yaw_deg, old.last_place_angle_deg
         self.teach = Teach(self.ctl, self.cfg)
         self.ctl.on_event = self._ctl_event
         self._health = self.driver.read_health()
@@ -753,6 +755,11 @@ class ArmService:
         """마지막 place가 놓은 물체의 작업대 기준 각도(0~180°, 정사각형은 90° 주기). 모르면 None. 놓은 물체를 다시 집을 때 이 각도를 DetectedObject.angle_deg로 준다
         (놓는 손은 반경 방향 턱 축이라 집을 때와 달라 물체가 돌아 놓인다: 실물 2-2 11-13, 각도 0으로 알려 정사각형 상자의 모서리를 집음)."""
         return getattr(self.skills, "last_place_angle_deg", None)
+
+    def placed_angle_at(self, x_mm: float, y_mm: float, tol_mm: float = 40.0) -> float | None:
+        """(x, y) 근처(tol_mm 안, 가장 가까운 것)에 이 세션이 놓은 물체의 작업대 기준 각도(0~180°). 없거나 모르면 None. 여러 개를 놓은 자동 작업·GUI가 앞서 놓은 물체를 다시 집을 때 쓴다."""
+        near = min(self.skills.placed_angle.items(), key=lambda kv: math.hypot(kv[0][0] - x_mm, kv[0][1] - y_mm), default=None)
+        return near[1] if near is not None and math.hypot(near[0][0] - x_mm, near[0][1] - y_mm) <= tol_mm else None
 
     def _place_angle(self) -> dict:
         y, a = getattr(self.skills, "last_place_yaw_deg", None), self.last_placed_angle_deg

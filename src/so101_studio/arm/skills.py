@@ -44,6 +44,7 @@ class Skills:
         self.known_objects: list[tuple[float, float, float]] = []  # 호출하는 쪽이 알려 주는 물체(수동 입력 등)
         self.opening_info: dict | None = None  # 마지막 놓기 벌림의 계획 값(clearance 등)
         self.opening_blocked_by: str | None = None
+        self.placed_angle: dict[tuple[float, float], float] = {}  # 놓은 물체 (x, y) -> 놓은 뒤 작업대 기준 각도(0~180°). 집기·놓기가 placed를 비울 때 같이 비운다
         self.placed_height: dict[tuple[float, float], float] = {}  # 놓은 물체 (x, y) -> 높이(mm). 모르면 NEIGHBOUR_H_MM
         self.hover_need_mm = 0.0  # 마지막 _descent의 hover 높이 하한
         self.untilt_rejected: str | None = None  # 마지막 _untilt_goal이 거절한 이유(ik | box:<mm> | object:<..> | check_goal:<..> | already_vertical)
@@ -253,6 +254,7 @@ class Skills:
         (3) 닫을 때 중간점이 물체 중심에 머물도록 손을 같이 보낸다(F1 Hand '닫으며 중심 쪽으로 이동'),
         (4) 그리퍼가 명령보다 앞서 멈추면(접촉) 그 자리에서 정지한다. 물체 크기를 몰라도 된다."""
         self.placed = [o for o in self.placed if math.hypot(o[0] - obj.x_mm, o[1] - obj.y_mm) > 40.0]  # 집어 간 물체는 더 이상 장애물이 아니다
+        self.placed_angle = {k: v for k, v in self.placed_angle.items() if math.hypot(k[0] - obj.x_mm, k[1] - obj.y_mm) > 40.0}
         self.grip = None
         yaw = self._jaw_yaw((obj.angle_deg or 0.0) + 90.0)
         lo_g = self.cfg.joint_limits_deg["gripper"][0]  # 턱 축이 물체 긴 변에 수직이 되도록 (spec 6.6: 물체 각도 + 90°)
@@ -687,10 +689,13 @@ class Skills:
             self._place_ctx = None
 
     def _place_at(self, x_mm: float, y_mm: float) -> MotionResult:
+        self.last_place_yaw_deg = self.last_place_angle_deg = None  # 놓기가 값을 쓰기 전에 실패해도 지난 놓기의 각도가 이번 기록에 남지 않게
         same = [o for o in self.placed if math.hypot(o[0] - x_mm, o[1] - y_mm) <= SAME_SPOT_MM]
         if same:  # 같은 자리에 이미 놓은 물체가 있다(배출 구역은 점 하나): 피할 수 없어 위에 놓게 된다. 설계 결정 전까지 막지 않고 경고만 남긴다 (REQ-056 후속, [기획 요청])
             self.ctl._emit("place_same_spot", "WARN", "ARM-PLACE-SAME-SPOT", {"x_mm": x_mm, "y_mm": y_mm, "count": len(same)})
             self.placed = [o for o in self.placed if o not in same]
+            for o in same:
+                self.placed_angle.pop((o[0], o[1]), None)
         fail = MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0))
         v = self._q().gripper
         grip, plan, legacy = self.grip, None, None
@@ -753,5 +758,7 @@ class Skills:
                 if held_gap < self._gap_mm(min(self.cfg.gripper_open, self.cfg.joint_limits_deg["gripper"][1])) - 1.0:  # 그리퍼가 이미 열린 값(gripper_open)까지 열려 있었으면 쥔 물체가 없었다(드라이런·집기 실패): 놓은 물체로 세지 않는다
                     self.placed.append((x_mm, y_mm, held_gap / 2.0))  # 다음 놓기의 벌림이 이 물체를 피하도록 알려진 물체로 둔다
                     self.placed_height[(x_mm, y_mm)] = float(self._place_ctx.get("obj_h") or NEIGHBOUR_H_MM)
+                    if self.last_place_angle_deg is not None:
+                        self.placed_angle[(x_mm, y_mm)] = self.last_place_angle_deg
         finally:
             self._restore_grip_torque()  # 예외가 나도 조임 한계를 원래 값으로
