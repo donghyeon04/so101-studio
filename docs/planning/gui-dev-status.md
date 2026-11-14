@@ -18,8 +18,8 @@ GUI 세션(총괄)의 인수인계 문서다. 기준 설계는 `planning/gui-spe
 - 시험: `tests/gui` 약 355개(slow 30개 포함). `-m "not slow"` 약 5분, 전체 약 11분.
 
 ## 실행
-- Git Bash: `export PATH="/c/miniforge3/envs/so101/Library/bin:/c/miniforge3/envs/so101:$PATH"` 뒤 `PYTHONPATH=src python -m so101_studio --sim gui` → `http://127.0.0.1:8080`. `--sim`을 빼면 실제 팔(보드 시리얼로 포트 자동).
-- 시험: `PYTHONPATH=src python -m pytest -q -p no:cacheprovider tests/gui -m "not slow"`. PR은 관련 시험만, 전체는 하루 마칠 때 총괄이 한 번(결정 0046).
+- `so101.cmd --sim gui` → `http://127.0.0.1:8080`(런처가 conda 환경과 이 폴더의 `src`를 스스로 잡는다, #349). Git Bash에서 `python`을 직접 부를 때만 CLAUDE.md의 PATH 줄(`<miniforge>`는 PC마다 다르다, 이 PC는 `/c/Users/c/miniforge3`)과 `PYTHONPATH=src`를 준다. `--sim`을 빼면 실제 팔(보드 시리얼로 포트 자동).
+- 시험: `PYTHONPATH=src python -m pytest -q -p no:cacheprovider tests/gui -m "not slow"`. PR은 관련 시험만, 전체는 하루 마칠 때·실물 시험 전에 총괄이 한 번(결정 0064, 0046을 이음).
 - 린트: `python -m ruff check src tests` (파일을 고치면 훅이 그 파일만 검사, 결정 0045).
 
 ## 알려진 함정
@@ -28,7 +28,7 @@ GUI 세션(총괄)의 인수인계 문서다. 기준 설계는 `planning/gui-spe
 - 내장 브라우저 스크린샷이 화면 갱신보다 늦게 찍히는 일이 있다. 값은 `javascript_exec`로 다시 확인한다.
 - 이 폴더에서 `git commit -a`를 쓰지 않는다(GUI 실행이 `config/`를 바꾼다). `config/sequences/test.json`·`config/waypoints.yaml`·`config/programs/`의 시험 파일은 커밋하지 않는다.
 - PR 합치기는 `gh pr merge N --merge`(번호를 꼭 준다).
-- `main` 브랜치는 `so101-studio-us`가 쓰고 있어 다른 폴더는 `origin/main`에 detached로 두거나 `dev/<작업>`을 딴다.
+- `main`은 팔 폴더(`so101-studio`)만 체크아웃한다. 이 폴더는 `git fetch origin && git switch --detach origin/main`으로 최신 main에 두고, 일할 때 `git switch -c dev/<작업> origin/main`을 딴다(`session-workflow.md` 2절).
 
 ## 설계 메모 (코드만 봐서는 이유가 안 보이는 것)
 - 조작권: 처음 연결된 브라우저(소켓 연결 시점)가 가진다. 끊기면 비우고 작업을 세운다. 자동으로 넘기지 않는다(조작 노트북을 새로고침하는 사이 프로젝터 탭이 가져가지 않게). 운영자 화면도 같다.
