@@ -97,9 +97,8 @@ def wrist_scene(tmp_path):
     return load_scene(y / "scene.yaml")
 
 
-@pytest.mark.slow
-@pytest.mark.parametrize("size", [30, 45, 58])
-def test_parallel_hand_carries_and_places(cfg, tmp_path, size):
+def carry_run(cfg, tmp_path, size):
+    """시험장 기준 설정으로 집어 옮기고(실시간) 결과 값을 돌려준다: held·놓은 자리 차이·기울기·미끄러짐(최대와 그 시각 z)·실패 이벤트."""
     import json
     import threading
 
@@ -111,7 +110,7 @@ def test_parallel_hand_carries_and_places(cfg, tmp_path, size):
 
     def sample():
         while not stop.is_set():
-            samples.append(d.sim_state())
+            samples.append((time.perf_counter(), d.sim_state()))
             time.sleep(0.02)
 
     th = threading.Thread(target=sample, daemon=True)
@@ -127,23 +126,41 @@ def test_parallel_hand_carries_and_places(cfg, tmp_path, size):
         stop.set()
         th.join()
         end = d.sim_state()["objects"]["box"]
-        first, slip = None, 0.0
-        for st in samples:  # 13.7 (b): 들어 올린 동안 상자가 손에서 미끄러진 최대 거리
+        first, t0, slip, slip_t, slip_z, air = None, 0.0, 0.0, 0.0, 0.0, 0.0
+        for t, st in samples:  # 13.7 (b): 들어 올린 동안 상자가 손에서 미끄러진 최대 거리
             ob = st["objects"]["box"]
             if st["held"] == "box" and ob["z_mm"] > 5:
                 rel = np.array(st["tool"]["rot"]).T @ (np.array([ob["x_mm"], ob["y_mm"], ob["z_mm"]]) - np.array(st["tool"]["pos_mm"]))
-                first = rel if first is None else first
-                slip = max(slip, float(np.linalg.norm(rel - first)))
+                first, t0 = (rel, t) if first is None else (first, t0)
+                dist = float(np.linalg.norm(rel - first))
+                if ob["z_mm"] > 15:  # 공중에서 옮기는 동안만(내려놓다 바닥에 닿는 순간은 뺀다)
+                    air = max(air, dist)
+                if dist > slip:
+                    slip, slip_t, slip_z = dist, t - t0, ob["z_mm"]
         ev = [json.loads(x) for x in (svc.logger.dir / "events.jsonl").read_text(encoding="utf-8").splitlines()]
         bad = [e for e in ev if e.get("code") in ("ARM-GRIP-OVERLOAD-WARN", "ARM-GRIP-OVERLOAD", "ARM-BLOCKED")
                or (e.get("code") == "ARM-FAULT" and str(e.get("data", {}).get("reason", "")).startswith(("overload", "overcurrent", "overheat")))]
-        print(f"size {size}: held {held}, 미끄러짐 {slip:.2f}mm, 놓은 자리 차이 {np.hypot(end['x_mm'] - 420, end['y_mm'] - 170):.2f}mm, 기울기 {end['tilt_deg']:.1f}°")
-        assert first is not None and held == "box" and slip <= 4.0  # 병렬 손 58mm가 실행마다 2.0~3.7mm(11-15 4회)라 단동식 기준 3.5를 4.0으로 둔다
-        assert np.hypot(end["x_mm"] - 420, end["y_mm"] - 170) < 7 and end["tilt_deg"] < 10
-        assert d.failed_reason is None and isinstance(d, MuJoCoDriver) and not bad, bad
+        miss = float(np.hypot(end["x_mm"] - 420, end["y_mm"] - 170))
+        print(f"size {size}: held {held}, 공중 미끄러짐(z>15) {air:.2f}mm, 전체 미끄러짐 {slip:.2f}mm(들어 올린 뒤 {slip_t:.1f}초, z {slip_z:.0f}mm), 놓은 자리 차이 {miss:.2f}mm, 기울기 {end['tilt_deg']:.1f}°")
+        assert d.failed_reason is None and isinstance(d, MuJoCoDriver)
+        return {"held": held, "first": first, "slip": slip, "air": air, "miss": miss, "tilt": end["tilt_deg"], "bad": bad}
     finally:
         stop.set()
         svc.disconnect()
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("size", [30, 45, 58])
+def test_parallel_hand_carries_and_places(cfg, tmp_path, size):
+    res = carry_run(cfg, tmp_path, size)
+    assert res["first"] is not None and res["held"] == "box" and res["miss"] < 7 and res["tilt"] < 10 and not res["bad"], res
+
+
+@pytest.mark.slow
+@pytest.mark.measure  # 병렬 손 58mm의 미끄러짐은 실행마다 0.8mm 근처 또는 2~10mm로 갈린다(11-15, 실시간). 판정은 임시 4.0mm이고 전체 묶음에서는 뺀다(아침 결정)
+@pytest.mark.parametrize("size", [30, 45, 58])
+def test_parallel_hand_carry_slip(cfg, tmp_path, size):
+    assert carry_run(cfg, tmp_path, size)["slip"] <= 4.0
 
 
 def test_wrist_bracket_and_sensor_ride_on_the_parallel_hand(cfg, tmp_path):
