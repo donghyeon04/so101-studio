@@ -1,38 +1,40 @@
 # 시스템 설계서
 
-상태: 확정 · 갱신 2026-11-02
+상태: 확정 · 갱신 2026-11-02 · 2026-11-14 총정리(1·2·9·11절을 지금 코드에 맞춤, 12절은 기록)
 
-시스템 전체가 어떻게 맞물리는지 정한다. 모듈별 상세 설계는 이 문서의 경계를 따른다. 팔 모듈은 `arm-software-spec.md`, 인식(초음파·카메라)과 GUI는 해당 개발 단계에서 따로 쓴다.
+시스템 전체가 어떻게 맞물리는지 정한다. 모듈별 상세 설계는 이 문서의 경계를 따른다. 팔 모듈은 `arm-software-spec.md`, MuJoCo 시뮬레이션·시험장은 `mujoco-spec.md`, 초음파는 `ultrasonic-spec.md`, GUI는 `gui-spec.md`다. 카메라 인식은 결정 0058이 기준이다.
 
 근거: `overview.md`, `features.md`, `decisions/0003`~`0006`.
 
 ## 1. 시스템 구성
 ```
-                         Windows PC (Python 3.12, 프로세스 1개: so101_studio)
+                         Windows PC (Python 3.12, 프로세스: so101_studio + 감시 프로세스)
  ┌───────────────────────────────────────────────────────────────────────────┐
- │  앱      CLI (지금)                       GUI (나중, 기술 미정)            │
- │            └──────────────┬──────────────────────┘                        │
- │  서비스              Studio (ArmService + TaskService + PerceptionService) │
+ │  앱      CLI                 GUI (NiceGUI + Viser 3D)    감시(E-STOP, 0026) │
+ │            └──────────────┬──────────────┘                                │
+ │  서비스        Studio (ArmService + 작업 실행 + 인식 관리)                 │
  │            ┌──────────────┼──────────────────────┐                        │
  │  모듈    task(작업 실행)   arm(팔)              perception(인식)            │
- │  공통    core: types · frames · config · events · logging                 │
+ │  공통    core: types · frames · config · events · logging · scene          │
+ │  드라이버  실물 서보 | SimDriver(기구학) | MuJoCoDriver(물리, 시험장 0062)    │
  └────────────────┬──────────────────────────┬──────────────┬───────────────┘
-                  │ USB (LeRobot)            │ USB 시리얼    │ USB (나중)
-          버스 서보 보드 → SO-101      ESP32 → HC-SR04 ×2   카메라
-                                       + 스캔 서보 ×2 (미구매)
+                  │ USB (LeRobot)            │ USB 시리얼    │ Wi-Fi(핫스팟)
+          버스 서보 보드 → SO-101      ESP32 → HC-SR04 ×2   ESP32-CAM(위에서 내려다봄)
+                                       + OpenRB-150 → XL330(레이더 회전, 0043)
 ```
-- PC에서 도는 프로그램은 **하나**다. 모듈은 같은 프로세스 안에서 스레드로 나뉜다. 5주 일정과 Windows 1대 환경에서 프로세스 간 통신(Redis, Docker 등)은 쓰지 않는다.
-- ESP32는 센서와 스캔 서보만 다룬다. 판단은 하지 않고, 각도별 거리값만 PC로 보낸다.
+- PC에서 도는 프로그램은 so101_studio 하나와 E-STOP 감시 프로세스다. 모듈은 같은 프로세스 안에서 스레드로 나뉜다. 프로세스 간 통신(Redis, Docker 등)은 쓰지 않는다.
+- ESP32는 센서와 레이더 서보 명령만 다룬다. 판단은 하지 않고, 각도별 거리값만 PC로 보낸다.
+- 그리퍼는 단동식(기본)과 Robonine 병렬 두 종이다(0043-1, `config/grippers/`).
 
 ## 2. 모듈과 의존 방향
 | 모듈 | 역할 | 부를 수 있는 모듈 | 상세 설계 |
 |---|---|---|---|
 | `core` | 데이터 타입, 좌표 변환, 설정, 이벤트, 기록 | 없음 | 이 문서 |
 | `arm` | 팔 연결, 기구학, 궤적, 집기·놓기, 원격 조종, 녹화·재생 | `core` | `arm-software-spec.md` |
-| `perception` | 물체 인식. 출력은 `DetectedObject` 목록 | `core` | 3단계(초음파), 4단계(카메라)에서 작성 |
+| `perception` | 물체 인식. 출력은 `DetectedObject` 목록 | `core` | `ultrasonic-spec.md`, 카메라는 결정 0058 |
 | `task` | 작업 실행(판단): 스캔 → 우선순위 → 집기 → 반복 | `core`, `arm`, `perception`의 공개 인터페이스 | 이 문서 5절 |
 | `service` | 앱이 부르는 유일한 입구. 상태·이벤트 발행 | 위 전부 | 이 문서 7절 |
-| `cli`, `gui` | 사용자 화면 | `service`만 | GUI는 나중 |
+| `cli`, `gui` | 사용자 화면 | `service`만 | `gui-spec.md` |
 
 - `arm`과 `perception`은 서로 모른다. 둘을 잇는 것은 `task`뿐이다 (`decisions/0004`).
 - 위 표의 방향을 거스르는 import는 쓰지 않는다.
@@ -136,23 +138,27 @@ GUI를 실행하면 감시 프로세스(`so101_studio.watchdog`)가 별도 프�
 
 장치 하나는 스레드 하나만 만진다. 다른 스레드는 큐로 요청한다.
 
-## 9. 레포 폴더 구조
+## 9. 레포 폴더 구조 (2026-11-14 코드 기준)
 ```
 src/so101_studio/
-  core/          types.py, frames.py, config.py, events.py, logging.py
-  arm/           (팔 설계서 3절)
-  perception/    base.py, manual.py, ultrasonic/(3단계, ultrasonic-spec.md 8.1절), camera.py(4단계)
-  task/          runner.py, policy.py (우선순위·도달 범위 판단)
-  service/       studio.py, arm_service.py
-  cli/           __main__.py
-  gui/           NiceGUI 앱 틀 + Viser 3D (gui-spec.md 7절, decisions/0023)
-  watchdog/      E-STOP 감시 프로세스 (decisions/0026, 팔 세션)
-firmware/esp32_scanner/   (3단계)
-config/          robot.yaml, workspace.yaml, manual_objects.yaml, sequences/, calibration/
-assets/          URDF, 메쉬
-tests/           하드웨어 없이 도는 테스트 (--sim, ManualSource)
+  core/          types, frames, config, events, logging, logread, blackbox, incident, retention, scene, ports, calibration
+  arm/           driver, sim_driver, mujoco_driver, mujoco_model, kinematics, trajectory, motion, safety, collision,
+                 gripper, skills, teach, teleop, fault_text, logged_bus, reset_probe, autocal/ (arm-software-spec 3절)
+  perception/    base, manual, ultrasonic/ (radar, check, model, link, fake_esp32, benchmark, bench, source)
+  task/          runner, policy, summary, trail
+  service/       studio, arm_service, params, diagnostics, perception, ultrasonic, stop_listener, targets
+  cli/           명령 (keys, linkwatch, powertest, shaketest, trace, rest)
+  gui/           NiceGUI 앱 + Viser 3D (gui-spec.md 7절)
+  watchdog/      E-STOP 감시 프로세스 (decisions/0026)
+  doctor.py, bringup.py   읽기 전용 점검(0027)
+firmware/        esp32_scanner/ (HC-SR04 ×2), openrb_servo/ (XL330 레이더 서보)
+config/          robot.yaml, arms/, grippers/, local.example.yaml(local.yaml은 git 제외), workspace.yaml, scene.yaml,
+                 manual_objects.yaml, sim_scenarios/, ultrasonic.yaml, sequences/, calibration/
+assets/          URDF(단동식 so101_new_calib, 병렬 so101_parallel), 메쉬, mujoco/so101 (Menagerie)
+tests/           하드웨어 없이 도는 시험 (tests/gui는 GUI, slow 표시는 긴 시험)
 runs/            실행 기록 (git 제외)
-docs/
+docs/            README.md 색인 참고
+so101.cmd/.sh, 설치.cmd, 시뮬레이션 실행.cmd, 실물 팔 실행.cmd   런처(0040)
 ```
 
 ## 10. 실행 기록
@@ -173,13 +179,14 @@ docs/
 |---|---|
 | 0~2. 구동 점검, 동작 라이브러리, 작업 공간 | `core`, `arm`, `perception/manual`, `task`, `service`, `cli` |
 | 3. 초음파 인식 | `firmware/esp32_scanner`, `perception/ultrasonic` |
-| 4. 카메라 인식 | `perception/camera` |
+| 4. 카메라 인식 | `perception/camera`(결정 0058, 초음파 실물 뒤) |
 | GUI (2차 단계, 3단계와 병행) | `gui` (gui-spec.md, GUI 세션) |
 | 5. 비교 실험 | 실험 기능(F3, F4) |
+| 시뮬레이션 시험장 | `arm/mujoco_*` + 시험장 공통 층(결정 0062, `mujoco-spec.md` 13.10) |
 
 0~2단계가 끝나면 `ManualSource`로 "좌표 입력 → 자동으로 여러 물체 집어 옮기기"가 동작해야 한다. 센서가 붙으면 `ManualSource`를 `UltrasonicSource`로 바꾸기만 한다.
 
-## 12. 0~2단계 작업 순서 (로컬 세션)
+## 12. 0~2단계 작업 순서 (로컬 세션, 2026-11-02 기록 — 이후 진행은 `project-status.md`)
 팔 작업(T0~T11)의 상세와 완료 기준은 `arm-software-spec.md` 10~11절에 있다. 전체 순서는 아래와 같다.
 
 결과 열은 2026-11-02 기준이다(`arm-dev-status.md`). ✅ 완료, △ 구현은 끝났고 실측이 남음.

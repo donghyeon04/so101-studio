@@ -106,7 +106,7 @@
 | C21 | **pr-review-toolkit** | 플러그인 | PR 테스트 감사(결정 0045) | `/plugin install pr-review-toolkit` (마켓플레이스에서 찾기) |
 | C22 | **code-review** | 내장 스킬 | 총괄이 PR마다 medium 이상(결정 0045) | 설치 불필요 |
 | C23 | **playwright-cli** | 스킬(사용자 전역) | GUI PR 화면 확인(결정 0045). 레포에 넣지 않고 총괄 PC의 사용자 전역(`~/.claude/skills/`)에 둔다 | 예전 총괄 PC의 `~/.claude/skills/playwright-cli/`를 복사. 없으면 C16의 Playwright CLI만으로 한다 |
-| C24 | **MuJoCo** | 파이썬 패키지(MuJoCo 세션 PC) | 물리 시뮬레이션(결정 0053, `arm-software-spec.md` 13.8) | so101 환경에서 `pip install --no-deps "mujoco>=4.0,<5" mujoco-core mujoco-studio glfw pyopengl`(numpy가 바뀌지 않게). 버전 고정(M2, `pip freeze` 2026-11-13): `pip install --no-deps mujoco==4.0.0 mujoco-core==4.0.0 mujoco-studio==4.0.0 glfw==2.11.0 pyopengl==3.1.10`. 설치 뒤 `python -c "import numpy; print(numpy.__version__)"`가 2.2.6 |
+| C24 | **MuJoCo** | 파이썬 패키지(MuJoCo 세션 PC) | 물리 시뮬레이션(결정 0053, `mujoco-spec.md` 13.8) | so101 환경에서 `pip install --no-deps "mujoco>=4.0,<5" mujoco-core mujoco-studio glfw pyopengl`(numpy가 바뀌지 않게). 버전 고정(M2, `pip freeze` 2026-11-13): `pip install --no-deps mujoco==4.0.0 mujoco-core==4.0.0 mujoco-studio==4.0.0 glfw==2.11.0 pyopengl==3.1.10`. 설치 뒤 `python -c "import numpy; print(numpy.__version__)"`가 2.2.6 |
 
 ## D. 레퍼런스 평가 기준
 
