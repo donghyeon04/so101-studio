@@ -113,13 +113,13 @@ class WorkspaceConfig:
                  math.hypot(z["w_mm"] / 2.0, z["h_mm"] / 2.0) + float(self.safety_margin_mm) if "w_mm" in z and "h_mm" in z else float(self.drop_zone_ignore_radius_mm))
                 for z in self.drop_zones.values()]
 
-    def zone_slots(self, name: str) -> list[tuple[float, float]] | None:
+    def zone_slots(self, name: str, step_mm: float | None = None) -> list[tuple[float, float]] | None:
         """사각형 배출 구역(`{x_mm, y_mm, w_mm, h_mm, slot_mm}`)의 칸 가운데, 로봇 원점에 가까운 순서 (arm-software-spec 11.3.5). 칸은 사각형 가운데를 중심으로 slot_mm 간격 격자이고
-        집기 범위(reach_mm) 밖의 칸은 뺀다. 옛 점 형식(x_mm·y_mm만)이면 None."""
+        집기 범위(reach_mm) 밖의 칸은 뺀다. 옛 점 형식(x_mm·y_mm만)이면 None. step_mm를 주면 칸 간격 대신 그 간격의 촘촘한 후보(칸이 물체보다 좁을 때)."""
         z = self.drop_zones[name]
         if not all(k in z for k in ("w_mm", "h_mm", "slot_mm")):
             return None
-        s = float(z["slot_mm"])
+        s = float(step_mm or z["slot_mm"])
         nx, ny = int(z["w_mm"] // s) + 1, int(z["h_mm"] // s) + 1
         b = self.base
         pts = [(float(z["x_mm"]) + (i - (nx - 1) / 2) * s, float(z["y_mm"]) + (j - (ny - 1) / 2) * s) for i in range(nx) for j in range(ny)]
