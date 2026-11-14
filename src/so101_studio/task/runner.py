@@ -44,6 +44,7 @@ class TaskRunner:
         집은 물체는 `Skills.pick`이 장애물에서 뺀다. 매 스캔마다 다시 알려 옮겨 놓은 자리가 남지 않는다."""
         if hasattr(self.skills, "known_objects"):
             self.skills.known_objects = [(o.x_mm, o.y_mm, max(o.width_mm or 0.0, o.length_mm or 0.0) / 2.0) for o in objs]
+            self.skills.known_height = {(o.x_mm, o.y_mm): o.height_mm for o in objs}  # 집은 뒤 옮길 때 이보다 높이 든다
 
     def _placed(self) -> dict:
         """방금 놓은 자리(x_mm, y_mm)와 손 방향(place_yaw_deg), 놓인 물체 각도(placed_angle_deg). 모르는 값은 뺀다: 놓인 물체를 다시 집을 때 각도로 쓴다."""
