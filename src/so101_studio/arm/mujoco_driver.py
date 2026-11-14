@@ -11,6 +11,7 @@ import numpy as np
 from ..core.types import JointState
 from .driver import JOINTS
 from .kinematics import VALUE_TO_Q
+from .mujoco_hand import slide_m, value_of_slide
 from .mujoco_model import (
     DEFAULT_OBJECT_HEIGHT_MM,
     JOINT_MAP,
@@ -19,6 +20,7 @@ from .mujoco_model import (
     model_to_table_mm,
 )
 
+JAW_ROLES = ("jaw_fixed", "jaw_moving", "clamp_right", "clamp_left")  # held 판정에 쓰는 턱 역할(단동식 둘, 병렬 클램프 둘)
 CATCHUP_MAX_S = 0.1  # 이 이상 밀리면 넘는 만큼 버린다
 
 
@@ -28,6 +30,7 @@ class MuJoCoDriver:
             raise ValueError("뷰어는 실시간 모드에서만")
         self.cfg, self.ws, self.scene, self.objects, self.realtime = cfg, ws, scene, list(objects), realtime
         self.viewer = viewer
+        self._parallel = cfg.gripper == "parallel"  # 로보나인 병렬 손(M4b): 그리퍼 관절이 slide(m)
         self._handle = None  # mujoco.viewer 핸들(뷰어를 켠 경우)
         self._next_sync = 0.0
         self.connected = False
@@ -56,7 +59,8 @@ class MuJoCoDriver:
 
         self.disconnect()  # 잠금 밖에서: 물리 스레드가 잠금을 기다리며 join과 맞물리지 않게
         with self._lock:
-            self.model, warnings = load_model(self.scene, self.objects, base=self.ws.base, table_z_mm=self.cfg.table_z_mm, joint_limits=self.cfg.physical_limits_deg or None)
+            self.model, warnings = load_model(self.scene, self.objects, base=self.ws.base, table_z_mm=self.cfg.table_z_mm, joint_limits=self.cfg.physical_limits_deg or None,
+                                              hand=self.cfg.gripper, gripper_width_mm=self.cfg.gripper_width_mm)
             self.data = mujoco.MjData(self.model)
             self._mj = mujoco
             self._qadr = [self.model.joint(JOINT_MAP[j][0]).qposadr[0] for j in JOINTS]
@@ -112,6 +116,9 @@ class MuJoCoDriver:
         out = []
         for j, v in zip(JOINTS, deg):
             _, sign, off = JOINT_MAP[j]
+            if j == "gripper" and self._parallel:  # 병렬 손: 클램프 한 쪽 이동(m)
+                out.append(slide_m(v, self.cfg.gripper_width_mm))
+                continue
             if j == "gripper":
                 v = VALUE_TO_Q[0] + VALUE_TO_Q[1] * v
             out.append(np.radians(sign * v + off))
@@ -121,6 +128,9 @@ class MuJoCoDriver:
         vals = []
         for j, r in zip(JOINTS, rad):
             _, sign, off = JOINT_MAP[j]
+            if j == "gripper" and self._parallel:
+                vals.append(value_of_slide(float(r), self.cfg.gripper_width_mm))
+                continue
             v = (np.degrees(r) - off) / sign
             vals.append(float((v - VALUE_TO_Q[0]) / VALUE_TO_Q[1]) if j == "gripper" else float(v))
         return JointState(*vals)
@@ -303,7 +313,7 @@ class MuJoCoDriver:
                 contacts.append({"a": a, "b": b, "force_n": float(f6[0]), "pos_mm": self._table(c.pos).tolist()})
                 if f6[0] > 0:
                     for jaw, other in ((a, b), (b, a)):
-                        if jaw in ("jaw_fixed", "jaw_moving") and other.startswith("obj:"):
+                        if jaw in JAW_ROLES and other.startswith("obj:"):
                             jaw_force.setdefault(other[4:], {}).setdefault(jaw, 0.0)
                             jaw_force[other[4:]][jaw] += float(f6[0])
             both = {o: sum(f.values()) for o, f in jaw_force.items() if len(f) == 2}
