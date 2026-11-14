@@ -369,7 +369,7 @@ GUI에서 점 찍기는 `point_pose` → `preview_tool` → `move_tool` 순서�
 |---|---|
 | 이동 | `status`, `home`, `park`, `movej`, `goto`, `pick x y 각도 폭 [높이] [--place 구역]`(5번째 값은 물체 높이 mm, 6.6), `place --place 구역`, `gripper [--width]` |
 | 자동 작업 | `run --source manual [--step] [--dry-run]`, `run --source ultrasonic [--us-port COMx]` |
-| 조종 | `keys` (관절 / 직교 조그 / 좌표 입력, `--jog-speed`·`--cart-speed`·`--trace`), 옛 `jog [--cartesian]` |
+| 조종 | `keys` (관절 / 직교 조그 / 좌표 입력, `--jog-speed`·`--cart-speed`·`--trace`) |
 | 교시 | `record <이름> [--record-hz] [--record-max-s]`, `info <이름>`, `replay <이름> [--seg-speed 1=0.5] [--until-limit] [--mode original\|fitted]`, `seq <이름>` |
 | 진단 | `powertest`, `shaketest [--speeds]`, `servoinfo`, `linkwatch`, `--hz`, `--trace` |
 | 점검·캘리브레이션 | `doctor [--json] [--no-probe]`, `find-port`, `calibrate --auto --measure-only` / `--save` / `--verify-zero`(11.1), `incident [--last N]` |
@@ -427,7 +427,7 @@ MuJoCo 물리 시뮬레이션(결정 0053, 13절). M1부터 차례로 한다. GU
 | M2 | `MuJoCoDriver`(13.2·13.3), 관절·그리퍼 range와 ctrlrange 넓히기(`mujoco_model.py`, 13.4), `make_sim_driver`, CLI `--sim-engine`과 명령 처리(13.1), `--dry-run` 거부, diagnostics 검사, `reload_workspace` 거부, `sim_state()`는 빈 값(13.6), tooling-setup 설치 줄과 버전 고정(13.8) | 13.7 (c)(e) | 0053, 13.1 | ✅ #275(11-13) |
 | M3 | 장면·물체·시나리오(13.5), `sim_state()` 채우기(13.6) | 13.7 (a)(b) | 0053, 13.1 | ✅ #290(11-13) |
 | M4 | 팔: `--sim-viewer`(13.1 뷰어), `sim_state()` `size_mm`, `failed_reason`, 물체 파일·겹침 검사(13.5), CLI `gui` 거부 해제. GUI: `gui-spec.md` 12.8(팔 세션이 REQ로 요청). 순서: 팔 M4 PR이 먼저 합쳐진 뒤 GUI M4를 시작한다. 총괄이 팔 M4 REQ를 `session-requests.md`에 올린다 | 13.7 (f) | 0053, 13.1, gui-spec 12.8 || ✅ 팔 #303, GUI #328(11-14) |
-| M5~M9 | 시험장으로 키우기(13.10, 결정 0062): M7a 부품 사전 평가(지금), M5 집기 시험장·M6 초음파를 MuJoCo에(우선 1), M5b 빠른 모드·M5c 서보 맞추기(2), M8 GUI 시험장(3), M9 강화학습(12/4 뒤) | 13.10 | 0053, 0037 | |
+| M5~M9 | 시험장으로 키우기(13.10, 결정 0062): M7a 부품 사전 평가(✅ #335), M4b 로보나인 손 모델(0063), M5 집기 시험장·M6 초음파를 MuJoCo에(우선 1), M5b 빠른 모드·M5c 서보 맞추기(2), M8 GUI 시험장(3), M9 강화학습(12/4 뒤) | 13.10 | 0053, 0037 | |
 
 T1~T7이 개발 1단계(동작 라이브러리)이고, T6 결과로 2단계(작업 공간 확정)를 한다. T8~T11은 센서를 기다리는 동안 할 수 있다. 팔 이외의 작업(C1, S1~S3)과 전체 순서는 `system-architecture.md` 11절에 있다.
 

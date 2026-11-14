@@ -76,7 +76,7 @@ git worktree add ../so101-studio-us -b dev/us-sim origin/main
 기존 API 변경, 새 모듈, 안전 정책 변경, 설계서와 다른 구현이 필요할 때는 로컬 세션이 멈추고 총괄(GUI 세션)에게 보낸다(7절). 기획 세션은 사용 한도 때문에 PR을 자동으로 보지 않는다. 흐름은 이렇다.
 1. 총괄이 아래 양식으로 모아 **기획 세션에 붙여 넣을 프롬프트**로 사용자에게 준다. 한 번에 여러 건을 묶어도 된다.
 2. 사용자가 그 프롬프트를 기획 세션에 붙여 넣는다.
-3. 기획 세션은 설계서·결정 기록을 고쳐 **승인 대기 브랜치**(기획 세션의 `claude/*` 브랜치, 지금은 `claude/hopeful-hamilton-amqaac`)에 커밋·푸시하고, 무엇을 바꿨는지와 커밋을 사용자에게 답한다. 합치지 않는다.
+3. 기획 세션은 설계서·결정 기록을 고쳐 **승인 대기 브랜치**(기획 세션의 `claude/*` 브랜치, 지금은 `claude/hopeful-hamilton-amqaac`. 계정이나 기획 세션이 바뀌면 이름이 바뀌므로 새 기획 세션은 첫 답에 자기 브랜치 이름을 알린다)에 커밋·푸시하고, 무엇을 바꿨는지와 커밋을 사용자에게 답한다. 합치지 않는다.
 4. 사용자가 승인하면 총괄이 그 브랜치로 PR을 열어 `main`에 합치고, 해당 세션에 전한다. 사용자가 기획 세션에서 바로 합치라고 하면 기획 세션이 합친다.
 
 요청함 PR #68은 2026-11-06까지의 기록으로 남긴다(합치지 않고 지우지 않음). 새 요청은 받지 않는다.
@@ -110,22 +110,54 @@ git worktree add ../so101-studio-us -b dev/us-sim origin/main
 - 사용자의 답은 총괄이 해당 세션에 전하고, 요청 대장이나 현황 문서에 남긴다.
 - Claude Code 앱이 띄우는 도구 권한 확인 창은 이 규칙과 별개다(앱 설정의 권한 모드로 정한다).
 
-## 8. 새 계정·새 PC로 옮길 때 (2026-11-06)
+## 7a. 보고 체계 — 남아야 할 것은 git에 (2026-11-14)
+세션끼리 주고받는 메시지와 사용자가 붙여 넣는 프롬프트는 편의일 뿐, 계정이나 세션이 바뀌면 사라진다. 다음 넷만 남는다고 본다.
+
+| 무엇 | 남는 곳 | 누가 |
+|---|---|---|
+| 요청(REQ) | `planning/session-requests.md` 행 + 그 일을 한 PR 본문에 REQ 번호 | 보내는 쪽이 행을 더하고, 받는 쪽이 상태를 고친다 |
+| 세션 → 총괄 보고 | PR 본문(한 것·시험 명령과 결과) + 자기 `*-dev-status.md` | 각 세션 |
+| 총괄 → 기획 보고·요청 | `planning-inbox` 브랜치 `inbox/YYYY-MM-DD-제목.md`. 사용자는 기획에 "[기획 요청] … 원문: inbox/…"만 붙여 넣는다 | 총괄 |
+| 결정 | 사용자 승인 → 기획이 `decisions/NNNN`을 쓰고 `work-queue.md` 결정 대기에서 지운다 | 기획 |
+| 지금 상태·할 일 | `project-status.md`(기획, 큰 단계마다), `work-queue.md`(총괄, 매일) | 기획·총괄 |
+- 메시지로 받은 내용 가운데 이어 가야 할 것은 받은 세션이 위 자리 중 하나에 적는다.
+- 측정은 `measurements.md`, 실물 기록 원본은 `runs/`(git 밖)다.
+
+## 8. 새 계정·새 PC로 옮길 때 (2026-11-06, 2026-11-14 같은 PC 계정 이전 보완)
 대화 기억(자동 메모리 포함)은 계정과 PC를 따라오지 않는다. 이어 갈 사람과 세션은 **레포만** 보고 시작한다. 그래서 옮기기 전에 모든 것을 레포에 남긴다.
 
 **옮기기 전 (각 세션)**
 1. 하던 일을 안전한 지점에서 멈춘다. 끝나지 않은 일은 `dev/` 브랜치에 커밋·푸시하고 PR을 연다(합치지 않아도 된다). 실제 팔·ESP32는 토크를 끄고 포트를 닫는다.
-2. 자기 현황 문서(`gui-dev-status.md`, `arm-dev-status.md`, `us-dev-status.md`) 맨 위에 "인수인계" 절을 둔다: 지금 브랜치와 PR, 하던 일과 다음 한 걸음, 막힌 것, 알려진 함정.
-3. 총괄은 요청 대장과 `measurements.md` 실물 시험 순서를 최신으로 맞추고, `gui-dev-status.md` 인수인계 절에 세 세션의 상태(브랜치, 열린 PR, 다음 한 걸음, 막힌 것)를 요약한다.
+2. 자기 현황 문서(`gui-dev-status.md`, `arm-dev-status.md`, `us-dev-status.md`, MuJoCo는 `mujoco-spec.md` 13.9) 맨 위에 "인수인계" 절을 둔다: 지금 브랜치와 PR, 하던 일과 다음 한 걸음, 막힌 것, 알려진 함정.
+3. 총괄은 요청 대장과 `measurements.md` 실물 시험 순서를 최신으로 맞추고, `gui-dev-status.md` 인수인계 절에 로컬 세션 넷의 상태(폴더, 브랜치, 열린 PR, 다음 한 걸음, 막힌 것)를 요약한다. MuJoCo 세션은 `mujoco-spec.md` 13.9에 남긴다.
 4. 기획은 `planning/project-status.md`를 갱신한다.
 5. git에 없는 파일을 새 PC로 복사한다: `config/local.yaml`(PC별 포트·팔), `config/ultrasonic_baseline.json`(레이더 기준값, 없으면 새로 잰다), 필요한 `runs/` 기록. 서보 캘리브레이션은 `config/calibration/`(git)에 있고, 새 PC에서 처음 연결하는 순서는 `arm-hardware-setup.md`를 따른다.
 
 **새 PC에서**
 1. 개발 도구: Git for Windows, Miniforge, USB 시리얼 드라이버, Arduino IDE 2(또는 arduino-cli) + ESP32 보드 패키지 3.x (`tooling-setup.md` C-1).
 2. 레포: `git clone https://github.com/donghyeon04/so101-studio.git` → `conda env create -f environment.yml` → `conda activate so101` → `pip install -e .[gui]` (numpy를 pip로 다시 설치하지 않는다. scipy는 conda로).
-3. worktree: 2절대로 `../so101-studio-gui`, `../so101-studio-us`. 이어 갈 브랜치가 있으면 `git worktree add ../so101-studio-gui <그 브랜치>`.
+3. worktree: 2절대로 `../so101-studio-gui`, `../so101-studio-us`, `../so101-studio-sim`(팔은 원래 폴더 `so101-studio`). 이어 갈 브랜치가 있으면 `git worktree add ../so101-studio-gui <그 브랜치>`.
 4. 확인: `python -m pytest -q`, `python -m ruff check src tests`, `so101.cmd --sim status`, `so101.cmd doctor --no-probe`.
 5. CLAUDE.md의 Git Bash PATH 줄(`/c/Users/c/...`)은 원래 데스크톱 경로다. 새 PC의 사용자 폴더가 다르면 그 PC에서만 바꿔 쓴다(`so101.cmd`는 사용자 폴더를 스스로 찾는다).
 6. Claude Code 도구: `tooling-setup.md` A·C-2·C-4를 설치한다. 프로젝트 스킬(`.claude/skills/`)은 레포에 있어 따로 설치하지 않는다. 새 계정은 claude.ai 커넥터에서 GitHub를 연결하고 이 레포 접근 권한이 있어야 한다.
-7. 세션을 만들고 각 세션에 시작 프롬프트를 준다. 시작 프롬프트는 "CLAUDE.md, 이 문서, 자기 현황 문서의 인수인계 절, 요청 대장, 기획 승인 대기 브랜치를 읽고 이어 간다"를 담는다.
+7. 세션을 만들고 각 세션에 아래 "시작 프롬프트"를 준다.
+
+**같은 PC에서 계정만 바꿀 때**(2026-11-14): 폴더·`runs/`·추적 안 한 파일은 그대로 남는다. 잃는 것은 대화 기억과 세션 메모리뿐이다. 그래서 "옮기기 전" 1~4만 하고, 새 계정에서 `tooling-setup.md`(설치 세션)로 플러그인·MCP를 맞춘 뒤 세션 다섯을 시작 프롬프트로 연다. git 밖 파일 목록은 `project-status.md` 7절이다.
+
+**시작 프롬프트**(새 세션의 첫 메시지. `<…>`만 채운다)
+```
+[기획(원격)] 너는 so101-studio의 기획 세션이다. 기획·설계서·결정 기록·레퍼런스 조사만 하고 프로젝트 코드는 쓰지 않는다. 한국어로 결론부터 짧게 쓴다. 판단 요청은 질문을 하나씩(소크라테스), 실행 요청은 바로 한다. 커밋은 승인 대기 브랜치(claude/*)에만 하고 합치기는 총괄이 한다. 답 끝에 총괄에게 붙여 넣을 문장을 준다. 먼저 git fetch origin && git merge origin/main 하고 CLAUDE.md, docs/planning/project-status.md, work-queue.md, docs/guides/session-workflow.md 7a절을 읽고 지금 상태를 세 줄로 알려 줘. 총괄 보고는 planning-inbox 브랜치 inbox/에 온다.
+```
+```
+[총괄(GUI)] 너는 so101-studio의 총괄(GUI) 세션이다. 폴더는 바탕화면 so101-studio-gui. gui/·tests/gui/만 고치고 gui-spec.md를 따르며, 일 나누기·REQ 대장·PR 검토(code-review)·합치기(--delete-branch 쓰지 않음)·EGM Stage 9를 맡는다. 먼저 git status -sb로 브랜치를 보고 main이 아니면 이유를 확인한 뒤 git switch main && git pull --ff-only. 그다음 CLAUDE.md, docs/planning/project-status.md, work-queue.md, docs/guides/session-workflow.md(2·7a·8절), gui-dev-status.md 인수인계 절, session-requests.md를 읽고 지금 순서 1번부터 이어 간다. 기획에 올릴 것은 planning-inbox inbox/에 파일로 쓴다.
+```
+```
+[팔] 너는 so101-studio의 팔 세션이다. 폴더는 바탕화면 so101-studio. gui/·mujoco·초음파 영역 밖의 코드를 고치고 arm-software-spec.md를 따른다. 먼저 git status -sb(지워진 브랜치면 main으로), CLAUDE.md, docs/planning/project-status.md, work-queue.md, arm-dev-status.md 인수인계 절, session-requests.md에서 팔 앞 REQ를 읽고 이어 간다. 작업은 main에서 dev/<작업> 브랜치, 끝나면 PR. 실물은 30% 이하로 시작하고 사용자가 전원 옆에 있을 때만.
+```
+```
+[MuJoCo] 너는 so101-studio의 MuJoCo 세션이다. 폴더는 바탕화면 so101-studio-sim. arm/mujoco_*, assets/mujoco/, config/sim_scenarios/, tests/test_mujoco_*를 고치고 docs/planning/mujoco-spec.md를 따른다(시험장, 결정 0062·0063). 먼저 git status -sb(지워진 브랜치면 main으로), CLAUDE.md, project-status.md, work-queue.md, mujoco-spec.md 13.9·13.10을 읽고 M4b 로보나인 손 모델부터 이어 간다. 설계서와 다르게 해야 하면 멈추고 총괄에게 알린다.
+```
+```
+[초음파] 너는 so101-studio의 초음파 세션이다. 폴더는 바탕화면 so101-studio-us. perception/ultrasonic/, firmware/, tests/perception/, config/ultrasonic.yaml만 고치고 ultrasonic-spec.md를 따른다. 먼저 git status -sb 하고 main으로 돌려 pull(main보다 많이 뒤져 있다). CLAUDE.md, project-status.md, work-queue.md, us-dev-status.md 인수인계 절, session-requests.md에서 초음파 앞 REQ(센서 오프셋 {0.0, 66.5, 99.5})를 읽고 이어 간다. OpenRB VIN 12V 확인 전에는 배선하지 않는다.
+```
 
