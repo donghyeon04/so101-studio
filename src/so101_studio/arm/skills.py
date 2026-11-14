@@ -41,6 +41,7 @@ class Skills:
         self.last_place_yaw_deg: float | None = None  # 마지막 place의 손(턱 축) 방향, 작업대 기준
         self.last_place_angle_deg: float | None = None  # 마지막 place가 놓은 물체의 작업대 기준 각도(0~180°, 정사각형은 90° 주기), 모르면 None
         self.last_place_correction_mm: tuple[float, float] | None = None  # 마지막 place가 손 xy를 옮긴 양
+        self.last_place_xy: tuple[float, float] | None = None  # 마지막 place가 놓은 자리(작업대 mm), 작업 이벤트가 남긴다
         self._grip_orig: int | None = None  # 조임 한계를 바꾸기 전 값(놓은 뒤 되돌린다)
         self.placed: list[tuple[float, float, float]] = []  # 이 세션에서 놓은 물체 (x, y, 반경 mm): 다음 놓기의 벌림이 부딪히는지 볼 때 알려진 물체로 쓴다 (11.3)
         self.known_objects: list[tuple[float, float, float]] = []  # 호출하는 쪽이 알려 주는 물체(수동 입력 등)
@@ -707,7 +708,7 @@ class Skills:
             self._place_ctx = None
 
     def _place_at(self, x_mm: float, y_mm: float) -> MotionResult:
-        self.last_place_yaw_deg = self.last_place_angle_deg = None  # 놓기가 값을 쓰기 전에 실패해도 지난 놓기의 각도가 이번 기록에 남지 않게
+        self.last_place_yaw_deg = self.last_place_angle_deg = self.last_place_xy = None  # 놓기가 값을 쓰기 전에 실패해도 지난 놓기의 각도가 이번 기록에 남지 않게
         same = [o for o in self.placed if math.hypot(o[0] - x_mm, o[1] - y_mm) <= SAME_SPOT_MM]
         if same:  # 같은 자리에 이미 놓은 물체가 있다(배출 구역은 점 하나): 피할 수 없어 위에 놓게 된다. 설계 결정 전까지 막지 않고 경고만 남긴다 (REQ-056 후속, [기획 요청])
             self.ctl._emit("place_same_spot", "WARN", "ARM-PLACE-SAME-SPOT", {"x_mm": x_mm, "y_mm": y_mm, "count": len(same)})
@@ -746,6 +747,7 @@ class Skills:
             tilted, allowed = False, False
         self.last_place_correction_mm = (float(release.x_mm - x_mm), float(release.y_mm - y_mm))
         self.last_place_yaw_deg = place_yaw
+        self.last_place_xy = (float(x_mm), float(y_mm))
         # 물체는 쥔 채 놓는 손 방향으로 놓인다: 놓은 뒤 물체 각도 = 집을 때 물체 각도 + (놓을 때 턱 yaw - 집을 때 턱 yaw). 집기 기억이 없으면(옛 방식) 모른다. 다시 집을 때 이 각도로 알려 준다
         self.last_place_angle_deg = None if grip is None or "yaw" not in grip else (grip["angle"] + place_yaw - grip["yaw"]) % 180.0
         self._place_ctx = {"target": (x_mm, y_mm), "legacy": bool(legacy), "tilted": tilted, "tilt_allowed": allowed, "obj_h": 0.0 if legacy else grip["obj_h"],

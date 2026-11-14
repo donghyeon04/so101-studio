@@ -39,6 +39,13 @@ class TaskRunner:
         if self._step_mode and state not in ("DONE", "STOPPED", "FAULT"):
             self.wait_step()  # 상태가 바뀔 때마다 멈추고 다음 단계를 기다린다 (D3)
 
+    def _placed(self) -> dict:
+        """방금 놓은 자리(x_mm, y_mm)와 손 방향(place_yaw_deg), 놓인 물체 각도(placed_angle_deg). 모르는 값은 뺀다: 놓인 물체를 다시 집을 때 각도로 쓴다."""
+        sk = self.skills
+        out = {"x_mm": getattr(sk, "last_place_xy", None) and sk.last_place_xy[0], "y_mm": getattr(sk, "last_place_xy", None) and sk.last_place_xy[1],
+               "place_yaw_deg": getattr(sk, "last_place_yaw_deg", None), "placed_angle_deg": getattr(sk, "last_place_angle_deg", None)}
+        return {k: round(v, 1) for k, v in out.items() if v is not None}
+
     def _stopped(self) -> bool:
         if self._stop:
             self._emit("STOPPED")
@@ -233,4 +240,4 @@ class TaskRunner:
             fails.pop(obj.id, None)
             self.picked.append(obj.id)
             self.source.notify_picked(obj.id)
-            self._emit("PLACE", obj.id, result="ok", duration_s=r.duration_s)
+            self._emit("PLACE", obj.id, result="ok", duration_s=r.duration_s, **self._placed())
