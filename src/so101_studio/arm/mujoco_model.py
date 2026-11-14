@@ -106,6 +106,7 @@ def load_model(scene=None, objects=(), *, base: frames.Pose2D, table_z_mm: float
     else:
         warnings.append(("SIM-JOINT-RANGE-DEFAULT", {}))
 
+    spec.delete(spec.body("camera_mount"))  # 손목 카메라는 쓰지 않는다(결정 0035, 카메라는 탑뷰 하나): 원본 so101.xml은 그대로 두고 시각·충돌·질량·wrist_cam을 MjSpec에서 지운다
     gripper = spec.body("gripper")
     gripper.add_site(name="gripper_frame", pos=list(GRIPPER_FRAME_POS), quat=list(GRIPPER_FRAME_QUAT), group=3)
     if parallel_hand:

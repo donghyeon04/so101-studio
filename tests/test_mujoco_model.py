@@ -120,3 +120,9 @@ def test_wrist_parts_must_come_as_a_pair(tmp_path):
     p.write_text("\n".join(p.read_text(encoding="utf-8").splitlines()[:2]) + "\n", encoding="utf-8")
     with pytest.raises(ValueError, match="둘 다"):
         load_model(load_scene(p), [], base=WS.base, table_z_mm=CFG.table_z_mm, parallel_hand=True)
+
+
+def test_menagerie_camera_mount_is_removed(model):
+    for kind, name in ((mujoco.mjtObj.mjOBJ_BODY, "camera_mount"), (mujoco.mjtObj.mjOBJ_CAMERA, "wrist_cam"), (mujoco.mjtObj.mjOBJ_GEOM, "camera_box1"), (mujoco.mjtObj.mjOBJ_GEOM, "camera_box2")):
+        assert mujoco.mj_name2id(model, kind, name) == -1, name
+    assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "gripper_frame") >= 0
