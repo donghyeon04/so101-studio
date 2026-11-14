@@ -50,3 +50,13 @@ def test_drop_slot_next_to_a_remaining_object_is_tried_last():
     fake.placed, fake.known_objects = [], []  # 남은 물체가 없으면 예전과 같이 가까운 칸부터
     Skills.place(fake, "right")
     assert tried == [(442.5, 112.5)]
+
+
+def test_carry_lift_clears_the_tallest_remaining_object():
+    from so101_studio.arm.skills import Skills
+    fake = SimpleNamespace(cfg=SimpleNamespace(approach_height_mm=40.0), known_objects=[], known_height={})
+    assert Skills._carry_lift(fake) == 40.0  # 남은 물체가 없으면 예전 높이
+    fake.known_objects, fake.known_height = [(400, 250, 50.0), (300, 190, 50.0)], {(400, 250): 40.0, (300, 190): 55.0}
+    assert Skills._carry_lift(fake) == 65.0  # 가장 높은 55 + 여유 10
+    fake.known_height = {}  # 높이를 모르면 40으로 보고
+    assert Skills._carry_lift(fake) == 50.0

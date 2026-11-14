@@ -142,6 +142,7 @@ class ArmService:
             self.ctl.blocked_cfg = _SimBlocked(self.cfg)
         if old is not None:  # 다시 연결하며 Skills를 새로 만들어도 집기 기억과 알려진 물체는 넘긴다 (11.3.3)
             self.skills.grip, self.skills.placed, self.skills.known_objects = old.grip, old.placed, old.known_objects
+            self.skills.known_height = old.known_height
             self.skills.placed_height, self.skills.placed_angle = old.placed_height, old.placed_angle  # 놓은 물체의 높이·각도도(GUI [다시 연결] 뒤 다시 집을 때 각도 0으로 집지 않게)
             self.skills.last_place_yaw_deg, self.skills.last_place_angle_deg = old.last_place_yaw_deg, old.last_place_angle_deg
         self.teach = Teach(self.ctl, self.cfg)

@@ -45,6 +45,7 @@ class Skills:
         self._grip_orig: int | None = None  # 조임 한계를 바꾸기 전 값(놓은 뒤 되돌린다)
         self.placed: list[tuple[float, float, float]] = []  # 이 세션에서 놓은 물체 (x, y, 반경 mm): 다음 놓기의 벌림이 부딪히는지 볼 때 알려진 물체로 쓴다 (11.3)
         self.known_objects: list[tuple[float, float, float]] = []  # 호출하는 쪽이 알려 주는 물체(수동 입력 등)
+        self.known_height: dict[tuple[float, float], float] = {}  # known_objects (x, y) -> 높이(mm). 없거나 0이면 NEIGHBOUR_H_MM. 집은 뒤 옮길 때 이보다 높이 든다
         self.opening_info: dict | None = None  # 마지막 놓기 벌림의 계획 값(clearance 등)
         self.opening_blocked_by: str | None = None
         self.placed_angle: dict[tuple[float, float], float] = {}  # 놓은 물체 (x, y) -> 놓은 뒤 작업대 기준 각도(0~180°). 집기·놓기가 placed를 비울 때 같이 비운다
@@ -330,7 +331,11 @@ class Skills:
         else:
             self._restore_grip_torque()
         here = self.kin.fk(self._q())
-        up = self._line(self._q(), replace(here, z_mm=here.z_mm + self.cfg.approach_height_mm))  # 5. 자세는 그대로 수직으로 상승
+        lift = self._carry_lift() if contact else self.cfg.approach_height_mm
+        up = self._line(self._q(), replace(here, z_mm=here.z_mm + lift))  # 5. 자세는 그대로 수직으로 상승
+        if up is None and lift > self.cfg.approach_height_mm:  # 더 높이는 못 닿는다: 예전 높이로 올리고 알린다(남은 물체를 칠 수 있다)
+            self.ctl._emit("carry_low", "WARN", "ARM-CARRY-LOW", {"wanted_lift_mm": lift, "lift_mm": self.cfg.approach_height_mm})
+            up = self._line(self._q(), replace(here, z_mm=here.z_mm + self.cfg.approach_height_mm))
         if up is None:
             self.grip = None  # 집기 실패: 기억을 지운다 (11.3.2)
             return fail
@@ -341,6 +346,11 @@ class Skills:
             return r
         self._run([self._gripper(self.cfg.gripper_open)])  # 접근 높이까지 올라온 뒤에 연다(바닥에서는 열지 않는다): 턱 사이에 끼인 것을 푼다
         return MotionResult("no_object", r.duration_s, r.final_tool)
+
+    def _carry_lift(self) -> float:
+        """집은 뒤 수직 상승 높이(mm): 쥔 물체 바닥(작업대 위에 있었으니 상승량과 같다)이 남은 물체 가운데 가장 높은 것보다 LIFT_MARGIN_MM 위가 되게. 남은 물체가 없으면 approach_height_mm."""
+        hs = [self.known_height.get((o[0], o[1])) or NEIGHBOUR_H_MM for o in self.known_objects]
+        return max(float(self.cfg.approach_height_mm), max(hs) + LIFT_MARGIN_MM if hs else 0.0)
 
     def _gap_mm(self, v: float) -> float:
         """그리퍼 값 v에서의 턱 끝 벌림(mm). 폭 표 gripper_width_mm를 거꾸로 읽는다."""
