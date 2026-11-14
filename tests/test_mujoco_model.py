@@ -73,3 +73,50 @@ def test_objects_and_scene_parts_are_in_the_world_and_names_must_differ(model):
     assert model.body("scene:radar_station").id > 0
     with pytest.raises(ValueError):
         load_model(None, [SimObject("a", 1, 1), SimObject("a", 2, 2)], base=WS.base, table_z_mm=CFG.table_z_mm)
+
+
+WRIST = """parts:
+  - {name: wrist_hcsr04, file: assets/scene/wrist_hcsr04.stl, attach: gripper_link}
+  - {name: wrist_bracket, file: assets/scene/wrist_bracket.stl, attach: gripper_link}
+"""
+
+
+def test_wrist_parts_are_skipped_on_the_single_jaw_hand(tmp_path):
+    sc = load_scene(_write(tmp_path))
+    m, warns = load_model(sc, [], base=WS.base, table_z_mm=CFG.table_z_mm)
+    assert {w[1]["part"] for w in warns if w[0] == "SIM-PART-SKIPPED"} == {"wrist_bracket", "wrist_hcsr04"}
+    assert mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "scene:wrist_bracket") == -1 and mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, "wrist_sonar") == -1
+
+
+def _write(tmp_path):
+    root = __import__("pathlib").Path(__file__).resolve().parents[1]
+    (tmp_path / "config").mkdir(exist_ok=True)
+    (tmp_path / "config" / "scene.yaml").write_text(WRIST.replace("file: assets", f"file: {root.as_posix()}/assets"), encoding="utf-8")
+    return tmp_path / "config" / "scene.yaml"
+
+
+def test_parallel_hand_gets_wrist_mass_inertia_and_sonar_site(tmp_path):
+    m, warns = load_model(load_scene(_write(tmp_path)), [], base=WS.base, table_z_mm=CFG.table_z_mm, parallel_hand=True)
+    assert not [w for w in warns if w[0] == "SIM-PART-SKIPPED"]
+    b = m.body("scene:wrist_bracket")
+    assert b.mass[0] == pytest.approx(0.0155, abs=0.0005)  # parts_eval 합계 15.5 g
+    assert np.allclose(b.ipos * 1000, [0, -62.2, -19.2], atol=0.3)
+    assert b.inertia.min() > 0 and b.inertia.max() < 1e-5  # kg·m², 수 천 g·mm² 크기
+    assert m.body("scene:wrist_hcsr04").mass[0] == 0
+    gripper_mass = m.body("gripper").subtreemass[0]
+    base_m, _ = load_model(None, [], base=WS.base, table_z_mm=CFG.table_z_mm)
+    assert gripper_mass - base_m.body("gripper").subtreemass[0] == pytest.approx(0.0155, abs=0.0005)
+    site = m.site("wrist_sonar")
+    assert np.allclose(site.pos * 1000, [0, -66.5, -32.3], atol=1e-6)
+    d = mujoco.MjData(m)
+    mujoco.mj_forward(m, d)
+    R = d.site_xmat[site.id].reshape(3, 3)
+    Rg = d.xmat[m.body("gripper").id].reshape(3, 3)
+    assert np.allclose(R[:, 2], -Rg[:, 2], atol=1e-6)  # 광선 방향 = gripper_link -z
+
+
+def test_wrist_parts_must_come_as_a_pair(tmp_path):
+    p = _write(tmp_path)
+    p.write_text("\n".join(p.read_text(encoding="utf-8").splitlines()[:2]) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="둘 다"):
+        load_model(load_scene(p), [], base=WS.base, table_z_mm=CFG.table_z_mm, parallel_hand=True)

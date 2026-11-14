@@ -77,7 +77,7 @@
     - 액추에이터 힘에는 kv·damping(속도 항)도 들어 있다. 그래서 목표를 계단으로 바꾸면 순간적으로 한계까지 튈 수 있는데, 이것은 아래 "목표 선형 보간"으로 막는다(M3, 2026-11-13). 한때 승인했던 "위치 오차 항만 세는" 정의 변경(f173c90)은 보간으로 원인이 풀려 쓰지 않는다.
   - 전류: 관절별 부하 % × 10mA(부하 100% = 1000mA), 합이 `current_ma`.
   - 부하·전류·과열 감시는 끄지 않는다. 정상 동작에서 걸리면 모델의 서보 값(kp·forcerange)이 실물과 다른 것으로 보고 모델을 고친다.
-- **병렬 그리퍼**: MuJoCo 모델은 단동식뿐이다. 팔 파일의 그리퍼가 `parallel`이면 `make_sim_driver`가 "MuJoCo는 단동식만 지원"으로 거부한다.
+- **병렬 그리퍼**: MuJoCo 모델은 단동식뿐이다. 팔 파일의 그리퍼가 `parallel`이면 `make_sim_driver`가 "MuJoCo는 단동식만 지원"으로 거부한다. 손목 초음파 부품(`wrist_bracket`·`wrist_hcsr04`, 병렬 gripper_link 좌표)은 `load_model(parallel_hand=True)`일 때만 붙는다: 브래킷 body에 두 부품 합계 질량·무게중심·관성(`parts_eval.mass_properties`), 센서 막 중심 `wrist_sonar` site(z축이 광선 방향). 단동식(기본)에서는 `SIM-PART-SKIPPED` 경고와 함께 건너뛴다(M7a, REQ-064). 병렬 손 MuJoCo 모델 전에는 시험만 있다.
 - **이벤트 통로**: 드라이버의 WARN·ERROR는 `event_sink(kind, level, code, data)`로 보낸다. `ArmService.connect`가 `driver.connect`를 부르기 직전에 `driver.event_sink`를 이어 준다(실물 `ArmDriver`와 같은 통로). `load_model`은 `MuJoCoDriver.connect` 안에서 돌므로 그 경고도 이 통로로 간다.
   - `event_sink`가 아직 None일 때 생긴 이벤트(예: `connect` 전 `load_model` 경고)는 드라이버가 목록에 모아 두었다가 처음 보낼 수 있을 때 함께 보낸다.
   - 코드: `SIM-JOINT-RANGE-DEFAULT`(WARN), `SIM-OBJECT-HEIGHT-DEFAULT`(WARN, M3), `SIM-PHYSICS-FAIL`(ERROR), `SIM-PHYSICS-DROP`(WARN, 13.3에서 버림이 생길 때마다).
