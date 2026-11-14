@@ -229,3 +229,9 @@ config/ultrasonic_baseline.json
 # Playwright CLI output (may contain credentials)
 .playwright-cli/
 .playwright-mcp/
+
+# 캘리브레이션 저장이 남기는 백업, MuJoCo 로그, 충돌 평가 결과 (런타임 산출물)
+config/calibration/*.bak.json
+MUJOCO_LOG.TXT
+collision_result*.json
+.claude/settings.local.json
