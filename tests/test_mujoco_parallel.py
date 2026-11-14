@@ -120,3 +120,15 @@ def test_wrist_bracket_and_sensor_ride_on_the_parallel_hand(cfg, tmp_path):
     assert m.site("wrist_sonar").id >= 0 and m.site("gripper_frame").id >= 0
     parts = {w for w in ("wrist_bracket", "wrist_hcsr04") if mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, f"scene:{w}_geom") >= 0}
     assert parts == {"wrist_bracket", "wrist_hcsr04"}
+
+
+def test_camera_arm_is_cut_from_the_hand_mesh(tmp_path):
+    from so101_studio.arm import mujoco_hand
+
+    v = mujoco_hand.hand_geometry()["hand"]["verts"] * 1000.0
+    assert v[:, 1].min() > mujoco_hand.CAMERA_Y_GL_MM - 10.0, v[:, 1].min()  # 카메라 마운트·렌즈(y -85까지)가 없다. 경계를 걸친 큰 삼각형 때문에 몇 mm 여유
+    out = tmp_path / "nocam.stl"
+    removed, kept = mujoco_hand.make_nocam_stl(out)
+    import trimesh
+
+    assert len(trimesh.load(out, force="mesh").faces) == kept == len(trimesh.load(mujoco_hand.NOCAM_STL, force="mesh").faces) and removed > 0

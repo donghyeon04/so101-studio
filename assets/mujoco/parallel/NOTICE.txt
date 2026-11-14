@@ -1,0 +1,3 @@
+parallel_hand_nocam.stl: assets/assets/parallel/parallel_hand.stl(Robonine link5_1.stl, Apache-2.0, 출처·저작권은 assets/assets/parallel/NOTICE.txt)에서
+gripper_link y < -36 mm인 면(SO-ARM101 손목 카메라 마운트와 렌즈 달린 카메라, 8,989면)을 뺀 파생 메시다. 나머지 면(35,801개)은 원본 그대로다.
+만든 방법: `python -c "from so101_studio.arm.mujoco_hand import make_nocam_stl; make_nocam_stl()"` (결정 0063: 손목 카메라 없음). 원본 STL은 바꾸지 않는다.
