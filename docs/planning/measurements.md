@@ -542,3 +542,13 @@ p99 증가는 -0.04ms(기준 2ms 이하), time_lost_s 증가 0%(기준 1% 미만
 - 병렬용 벽 `config/sim_scenarios/blocker_parallel.yaml`: (300,140), 50x50, 높이 120. 정적 스윕으로 손과 벽 사이가 22mm 이상 떨어진다(벽 변 y 165, 손 y 187). 후보 (300,150)은 여유 20mm에서 닿았고 (300,140)은 안 닿았다. (400,200)은 안 닿지만 옆에서 내려오는 이동이 벽을 밀어 막힘이 안 난다(벽이 y 160으로 밀리고 `ok`)라 버렸다.
 - 시험(`tests/test_blocked_mujoco.py::test_parallel_hand_move_into_a_tall_box_is_stopped_and_held`): `radar_clear` 이동 ok, 벽으로 곧게 내려가는 이동(높이 10)이 30%·50% 모두 `stopped`·ARM-BLOCKED 1건·fault 0건. 3회 반복(총 6회) 모두 통과.
 - 참고: 위 측정 스크립트(`runs/_m`)는 `PYTHONPATH`를 안 주면 `C:\Users\c\Desktop\so101-studio`(메인 폴더)의 `so101_studio`를 import한다(editable 설치). 이 값들은 main과 같은 코드(메인 폴더 5d55203, 이 폴더 origin/main과 src가 같음)에서 잰 것이고, pytest는 `pythonpath = ["src"]`라 이 폴더 코드를 쓴다.
+
+## MuJoCo 병렬 손으로 다시 잰 13.7 (a)(b)·`sim_blocked`·부하 (2026-11-14, M4b 뒤, i5-1240P, cfg `gripper: parallel`)
+- (a) topedge(폭 58·45°, 알린 높이 15): **재현되지 않는다.** 병렬 손은 yaw 135°로 클램프를 상자 면에 맞춰 내려가 윗모서리를 치지 않고 쥔다(status ok, held box58, 기울기 0.0°, 최대 상승 높이 39.5mm, yaw 45→43°). 대조(높이 39)도 같다. 클램프 접촉은 z 37~39mm 옆면 패드 접촉뿐이다. 단동식에서 보이던 "윗모서리 부딪힘"은 단동식 턱 모양의 현상이라 병렬 손에서는 이 시나리오로 볼 수 없다.
+- (b) carry30·45·58 × 30%·50%: 12회 모두 pick·place ok, 기울기 0°, ARM-BLOCKED·OVERLOAD 경고·ARM-FAULT 0. 최대 관절 부하(전 관절 합 최대) 30%: 78·59·99%, 50%: 89·79·68%. ARM-LOAD-PROBE 1~2건씩.
+- `sim_blocked` 근거(정상 이동 추종 오차 최대 °, 동작 단위): 30% 빈 가속 0.06·정속 0.76, 쥔 가속 0.06·정속 0.68, 그리퍼 닫기 0.40. 50% 빈 0.12/1.21, 쥔 0.16/1.19, 그리퍼 0.63. 지금 문턱(빈 2.0/4.0, 쥔 1.0/3.0) 아래라 정상 동작 오탐 0. 값을 바꿀 필요가 없다(단동식 때보다 오히려 작다).
+- blocker(빈 이동, 상자 높이 120에 내려감): 30%·50% 모두 ARM-BLOCKED가 난다(오차 30% 4.4~4.6° > 문턱 4.0, 50% 7.7~7.8° > 6.67, 단동식 4.7~4.8·7.6과 같다). **30%에서 병렬 2회 중 1회**는 멈춤 대신 `fault`로 끝났다(막힌 뒤 elbow_flex 부하 100%가 3초 넘게 이어져 과부하 fault). 단동식은 4회 모두 stopped. 30% 막힘 오차의 여유가 4.0 대비 10~15%뿐이다.
+- 시험 코드는 바꾸지 않았다. 원자료 스크립트는 레포에 넣지 않았다(1회성).
+- **시험장 기준 설정으로 다시(2026-11-15, 총괄 3번)**: cfg = robot.yaml + 팔 파일 + `gripper: parallel`(local.yaml 안 읽음), 장면은 손목 부품 둘(wrist_hcsr04·wrist_bracket) 켬. 위 (b) 수치는 장면 없이 잰 것이고, 아래가 기준 설정 값이다(`tests/test_mujoco_parallel.py::test_parallel_hand_carries_and_places`, 30% 기본 속도).
+  - 상자 30·45·58: 미끄러짐 0.71·1.37·3.71mm(58은 4회 2.0·2.0·3.3·3.7mm로 변동), 놓은 자리 차이 0.35·0.90·1.37mm, 기울기 0.0°, ARM-GRIP-OVERLOAD(-WARN)·ARM-BLOCKED·과부하 ARM-FAULT 0건. 미끄러짐 허용은 병렬용으로 4.0mm(단동식 3.5)로 둔다.
+  - **FK 대조(M4b, 13.7 (d)식)**: 병렬 URDF FK와 MuJoCo `gripper_frame` 위치의 최대 차이 0.0034mm(자세 10개, 이전 보고 0.002mm와 같은 자릿수).
