@@ -57,6 +57,7 @@ def run_pick(kin, block=BLOCK, **kw):
     return d, r
 
 
+@pytest.mark.slow
 def test_pick_unknown_size_closes_until_contact(kin):
     d, r = run_pick(kin)
     assert r.status == "ok"
@@ -76,6 +77,7 @@ def tips_mid_and_low(kin, q):
     return (p.x_mm + (f[0] + m[0]) / 2, p.y_mm + (f[1] + m[1]) / 2), p.z_mm + min(f[2], m[2])
 
 
+@pytest.mark.slow
 def test_jaw_tips_stay_centered_on_the_object_while_closing(kin):
     # 닫는 동안 내내 두 턱 끝의 중간점이 물체 중심(300, 210)에 있어야 한다 = 가운데 있는 물체를 양쪽에서 잡는 모양
     d, r = run_pick(kin)
@@ -90,6 +92,7 @@ def test_jaw_tips_stay_centered_on_the_object_while_closing(kin):
         assert low == pytest.approx(CFG.table_z_mm + CFG.grasp_height_mm, abs=6)
 
 
+@pytest.mark.slow
 def test_hand_tilts_when_open_and_straightens_while_closing(kin, monkeypatch):
     monkeypatch.setattr(CFG, "grasp_tilt_mode", "symmetric")  # symmetric 동작을 본다(기본값은 equal_tips, 결정 0060)
     d, r = run_pick(kin)
@@ -111,11 +114,13 @@ def test_no_tilt_when_the_jaw_axis_is_sideways(kin):
     assert kin.fk(opened).pitch_deg == pytest.approx(-90, abs=2)
 
 
+@pytest.mark.slow
 def test_open_gap_is_the_configured_maximum(kin):
     d, _r = run_pick(kin)
     assert gap_of(max(q.gripper for q in d.log)) == pytest.approx(CFG.grasp_max_open_mm, abs=3)
 
 
+@pytest.mark.slow
 def test_jaws_open_perpendicular_to_the_long_axis(kin):
     d, _ = run_pick(kin)
     low = min(d.log, key=lambda q: kin.fk(q).z_mm)
@@ -138,6 +143,7 @@ def test_pick_returns_to_hover_for_every_angle(kin, angle):
     assert kin.fk(d.log[-1]).z_mm >= low + CFG.approach_height_mm - 6  # 접촉한 자리에서 접근 높이만큼 올라온다
 
 
+@pytest.mark.slow
 def test_known_width_with_fit_policy_opens_only_as_much_as_needed(kin):
     d, ctl, sk = rig(kin, BLOCK, grasp_open_policy="fit")
     r = sk.pick(obj(width=WIDTH))

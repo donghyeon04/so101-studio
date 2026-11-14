@@ -6,7 +6,7 @@
 - tool: 도구 프레임. 지금 끝점이 원점이라 상대 이동만 받는다(xArm의 set_tool_position과 같다).
   z = 도구 앞(턱 끝 방향, 수직 자세에서는 아래), x = 턱이 벌어지는 축(가동 턱은 -x), y = 나머지.
 높이 z는 어느 좌표계에서나 "작업대 면 위 높이(mm)"다(작업대 면 = robot.yaml의 table_z_mm).
-끝점(tcp): ref = 고정 턱 안쪽 면(URDF gripper_frame), tip = 고정 턱 끝. 로봇에 보내는 ToolPose는 항상 ref 기준이다."""
+끝점(tcp): ref = 고정 턱 안쪽 면(URDF gripper_frame), tip = 고정 턱 끝(병렬 그리퍼는 두 턱 끝 가운데). 로봇에 보내는 ToolPose는 항상 ref 기준이다."""
 from dataclasses import replace
 
 import numpy as np
@@ -41,8 +41,12 @@ def from_table(x: float, y: float, frame: str, base: frames.Pose2D) -> tuple[flo
 
 
 def tip_vector(kin, pitch_deg: float, yaw_deg: float, gripper: float, tcp: str) -> np.ndarray:
-    """ref 점에서 끝점까지의 벡터(작업대 좌표계 mm). tcp가 ref면 0."""
-    return np.zeros(3) if tcp == "ref" else np.asarray(kin.jaw_tip_offsets(pitch_deg, yaw_deg, gripper)[0], float)
+    """ref 점에서 끝점까지의 벡터(작업대 좌표계 mm). tcp가 ref면 0.
+    tip: 단동식은 고정 턱 끝, 병렬은 두 턱 끝 가운데(TCP, 결정 0043-1: 벌림에 따라 움직이지 않는다)."""
+    if tcp == "ref":
+        return np.zeros(3)
+    f, m = kin.jaw_tip_offsets(pitch_deg, yaw_deg, gripper)
+    return (np.asarray(f, float) + np.asarray(m, float)) / 2 if kin.gripper.name == "parallel" else np.asarray(f, float)
 
 
 def point_to_pose(x: float, y: float, h: float, yaw: float, frame: str, base: frames.Pose2D, table_z: float = 0.0,

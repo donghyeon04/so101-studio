@@ -26,6 +26,12 @@
 3. MuJoCo 시험장 M5~(기획 계획, 실물 작업이 생기면 멈춘다). 막힘·접촉 즉시 정지 조사는 기획 몫.
 4. 낮은 우선순위: 안전 설정에 속도 상한(`max_speed_pct`), 서보 시동 힘(`Minimum_Startup_Force`) 시험.
 
+**11-15 새 PC 추가**
+- REQ-064(#364): 병렬이면 손끝 기준점(`tip_vector`의 `tip`, `tool_position`, `follow_path`의 점, `PoseSample.tool_mm`, GUI 현재 좌표)이 두 턱 끝 가운데다. 단동식은 고정 턱 끝 그대로. `kin.link_points`의 손끝 점은 안 바꿨다.
+- 병렬 손은 손끝 55mm에서 `follow_path`가 닿는 범위가 좁아 `--sim run --source ultrasonic`의 CHECK가 `unreachable`이다(#364 전 main도 같다). 초음파 세션의 "CHECK 높이·경로 다시 고르기" 몫이다.
+- 2-10(로보나인 폭 표) 때: 잰 폭이 84mm를 넘으면 MuJoCo `STROKE_M`(0.042)과 어긋나므로 총괄에 알린다(기획 전달).
+- 새 PC 실물 첫 연결(`doctor` → `status` → `--speed 20 home`)은 아직 안 했다. LeRobot 캐시에는 `so101_follower_01.json`이 이미 있고 레포 파일과 같다. `calibrate --verify-zero`는 다시 하지 않는다(캘리브레이션 파일이 바뀐 뒤와 U5 뒤에만).
+
 **알려진 함정**
 - 잠긴 팔에는 토크를 켜지 않는다: 움직이는 명령은 `ArmService.enable_torque()`만 쓴다. 0° 확인(`calibrate --verify-zero`) 기록이 없거나 캘리브레이션 해시가 다르면 `locked`(home은 허용, 결정 0051).
 - 설치 스크립트로 `conda env update`를 하면 `-e .[gui]`가 실행한 폴더를 가리키도록 다시 설치된다. worktree에서 시험할 때는 `PYTHONPATH=<worktree>/src`.

@@ -492,22 +492,18 @@ class ArmService:
         self.sensor_offset_mm = {"x": float(offset_mm["x"]), "y": float(offset_mm["y"]), "z": float(offset_mm["z"])}
 
     def tool_position(self, q: JointState) -> tuple[float, float, float]:
-        """손끝(고정 턱 끝)의 작업대 좌표(x, y, 작업대 면 위 높이)."""
+        """손끝의 작업대 좌표(x, y, 작업대 면 위 높이). 손끝 = 단동식은 고정 턱 끝, 병렬은 두 턱 끝 가운데(tip_vector와 같은 기준, follow_path의 점도 이것)."""
         ref = self.kin.fk(q)
-        tip = np.array([ref.x_mm, ref.y_mm, ref.z_mm]) + self.kin.jaw_tip_offsets(ref.pitch_deg, ref.yaw_deg, q.gripper)[0]
+        tip = np.array([ref.x_mm, ref.y_mm, ref.z_mm]) + tip_vector(self.kin, ref.pitch_deg, ref.yaw_deg, q.gripper, "tip")
         return float(tip[0]), float(tip[1]), float(tip[2] - self.cfg.table_z_mm)
 
     def sensor_position(self, q: JointState) -> tuple[float, float, float]:
         """손목 센서의 작업대 좌표 = 기준점 + 손목 yaw로 돌린 센서 오프셋(set_sensor_offset).
-        기준점: 단동식은 고정 턱 끝(tool_position), 병렬은 두 턱 끝 가운데(센서는 손에 고정이라 벌림에 따라 움직이면 안 된다: 실제 CAD 오프셋이 두 턱 끝 가운데 기준)."""
+        기준점은 tool_position: 단동식은 고정 턱 끝, 병렬은 두 턱 끝 가운데(센서는 손에 고정이라 벌림에 따라 움직이면 안 된다: 실제 CAD 오프셋이 두 턱 끝 가운데 기준)."""
         if self.sensor_offset_mm is None:
             raise ValueError("set_sensor_offset으로 센서 오프셋을 먼저 넘겨야 합니다")
         off = self.sensor_offset_mm
         x, y, h = self.tool_position(q)
-        if self.cfg.gripper == "parallel":
-            ref = self.kin.fk(q)
-            f, m = self.kin.jaw_tip_offsets(ref.pitch_deg, ref.yaw_deg, q.gripper)
-            x, y, h = x + (m[0] - f[0]) / 2.0, y + (m[1] - f[1]) / 2.0, h + (m[2] - f[2]) / 2.0
         d = self.kin.tool_axes(q) @ np.array([off["x"], off["y"], 0.0])
         return float(x + d[0]), float(y + d[1]), float(h + off["z"])
 
@@ -516,7 +512,7 @@ class ArmService:
         return self.kin.link_points(q or self.driver.read_joints())
 
     def follow_path(self, points_mm, tool_z_mm: float, speed_mm_s: float, yaw_deg: float | None = None) -> list[PoseSample]:
-        """손끝(고정 턱 끝)을 수직 아래로 둔 채 작업대 좌표 꺾은선(points_mm)을 tool_z_mm 높이로 따라간다 (REQ-023, 블로킹).
+        """손끝(단동식 고정 턱 끝, 병렬 두 턱 끝 가운데)을 수직 아래로 둔 채 작업대 좌표 꺾은선(points_mm)을 tool_z_mm 높이로 따라간다 (REQ-023, 블로킹).
         points_mm는 손끝 xy다(센서 xy가 아니다). yaw_deg는 경로 동안 고정할 손목 각도(None이면 지금 값). 센서 오프셋은 set_sensor_offset으로 먼저 받아 둬야 한다.
         한 번의 호출은 지금 손끝 위치에서 첫 점까지 가는 것까지 이어서 서지 않고 지난다: 처음과 끝에서만 가속·감속하고, 꺾이는 점과 원은 호(모서리를 2.5mm 안으로 깎는 반지름 R)로 감아
         구심 가속이 한도(tool_a_max_mm_s2) 안이 되게 속도를 줄여 지난다(v ≤ sqrt(a/√2·R); 반대로 되돌아가는 180° 꺾임은 서서 돈다). 경로는 호 위 1mm 간격 경유점을 관절 공간 스플라인으로 잇는다(smooth_l). 속도는 min(요청, tool_v_max × 속도%).

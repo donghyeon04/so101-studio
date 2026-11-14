@@ -91,6 +91,7 @@ def test_above_50_percent_a_wall_is_not_judged_but_tracking_is_logged(tmp_path):
     assert not blocked(ev) and [d for _, c, d in ev if c == "ARM-TRACKING"]
 
 
+@pytest.mark.slow
 def test_gripper_closing_on_something_stops_at_actual_plus_preload(tmp_path):
     """집기 밖의 닫기(gripper 명령)도 접촉으로 본다(결정 0033: 지금 위치 + 예압으로 멈춤)."""
     s, ev = make(tmp_path, SimDriver(CFG.poses["home"], grip_block=30.0), speed=30)
