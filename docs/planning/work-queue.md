@@ -12,7 +12,7 @@
 5. 그다음은 아래 "이어지는 순서".
 
 ## 이어지는 순서
-1. **로보나인으로 다시 맞추기**(결정 0063): 교체(U5) → 그리퍼 범위 캘리브레이션 → runbook 2-10(폭 표·접촉·조임) → 2-2 재시험 30%·40%(0061 문턱 다시 재기, `runs/handoff-1114/real_22.py`) → 브래킷 출력(U7 결정: 손목 쪽 평면 +z를 바닥)·장착 → A0.
+1. **로보나인으로 다시 맞추기**(결정 0063): 교체(U5) → 그리퍼 범위 캘리브레이션 → runbook 2-10(폭 표·접촉·조임) → 2-2 재시험 30%·50%(결정 0063 그대로, 사용자 확인 11-14. 0061 문턱 다시 재기, `runs/handoff-1114/real_22.py`) → 브래킷 출력(U7 결정: 손목 쪽 평면 +z를 바닥)·장착 → A0.
 2. **CHECK 경로 기준점 REQ**(팔, 기획 결정 아래): 병렬일 때 `tool_position`·`follow_path`도 두 턱 끝 가운데(TCP) 기준으로.
 3. **MuJoCo**: 병렬 손으로 `mujoco-spec.md` 13.7 (a)(b)·`sim_blocked`·부하 문턱 다시 재기 → 기획이 M5·M6 세부 설계(EGM 결과 뒤, EGM Stage 9).
 4. **초음파**: 오프셋은 #359로 넣었다({0.6, 66.5, 99.5}, `ring_r_mm` 60). 새 센서 높이(약 154.5mm)에서 CHECK 높이·경로를 벤치마크로 다시 고른다. 부품 뒤 B1~B4 → R1 → A0·A1 → I1.
@@ -39,10 +39,10 @@
 ## 세션별 다음 일
 | 세션 | 다음 일 | 기다리는 것 |
 |---|---|---|
-| 총괄 | 전체 시험, EGM drift-report(mujoco-spec), gui_visual `.mode-detail` 가림 폭 고정 + 스냅숏(보드 뽑고), CHECK 기준점 REQ 내기 | - |
-| 팔 | 새 PC 첫 연결(캐시 복사 → doctor → 20% home, 사용자와), CHECK 기준점 REQ(a). U5 뒤 로보나인 2-10·2-2 | U5 |
+| 총괄 | 전체 시험, EGM drift-report(mujoco-spec), gui_visual `.mode-detail` 가림 폭 고정 + 스냅숏(보드 뽑고), CHECK 기준점은 REQ-064로 냄(11-14) | - |
+| 팔 | 새 PC 첫 연결(캐시 복사 → doctor → 20% home, 사용자와), CHECK 기준점 REQ-064(a). U5 뒤 로보나인 2-10·2-2 | U5 |
 | MuJoCo | 병렬 손으로 13.7 (a)(b)·`sim_blocked`·부하 문턱 다시 재기 | - |
-| 초음파 | CHECK 높이·경로 다시 고르기(벤치마크), 부품 뒤 B1~ | H1·H2·U4 |
+| 초음파 | CHECK 높이·경로 다시 고르기(벤치마크. 병렬 손은 손끝 55mm에서 `follow_path`가 ik_fail이라 `--sim run --source ultrasonic`이 CHECK unreachable로 끝난다, 80mm는 풀림: 팔 세션 #364 보고), 부품 뒤 B1~ | H1·H2·U4 |
 
 ## 시험 결과 (11-14, 총괄)
 - 전체 `python -m pytest -q`(eded098, 1:38): 1192 passed, `tests/gui_visual` 실패 6·오류 4(실물 시험과 같이 돌아 CPU가 바빴던 때). ruff 0건.

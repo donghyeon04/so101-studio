@@ -15,6 +15,7 @@ SO-101(SO-ARM101) 로봇 암 프로젝트. 문서 색인은 `docs/README.md`에 
 - 로컬 세션 = 개발: 코드 작성, 시리얼 포트·ESP32·서보 테스트, 펌웨어 업로드. 하드웨어 작업은 로컬에서만 할 수 있다.
 - 로컬은 네 세션으로 나눈다 (`decisions/0024`, `0036`, MuJoCo 세션은 2026-11-12 추가). GUI 세션(총괄)은 `src/so101_studio/gui/`, `tests/gui/`만 고치고 `planning/gui-spec.md`를 따르며, 일 나누기·요청 대장·PR 검토를 맡는다. 초음파 세션은 `perception/ultrasonic/`, `firmware/`, `tests/perception/`, `config/ultrasonic.yaml`만 고치고 `planning/ultrasonic-spec.md`를 따른다. MuJoCo 세션은 `arm/mujoco_*`, `assets/mujoco/`, `config/sim_scenarios/`, `tests/test_mujoco_*`를 고치고 `planning/mujoco-spec.md`를 따른다(시험장, 결정 0062). 팔 세션은 그 밖의 코드를 고치고 `planning/arm-software-spec.md`를 따른다. 상대 영역이 필요하면 직접 고치지 않고 요청서(REQ)를 보낸다. 역할, worktree, 요청 양식은 `docs/guides/session-workflow.md`, 요청 기록은 `docs/planning/session-requests.md`.
 - 개발 세션은 `docs/planning/`의 확정 문서와 `docs/decisions/`를 근거로 작업한다.
+- 자율 진행·사후 보고(2026-11-14 사용자 지시): 설계서·결정 안에서 스스로 판단할 수 있는 일(구현 선택, `dev/` 커밋·푸시·PR)은 각 세션이 묻지 않고 하고 한 뒤 총괄에 보고한다. 총괄은 시험·`code-review`를 통과한 PR을 사용자에게 묻지 않고 합치고 사후에 묶어 보고한다. 미리 묻는 것은 실물 하드웨어, 지우기, 구매, 설계서와 다른 구현·안전 정책, 기획 브랜치 합치기, 설치·계정 설정뿐이다(`session-workflow.md` 7절).
 - 다른 계정에서 작업을 시작하면 `docs/guides/tooling-setup.md`의 설치 목록부터 맞춘다.
 - 이어서 작업할 때(압축·세션 교체 뒤 포함)는 `docs/planning/work-queue.md`(진행 중인 큰 지시와 사용자 결정 모음)부터 읽는다. 실물 팔 작업은 `docs/guides/real-arm-runbook.md`를 따른다.
 
