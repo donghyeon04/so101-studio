@@ -66,7 +66,7 @@ def test_sensor_is_offset_from_tip_by_config_value(svc):
 
 
 def test_parallel_sensor_position_does_not_move_with_the_jaw_opening(tmp_path):
-    """병렬은 센서 기준이 두 턱 끝 가운데라 그리퍼 값 0과 100에서 같다(예전엔 한쪽 턱 끝 기준이라 벌림/2만큼 어긋났다). 손끝(tool_position)은 그대로 한쪽 턱 끝."""
+    """병렬은 센서 기준이 두 턱 끝 가운데라 그리퍼 값 0과 100에서 같다(예전엔 한쪽 턱 끝 기준이라 벌림/2만큼 어긋났다). 손끝(tool_position)도 가운데."""
     from dataclasses import replace
     from pathlib import Path
 
@@ -79,7 +79,18 @@ def test_parallel_sensor_position_does_not_move_with_the_jaw_opening(tmp_path):
         q = s.driver.read_joints()
         closed, opened = replace(q, gripper=0.0), replace(q, gripper=100.0)
         assert np.allclose(s.sensor_position(closed), s.sensor_position(opened), atol=0.5)
-        assert not np.allclose(s.tool_position(closed), s.tool_position(opened), atol=5.0)  # 한쪽 턱 끝은 벌림만큼 움직인다(바꾸지 않음)
+        assert np.allclose(s.tool_position(closed), s.tool_position(opened), atol=0.5)  # 손끝도 가운데 기준(CHECK 경로 기준점 REQ)
+        # follow_path·좌표 이동의 점도 같은 기준: 벌린 채 보낸 점에 tool_position이 온다
+        pose = s.point_pose(300.0, 200.0, 55.0)
+        assert s.tool_position(replace(s.skills._ik(pose), gripper=q.gripper))[:2] == pytest.approx((300.0, 200.0), abs=0.5)
+        # REQ-064: 벌린 채 follow_path로 준 선 위에 PoseSample.tool_mm(두 턱 가운데)이 온다
+        assert s.set_gripper(100.0).status == "ok"
+        samples = s.follow_path([(300.0, 180.0), (300.0, 240.0)], Z, 60.0)  # 병렬 손은 Z 55에서 (260,200)→(320,200)이 안 닿는다
+        assert s.last_path.status == "ok" and samples
+        on_line = [p for p in samples if 185.0 < p.tool_mm[1] < 235.0 and abs(p.tool_mm[2] - Z) < 3.0]  # 접근 구간 샘플은 뺀다
+        assert on_line and all(abs(p.tool_mm[0] - 300.0) < 2.0 for p in on_line)
+        assert samples[-1].tool_mm[1] == pytest.approx(240.0, abs=2.0)
+        assert samples[-1].tool_mm == pytest.approx(s.tool_position(s.driver.read_joints()), abs=1.0)
     finally:
         s.disconnect()
 
