@@ -6,7 +6,7 @@ from nicegui import run, ui
 
 from ...core.config import WorkspaceConfig
 from .. import theme
-from ..backend import MOTION_TEXT
+from ..backend import MOTION_TEXT, OBJECTS_LOCKED_TEXT
 from ..pages.common import HEIGHT_HINT, Controls, meta_number, nudge_pad
 
 
@@ -69,6 +69,10 @@ def page(backend, client_id: str, actions) -> None:
     controls = Controls(backend, client_id, block_during_task=False)  # 실행 중에도 물체를 더할 수 있다
     table_h = backend.arm.ws.table_mm["y"]
     state: dict = {"selected": None}
+    locked = backend._physical()  # MuJoCo는 물체를 시작할 때 놓는다(gui-spec 12.8): 편집 버튼을 끈다
+
+    def lock(element, needs=()):
+        return element.disable() or element if locked else controls.add(element, needs=needs)
 
     columns = [
         {"name": "id", "label": "물체", "field": "id", "align": "left"},
@@ -92,13 +96,16 @@ def page(backend, client_id: str, actions) -> None:
         table.rows = rows()
         kept = [r for r in table.rows if r["id"] == state["selected"]]
         table.selected = kept
-        remove_button.enabled = bool(controls.allowed and kept)
+        remove_button.enabled = bool(controls.allowed and kept and not locked)
 
     def selected_changed(e) -> None:
         state["selected"] = e.selection[0]["id"] if e.selection else None
         refresh_table()
 
     async def clicked(e) -> None:
+        if locked:
+            ui.notify(OBJECTS_LOCKED_TEXT, type="warning")
+            return
         x, y = round(e.image_x, 1), round(table_h - e.image_y, 1)
         if mode.value == "move" and state["selected"]:
             backend.move_object(state["selected"], x, y)
@@ -129,7 +136,7 @@ def page(backend, client_id: str, actions) -> None:
         refresh_table()
 
     with actions:
-        controls.add(ui.button("처음 물체로", on_click=controls.guard(reset)).props("outline no-caps").mark("reset-objects"))
+        lock(ui.button("처음 물체로", on_click=controls.guard(reset)).props("outline no-caps").mark("reset-objects"))
         remove_button = ui.button("지우기", on_click=controls.guard(remove)).props("outline no-caps").mark("remove-object")
 
     with ui.row().classes("w-full no-wrap items-start gap-4"):
@@ -137,9 +144,11 @@ def page(backend, client_id: str, actions) -> None:
             _plane(backend, on_mouse=plane_clicked, selected=lambda: state["selected"], classes="w-full plane plane-large")
             ui.label("작업대를 클릭해 물체를 놓습니다. 점선은 팔이 닿는 범위입니다").classes("page-body")
         with ui.column().classes("control-column gap-3"):
+            if locked:
+                ui.label(OBJECTS_LOCKED_TEXT).classes("page-body text-warning").mark("objects-locked")
             with ui.card().classes("w-full gap-2"):
                 ui.label("클릭하면").classes("card-title")
-                mode = controls.add(
+                mode = lock(
                     ui.toggle({"add": "새 물체", "move": "고른 물체 옮기기"}, value="add").props("no-caps spread").classes("w-full").mark("plane-mode")
                 )
                 fields = {}
@@ -150,7 +159,7 @@ def page(backend, client_id: str, actions) -> None:
                 angle, width, length, height = fields["angle"], fields["width"], fields["length"], fields["height"]
                 height.number.tooltip(HEIGHT_HINT)
                 need_text = ui.label("").classes("page-body text-negative").mark("height-needed")
-                apply_button = controls.add(ui.button("고른 물체에 이 높이", on_click=controls.guard(lambda: apply_height(), needs=[height]))
+                apply_button = lock(ui.button("고른 물체에 이 높이", on_click=controls.guard(lambda: apply_height(), needs=[height]))
                                             .props("outline no-caps dense").mark("apply-height"), needs=[height])
             with ui.card().classes("w-full gap-2"):
                 ui.label("고른 물체 조금씩").classes("card-title")
@@ -160,7 +169,7 @@ def page(backend, client_id: str, actions) -> None:
                         backend.nudge_object(state["selected"], dx, dy, dangle)
                         refresh_table()
 
-                nudge_pad(nudge, add=controls.add)
+                nudge_pad(nudge, add=lock)
                 ui.label("표에서 물체를 고르고 누르세요. 누르고 있으면 계속 움직입니다").classes("page-body")
             if backend.task_running():
                 ui.label("작업 실행 중에는 다음 스캔부터 반영됩니다").classes("page-body")
@@ -170,8 +179,8 @@ def page(backend, client_id: str, actions) -> None:
     def tick() -> None:
         controls.refresh()
         table.rows = rows()
-        remove_button.enabled = bool(controls.allowed and state["selected"])
-        apply_button.enabled = bool(controls.allowed and state["selected"] and (height.value or 0) > 0 and controls.valid([height]))
+        remove_button.enabled = bool(controls.allowed and state["selected"] and not locked)
+        apply_button.enabled = bool(not locked and controls.allowed and state["selected"] and (height.value or 0) > 0 and controls.valid([height]))
         needed = sorted(backend.height_needed())  # 결정 0052: 수직으로 집는데 높이를 몰라 집지 않은 물체 (REQ-057)
         need_text.text = f"{', '.join(needed)}: {MOTION_TEXT['height_required']}. 표에서 고르고 높이를 넣은 뒤 [고른 물체에 이 높이]" if needed else ""
         need_text.visible = bool(needed)
