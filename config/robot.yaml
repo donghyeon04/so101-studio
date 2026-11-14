@@ -48,3 +48,11 @@ poses:                     # 자리표시. park는 센서 시야 밖 자세가 �
   # 초음파(CheckableSource)의 PREPARE·RESCAN 대기 자세 (결정 0039): 팔을 위로 세워 링크 점이 모두 작업대 y 120mm 이하(최대 약 102), 손끝 높이 350mm,
   # 관절 한계에서 10° 이상 안쪽. 손끝을 원점 위 150mm에 두는 접은 자세는 기구학상 없다(링크가 y 120 안이면 손끝 최저가 약 270mm). 시험: tests/test_radar_clear.py
   radar_clear: [0, -90, 85, -90, 0, 3]
+
+# MuJoCo 시뮬레이션(--sim --sim-engine mujoco)에서만 blocked_* 문턱을 이 값으로 덮는다(ArmService가 드라이버 physical_objects일 때). 값은 30% 기준이고 결정 0061의 속도별 규칙이 그대로 얹힌다.
+# 정상 이동(carry30/45/58, 빈 이동) 추종 오차 최대 30%: 빈 가속 0.5·정속 1.4, 쥔 가속 0.05·정속 0.66, 50%: 빈 0.5·1.2, 쥔 0.12·1.09(11-14, i5-1240P). 장애물(blocker)은 30%·50%에서 10° 넘게 벌어진다.
+sim_blocked:
+  blocked_empty_accel_deg: 2.0
+  blocked_empty_cruise_deg: 4.0
+  blocked_held_accel_deg: 1.0
+  blocked_held_cruise_deg: 3.0

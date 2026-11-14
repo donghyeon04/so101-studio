@@ -67,6 +67,7 @@ class RobotConfig:
     blocked_held_accel_deg: float = 8.0  # 쥔 채 이동(실물 최대 3.26, 표본 6개뿐이라 잠정 8 유지)
     blocked_held_cruise_deg: float = 9.0  # 실물 최대 6.63
     blocked_grip_units: float = 10.0  # 그리퍼 닫기(집기 밖): 실제 - 명령이 이 값(그리퍼 눈금)을 넘으면 접촉. 집기의 contact_lag_units(4)가 먼저 걸리도록 더 크게
+    sim_blocked: dict = field(default_factory=dict)  # MuJoCo 시뮬레이션(드라이버 physical_objects)일 때 blocked_* 문턱을 이 값으로 덮는다: 액추에이터 추종 오차가 실물 서보보다 훨씬 작아 실물 문턱으로는 막힘 감지가 꺼진 것과 같다
     gripper: str = "single_jaw"  # 그리퍼 종류: single_jaw(기본) | parallel. 세부 값은 config/grippers/<종류>.yaml이 robot.yaml 위에 겹쳐진다 (결정 0043)
     gripper_tip_offset_mm: float = 0.0  # 병렬 그리퍼: TCP(두 턱 중앙)에서 턱 끝까지 도구 축 방향 거리. 실물 몫(자리만)
     gripper_width_mm: list[list[float]] = field(default_factory=lambda: [[0, 0], [100, 90]])

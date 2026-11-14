@@ -21,7 +21,6 @@ def start(scenario, tmp_path, speed):
     svc = ArmService(make_sim_driver(CFG, WS, None, scenario=scenario), CFG, WS, speed_pct=speed, log_root=str(tmp_path))
     ok, msg = svc.connect()
     assert ok, msg
-    svc.ctl.blocked_cfg = replace(CFG, blocked_empty_accel_deg=6.0, blocked_empty_cruise_deg=1.9)  # MuJoCo 액추에이터의 오차는 실물 서보보다 작다(결정 0059·0061: 30~50%는 정속 문턱이 s/0.3배로 늘어난다): 실물 문턱(10/15.5)으로는 장애물 시험이 잡히지 않아 시뮬레이션 값을 쓴다
     return svc
 
 
@@ -56,3 +55,21 @@ def test_free_empty_moves_never_trigger_blocked(tmp_path, speed):
         assert not blocked_events(svc)
     finally:
         svc.disconnect()
+
+
+def test_sim_blocked_applies_at_judgement_only_for_mujoco_and_rejects_unknown_keys(tmp_path):
+    from so101_studio.arm.sim_driver import SimDriver
+
+    assert CFG.sim_blocked  # robot.yaml 값
+    mj = ArmService(make_sim_driver(CFG, WS, None, scenario="carry30"), CFG, WS, log_root=None)
+    mj.connect()
+    assert mj.cfg is CFG and mj.cfg.blocked_empty_cruise_deg == 15.5  # cfg·프리셋 저장값은 실제 설정 그대로
+    assert mj.ctl.blocked_cfg.blocked_empty_cruise_deg == CFG.sim_blocked["blocked_empty_cruise_deg"]  # 판정은 sim 값
+    assert mj.ctl.blocked_cfg.blocked_grip_units == CFG.blocked_grip_units  # sim_blocked에 없는 키는 cfg
+    mj.disconnect()
+    kin = ArmService(SimDriver(), CFG, WS, log_root=None)
+    kin.connect()
+    assert kin.ctl.blocked_cfg is kin.cfg  # 기구학 시뮬레이션은 실물 값 그대로
+    kin.disconnect()
+    with pytest.raises(ValueError, match="sim_blocked"):
+        ArmService(make_sim_driver(CFG, WS, None, scenario="carry30"), replace(CFG, sim_blocked={"speed_pct_default": 5}), WS, log_root=None)
