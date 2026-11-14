@@ -23,7 +23,8 @@ def build(boxes, **kw):
     return _build(boxes, **kw)
 
 
-THREE = [Box(200, 190, 0), Box(310, 160, 90), Box(400, 200, 45)]
+# 센서가 손끝 왼쪽(-x) 66.5mm에 있어(결정 0063) 손끝이 오른쪽으로 66.5mm 나가므로, 바깥 물체가 도달 밖이 되지 않게 옛 배치(x 200/310/400)를 60mm 왼쪽으로 옮겼다
+THREE = [Box(140, 190, 0), Box(250, 160, 90), Box(340, 200, 45)]
 
 
 def test_radar_single_object_nine_spots(tmp_path):
@@ -112,9 +113,9 @@ def test_three_objects_end_to_end_success(tmp_path):
 
 
 def test_three_objects_end_to_end_time(tmp_path):
-    """인식 시간 기준(1절 임시): 평균 70초 이하 (팔 100mm/s, 가속 120mm/s², 호출 사이 0.25초)."""
+    """인식 시간 기준(1절 임시): 평균 130초 이하 (팔 100mm/s, 가속 120mm/s², 호출 사이 0.25초). 옛 오프셋은 70초였고, 새 오프셋(센서 높이 155mm)에서 ring_r 60mm가 약 127초다(ring_r 45는 약 69초이나 성공률이 낮다). 실측 A1 뒤 다시 정한다."""
     _, secs = _cycles(tmp_path)
-    assert secs <= 70
+    assert secs <= 130
 
 
 def test_ring_is_one_follow_path_call(tmp_path):
@@ -160,13 +161,13 @@ def test_prefetch_makes_next_scan_instant(tmp_path):
 
 def test_unreachable_segment_is_skipped_not_deleted(tmp_path):
     """바깥쪽 물체: 세로선(L2)이 도달 밖이면 그 구간을 건너뛰고(unreachable 기록) 나머지로 확정한다."""
-    cfg, clk, esp, arm = build([Box(300, 235, 0)], reach=STRICT_REACH)
+    cfg, clk, esp, arm = build([Box(250, 220, 0)], reach=STRICT_REACH)  # 센서 오프셋 66.5mm 때문에 옛 자리(300, 235)는 전부 도달 밖이 된다
     src = make_source(cfg, clk, esp, arm, tmp_path)
     cand = src.scan().objects[0]
     obj, probe, _ = do_check(src, arm, cand)
     assert "L2" in probe.info["unreachable"]
     assert obj is not None and probe.status == "ok"
-    assert math.dist((obj.x_mm, obj.y_mm), (300, 235)) < 15
+    assert math.dist((obj.x_mm, obj.y_mm), (250, 220)) < 15
     assert obj.confidence < 0.9  # 못 간 구간이 있으면 덜 믿는다
 
 
@@ -183,21 +184,21 @@ def test_all_unreachable_keeps_candidate(tmp_path):
 @pytest.mark.parametrize("yaw", [0, 45, 90])
 def test_yaw_rotates_sensor_offset(tmp_path, yaw):
     """손목 yaw에 따라 센서 오프셋이 돌아가므로 손끝 경로가 달라져도 확인 결과는 같다."""
-    cfg, clk, esp, arm = build([Box(300, 170, 0)], yaw_deg=yaw)
+    cfg, clk, esp, arm = build([Box(300, 230, 0)], yaw_deg=yaw)  # yaw 0은 센서가 손끝 앞 66.5mm라 가까운 자리(y 170)는 손끝이 도달 안쪽 밖이다
     src = make_source(cfg, clk, esp, arm, tmp_path)
     obj, _, _ = do_check(src, arm, src.scan().objects[0])
-    assert math.dist((obj.x_mm, obj.y_mm), (300, 170)) < 10
+    assert math.dist((obj.x_mm, obj.y_mm), (300, 230)) < 10
 
 
 def test_sensor_to_tip_default_yaw_90():
-    """기본 yaw 90: 도구 프레임 오프셋 (0, 30)이 작업대 좌표 (-30, 0)으로 돌아간다(센서 = 손끝 + 돌린 오프셋)."""
+    """기본 yaw 90: 도구 프레임 오프셋 (0.6, 66.5)가 작업대 좌표 (-66.5, 0.6)으로 돌아간다(센서 = 손끝 + 돌린 오프셋)."""
     from so101_studio.perception.ultrasonic.check import sensor_to_tip
     from so101_studio.perception.ultrasonic.model import load_config
 
     cfg = load_config()
     assert cfg.check.yaw_deg == 90
     (tip,) = sensor_to_tip([(100.0, 100.0)], cfg)
-    assert tip == pytest.approx((130.0, 100.0))
+    assert tip == pytest.approx((166.5, 99.4))
 
 
 def test_origin_comes_from_workspace_config(tmp_path):
@@ -268,10 +269,10 @@ def test_clip_to_reach_splits_and_limits_paths(tmp_path):
     cfg, clk, esp, arm = build([Box(300, 170, 0)])
     src = make_source(cfg, clk, esp, arm, tmp_path)
     probe = src.start_check(src.scan().objects[0])
-    # yaw 90이라 손끝 x = 센서 x + 30 = 330, 손끝 y = 센서 y. 원점(300,50) 반경 60 안(손끝 y -2~102)은 건너뛴다
-    pieces = probe._clip([(300, -70), (300, 170)])
+    # yaw 90이라 손끝 = 센서 + (66.5, -0.6). 센서 x 250이면 손끝 x 316.5라 원점(300,50) 반경 60 안(손끝 y -7.7~107.7)은 건너뛴다
+    pieces = probe._clip([(250, -70), (250, 170)])
     assert len(pieces) == 2
-    assert pieces[0][-1][1] == pytest.approx(-2, abs=3) and pieces[1][0][1] == pytest.approx(102, abs=3)
+    assert pieces[0][-1][1] == pytest.approx(-7.7, abs=3) and pieces[1][0][1] == pytest.approx(107.7, abs=3)
     reach = cfg.check.tool_reach_mm
     probe, _obj, segs = _all_segments(src, arm, src.scan().objects[0])
     for seg in segs:
