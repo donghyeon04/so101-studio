@@ -242,12 +242,10 @@ def test_manual_joint_limit_follows_chosen_joint(clean):
 
 
 def test_manual_3d_point_outside_limits_changes_nothing(clean, monkeypatch):
-    from so101_studio.gui.pages import manual as manual_page
 
-    toasts = []
-    monkeypatch.setattr(manual_page.ui, "notify", lambda text, **k: toasts.append(text))
 
     async def check(user):
+        toasts = user.notify.messages  # user_simulation이 ui.notify를 잡아 여기에 모은다
         assert await _until(lambda: _one(user, "reach").text != "계산 중")
         x0, h0 = _one(user, "target-x").value, _one(user, "target-h").value
         clean.scene.pick(300.0, 200.0, 1000.0)  # 높이만 허용(0~400) 밖
@@ -272,12 +270,10 @@ def test_manual_object_field_out_of_range_disables_pick_place(clean):
 # ③ 안전
 
 def test_safety_out_of_range_field_blocks_apply_toggle_and_off_confirm(clean, monkeypatch):
-    from so101_studio.gui.pages import safety as safety_page
 
-    toasts = []
-    monkeypatch.setattr(safety_page.ui, "notify", lambda text, **k: toasts.append(text))
 
     async def check(user):
+        toasts = user.notify.messages  # user_simulation이 ui.notify를 잡아 여기에 모은다
         assert await _until(lambda: clean.owner is not None)
         assert await _until(lambda: _one(user, "safety-apply").enabled)
         _one(user, "box-z-max").value = 9999  # 사람이 친 글자
@@ -337,14 +333,12 @@ def test_programs_validate_checks_meta_limits():
 
 
 def test_program_out_of_range_step_field_blocks_save_and_run(clean, monkeypatch):
-    from so101_studio.gui.pages import program as program_page
 
-    toasts = []
-    monkeypatch.setattr(program_page.ui, "notify", lambda text, **k: toasts.append(text))
     saved = []
     monkeypatch.setattr(clean, "save_program", lambda name, steps: saved.append(name))
 
     async def check(user):
+        toasts = user.notify.messages  # user_simulation이 ui.notify를 잡아 여기에 모은다
         assert await _until(lambda: clean.owner is not None)
         _one(user, "step-kind").value = "wait"
         user.find(marker="step-add").click()
@@ -375,12 +369,10 @@ def test_teach_out_of_range_speed_disables_play(clean):
 def test_input_out_of_range_field_blocks_add_but_not_move(clean, monkeypatch):
     from nicegui.events import GenericEventArguments
 
-    from so101_studio.gui.sensors import manual_view
 
-    toasts = []
-    monkeypatch.setattr(manual_view.ui, "notify", lambda text, **k: toasts.append(text))
 
     async def check(user):
+        toasts = user.notify.messages  # user_simulation이 ui.notify를 잡아 여기에 모은다
         assert await _until(lambda: clean.owner is not None)
         width = _one(user, "new-width")
         assert width.meta.hard == (5.0, 110.0)  # 수동 입력은 지금 범위 그대로
@@ -441,13 +433,12 @@ def test_blur_event_commits_typed_value(clean):
 
 
 def test_program_run_right_after_out_of_range_typing_is_rejected(clean, monkeypatch):
-    from so101_studio.gui.pages import program as program_page
 
-    toasts, runs = [], []
-    monkeypatch.setattr(program_page.ui, "notify", lambda text, **k: toasts.append(text))
+    runs = []
     monkeypatch.setattr(clean, "run_program", lambda *a: runs.append(a))
 
     async def check(user):
+        toasts = user.notify.messages  # user_simulation이 ui.notify를 잡아 여기에 모은다
         assert await _until(lambda: clean.owner is not None)
         _one(user, "step-kind").value = "wait"
         user.find(marker="step-add").click()
