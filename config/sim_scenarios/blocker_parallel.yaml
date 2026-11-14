@@ -1,0 +1,4 @@
+# 병렬 손(로보나인)용 막힘 시험 벽(blocker.yaml의 병렬판). 단동식 벽(300,200)은 병렬 손의 home 자세 손(x 272~333, y 187 이상, 높이 86mm 이상)과 겹쳐 radar_clear 이동 중 막힌다(measurements.md 11-15).
+# 손이 home→radar_clear로 쓸고 가는 범위의 y 187보다 22mm 안쪽인 (300,140), 폭 50(y 115~165)에 두고 곧게 내려가면 윗면에 막힌다.
+objects:
+  - {name: wall, x_mm: 300, y_mm: 140, angle_deg: 0, width_mm: 50, length_mm: 50, height_mm: 120}

@@ -535,3 +535,10 @@ p99 증가는 -0.04ms(기준 2ms 이하), time_lost_s 증가 0%(기준 1% 미만
 - 시도 B처럼 앞의 이동이 눌린 채 끝나면(부하 100%) 다음 이동이 시작할 때 이미 100%라서, 3초 안에 풀리지 않으면 과부하 fault다. 정상 막힘은 ARM-BLOCKED 뒤 부하가 1~3초에 걸쳐 풀린다(`idle`, 명령이 막힌 자리로 고정).
 - 막힘 판정 뒤 팔 명령(`motion.py` `check_blocked`): `driver.write_joints(실제 위치 + 그리퍼 hold)`로 지금 위치를 명령하고 `_last`를 그 값으로 바꾼 뒤 `_job=None`·`state=idle`로 둔다. 목표를 그대로 미는 것이 아니라 지금 자리로 잡는다. 그래서 부하는 풀린다.
 - 원인 후보(수정은 팔·MuJoCo 중 어디서 할지 총괄 판단): ① `blocker.yaml`의 벽을 병렬 손이 지나지 않는 자리로 옮기거나 `radar_clear` 대신 벽에 닿지 않는 자세에서 시작한다(시나리오 파일 = MuJoCo 영역), ② 시험이 첫 `move_joints` 결과를 이미 `ok`로 확인하므로(`test_blocked_mujoco.py`) 병렬 cfg로 돌리면 먼저 거기서 실패한다. 팔 코드는 고치지 않았다.
+
+## 병렬 손이 home→radar_clear 중 (300,200) 근처를 지나는 높이, 병렬용 blocker 벽 (2026-11-15)
+- 방법: `gripper: parallel`, 5관절을 home(0,−90,93,0,0)→radar_clear(0,−90,85,−90,0)로 직선 보간해 201점마다 `mj_forward`(동역학 없음), 벽 geom과 팔 geom의 겹침(`dist`<0)을 본다. 손 정점(시각 메쉬)으로 재면 손이 실제보다 커 보여(시각 메쉬는 충돌 형상보다 큼) 충돌 geom 기준으로 잰다.
+- **home 자세에서 이미** 병렬 손 충돌 geom이 단동식 벽(300,200, 80x80, 높이 120)과 최대 33mm 겹친다(접촉점 (273,224,높이 120)·(272,223,89)·(333,223,86)). 손의 아랫부분은 x 272~333, y 187 이상, 높이 86mm 이상에 있다. 보간하는 동안 손 최저점(벽 발자국 안)은 wrist_flex가 0→−90°로 도는 데 따라 86mm(home)→119mm(wrist −13.5°)→165mm(radar_clear)로 올라간다. 벽 높이 120mm를 넘는 것은 wrist −14° 근처부터다. 그래서 시험 시작 때 손이 벽을 밀거나 걸려 `radar_clear` 이동이 막히는 것이다. 실물에서도 높이 120mm 안팎 물체가 손 아래 (x 270~335, y ≥ 187)에 있으면 같은 일이 난다(단, 이 값은 시뮬레이션 충돌 형상 기준).
+- 병렬용 벽 `config/sim_scenarios/blocker_parallel.yaml`: (300,140), 50x50, 높이 120. 정적 스윕으로 손과 벽 사이가 22mm 이상 떨어진다(벽 변 y 165, 손 y 187). 후보 (300,150)은 여유 20mm에서 닿았고 (300,140)은 안 닿았다. (400,200)은 안 닿지만 옆에서 내려오는 이동이 벽을 밀어 막힘이 안 난다(벽이 y 160으로 밀리고 `ok`)라 버렸다.
+- 시험(`tests/test_blocked_mujoco.py::test_parallel_hand_move_into_a_tall_box_is_stopped_and_held`): `radar_clear` 이동 ok, 벽으로 곧게 내려가는 이동(높이 10)이 30%·50% 모두 `stopped`·ARM-BLOCKED 1건·fault 0건. 3회 반복(총 6회) 모두 통과.
+- 참고: 위 측정 스크립트(`runs/_m`)는 `PYTHONPATH`를 안 주면 `C:\Users\c\Desktop\so101-studio`(메인 폴더)의 `so101_studio`를 import한다(editable 설치). 이 값들은 main과 같은 코드(메인 폴더 5d55203, 이 폴더 origin/main과 src가 같음)에서 잰 것이고, pytest는 `pythonpath = ["src"]`라 이 폴더 코드를 쓴다.
