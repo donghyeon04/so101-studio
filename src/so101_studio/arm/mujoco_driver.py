@@ -21,6 +21,7 @@ from .mujoco_model import (
 )
 
 JAW_ROLES = ("jaw_fixed", "jaw_moving", "clamp_right", "clamp_left")  # held 판정에 쓰는 턱 역할(단동식 둘, 병렬 클램프 둘)
+VIEWER_SYNC_S = 1 / 15  # 뷰어에 복사본을 보내는 간격(30Hz는 렌더가 CPU를 먹어 60초에 버림 45~64번, 15Hz는 1~4번: measurements.md)
 CATCHUP_MAX_S = 0.1  # 이 이상 밀리면 넘는 만큼 버린다
 
 
@@ -88,11 +89,15 @@ class MuJoCoDriver:
             if self.viewer:
                 import mujoco.viewer
 
-                self._handle = mujoco.viewer.launch_passive(self.model, self.data, show_left_ui=False, show_right_ui=False)  # 메인 스레드가 아니어도 열린다(13.9)
+                self._vdata = mujoco.MjData(self.model)  # 뷰어는 물리 데이터의 복사본을 본다: sync가 화면 그리기를 기다리는 동안 물리 스레드가 멈추지 않게(M4b 뒤 측정: 60초에 버림 184번)
+                self._handle = mujoco.viewer.launch_passive(self.model, self._vdata, show_left_ui=False, show_right_ui=False)  # 메인 스레드가 아니어도 열린다(13.9)
+                self._sync_evt = threading.Event()
             self._stop.clear()
             if self.realtime:
                 self._thread = threading.Thread(target=self._run, name="mujoco-physics", daemon=True)
                 self._thread.start()
+            if self._handle is not None:  # _stop을 지운 뒤에 시작해야 바로 끝나지 않는다
+                threading.Thread(target=self._viewer_loop, name="mujoco-viewer-sync", daemon=True).start()
 
     def disconnect(self) -> None:
         self._stop.set()
@@ -186,11 +191,20 @@ class MuJoCoDriver:
                 if lag >= dt:
                     self._step_n(int(lag / dt))
                 h = self._handle
-                if h is not None and time.perf_counter() >= self._next_sync and h.is_running():  # 창을 닫으면 sync만 멈추고 물리는 계속한다
-                    self._next_sync = time.perf_counter() + 1 / 30
-                    self.data.xfrc_applied[:] = 0  # 뷰어의 마우스 힘은 쓰지 않는다
-                    h.sync()
+                if h is not None and time.perf_counter() >= self._next_sync and h.is_running():  # 창을 닫으면 복사만 멈추고 물리는 계속한다
+                    self._next_sync = time.perf_counter() + VIEWER_SYNC_S
+                    self._mj.mj_copyData(self._vdata, self.model, self.data)  # 복사는 빠르다. 뷰어 쪽 마우스 힘은 복사본에만 있어 물리에 안 들어간다
+                    self._sync_evt.set()
             time.sleep(0.001)
+
+    def _viewer_loop(self) -> None:
+        """복사본을 뷰어에 보낸다(sync가 그리기를 기다릴 수 있어 물리 잠금 밖의 별도 스레드). 한 장면이 늦어도 다음 복사가 덮어쓴다."""
+        while not self._stop.is_set():
+            if self._sync_evt.wait(0.1):
+                self._sync_evt.clear()
+                h = self._handle
+                if h is not None and h.is_running():
+                    h.sync()
 
     def _emit(self, kind: str, level: str, code: str, data: dict) -> None:
         """event_sink가 아직 없으면 모아 두었다가 처음 보낼 수 있을 때 함께 보낸다."""

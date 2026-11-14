@@ -12,7 +12,7 @@ from .sim_driver import REPO_ROOT
 
 PARALLEL_DIR = REPO_ROOT / "assets" / "assets" / "parallel"
 NOCAM_STL = REPO_ROOT / "assets" / "mujoco" / "parallel" / "parallel_hand_nocam.stl"  # parallel_hand.stl에서 손목 카메라 팔·렌즈를 뺀 파생(원본은 그대로)
-CAMERA_Y_GL_MM = -36.0  # gripper_link y가 이보다 작은(-y쪽 끝) 면이 카메라 마운트·카메라: 손 본체(서보·판)는 y -35 안쪽
+CAMERA_Y_GL_MM = -36.0  # gripper_link y가 이보다 작은(-y쪽 끝) 부분이 카메라 마운트·카메라: 손 본체(서보·판)는 y -35 안쪽
 _RX90 = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0.0]])  # URDF visual rpy (1.570796, 0, 0)
 # (메쉬 파일, visual origin xyz m): 손 본체는 gripper_link, 클램프는 각 관절 origin에서 본 값
 HAND_MESH = ("parallel_hand", (-0.007062, 0.152066, 0.120627))  # visual origin(URDF). 메쉬 자체는 NOCAM_STL을 쓴다
@@ -47,16 +47,15 @@ def value_of_slide(q: float, width_mm) -> float:
 
 
 def make_nocam_stl(out=NOCAM_STL):
-    """parallel_hand.stl에서 gripper_link y < CAMERA_Y_GL_MM인 면(카메라 마운트·렌즈 달린 카메라)을 빼 파생 STL로 쓴다. y_gl(mm) = 152.066 − z_stl(URDF visual rpy 1.570796, origin y 0.152066)."""
+    """parallel_hand.stl에서 gripper_link y < CAMERA_Y_GL_MM인 부분(카메라 마운트·렌즈 달린 카메라)을 평면으로 잘라 파생 STL로 쓴다(경계를 걸친 삼각형도 평면에서 자른다: 면 단위로 빼면 y −43까지 남아 브래킷과 2mm 겹쳤다). y_gl(mm) = 152.066 − z_stl(URDF visual rpy 1.570796, origin y 0.152066). (잘라낸 면 수, 남은 면 수)를 돌려준다."""
     import trimesh
 
     m = trimesh.load(PARALLEL_DIR / "parallel_hand.stl", force="mesh")
-    keep = m.triangles_center[:, 2] <= 152.066 - CAMERA_Y_GL_MM
-    sub = trimesh.Trimesh(m.vertices, m.faces[keep])
-    sub.remove_unreferenced_vertices()
+    n0 = len(m.faces)
+    sub = m.slice_plane([0, 0, 152.066 - CAMERA_Y_GL_MM], [0, 0, -1], cap=False)  # z_stl가 이보다 작은 쪽(= y_gl가 큰 쪽)을 남긴다
     out.parent.mkdir(parents=True, exist_ok=True)
     sub.export(out)
-    return int((~keep).sum()), int(keep.sum())
+    return n0 - len(sub.faces), len(sub.faces)
 
 
 def _load(mesh: str, vis):
