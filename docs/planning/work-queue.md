@@ -33,6 +33,12 @@
 |---|---|---|
 | U5 로보나인 교체 날짜 | ☐ 로보나인 부품(출력물 + 기어·로드·나사)이 다 있는지 확인 ☐ 없으면 출력·구매할 것 목록을 하드웨어 담당에게 받기 ☐ 교체할 날을 정하기(교체 1시간 + 실측 반나절, 사용자가 팔 옆에 있는 날) ☐ 그날 runbook 2-10을 연다 | 2-10, 2-2 재시험, A0 |
 | U4 OpenRB 전원·작업대 | ☐ OpenRB-150 보드의 VIN 단자에 무엇이 연결되는지 회로를 확인(12V 어댑터가 닿으면 XL330이 망가진다) ☐ 테스터로 VIN 전압을 재서 5V 근처인지 보기(전원은 5V 강압 모듈이나 USB) ☐ 결과를 총괄에게 알리기 ☐ 작업대 조립 날짜를 정하기(판 600×400, `workbench-hardware-requirements.md`) | 초음파 B1, 레이더 배선, runbook 2-A |
+| U11 CHECK 손목 yaw(11-15) | ☐ 후보 반경별로 yaw를 바꾸는 옵션 `check.yaw_pivot_mm`을 기본으로 켤지(ultrasonic-spec 6절 "yaw 90 고정" 변경). 벤치마크 single 비관 62→88%, 병렬 실제 기구학 19→75%(초음파 세션). 추천: 켠다 → 기획이 6절 반영 | `test_sim_three_objects_end_to_end` 실패, 병렬 손 초음파 자동 실행 |
+| U12 환경 버전 고정(11-15) | ☐ nicegui·playwright를 `environment.yml`에 고정할지(새 PC nicegui 3.18에서 GUI 시험 5개가 깨졌다). 추천: 지금 통과하는 버전으로 고정 | PC마다 시험 결과가 달라짐 |
+| U13 실물 팔 첫 연결(11-15) | ☐ 보드가 오는 날 정하기. 순서: 캘리브레이션 파일을 LeRobot 캐시에 복사 → `doctor` → `status` → `--speed 20 home` | 실물 시험 전부 |
+| U14 13.7 (a) topedge 병렬(11-15) | ☐ 병렬 손은 topedge가 재현되지 않는다(yaw 135°로 면에 맞춰 내려감). (a)를 병렬용으로 다시 정할지 단동식 전용으로 둘지(기획). 추천: 단동식 비교 전용으로 표시하고 병렬용 실패 재현은 M5에서 | M5 판정 기준 |
+- 11-15 밤 보고와 기획 요청 원문: `planning-inbox` `inbox/2026-11-15-night-report.md`. 참고: 병렬 손 blocker 30% fault는 막힘 감지 문제가 아니라 시나리오 벽이 home→radar_clear 경로에 걸린 것이었다(MuJoCo #370, 병렬용 시나리오 추가).
+- 알려진 실패(main): `tests/test_task_check.py::test_sim_three_objects_end_to_end`(U11 뒤 풀림). 흔들림: `tests/gui/test_watchdog_link.py::test_refused_run_folder_turns_the_watchdog_off`(부하 때 1회, 단독 통과).
 - U10(시험 계획)은 결정 0064로 승인했다(11-14).
 - U7(브래킷 출력 방향: 손목 쪽 평면 +z 바닥, 6.4mm 걸림은 손목 카메라 팔 때문이었고 #357로 0), U8(시연 속도 30~40%), U9(NOTICE 이름 빼기, #347)는 11-14에 사용자가 승인했다. U6은 닫았다.
 
