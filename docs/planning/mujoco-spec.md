@@ -238,7 +238,17 @@
 - `gripper_frame`: 원본 site 위치가 달라 URDF origin으로 따로 더함.
 - 라이선스: Apache-2.0.
 - Windows 휠: 메타 휠이라 13.8처럼 설치하고, numpy 2.2.6이 유지됨을 확인.
-- 관절 range: 원본이 우리 한계보다 좁다. M2에서 range·ctrlrange를 `physical_limits_deg`로 넓힌다(13.4). M1 `load_model`에는 아직 없다.
+- 관절 range: 원본이 우리 한계보다 좁다. `load_model(joint_limits=)`가 range·ctrlrange를 `physical_limits_deg`로 넓힌다(M2, 그리퍼는 각도로 [v0−1°, v100+1°]).
+- 버전 고정(M2): `mujoco==4.0.0 mujoco-core==4.0.0 mujoco-studio==4.0.0 glfw==2.11.0 pyopengl==3.1.10`(`tooling-setup.md` C24).
+- 모델 손질(M2, `load_model`): 받침 `base_box`와 어깨 사이 충돌 제외(`exclude(base, shoulder)`), 집게 geom은 priority==1만(`collision_gripper`·`collision_gripper_mesh`)을 condim 4·마찰 (1.0, 0.02, 0.001)로, 전역 옵션은 elliptic cone·impratio 10·implicitfast·timestep 0.002. 링크에 붙는 장면 부품은 density 0.
+- 물리 스레드(M2): 벽시계를 따라 2 ms씩 진행하고 한 번에 따라잡는 양은 100 ms로 제한(`dropped_count`·`dropped_s`). i5-1240P에서 60초 동안 놓친 것 0, 스텝 평균 0.067 ms(`measurements.md`). 시험은 `realtime=False`와 `advance(초)`. 연결 직후 ArmService가 GIL을 오래 잡아 놓침이 2번 났으므로 놓침은 연결 뒤부터 센다.
+- 목표 보간(13.2에 반영): ctrl을 새 목표로 바로 바꾸면 kp 998이 힘을 포화시켜 `ARM-GRIP-OVERLOAD-WARN`이 떴다. 이전 목표→새 목표를 `1/control_hz` 동안 직선으로 옮긴다. 부하 정의는 그대로.
+- 물리 실패: 관절값 NaN은 스텝 전에 검사한다(MuJoCo가 NaN이면 data를 리셋해 사유가 사라짐). `failed_reason`, 이후 읽기·쓰기는 RuntimeError.
+- 막힘 문턱(결정 0059·0061, #325): 로봇 설정 `sim_blocked`(`blocked_empty/held_accel/cruise_deg` 4개)는 MuJoCo일 때 판정 시점의 `ctl.blocked_cfg`(`_SimBlocked`)에만 덮는다. cfg·프리셋 값은 그대로. 모르는 키는 ValueError. 알려진 한계: GUI에서 이 4개 `blocked_*`를 고쳐도 MuJoCo 판정에는 안 먹는다.
+- 뷰어(M4): `mujoco.viewer.launch_passive(model, data, show_left_ui=False, show_right_ui=False)`가 있고 Windows의 메인 아닌 스레드에서 열린다. 1/30초마다 sync하고 `xfrc_applied`는 0으로 둔다. `--sim-viewer`는 실시간 모드에서만.
+- 시나리오(M3): `config/sim_scenarios/*.yaml`(이름 또는 .yaml 경로, 저장소 루트 기준), 수동 물체는 `config/manual_objects.yaml`(obj-1…). 모르는 키·이름 중복·바닥 사각형 겹침(분리축 검사)은 ValueError. 병렬 그리퍼는 ValueError.
+- 재현 시험 기준: topedge는 윗면 접촉(z 34~44 mm)만 본다, 들고 가기 슬립 ≤3.5 mm·착지 <7 mm·기울기 <10°(`tests/test_mujoco_scenarios.py`).
+- 함정: 토크 끈 처짐 시험은 홈 자세에서 균형이라 처지지 않는다(어깨 −30°·팔꿈치 60°로). `conda` PATH 없이 ruff·python을 부르면 MKL DLL 오류.
 
 ### 13.10 시험장으로 키우기 (M5~M9, 2026-11-14 확정 — 결정 0062)
 사용자 요청(2026-11-14): MuJoCo를 실물 없이 반복하는 시험장으로 키운다. 당장은 **우리 알고리즘을 반복해서 재는 것**이 목적이고, 나중에는 같은 시험장을 **강화학습**에도 쓴다. 우리 알고리즘으로 안 되는 경우는 강화학습으로 밀어붙인다. 출력·구입 전 부품(브래킷 등)은 STEP/STL로 먼저 평가한다. 사용자가 승인했다(결정 0062). 단계마다 세부 설계를 이 절 아래에 펼치고 EGM Stage 9를 거쳐 REQ로 낸다.
