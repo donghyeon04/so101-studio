@@ -22,6 +22,7 @@ HEIGHT_REQUIRED_REASON = "턱 축이 팔 방향과 어긋나 수직으로 집어
 HOVER_NEIGHBOUR_R_MM = 100.0  # 놓는 점 둘레 이 반경 안의 알려진 물체 높이를 hover 높이 규칙에 쓴다 (11.3.3)
 SWING_STEP_DEG = 2.0  # 기울기 풀기 보간에서 가장 크게 도는 관절이 이만큼 돌 때마다 한 자세씩 검사한다
 SAME_SPOT_MM = 30.0  # 놓을 자리에서 이 안에 있는 놓은 물체는 같은 자리(배출 구역에 쌓는 것)로 보고 피하지 않는다
+RELEASE_SAG_MARGIN_MM = 8.0  # 놓는 순간 낮은 턱 끝은 tip_floor_mm + 이 값(13mm) 아래로 내리지 않는다: 낮게 집은 물체(낮은 높이로 알려 줌)를 놓으며 열고 기울이는 동안 처짐·추종 오차로 턱 끝이 바닥을 긁었다(실물 2-2a 11-14)
 LIFT_MARGIN_MM = 10.0  # 놓은 뒤 상승의 최소 = 물체 높이 + 이 값 (11.3.3)
 LIFT_UNKNOWN_EXTRA_MM = 30.0  # 물체 높이를 모르면 t_g + 이 값
 NEIGHBOUR_H_MM = 40.0  # 이웃 물체 높이를 모를 때 가정하는 높이: 이보다 낮게 지나는 두 턱 끝은 알려진 물체와의 거리를 본다
@@ -707,7 +708,10 @@ class Skills:
             place_yaw = yaw
             allowed = self.gripper.tilt_allowed(x_mm, y_mm, yaw)
             tilted = bool(grip["tilted"]) and allowed
-            release = self._hand_pose(x_mm, y_mm, yaw, v, tilted, self.cfg.table_z_mm + grip["tip_h"] + self.cfg.place_drop_mm)
+            tip_h = max(grip["tip_h"] + self.cfg.place_drop_mm, self.cfg.tip_floor_mm + RELEASE_SAG_MARGIN_MM)
+            if tip_h > grip["tip_h"] + self.cfg.place_drop_mm + 1e-9:
+                self.ctl._emit("place_release_raised", "INFO", "ARM-PLACE-RELEASE-RAISED", {"requested_tip_h_mm": round(grip["tip_h"] + self.cfg.place_drop_mm, 1), "tip_h_mm": round(tip_h, 1)})
+            release = self._hand_pose(x_mm, y_mm, yaw, v, tilted, self.cfg.table_z_mm + tip_h)
             plan = self._descent(release, self._gap_mm(v) / 2.0, (x_mm, y_mm))
             legacy = None if plan else "ik_failed_new_pose"
         if legacy:  # 옛 방식: yaw 0, 기울기 0, 손 기준점 높이 = table_z + place_height_mm. 한쪽만 열리는 그리퍼라 놓는 순간의 두 턱 끝 중간점이 점에 오도록 손 xy를 보정한다 (결정 0033)
