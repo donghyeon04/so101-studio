@@ -35,5 +35,5 @@ gripper_width_mm:          # [그리퍼 값, 턱 끝 벌림 mm]. URDF 메쉬 기
   - [100, 111.0]
 grasp_bias_mm: 0           # 턱 중심 보정의 미세 조정(가동 턱 쪽이 +, mm). URDF 기하로 계산한 위치가 실제와 다르면 작은 물체로 시험해서 정한다
 calibration_checked:         # so101 calibrate --verify-zero가 기록 (decisions/0029). 캘리브레이션 파일이 바뀌면 다시 확인해야 움직인다
-  date: "2026-11-10"
+  date: "2026-11-14"
   sha256: "2b536bdbe9d11e78e4bb9ae4b605250ec158b82c9fd2718646d78f3349048dd7"
