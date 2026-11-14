@@ -161,5 +161,7 @@ def test_full_cycle_in_simulation_with_three_objects():
     ctl.close()
     assert res["end"] == "no_objects", res
     assert sorted(res["picked"]) == ["obj-1", "obj-2", "obj-3"] and res["failed"] == []
-    assert [e.result for e in seen if e.state == "PLACE" and e.result] == ["ok"] * 3
+    placed = [e for e in seen if e.state == "PLACE" and e.result]
+    assert [e.result for e in placed] == ["ok"] * 3
+    assert all({"x_mm", "y_mm", "place_yaw_deg", "placed_angle_deg"} <= set(e.detail) for e in placed)  # 놓인 물체를 다시 집을 때 쓴다
     pytest.approx(0)

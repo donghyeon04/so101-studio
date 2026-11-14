@@ -13,7 +13,7 @@ class Studio:
     TaskEvent.state = PREPARE|SCAN|DECIDE|CHECK|RESCAN|PICK|PLACE|DONE|STOPPED|FAULT, detail(상태별; CHECK·RESCAN은 초음파처럼 확인 기능이 있는 인식 방식에서만):
       DECIDE: detail_n(스캔된 수), scan_s(스캔 시간), objects(행: id, x_mm, y_mm, angle_deg, width_mm, radial_mm, reachable), chosen(id|None), reason(문장)
       CHECK의 result가 있는 이벤트: result = ok|empty|unreachable, duration_s(확인 시간). 인식 모듈의 us.sweep·us.candidates·us.check_path·us.check_result도 같은 bus로 나간다.
-      PICK/PLACE의 result가 있는 이벤트: duration_s(마지막으로 실행한 동작 시간, 초). FAULT: detail_state."""
+      PICK/PLACE의 result가 있는 이벤트: duration_s(마지막으로 실행한 동작 시간, 초). PLACE ok는 x_mm·y_mm(놓은 자리), place_yaw_deg(놓을 때 턱 방향), placed_angle_deg(놓인 물체의 작업대 기준 각도, 모르면 없음)도. FAULT: detail_state."""
 
     def __init__(self, arm: ArmService, source, dry_run: bool = False):
         self.arm, self.source, self.bus = arm, source, EventBus()
