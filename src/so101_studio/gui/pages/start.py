@@ -27,7 +27,7 @@ def build(backend, client_id: str, actions, pages, descriptions) -> None:
     big, detail = mode_text(backend, list_serial_ports())
     with ui.card().classes("w-full gap-1").mark("start-mode"):
         ui.label(big).classes("text-2xl font-semibold").mark("start-mode-title")
-        ui.label(detail).classes("page-body mode-detail")  # 보드가 꽂혔는지에 따라 바뀐다(화면 시험은 가린다)
+        ui.label(detail).classes("page-body mode-detail w-full")  # 보드가 꽂혔는지에 따라 바뀐다(화면 시험은 가린다)
 
     ui.label("처음이면 이 순서로").classes("card-title")
     with ui.row().classes("w-full gap-2"):

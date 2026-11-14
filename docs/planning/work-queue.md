@@ -48,7 +48,11 @@
 - 전체 `python -m pytest -q`(eded098, 1:38): 1192 passed, `tests/gui_visual` 실패 6·오류 4(실물 시험과 같이 돌아 CPU가 바빴던 때). ruff 0건.
 - 합친 main `tests/gui`: 424 passed. 그 전 두 번의 119 실패는 다른 프로세스가 GUI 포트를 쥔 때라 무효.
 - `tests/gui_visual`(5d359b2): 55 passed, 실패 1·오류 3. 보드 연결·로컬 교시 기록에 따라 바뀌는 부분 탓. 배포 전 보드를 뽑고 다시 돌린다.
-- **합친 main(299bea9) 전체는 아직 안 돌렸다** → 새 PC 첫날 2번.
+- **새 PC 전체**(11-15, fcdcb0f = 합친 main과 코드 같음, 보드 없음, `python -m pytest -q --durations=50`, 1:17:21): 1218 passed, 6 failed, 12 errors. ruff 0건. 기준 시간은 이 1시간 17분이다.
+  - `tests/gui/test_numeric_input.py` 5개: nicegui 3.18의 `user_simulation`이 `ui.notify`를 바꿔 넣어 monkeypatch 가로채기가 안 먹음 → `user.notify.messages`로 고침(28 passed).
+  - `tests/gui_visual` 12개: 새 PC 글꼴 렌더링 차이(배치 같음) → `.mode-detail` `w-full`, 기준 사진 12장 다시 찍음(56 passed). 그 뒤 `tests/gui` 425 passed(10:10).
+  - `tests/test_task_check.py::test_sim_three_objects_end_to_end`: picked 0, `give_up`. 초음파 세션이 원인 확인 중(#359 뒤 성능 저하로 추정).
+  - nicegui·playwright 버전이 `environment.yml`에 고정돼 있지 않아 PC마다 결과가 달라진다(아침 결정).
 
 ## 나중에 할 일
 - GUI 알림을 아래로 끌면 흐려지며 사라지게(총괄). 장면 부품 편집기(STEP 뒤), 초음파 화면 실제 기록(B1 때).
