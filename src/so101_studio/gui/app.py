@@ -7,7 +7,7 @@ import time
 
 from nicegui import app, background_tasks, run, ui
 
-from ..cli import make_driver
+from ..cli import MUJOCO_MISSING_TEXT, make_driver
 from ..core.config import ArmSelectionError, load_robot_ex
 from ..core.ports import PortChoiceError, list_serial_ports, pick_port
 from ..doctor import doctor
@@ -173,7 +173,7 @@ def make_root(backend: Backend):
             if beating != [mine]:
                 beating[:] = [mine]
                 ui.run_javascript(f"so101Hb({str(mine).lower()})")
-            text = "오류" if comm_lost else page_state(backend.state.status)
+            text = "오류" if comm_lost or backend.physics_failed() else page_state(backend.state.status)
             if lock_row and not lock_row[0].is_deleted:
                 lock = backend.move_lock()
                 lock_row[0].visible = bool(lock)
@@ -182,7 +182,7 @@ def make_root(backend: Backend):
                 badge[0].text = text
                 badge[0].props(f"color={theme.STATE_COLORS[text]}")
             if resume and not resume[0].is_deleted:
-                resume[0].visible = mine and text in ("정지", "오류") and not comm_lost
+                resume[0].visible = mine and text in ("정지", "오류") and not comm_lost and not backend.physics_failed()
             if reconnect and not reconnect[0].is_deleted:
                 reconnect[0].visible = mine and comm_lost
             if top_mode.value != backend.mode:
@@ -372,6 +372,13 @@ def _first_report(arm_name: str | None, port: str) -> dict | None:
 def main(args) -> None:
     """`python -m so101_studio.gui`와 `so101 gui`(REQ-005)의 입구. --sim이 없으면 실제 팔에 연결한다(토크는 그대로, 움직이지 않는다)."""
     sim = getattr(args, "sim", False)
+    engine, viewer = getattr(args, "sim_engine", "kinematic"), getattr(args, "sim_viewer", False)
+    if getattr(args, "sim_scenario", None):  # 두 입구(so101 gui, python -m so101_studio.gui)를 함께 덮는다(gui-spec 12.8)
+        sys.exit("GUI는 config/manual_objects.yaml 물체만 씁니다")
+    if engine == "mujoco" and not sim:
+        sys.exit("--sim-engine은 --sim과 함께 쓴다")
+    if viewer and not (sim and engine == "mujoco"):
+        sys.exit("--sim-viewer는 --sim --sim-engine mujoco와 함께 쓴다")
     share = bool(getattr(args, "share", False))
     host = SHARE_HOST if share else LOCAL_HOST
     # so101.cmd gui의 --port는 서보 시리얼 포트다. 웹 포트는 python -m so101_studio.gui --port(web_port)로만 바꾼다(gui-spec 12.6)
@@ -386,8 +393,13 @@ def main(args) -> None:
         backend = Backend(
             speed=getattr(args, "speed", None), link=link, viser_port=viser_port,
             arm_name=arm_name, viser_host=host, share=share, web_port=web_port, **({} if sim else real_arm_args(arm_name)),
+            **({"sim_engine": engine, "sim_viewer": viewer} if engine == "mujoco" else {}),
         )
-    except (RuntimeError, ArmSelectionError, PortChoiceError) as e:
+    except ImportError:  # mujoco가 없다. 기구학 엔진으로 바꿔 띄우지 않는다
+        link.stop()
+        print(MUJOCO_MISSING_TEXT, flush=True)
+        sys.exit(2)
+    except (RuntimeError, ValueError, ArmSelectionError, PortChoiceError) as e:  # ValueError: 병렬 그리퍼·물체 겹침·scene.yaml 오류(MuJoCo)
         link.stop()
         others = [] if sim else port_check.so101_processes()  # 시리얼 포트를 다른 so101 프로그램이 쥐고 있는 경우가 많다
         hint = ("\n지금 켜진 SO-101 프로그램(이 중 하나가 팔 포트를 쓰고 있을 수 있습니다. 끈 뒤 다시 실행하세요):\n  " + "\n  ".join(others)) if others else ""

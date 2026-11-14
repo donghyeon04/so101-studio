@@ -101,7 +101,8 @@ def build(backend, client_id: str, actions) -> None:
             scene_frame(backend, classes="scene3d scene3d-manual")
             # 3D 칸은 따라 내려온다(sticky): 현재 좌표와 [이동]을 여기 두어 입력칸을 내려도 스크롤 없이 누른다 (사용자 요청 11-14)
             move_click: list = [lambda: None]
-            current = ui.label("현재 좌표  -").classes("page-body current-pose").mark("current-pose")
+            # 폭 고정(w-full): 값 길이가 바뀌어도 스냅숏 가림 상자가 같다
+            current = ui.label("현재 좌표  -").classes("page-body current-pose w-full").mark("current-pose")
             with ui.row().classes("w-full items-center no-wrap gap-2"):
                 reach_icon = ui.icon("help", size="24px").mark("reach-icon")
                 reach = ui.label("계산 중").classes("flex-1 reach-text").mark("reach")  # 예상 시간은 팔 자세에 따라 바뀐다(화면 시험은 가린다)

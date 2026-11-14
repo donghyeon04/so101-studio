@@ -13,11 +13,12 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from ..arm.kinematics import Kinematics
-from ..arm.sim_driver import SimDriver
+from ..arm.sim_driver import SimDriver, make_sim_driver
 from ..core import logread
 from ..core.calibration import find_calibration
 from ..core.config import arm_files, load_robot_ex, load_workspace
 from ..core.ports import PortChoiceError, list_serial_ports, pick_port
+from ..core.scene import load_scene
 from ..core.types import DetectedObject, JointState, MotionResult, ToolPose
 from ..doctor import doctor
 from ..perception.manual import ManualSource
@@ -62,6 +63,9 @@ ESTOP_FAILED_TEXT = "정지 명령을 서보에 쓰지 못했습니다({}). 팔�
 COMM_LOST_TEXT = "통신이 끊겼습니다. 케이블과 전원을 확인하고 [다시 연결]을 눌러 주세요"
 OUTSIDE_TEXT = "작업대 밖에서 출발했습니다. 안쪽으로만 움직일 수 있습니다"
 EDGE_TEXT = "작업대 가장자리 밖이라 움직이지 않았습니다"  # 이 문구면 화면이 "가장자리 검사를 끄고 다시 하기"를 묻는다
+OBJECTS_LOCKED_TEXT = "MuJoCo 시뮬레이션은 물체를 시작할 때 놓습니다. 바꾸려면 앱을 다시 시작하세요"
+PHYSICS_FAILED_TEXT = "물리 시뮬레이션이 멈췄습니다: {}. 앱을 다시 시작하세요"
+SAVED_RESTART_TEXT = "저장했습니다. MuJoCo 시뮬레이션은 앱을 다시 시작해야 적용됩니다"
 LINKWATCH_TEXT = "linkwatch를 실행 중입니다. 끝나면 팔을 다시 연결합니다"
 LOG_LEVELS = {"DEBUG": "INFO", "INFO": "INFO", "WARN": "WARNING", "ERROR": "ERROR", "FATAL": "ERROR"}
 MOTION_TEXT = {
@@ -72,6 +76,7 @@ MOTION_TEXT = {
     "fault": "오류로 멈췄습니다",
     "timeout": "시간 안에 끝나지 않았습니다",
     "locked": "실제 팔이 잠겨 있어 움직이지 않았습니다. 장치 > 팔에서 이유를 확인해 주세요",
+    "no_object": "물체를 쥐지 못했습니다",
     "height_required": "물체 높이가 필요해 집지 않았습니다. 턱 축이 팔 방향과 어긋나 손을 수직으로 내리는데, 높이를 모르면 턱이 물체 위 모서리를 칩니다. 높이 칸에 물체 높이를 넣어 주세요",  # 결정 0052
 }
 REASON_TEXT = {  # 팔이 reason 앞에 붙이는 이름 -> 원인과 할 일 (arm-software-spec 11.3.3·11.3.5, REQ-057·058)
@@ -138,7 +143,7 @@ class Backend:
 
     def __init__(self, speed: float | None = None, log_root: str | None = "runs", link: WatchdogLink | None = None,
                  viser_port: int | None = None, real_driver=None, arm_name: str | None = None, serials=(), port: str | None = None, first_report: dict | None = None,
-                 viser_host: str = "127.0.0.1", share: bool = False, web_port: int = 8080):
+                 viser_host: str = "127.0.0.1", share: bool = False, web_port: int = 8080, sim_engine: str = "kinematic", sim_viewer: bool = False):
         cfg, self.arm_info = load_robot_ex(arm=arm_name, serials=serials)
         self._arm_option = arm_name
         self._first_report = first_report  # 팔을 연결하기 전에 포트를 열어 읽은 점검 결과
@@ -161,7 +166,9 @@ class Backend:
         ws = load_workspace()
         # 실행 기록은 주 팔 하나만 남긴다. 같은 초에 만들면 폴더 이름이 겹친다
         self.real = ArmService(real_driver, cfg, ws, speed, log_root, proc="gui") if real_driver else None
-        self.sim = ArmService(SimDriver(cfg.poses.get("home")), cfg, ws, speed, None if real_driver else log_root, proc="gui")
+        # MuJoCo는 실제 팔 없는 --sim에서만(gui-spec 12.8). 쌍둥이 시뮬레이션은 늘 SimDriver
+        sim_driver = make_sim_driver(cfg, ws, load_scene(), viewer=sim_viewer) if real_driver is None and sim_engine == "mujoco" else SimDriver(cfg.poses.get("home"))
+        self.sim = ArmService(sim_driver, cfg, ws, speed, None if real_driver else log_root, proc="gui")
         self.arm = self.real or self.sim  # 상태줄과 3D의 실제 팔이 읽는 쪽
         self.mode = "sim"
         self.pending: tuple | None = None  # 시뮬레이션 먼저: 실제 팔로 실행할지 묻는 동작 (이름, action)
@@ -183,6 +190,9 @@ class Backend:
         self.paused = False
         if viser_port is not None:
             self.scene = Scene3D(cfg, self.arm.ws, self.arm.kin, viser_port, viser_host)
+            if self._physical():
+                self.scene.plan_opacity = 0.4
+                self.sim.status_stream(self._on_sim_objects)
             self.scene.set_objects(self.objects())
             self.scene.set_parts(getattr(self.arm, "scene", None))  # 장면 부품(REQ-040). 팔이 아직 모르면 그리지 않는다
             self.arm.status_stream(self.scene.update_status)
@@ -193,8 +203,27 @@ class Backend:
 
     def _make_studio(self) -> None:
         """Studio는 컨트롤러를 붙들고 있어, 다시 연결하면 새로 만든다."""
-        self.studio = Studio(self.arm, self.source, dry_run=self.real is None)  # 시뮬레이션에는 잡히는 물체가 없어 접촉 없음도 성공으로 본다
+        self.studio = Studio(self.arm, self.source, dry_run=self.real is None and not self._physical())  # 기구학 엔진에는 잡히는 물체가 없어 접촉 없음도 성공으로 본다
         self.studio.bus.subscribe("task", self._on_task)
+
+    def _physical(self) -> bool:
+        """MuJoCo처럼 물체가 실제로 있는 시뮬레이션인가(gui-spec 12.8). SimDriver에는 속성이 없다."""
+        return getattr(self.sim.driver, "physical_objects", False)
+
+    def _no_object_ok(self, arm: ArmService) -> bool:
+        """쥐지 못해도(no_object) 성공으로 볼 팔: 기구학 엔진 시뮬레이션만."""
+        return arm is self.sim and not self._physical()
+
+    def physics_failed(self) -> str | None:
+        return getattr(self.sim.driver, "failed_reason", None)
+
+    def _on_sim_objects(self, _status) -> None:
+        """MuJoCo 물체 자리를 3D에 옮긴다. 물리가 멈췄거나 연결 전이면 읽지 않는다."""
+        driver = self.sim.driver
+        if self.scene is None or not getattr(driver, "connected", False) or self.physics_failed():
+            return
+        s = driver.sim_state()
+        self.scene.set_sim_objects(s["objects"], s["held"])
 
     @property
     def run_dir(self) -> str | None:
@@ -283,7 +312,8 @@ class Backend:
     def move_lock(self) -> str | None:
         """실제 팔을 움직일 수 없으면 이유: 새 팔이거나 캘리브레이션이 다를 때(decisions/0027), 통신이 끊겼을 때(0031)."""
         if self.real is None:
-            return None
+            failed = self.physics_failed()
+            return PHYSICS_FAILED_TEXT.format(failed) if failed else None
         if self._linkwatching:
             return LINKWATCH_TEXT
         if self._calibrating:
@@ -326,6 +356,8 @@ class Backend:
 
     @staticmethod
     def _run_on(arm: ArmService, action) -> str | None:
+        if failed := getattr(getattr(arm, "driver", None), "failed_reason", None):  # 물리가 멈춘 MuJoCo는 동작을 부르지 않는다
+            return PHYSICS_FAILED_TEXT.format(failed)
         try:
             result = action(arm)
         except RuntimeError as e:  # 동작 중일 때만 "아직 움직이는 중", 잠김·연결 안 됨 같은 다른 이유는 그대로 보인다
@@ -525,8 +557,8 @@ class Backend:
 
         def run(arm: ArmService):
             self._tell_known_objects(arm, near=pick_xy)
-            r = arm.pick_and_place(obj)  # 집기만. 시뮬레이션 팔은 쥘 물체가 없어 no_object여도 놓기까지 보인다(작업 실행의 dry-run과 같음)
-            if r.status == "ok" or (arm is self.sim and r.status == "no_object"):
+            r = arm.pick_and_place(obj)  # 집기만. 기구학 엔진 팔은 쥘 물체가 없어 no_object여도 놓기까지 보인다(작업 실행의 dry-run과 같음)
+            if r.status == "ok" or (self._no_object_ok(arm) and r.status == "no_object"):
                 return arm.place(zone=zone, at=place_xy)
             return r
 
@@ -600,7 +632,7 @@ class Backend:
         if step_mode and self.mode == "both":  # 두 팔이 '다음 단계' 신호 하나를 나눠 쓰면 어긋난다
             return "한 단계씩은 '동시' 실행 방식에서 쓸 수 없습니다"
         self.program_run = programs.Run(step_mode)
-        act = programs.action(steps, wps, self.program_run, lambda arm: arm is self.sim)
+        act = programs.action(steps, wps, self.program_run, self._no_object_ok)
         reason = self._dispatch(act, f"프로그램 {label}")
         self.program_run.reason = reason
         return reason
@@ -676,6 +708,7 @@ class Backend:
 
     def add_object(self, x: float, y: float, angle: float = 0.0, width: float = 30.0, length: float = 100.0, height: float = 0.0) -> str:
         """클릭한 자리에 물체를 놓고 id를 돌려준다."""
+        self._objects_locked()
         self._next_object += 1
         object_id = f"added-{self._next_object}"
         self.source.add(DetectedObject(object_id, x, y, angle, width, length, 1.0, "manual", height_mm=height))
@@ -683,6 +716,7 @@ class Backend:
         return object_id
 
     def move_object(self, object_id: str, x: float, y: float) -> None:
+        self._objects_locked()
         old = next(o for o in self.objects() if o.id == object_id)
         self.source.remove(object_id)
         self.source.add(replace(old, x_mm=x, y_mm=y))
@@ -690,6 +724,7 @@ class Backend:
 
     def nudge_object(self, object_id: str, dx: float, dy: float, dangle: float = 0.0) -> None:
         """고른 물체를 조금 옮기고 돌린다(G16). 각도는 0~180으로 감는다(물체는 180° 돌리면 같다)."""
+        self._objects_locked()
         old = next((o for o in self.objects() if o.id == object_id), None)
         if old is None:
             return
@@ -699,6 +734,7 @@ class Backend:
 
     def set_object_height(self, object_id: str, height: float) -> None:
         """수동 입력 물체의 높이를 고친다(결정 0052: 수직으로 집는 물체는 높이가 있어야 집는다)."""
+        self._objects_locked()
         old = next((o for o in self.objects() if o.id == object_id), None)
         if old is None:
             return
@@ -712,11 +748,13 @@ class Backend:
         return {o.id for o in self.objects() if last.get(o.id) == "height_required" and not o.height_mm}
 
     def remove_object(self, object_id: str) -> None:
+        self._objects_locked()
         self.source.remove(object_id)
         self._changed_objects()
 
     def reset_objects(self) -> None:
         """파일에 적힌 처음 물체로 되돌린다(옮긴 표시도 지운다). 지금 있는 물체는 지운다."""
+        self._objects_locked()
         for obj in self.objects():
             self.source.remove(obj.id)
         for obj in ManualSource().scan().objects:
@@ -783,6 +821,10 @@ class Backend:
             return str(e)
         return None
 
+    def _objects_locked(self) -> None:
+        if self._physical():  # MuJoCo는 물체를 시작할 때 놓는다(gui-spec 12.8)
+            raise ValueError(OBJECTS_LOCKED_TEXT)
+
     def save_workspace(self, values: dict, zone: str) -> str | None:
         """작업대·좌표를 파일에 저장하고 팔·작업 실행에 바로 적용한다. 주석은 그대로 둔다."""
         if min(values["table_x"], values["table_y"]) <= 0:
@@ -795,6 +837,8 @@ class Backend:
             return "가장자리 여유가 작업대보다 큽니다"
         path = Path(self.workspace_path)
         path.write_text(update_workspace_text(path.read_text(encoding="utf-8"), values, zone), encoding="utf-8")
+        if self._physical():  # MuJoCo는 reload_workspace를 거부한다(arm-software-spec 13.5)
+            return SAVED_RESTART_TEXT
         try:  # 바로 적용한다 (REQ-034). 동작·작업 중이면 파일만 저장하고 다음 시작에 적용된다
             if self.task_running():
                 raise RuntimeError("작업 실행 중")
@@ -1197,7 +1241,7 @@ class Backend:
         """상태줄에 보일 값. 키는 상태줄 칸 이름이다."""
         arm = self.arm
         values = {
-            "팔": "실제" if self.real else "시뮬레이션",
+            "팔": "실제" if self.real else "시뮬레이션(MuJoCo)" if self._physical() else "시뮬레이션",
             "실행 방식": RUN_MODES[self.mode],
             "감시": self.link.text() if self.link else "없음",
             "속도": f"{arm.speed:.0f} %",

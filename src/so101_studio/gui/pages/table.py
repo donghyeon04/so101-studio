@@ -3,6 +3,7 @@
 from nicegui import run, ui
 
 from ...core.frames import Pose2D
+from ..backend import SAVED_RESTART_TEXT
 from ..sensors.manual_view import plane_svg
 from .common import Controls, meta_number, nudge_pad
 
@@ -51,7 +52,7 @@ def build(backend, client_id: str, actions) -> None:
 
     async def save() -> None:
         reason = await run.io_bound(backend.save_workspace, dict(values), zone)
-        ui.notify(reason or "저장했습니다. 팔과 3D에 바로 적용했습니다", type="negative" if reason else "positive")
+        ui.notify(reason or "저장했습니다. 팔과 3D에 바로 적용했습니다", type="info" if reason == SAVED_RESTART_TEXT else "negative" if reason else "positive")
 
     with actions:
         ui.badge("실측 전 값", color="warning").classes("page-state").mark("unmeasured")
