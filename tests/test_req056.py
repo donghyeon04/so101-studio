@@ -38,7 +38,8 @@ def test_vertical_pick_without_a_height_is_refused_without_moving(tmp_path):
 
 
 @pytest.mark.slow
-def test_tilted_plan_that_cannot_be_reached_without_a_height_also_asks_for_the_height(tmp_path):
+def test_tilted_plan_that_cannot_be_reached_without_a_height_also_asks_for_the_height(tmp_path, monkeypatch):
+    monkeypatch.setattr(CFG, "grasp_tilt_mode", "symmetric")  # 손목 한계로 기울인 계획이 안 풀리는 것은 symmetric의 큰 기울기에서(equal_tips는 기울기가 작아 닿는다, 결정 0060)
     s, ev = make(tmp_path, 58)
     try:
         r = s.skills.pick(DetectedObject("o", 300.0, 300.0, 0.0, 58, 58, 1.0, "manual", 0.0))

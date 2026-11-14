@@ -13,6 +13,11 @@ from so101_studio.core.types import DetectedObject, JointState
 from so101_studio.service.arm_service import ArmService
 
 CFG = load_robot("config/robot.yaml")
+
+
+@pytest.fixture(autouse=True)
+def _symmetric_mode(monkeypatch):
+    monkeypatch.setattr(CFG, "grasp_tilt_mode", "symmetric")  # 이 파일은 symmetric(대칭 V자) 동작을 본다. 기본값은 equal_tips (결정 0060)
 WS = load_workspace("config/workspace.yaml")
 TABLE = sorted((mm, v) for v, mm in CFG.gripper_width_mm)
 ZONE = (500.0, 150.0)  # 배출 구역을 칸으로 나누기 전 기본 점(반경 224mm): 손목 한계 시험용 먼 점. 기본 구역(11.3.5)의 칸은 더 가깝다
