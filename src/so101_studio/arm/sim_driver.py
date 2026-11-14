@@ -59,8 +59,6 @@ def make_sim_driver(cfg, ws, scene=None, scenario=None, viewer=False):
     import mujoco  # noqa: F401  없으면 여기서 ImportError (CLI가 안내문으로 바꾼다)
 
     from .mujoco_driver import MuJoCoDriver
-    if cfg.gripper == "parallel":
-        raise ValueError("MuJoCo는 단동식만 지원")
     if scenario:
         path = Path(scenario) if str(scenario).endswith(".yaml") else REPO_ROOT / "config" / "sim_scenarios" / f"{scenario}.yaml"
         objs, name = _read_objects(path, "시나리오"), path.stem

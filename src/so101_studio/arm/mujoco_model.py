@@ -88,10 +88,11 @@ def _mat_quat(R: np.ndarray) -> np.ndarray:
     return q
 
 
-def load_model(scene=None, objects=(), *, base: frames.Pose2D, table_z_mm: float, joint_limits: dict | None = None, parallel_hand: bool = False):
+def load_model(scene=None, objects=(), *, base: frames.Pose2D, table_z_mm: float, joint_limits: dict | None = None, parallel_hand: bool = False, hand: str = "single_jaw", gripper_width_mm=None):
     """(MjModel, warnings)를 만든다. joint_limits(팔 파일의 physical_limits_deg)가 있으면 관절 range와 액추에이터 ctrlrange를 그 값으로 넓힌다(13.4). 없으면 원본 range를 쓰고 warnings에 ("SIM-JOINT-RANGE-DEFAULT", {})를 담는다. warnings 항목은 (코드, 데이터)이고 높이 0 물체마다 ("SIM-OBJECT-HEIGHT-DEFAULT", {"object", "height_mm"})도 담긴다.
     모델: 원본 so101.xml + 받침 상자 + gripper_frame site + 작업대 평면 + 장면 부품 + 물체, 턱 충돌 geom 접촉값(condim 4, 마찰), 전역 옵션(타원 원뿔, impratio 10, implicitfast, timestep 2ms).
     scene는 core.scene.Scene 또는 None, objects는 SimObject 목록(이름이 서로 달라야 한다). `mujoco`가 없으면 ImportError.
+    hand="parallel"이면 단동식 손을 로보나인 병렬 손으로 바꾼다(M4b, mujoco_hand.py): 관절 gripper는 slide(m), gripper_width_mm [[값, 폭mm], …]로 값↔이동을 정한다. 이때 parallel_hand도 켜진다.
     손목 초음파 부품(WRIST_PARTS)과 `wrist_sonar` site는 병렬 그리퍼의 gripper_link 좌표라서 parallel_hand=True일 때만 붙인다(MuJoCo 손은 아직 단동식뿐이라 기본은 `SIM-PART-SKIPPED` 경고와 함께 건너뜀, M7a)."""
     import mujoco
 
@@ -106,16 +107,23 @@ def load_model(scene=None, objects=(), *, base: frames.Pose2D, table_z_mm: float
     else:
         warnings.append(("SIM-JOINT-RANGE-DEFAULT", {}))
 
+    parallel_hand = parallel_hand or hand == "parallel"
     spec.delete(spec.body("camera_mount"))  # 손목 카메라는 쓰지 않는다(결정 0035, 카메라는 탑뷰 하나): 원본 so101.xml은 그대로 두고 시각·충돌·질량·wrist_cam을 MjSpec에서 지운다
     gripper = spec.body("gripper")
-    gripper.add_site(name="gripper_frame", pos=list(GRIPPER_FRAME_POS), quat=list(GRIPPER_FRAME_QUAT), group=3)
+    if hand == "parallel":
+        from . import mujoco_hand
+
+        mujoco_hand.attach_parallel_hand(spec, gripper_width_mm or [[0, 0], [100, 84]], JAW_CONDIM, JAW_FRICTION)
+        gripper.add_site(name="gripper_frame", pos=list(mujoco_hand.PARALLEL_FRAME_POS), quat=list(mujoco_hand.PARALLEL_FRAME_QUAT), group=3)
+    else:
+        gripper.add_site(name="gripper_frame", pos=list(GRIPPER_FRAME_POS), quat=list(GRIPPER_FRAME_QUAT), group=3)
     if parallel_hand:
         gripper.add_site(name="wrist_sonar", pos=[v / 1000.0 for v in SONAR_POS_MM], quat=[0, 1, 0, 0], group=3)  # 센서 막 중심. site z축이 광선 방향 = gripper_link -z(턱 끝 쪽)
     spec.body("base").add_geom(name="base_box", type=mujoco.mjtGeom.mjGEOM_BOX, pos=list(BASE_BOX_POS), size=list(BASE_BOX_HALF), group=3, rgba=[0.5, 0.5, 0.5, 0.0])
 
     # base는 월드에 붙은 body라 MuJoCo가 base-shoulder(부모-자식) 접촉을 거르지 않는다: 받침 상자가 어깨 모터와 겹쳐 늘 닿으므로 쌍을 뺀다
     spec.add_exclude(name="base_shoulder", bodyname1="base", bodyname2="shoulder")
-    for body_name in JAW_BODIES.values():  # 턱 충돌 geom만: 원본 collision_gripper(_mesh) 클래스(priority 1)로 거른다. 손목 서보 상자(priority 0)는 그대로
+    for body_name in JAW_BODIES.values() if hand != "parallel" else ():  # 턱 충돌 geom만: 원본 collision_gripper(_mesh) 클래스(priority 1)로 거른다. 손목 서보 상자(priority 0)는 그대로
         for g in spec.body(body_name).geoms:
             if g.priority == 1 and g.contype != 0:
                 g.condim = JAW_CONDIM
@@ -206,6 +214,8 @@ def _add_scene(spec, scene, base, table_z_mm: float, parallel_hand: bool = False
 def _wrist_mass(scene, T=None):
     """(질량 kg, 무게중심 m, fullinertia kg·m²)를 부품 body 프레임으로. 값은 arm/parts_eval.mass_properties(PLA 벽+채움 추정, 슬라이서 무게가 오면 거기서 바뀐다). T=None이면 두 부품이 있는지만 확인."""
     by = {p.name: p for p in scene.parts}
+    if not WRIST_PARTS & by.keys():
+        return None  # 손목 부품이 없는 장면(병렬 손만): 질량 지정 없음
     if not WRIST_PARTS <= by.keys():
         raise ValueError(f"손목 초음파 부품은 {sorted(WRIST_PARTS)} 둘 다 있어야 한다")
     if T is None:
@@ -229,18 +239,19 @@ def _rotz(deg: float) -> np.ndarray:
 
 
 def geom_roles(model) -> list[str]:
-    """geom id별 접촉 보고용 역할 이름(13.4): table / jaw_fixed / jaw_moving / obj:<이름> / scene:<이름> / arm."""
-    gripper, jaw = model.body("gripper").id, model.body("moving_jaw_so101_v1").id
+    """geom id별 접촉 보고용 역할 이름(13.4): table / jaw_fixed / jaw_moving(병렬 손은 clamp_right / clamp_left) / obj:<이름> / scene:<이름> / arm."""
+    import mujoco
+
+    parallel = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "clamp_right") >= 0
+    jaws = {model.body(n).id: n for n in ("clamp_right", "clamp_left")} if parallel else {model.body("gripper").id: "jaw_fixed", model.body("moving_jaw_so101_v1").id: "jaw_moving"}
     roles = []
     for g in range(model.ngeom):
         body = int(model.geom_bodyid[g])
         bname = model.body(body).name
         if model.geom(g).name == "table":
             roles.append("table")
-        elif body == gripper and model.geom_priority[g] == 1:  # 손목 서보 상자(priority 0)는 arm
-            roles.append("jaw_fixed")
-        elif body == jaw:
-            roles.append("jaw_moving")
+        elif body in jaws and (model.geom_priority[g] == 1 or jaws[body] == "jaw_moving"):  # 손목 서보 상자·손 본체(priority 0)는 arm
+            roles.append(jaws[body])
         elif bname.startswith(("obj:", "scene:")):
             roles.append(bname)
         else:
