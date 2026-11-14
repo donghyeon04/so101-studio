@@ -198,6 +198,8 @@ def _add_scene(spec, scene, base, table_z_mm: float, parallel_hand: bool = False
             b.mass, b.ipos, b.fullinertia = _wrist_mass(scene, T)
         lo, hi = p.mesh.bounds
         kw = {} if p.collide else {"contype": 0, "conaffinity": 0}
+        if p.color:  # "#rrggbb": 3D(GUI)와 같은 색으로 뷰어에 보인다
+            kw["rgba"] = [int(p.color[i:i + 2], 16) / 255.0 for i in (1, 3, 5)] + [1.0]
         if p.attach != "table":
             kw["density"] = 0  # 링크에 붙는 부품은 질량 0: 팔 동역학을 바꾸지 않는다
         if len(p.mesh.vertices) == 8 and len(p.mesh.faces) == 12:  # 꼭짓점 8개 상자 메쉬만 상자 geom으로(면 12개 이하라도 다른 모양이면 메쉬)
