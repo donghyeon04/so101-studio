@@ -39,6 +39,12 @@ class TaskRunner:
         if self._step_mode and state not in ("DONE", "STOPPED", "FAULT"):
             self.wait_step()  # 상태가 바뀔 때마다 멈추고 다음 단계를 기다린다 (D3)
 
+    def _tell_known(self, objs) -> None:
+        """놓을 때 벌림이 아직 남은 물체에 부딪히지 않게 스캔한 물체를 팔에 알린다(`Skills.known_objects`, (x, y, 반경 mm=max(폭, 길이)/2), GUI와 같은 규칙).
+        집은 물체는 `Skills.pick`이 장애물에서 뺀다. 매 스캔마다 다시 알려 옮겨 놓은 자리가 남지 않는다."""
+        if hasattr(self.skills, "known_objects"):
+            self.skills.known_objects = [(o.x_mm, o.y_mm, max(o.width_mm or 0.0, o.length_mm or 0.0) / 2.0) for o in objs]
+
     def _placed(self) -> dict:
         """방금 놓은 자리(x_mm, y_mm)와 손 방향(place_yaw_deg), 놓인 물체 각도(placed_angle_deg). 모르는 값은 뺀다: 놓인 물체를 다시 집을 때 각도로 쓴다."""
         sk = self.skills
@@ -157,6 +163,7 @@ class TaskRunner:
                 prepare = False
             self._emit("SCAN")
             scan = self.source.scan()
+            self._tell_known(scan.objects)
             dropped, rescanned = set(), False  # dropped: 이번 스캔에서 확인에 실패해 뺀 후보
             while True:
                 if chk and self.source.give_up:

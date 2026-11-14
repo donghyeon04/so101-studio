@@ -321,7 +321,7 @@ class Skills:
             self._restore_grip_torque()
             return r
         if contact:  # 접촉: 목표를 지금 위치에서 예압만큼만 더 닫힌 쪽으로 두고(계속 미는 것을 없앤다), 들고 가는 동안 조임 한계를 낮춘다. 되돌리는 것은 place가 끝난 뒤
-            self.grip = {"tilted": bool(tilt_ok), "tip_h": float(t), "obj_h": float(obj.height_mm), "obj_w": float(obj.width_mm), "held_gap": float(self._gap_mm(self._q().gripper)), "yaw": float(yaw), "angle": float(obj.angle_deg or 0.0)}  # 놓기가 같은 기울기·높이로 내려가도록 기억한다 (11.3.2)
+            self.grip = {"tilted": bool(tilt_ok), "tip_h": float(t), "obj_h": float(obj.height_mm), "obj_w": float(obj.width_mm), "obj_l": float(obj.length_mm), "held_gap": float(self._gap_mm(self._q().gripper)), "yaw": float(yaw), "angle": float(obj.angle_deg or 0.0)}  # 놓기가 같은 기울기·높이로 내려가도록 기억한다 (11.3.2)
             near = min(self.known_objects, key=lambda o: math.hypot(o[0] - obj.x_mm, o[1] - obj.y_mm), default=None)  # 집었다: 가장 가까운 한 항목만 장애물에서 뺀다(붙어 있는 이웃은 남긴다). GUI 자동 실행은 집는 물체까지 알려 준다. no_object·집기 실패면 그대로 둔다
             if near is not None and math.hypot(near[0] - obj.x_mm, near[1] - obj.y_mm) <= 40.0:
                 self.known_objects.remove(near)
@@ -540,6 +540,9 @@ class Skills:
         if not free:
             self.ctl._emit("drop_zone_full", "ERROR", "ARM-DROP-ZONE-FULL", {"zone": zone, "slots": len(slots)})
             return MotionResult("stopped", 0.0, ToolPose(0, 0, 0, 0), reason=f"drop_zone_full: 배출 구역 {zone}의 칸 {len(slots)}개가 모두 차서 놓지 않았다. 손에 물체를 쥔 채이니 비운 뒤 다시 한다")
+        held_r = max(self.grip.get("obj_w", 0.0), self.grip.get("obj_l", 0.0)) / 2.0 if self.grip else 0.0  # 쥔 물체를 원으로 본 반지름(길이가 길면 옆 물체에 닿는다)
+        near = lambda p: any(math.hypot(k[0] - p[0], k[1] - p[1]) < k[2] + held_r for k in self.known_objects)
+        free = sorted(free, key=near)  # 아직 남은 물체에 닿을 칸은 맨 뒤로(없애지는 않는다: 다른 칸이 없으면 예전처럼 거기에 놓는다). 안정 정렬이라 먼저 오는 순서는 그대로
         r = None
         for x, y in free:
             r = self.place_at(x, y)
