@@ -118,5 +118,7 @@ def test_manual_objects_are_told_to_the_arm_as_known_obstacles(backend):
     known = backend.arm.skills.known_objects
     assert len(known) == len(objs) - 1 and all(abs(x - first.x_mm) + abs(y - first.y_mm) > 1 for x, y, _ in known)
     assert all(r > 0 for _, _, r in known)
+    assert (first.x_mm, first.y_mm) not in backend.arm.skills.known_height  # 집는 물체 높이는 운반 높이에 넣지 않는다(#352)
     backend._tell_known_objects(backend.arm)
     assert len(backend.arm.skills.known_objects) == len(objs)
+    assert backend.arm.skills.known_height == {(o.x_mm, o.y_mm): o.height_mm for o in objs}
