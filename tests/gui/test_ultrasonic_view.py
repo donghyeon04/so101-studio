@@ -166,3 +166,21 @@ def test_workspace_mini_view_draws_the_radar_log(backend):
 
     asyncio.run(go())
     demo.log.clear()
+
+
+def test_demo_uses_the_arm_gripper_reach(monkeypatch):
+    """가상 실행은 팔의 그리퍼 종류로 설정을 만든다(#390 그리퍼별 tool_reach, 11-16 drift-report). 병렬이면 75~250."""
+    seen = {}
+    real_build = uv.benchmark.build
+
+    def spy(boxes, **kw):
+        out = real_build(boxes, **kw)
+        seen["reach"] = out[0].check.tool_reach_mm
+        raise RuntimeError("stop")  # 설정만 보고 멈춘다
+
+    monkeypatch.setattr(uv.benchmark, "build", spy)
+    demo = uv.Demo(speed=1e6, gripper="parallel")
+    demo.start([Box(300, 200, 0, 40, 80)])
+    assert demo.wait(10)
+    assert seen["reach"] == load_config(gripper="parallel").check.tool_reach_mm != load_config().check.tool_reach_mm
+
