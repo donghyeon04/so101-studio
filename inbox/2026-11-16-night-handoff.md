@@ -11,6 +11,7 @@
 - 병렬: `gripper` body 기준 pos (0, +55, −75)mm, 바라보는 점 (0, 0, −140)mm, fovy 75°, 화면 가로 = 벌림 축(x). 센서·브래킷이 −y(−80~−36)에 있어 반대편 +y. 높이 두면(z −10~−25) 손 본체 안내 봉이 아래 절반을 가려 낮췄다. 쥘 때 클램프 끝(z −132)이 아래 모서리에서 조금 잘린다. 질량 0, 충돌 없음. 근거: carry58 집기 중 Renderer 320×240 후보 5개 비교(스크립트 커밋 안 함).
 - 단동식: 원본 so101.xml의 `wrist_cam`(pos (−3, 54, −53)mm, fovy 61)을 `wrist` 이름으로 다시 쓰자는 제안. 표에 단동식 값도 적어 달라.
 - `top` 카메라의 "판 가운데"가 작업대 좌표인지 팔 좌표인지 표에 적어 달라(H-1로 판 크기가 바뀔 때 함께).
+- MuJoCo 세션 덧붙임(보고서 읽은 뒤, 반대 없음): ① (가) 8 jitter 표시: carry58 3번, 드라이버만 connect면 `dropped_count` 0(3초 뒤도 0), `ArmService.connect` 직후 3·1·1이고 쉬어도 안 늘어남 → "connect 직후 값을 빼고 남는 값 > 0일 때만 realtime_lag" 제안이 맞다. ② 위 카메라 값은 MuJoCo body `gripper` 프레임(= URDF gripper_link, FK 차이 0.0034mm, #370). 표에 body `gripper`로. ③ (나) 4 렌더러: 메인 스레드에서 만들고 그 스레드에서 그림, 잠금 안 `mj_copyData`로 복사만, 물리·ArmService가 도는 중에도 문제없음. connect마다 새 Renderer에 동의. so101.xml에 offwidth·offheight 없음 → 기본 640×480, 320×240은 그 안. ④ (가) 고치면 좋은 것 '물리 실패': `advance`는 `_failed`면 아무것도 안 함(`mujoco_driver.py:176~178`) → StepClock 5초 기다림 뒤 RuntimeError, 시험장이 `sim_fail`로 바꾸면 된다.
 - 그 밖 질문(13.10.1 기준 4는 REQ-069 뒤, G 이벤트 코드, 명령 관절값 공개 메서드, 다른 스레드 렌더 미확인)은 위 Stage 9 보고서에 합쳐졌다.
 
 ## 3. U16 첫 점 당기기 (REQ-067 #410 합침)
