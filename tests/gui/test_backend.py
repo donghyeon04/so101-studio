@@ -143,3 +143,15 @@ def test_object_edits_undo_in_order_and_a_run_clears_them(backend):
     assert backend.start_task() is None
     assert not backend.undo_objects()  # 실행한 작업은 되돌리지 않는다
     backend.stop_all()
+
+
+def test_object_reachable_gives_radar_candidates_the_same_margin_as_the_task(backend, monkeypatch):
+    """REQ-065: 확인 기능이 있는 인식 방식(초음파)의 후보는 집기 범위 + 여유로 '닿음'을 본다(작업 실행과 같은 기준). 수동 입력은 집기 범위 그대로."""
+    from types import SimpleNamespace
+
+    from so101_studio.core.types import DetectedObject
+
+    far = DetectedObject("us-1", 300.0, 330.0, None, 0.0, 0.0, 0.5, "ultrasonic")  # 팔 원점(300, 50)에서 반경 280: 집기 범위(250) 밖, 여유(+60) 안
+    assert not backend.object_reachable(far)
+    monkeypatch.setattr(backend, "source", SimpleNamespace(start_check=lambda *a, **k: None))
+    assert backend.object_reachable(far)

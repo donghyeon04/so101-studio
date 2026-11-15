@@ -655,7 +655,7 @@ class Backend:
         return self.source.scan().objects
 
     def object_reachable(self, obj: DetectedObject) -> bool:
-        return reachable(obj, self.arm.ws)
+        return reachable(obj, self.arm.ws, unconfirmed=hasattr(self.source, "start_check"))  # 작업 실행과 같은 기준: 확인 전 레이더 후보는 여유를 둔다 (REQ-065)
 
     def _on_task(self, event) -> None:
         self.state.on_task(event)
