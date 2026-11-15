@@ -1,6 +1,6 @@
 # 툴링 셋업
 
-상태: 확정 · 갱신 2026-11-15(GUI·시험 도구 버전 고정) · 2026-11-14(C-1을 environment.yml 설치와 새 PC에 맞춤) · 2026-11-06
+상태: 확정 · 갱신 2026-11-16(C-8 학습 플랫폼 설치) · 2026-11-15(GUI·시험 도구 버전 고정) · 2026-11-14(C-1을 environment.yml 설치와 새 PC에 맞춤) · 2026-11-06
 
 > 기획 계정과 개발 계정 모두 같은 도구를 갖추기 위한 체크리스트다.
 
@@ -109,6 +109,13 @@
 | C22 | **code-review** | 내장 스킬 | 총괄이 PR마다 medium 이상(결정 0045) | 설치 불필요 |
 | C23 | **playwright-cli** | 스킬(사용자 전역) | GUI PR 화면 확인(결정 0045). 레포에 넣지 않고 총괄 PC의 사용자 전역(`~/.claude/skills/`)에 둔다 | 예전 총괄 PC의 `~/.claude/skills/playwright-cli/`를 복사. 없으면 C16의 Playwright CLI만으로 한다 |
 | C24 | **MuJoCo** | 파이썬 패키지(MuJoCo 세션 PC) | 물리 시뮬레이션(결정 0053, `mujoco-spec.md` 13.8) | so101 환경에서 `pip install --no-deps "mujoco>=4.0,<5" mujoco-core mujoco-studio glfw pyopengl`(numpy가 바뀌지 않게). 버전 고정(M2, `pip freeze` 2026-11-13): `pip install --no-deps mujoco==4.0.0 mujoco-core==4.0.0 mujoco-studio==4.0.0 glfw==2.11.0 pyopengl==3.1.10`. 설치 뒤 `python -c "import numpy; print(numpy.__version__)"`가 2.2.6 |
+
+### C-8. 학습 플랫폼 (결정 0066, 2026-11-16. 설치는 사용자가 옆에 있을 때 총괄이 한다)
+| # | 이름 | 어디에 | 설치 |
+|---|---|---|---|
+| C25 | `lerobot[dataset]` | 앱 환경 `so101` | 먼저 `pip install --dry-run "lerobot[dataset]==0.6.1"`로 numpy가 바뀌지 않는지 본다. 바뀌면 그 목록에서 빠진 패키지만 `pip install --no-deps`로 넣는다. 설치 뒤 `python -c "import numpy; print(numpy.__version__)"`가 2.2.6이고 `from lerobot.datasets.lerobot_dataset import LeRobotDataset`이 된다(모듈 경로는 설치본에서 확인). 넣은 버전을 `environment.yml`에 `==`로 적는다(팔 세션 PR) |
+| C26 | 학습 환경 `so101-train` | 새 conda 환경(Python 3.12) | CUDA torch(RTX 5070 Ti는 CUDA 12.8 이상 빌드, PyTorch 공식 설치 명령의 해당 인덱스), `lerobot==0.6.1`(학습에 필요한 extra), `mujoco==4.0.0`. `python -c "import torch; print(torch.cuda.is_available())"`가 True. 버전을 새 `environment-train.yml`에 `==`로 고정한다. 앱 환경 `so101`의 torch·numpy는 건드리지 않는다 |
+| C27 | `so101-nexus-mujoco==0.3.12` | `so101-train` | 강화학습 데모용. `teleop` extra는 쓰지 않는다(`lerobot<0.6`을 요구한다). 베타라 버전을 고정한다. Apache-2.0 |
 
 ## D. 레퍼런스 평가 기준
 

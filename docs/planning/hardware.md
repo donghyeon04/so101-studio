@@ -100,14 +100,14 @@
 | 레이더 센서 높이·축에서 센서 면까지 거리 | 송수신기 중심의 판 윗면 위 높이(`radar.height_mm`, 지금 20), 축에서 센서 면까지 앞으로 나온 거리(`radar.range_offset_mm`과 따로 본다) | STEP에서 잰다(렌더로는 높이가 20mm보다 조금 높아 보인다) | B4·R1 |
 | 배출 구역 | 판 안, 집기 범위 안 | 새 `table_mm`·팔 원점으로 다시 계산(팔 세션 도달 계산) | 2-A A-3 |
 
-- 좌표 정의(결정 0013)는 바뀌지 않아 새 결정이 필요 없다. **값이 정해지면 결정 기록 하나(0066 예정: 프로파일 작업대·레이더 스테이션·J1 받침 확정, 0035의 레이더 클램프와 `workbench-hardware-requirements.md`의 해당 절을 대체)를 쓴다.** 파일에서 잰 값을 넣어 사용자 승인을 받는다.
+- 좌표 정의(결정 0013)는 바뀌지 않아 새 결정이 필요 없다. **값이 정해지면 결정 기록 하나(0067 예정: 프로파일 작업대·레이더 스테이션·J1 받침 확정, 0035의 레이더 클램프와 `workbench-hardware-requirements.md`의 해당 절을 대체)를 쓴다.** 파일에서 잰 값을 넣어 사용자 승인을 받는다.
 - 판 밖에 팔 원점과 레이더가 놓이므로, 작업대 XY 안전 검사(결정 0015·0031, "판 밖으로 손끝이 나가면 거부")와 `radar_clear` 조건(링크 점 y 120 이하, 결정 0039)이 새 원점에서도 맞는지 팔 세션이 시험으로 확인한다. 안 맞으면 [기획 요청]으로 올린다.
 
 ### 세션별 작업과 순서
 | 순서 | 누가 | 할 일 | 끝난 기준 |
 |---|---|---|---|
 | H-0 | 사용자 → 총괄 | 받은 파일을 레포 밖 로컬 폴더에 모은다(부품별 STL·STEP, 합친 STEP·STL, 묶음 셋, 출력 설정). 총괄이 목록·단위·원점·축을 확인하고, 위 표의 CAD 단계 값을 STEP에서 재서 `planning-inbox`에 올린다. STEP 원본은 커밋하지 않는다(`release-checklist.md` A절) | inbox 보고(값 표 + 판 크기 + J1 받침이 base_link 아래만 바뀌었는지) |
-| H-1 | 기획 | 값 확정과 결정 0066(사용자 승인), `workbench-hardware-requirements.md`·`ultrasonic-spec.md` 3.1·`mujoco-spec.md` 시험장 기준 설정 반영 | 승인 대기 브랜치 |
+| H-1 | 기획 | 값 확정과 결정 0067(사용자 승인), `workbench-hardware-requirements.md`·`ultrasonic-spec.md` 3.1·`mujoco-spec.md` 시험장 기준 설정 반영 | 승인 대기 브랜치 |
 | H-2 | 팔(URDF를 바꿀 때 Opus) | ① J1 받침이 base_link 아래만 바뀐 경우: base_link의 바닥 메쉬·충돌 형상만 바꾼 URDF 두 개(단동식·병렬). 관절·링크 원점은 손대지 않고, 옛 URDF와 FK가 0.01mm 안인지 시험한다. 축이 옮겨졌으면 멈추고 [기획 요청]. ② `config/scene.yaml`에 판·프로파일·레이더 받침을 `attach: table` STL 부품으로(지금 `radar_station` 상자 대체). ③ `workspace.yaml`(`table_mm`, `robot_base_in_table`, 배출 구역)과 팔 파일 `table_z_mm`을 CAD 값으로. ④ 안전 검사·`radar_clear`·도달 계산 다시 | 빠른 묶음 통과, FK 시험, 도달 띠 표 |
 | H-3 | MuJoCo(Opus) | ① menagerie 모델의 받침 상자(`base_box`)를 새 받침 형상으로, 작업대(판 + 프로파일)를 세계에 추가(지금 모델에는 작업대가 없다). ② 장면 부품 질량(슬라이서 무게, 없으면 채움 보정). ③ 시험장 기준 설정(`mujoco-spec.md` 13.10)에 새 장면을 넣는다. ④ 탑뷰·손목 카메라를 같은 때 모델에 넣는다(학습 플랫폼 계획과 한 번에) | MuJoCo 시험 통과, 뷰어로 사용자 확인 |
 | H-4 | 초음파 | `ultrasonic.yaml`의 `radar.station_mm`·`height_mm`을 CAD 값으로, 레이더 쪽 벤치마크 다시(레이더 높이가 20mm와 다르면 후보 성능이 바뀐다). 결과는 총괄 재실행 뒤 `ultrasonic-spec.md` 1절 | 벤치마크 표 |
