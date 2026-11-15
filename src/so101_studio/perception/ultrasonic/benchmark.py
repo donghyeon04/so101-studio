@@ -381,29 +381,86 @@ def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, resc
     return ok, recog, log
 
 
-def run_scenario(name, model, seeds, rescan_home=None, report_failures=True, arm_kw=None, pair_gap=None, **opts):
-    """시나리오 하나: 씨앗값 0..seeds-1마다 배치를 만들어 사이클을 돈다. single은 반경 구간(SINGLE_RADII)마다 seeds번."""
-    rows = []
+def _cell(name, model, radius, seed, rescan_home, report_failures, arm_kw, pair_gap, opts):
+    """시나리오의 칸 하나(씨앗 하나): 배치를 만들어 사이클을 돌고 행을 돌려준다."""
+    rng = random.Random(f"{name}-{radius}-{seed}")
+    if radius is not None:
+        bx, by = arm_base()
+        th = math.radians(rng.uniform(25, 155))
+        w, length = rng.choice(OBJECT_SIZES)
+        boxes = [Box(bx + radius * math.cos(th), by + radius * math.sin(th), rng.choice((0, 45, 90, 135)) + rng.uniform(-5, 5), w, length)]
+    else:
+        boxes = pair_layout(rng, pair_gap) if name == "pair" else random_layout(rng, name)
+    n = len(boxes)
+    cfg, clk, esp, arm = build(boxes, seed=seed, model=model, arm_kw=arm_kw, **opts)
+    src = make_source(cfg, clk, esp, arm)
+    ok, secs, log = run_cycle(src, arm, esp, rescan_home=rescan_home, report_failures=report_failures)
+    return {"radius": radius, "seed": seed, "n": n, "ok": ok, "recog_s": secs, "left": len(esp.boxes), "log": log,
+            "radar_errs": [x["err"] for x in log if x["result"] == "radar"],
+            "check_errs": [x["err"] for x in log if x["result"] in ("ok", "bad")],
+            "angles": [x["angle"] for x in log if x["result"] in ("ok", "bad") and x["angle"] is not None],
+            "h_errs": [x["h_err"] for x in log if x["result"] in ("ok", "bad")]}
+
+
+def _kin_arm_kw(kin_spec):
+    hover, gripper, trim = kin_spec
+    return {"kin": kin_reach(hover, gripper), "trim_start": trim}
+
+
+def _worker(conn, kin_spec):
+    """시드를 하나씩 받아 돌리는 자식 프로세스(--seed-timeout). placo가 네이티브에서 멈추면 부모가 이 프로세스를 끝낸다."""
+    arm_kw = _kin_arm_kw(kin_spec)
+    while True:
+        job = conn.recv()
+        if job is None:
+            return
+        name, model, radius, seed, rescan_home, report_failures, pair_gap, opts = job
+        conn.send(_cell(name, model, radius, seed, rescan_home, report_failures, arm_kw, pair_gap, opts))
+
+
+class _Guard:
+    """칸마다 제한 시간을 두고 자식 프로세스에서 돌린다. 넘으면 자식을 끝내고 그 칸을 실패(recog_s = 제한)로 적은 뒤 다음 칸은 새 자식에서 돌린다."""
+
+    def __init__(self, kin_spec, timeout_s):
+        self.kin_spec, self.timeout_s, self.proc, self.conn = kin_spec, timeout_s, None, None
+
+    def _start(self):
+        import multiprocessing as mp
+        ctx = mp.get_context("spawn")
+        self.conn, child = ctx.Pipe()
+        self.proc = ctx.Process(target=_worker, args=(child, self.kin_spec), daemon=True)
+        self.proc.start()
+
+    def run(self, name, model, radius, seed, rescan_home, report_failures, pair_gap, opts, n):
+        if self.proc is None:
+            self._start()
+        self.conn.send((name, model, radius, seed, rescan_home, report_failures, pair_gap, opts))
+        if self.conn.poll(self.timeout_s):
+            return self.conn.recv()
+        self.proc.kill()
+        self.proc = None
+        print(f"  시간 초과: {name} {model} 반경 {radius} 씨앗 {seed} ({self.timeout_s:.0f}초) -> 실패로 적고 다음으로", flush=True)
+        return {"radius": radius, "seed": seed, "n": n, "ok": 0, "recog_s": float(self.timeout_s), "left": n, "log": [],
+                "radar_errs": [], "check_errs": [], "angles": [], "h_errs": [], "timeout": True}
+
+    def close(self):
+        if self.proc is not None:
+            self.proc.kill()
+
+
+def run_scenario(name, model, seeds, rescan_home=None, report_failures=True, arm_kw=None, pair_gap=None, kin_spec=None, seed_timeout=None, **opts):
+    """시나리오 하나: 씨앗값 0..seeds-1마다 배치를 만들어 사이클을 돈다. single은 반경 구간(SINGLE_RADII)마다 seeds번.
+    kin_spec=(호버, 그리퍼, trim_start)와 seed_timeout(초)을 주면 칸마다 자식 프로세스에서 돌려 제한 시간을 넘는 칸은 실패로 적는다."""
     cells = [(r, s) for r in SINGLE_RADII for s in range(seeds)] if name == "single" else [(None, s) for s in range(seeds)]
-    for radius, seed in cells:
-        rng = random.Random(f"{name}-{radius}-{seed}")
-        if radius is not None:
-            bx, by = arm_base()
-            th = math.radians(rng.uniform(25, 155))
-            w, length = rng.choice(OBJECT_SIZES)
-            boxes = [Box(bx + radius * math.cos(th), by + radius * math.sin(th), rng.choice((0, 45, 90, 135)) + rng.uniform(-5, 5), w, length)]
-        else:
-            boxes = pair_layout(rng, pair_gap) if name == "pair" else random_layout(rng, name)
-        n = len(boxes)
-        cfg, clk, esp, arm = build(boxes, seed=seed, model=model, arm_kw=arm_kw, **opts)
-        src = make_source(cfg, clk, esp, arm)
-        ok, secs, log = run_cycle(src, arm, esp, rescan_home=rescan_home, report_failures=report_failures)
-        rows.append({"radius": radius, "seed": seed, "n": n, "ok": ok, "recog_s": secs, "left": len(esp.boxes), "log": log,
-                     "radar_errs": [x["err"] for x in log if x["result"] == "radar"],
-                     "check_errs": [x["err"] for x in log if x["result"] in ("ok", "bad")],
-                     "angles": [x["angle"] for x in log if x["result"] in ("ok", "bad") and x["angle"] is not None],
-                     "h_errs": [x["h_err"] for x in log if x["result"] in ("ok", "bad")]})
-    return rows
+    n = {"single": 1, "pair": 2}.get(name, SCENARIOS[name][0])
+    guard = _Guard(kin_spec, seed_timeout) if kin_spec and seed_timeout else None
+    try:
+        if guard:
+            return [guard.run(name, model, r, s, rescan_home, report_failures, pair_gap, opts, n) for r, s in cells]
+        return [_cell(name, model, r, s, rescan_home, report_failures, arm_kw, pair_gap, opts) for r, s in cells]
+    finally:
+        if guard:
+            guard.close()
 
 
 def summarize(rows) -> dict:
@@ -479,6 +536,7 @@ def main(argv=None):
     ap.add_argument("--trim-start", action="store_true", help="--reach kin에서 첫 점이 안 닿으면 경로 안쪽으로 당긴다. (다)안")
     ap.add_argument("--servo", choices=["pwm", "dxl"], default="pwm", help=f"가상 레이더 서보: pwm(기본, 지연 ±3°) | dxl(XL330: 지연 {DXL_LAG_DEG}° + 읽은 각도 ang 사용, 가정값이라 B4로 고친다)")
     ap.add_argument("--gripper", choices=["single_jaw", "parallel"], help="--reach kin의 그리퍼 종류(기본: 설정 파일 그대로 = 단동식). 병렬은 robot.yaml 위에 grippers/parallel.yaml(URDF 포함)을 겹친다")
+    ap.add_argument("--seed-timeout", type=float, default=300.0, help="--reach kin에서 씨앗 하나의 제한 시간(초, 기본 300, 0이면 끔). 넘으면 그 씨앗을 실패로 적고 다음으로 간다(placo가 네이티브에서 멈추는 경우를 위해 자식 프로세스에서 돌린다)")
     ap.add_argument("--pair-gap", type=float, default=40.0, help="--scenario pair의 두 물체 모서리 간격 mm(기본 40)")
     ap.add_argument("--set", action="append", default=[], metavar="KEY=VAL", help="check.<KEY>를 이번만 바꾼다(여러 번 가능, 예: --set yaw_deg=45 --set ring_r_mm=50 --set clearance_mm=40)")
     ap.add_argument("--out", default="runs/bench")
@@ -492,7 +550,9 @@ def main(argv=None):
     if a.tool_reach:
         lo, hi = (float(v) for v in a.tool_reach.split(","))
         opts["tool_reach_mm"] = {"min": lo, "max": hi}
-    arm_kw = {"kin": kin_reach(a.hover_mm, a.gripper), "trim_start": a.trim_start} if a.reach == "kin" else None
+    kin_spec = (a.hover_mm, a.gripper, a.trim_start) if a.reach == "kin" else None
+    seed_timeout = a.seed_timeout if kin_spec and a.seed_timeout > 0 else None
+    arm_kw = _kin_arm_kw(kin_spec) if kin_spec and not seed_timeout else None
     if a.servo == "dxl":
         opts["esp_kw"] = {"servo": "dxl", "servo_lag_deg": DXL_LAG_DEG}
     if a.empty_extra is not None:
@@ -501,7 +561,7 @@ def main(argv=None):
     results, sha = [], commit()
     cmd = "python -m so101_studio.perception.ultrasonic.benchmark " + " ".join(argv if argv is not None else __import__("sys").argv[1:])
     for name, model in itertools.product(names, models):
-        rows = run_scenario(name, model, a.seeds, rescan_home=rescan, report_failures=not a.no_note_failure, arm_kw=arm_kw, pair_gap=a.pair_gap, **opts)
+        rows = run_scenario(name, model, a.seeds, rescan_home=rescan, report_failures=not a.no_note_failure, arm_kw=arm_kw, pair_gap=a.pair_gap, kin_spec=kin_spec, seed_timeout=seed_timeout, **opts)
         results.append({"commit": sha, "command": cmd, "scenario": name, "model": model, "options": {**opts, "reach": a.reach, "hover_mm": a.hover_mm, "trim_start": a.trim_start, "rescan_home": rescan, "note_failure": not a.no_note_failure}, "summary": summarize(rows),
                         "rows": [{k: v for k, v in r.items() if k != "log"} for r in rows]})
         print(f"  {name} {model}: 성공 {results[-1]['summary']['success_mean']:.2f}/{results[-1]['summary']['objects']}", flush=True)

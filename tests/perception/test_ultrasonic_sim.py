@@ -495,3 +495,12 @@ def test_connect_switches_firmware_servo_driver_to_config():
     UltrasonicSource(Link(esp, clk), cfg, arm_origin_mm=(300.0, 50.0)).connect()
     assert esp.servo == "dxl"
     assert load_config().servo.driver == "pwm"  # 기본은 MG90S(pwm), 하위 호환
+
+
+@pytest.mark.slow
+def test_benchmark_seed_timeout_marks_seed_failed():
+    """--seed-timeout: 제한 시간을 넘는 칸은 자식 프로세스를 끝내고 실패(timeout)로 적는다."""
+    from so101_studio.perception.ultrasonic.benchmark import run_scenario
+
+    (row,) = run_scenario("spread120", "optimistic", 1, kin_spec=(None, "parallel", True), seed_timeout=1)
+    assert row["timeout"] and row["ok"] == 0 and row["recog_s"] == 1.0
