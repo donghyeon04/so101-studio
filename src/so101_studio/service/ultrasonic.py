@@ -36,7 +36,7 @@ class SimUltrasonicSource(UltrasonicSource):
 
 def make_ultrasonic_source(arm, *, sim: bool, port: str | None = None, radar: dict | None = None, boxes=None):
     """UltrasonicSource를 만든다. bus는 TaskRunner가 Studio.bus로 이어 준다. 센서 오프셋은 TaskRunner가 시작할 때 arm에 넘긴다."""
-    cfg = load_config(radar=radar)
+    cfg = load_config(radar=radar, gripper=getattr(getattr(arm, "cfg", None), "gripper", None))  # 그리퍼별 check.tool_reach_mm
     if not sim:
         port = port or cfg.port
         if port in (None, "auto"):
