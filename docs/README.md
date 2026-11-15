@@ -20,6 +20,7 @@
 | `docs/planning/system-architecture.md` | 기획 | 확정 | 시스템 구성, 모듈 경계, 공통 타입, 인식 규격, 작업 실행 상태 머신, ESP32 통신 틀, 폴더 구조, 0~2단계 작업 순서 |
 | `docs/planning/arm-software-spec.md` | 기획 | 확정 | 팔 모듈 계층 구조, 데이터 타입, 모듈 API, 설정·출력 형식, 안전·막힘 감지, 집기·놓기(11.3), 구현 작업 순서. MuJoCo(13절)는 `mujoco-spec.md`로 옮김 |
 | `docs/planning/mujoco-spec.md` | 기획 | 확정 | MuJoCo 물리 시뮬레이션·시험장 설계서(13.1~13.9 드라이버·모델·장면·완료 기준, 13.10 시험장 M5~M9, 결정 0053·0062). arm-software-spec 13절에서 옮김 |
+| `docs/planning/learning-platform.md` | 기획 | 초안 | 학습 플랫폼 확장 계획: 원문 확인(so101-nexus 등), 단계 L1~L5(다중 시점·수집·ACT·정책 실행·강화학습 데모), 11/30 동결 안의 순서, 설치, 사용자에게 물을 것 |
 | `docs/planning/measurements.md` | 기획 | 초안 | 로컬 개발 세션의 측정 기록 (T0~T11, 떨림·전원·그리퍼 시험) |
 | `docs/planning/workbench-hardware-requirements.md` | 기획 | 초안 | 작업대(판) 하드웨어 설계 요구사항: 작업 면 600×400·좌표 원점, 팔 고정, 레이더 높이 20mm·시야, 손목 센서, 테두리, 그리드 단위·표시, 돌려받을 수치 |
 | `docs/planning/arm-dev-status.md` | 기획 | 초안 | 팔 개발 현황과 인수인계: 지금 상태, 남은 일, 알려진 함정, 설정값, GUI 연결 API(14~22절) |
@@ -99,4 +100,5 @@
 | `docs/decisions/0062-mujoco-test-bench.md` | 결정 | 확정 | MuJoCo 시험장: 공통 층 하나 + 실행기 A(우리 알고리즘)·B(강화학습, 12/4 뒤), 순서 M7a→M5·M6→M5b·M5c→M8→M9, 대기 중엔 시험장이 정식 작업, GUI 잠금은 M8까지 |
 | `docs/decisions/0063-robonine-wrist-bracket-topview.md` | 결정 | 확정 | 그리퍼는 로보나인 병렬(교체 뒤 기본), 손목은 짧은 초음파 브래킷만(0°, 오프셋 {0.0, 66.5, 99.5}), 카메라는 탑뷰 하나, 실물·MuJoCo·초음파를 다시 맞추는 순서 |
 | `docs/decisions/0064-test-tiers.md` | 결정 | 확정 | 시험 네 층(빠른 묶음 / testmon 바뀐 곳 / 전체는 xdist 병렬 / 화면 비교는 GUI PR·배포 전만), 시험 포트 0, NiceGUI user 픽스처 기본, 허수 시험 정리, 측정 시험은 measure로 뺌 (0046 대체) |
+| `docs/decisions/0066-learning-platform-before-demo.md` | 결정 | 확정 | 학습 플랫폼을 12/4 전에: 다중 시점·수집(스크립트 전문가)·ACT·정책 실행(시뮬레이션)·so101-nexus 강화학습 데모, 설치는 앱 환경과 `so101-train` 분리, 실물 정책 실행·VLA는 범위 밖 |
 | `docs/decisions/0065-check-yaw-by-radius.md` | 결정 | 확정 | 초음파 CHECK 손목 yaw를 후보 반경별로(`check.yaw_pivot_mm` 150, 기본 켬), 설계서 숫자는 켜는 PR의 벤치마크 값으로 |

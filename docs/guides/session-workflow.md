@@ -14,6 +14,7 @@
 | MuJoCo (Opus, 2026-11-12 추가, 11-16 Opus로) | 로컬, 폴더 `so101-studio-sim` | 물리 시뮬레이션과 시험장(`mujoco-spec.md`, M1~M4 끝, M5~ 결정 0062). 하드웨어를 기다리는 동안의 정식 작업이고, 실물 일이 생기면 그쪽이 먼저다 | `src/so101_studio/arm/mujoco_*.py`, `assets/mujoco/`, `config/sim_scenarios/`, `tests/test_mujoco_*.py`. 13.1 표의 공유 파일(`arm/sim_driver.py`, `cli/__init__.py`, `service/diagnostics.py`, `service/arm_service.py`)은 그 표에 적힌 줄만 고치고, PR 본문에 적어 팔 세션과 겹치지 않게 총괄이 순서를 정한다 | `planning/mujoco-spec.md` |
 
 - **모델 지금 배정**(2026-11-16, 사용자): 기획 Fable(한도가 닳으면 사용자가 정함), 총괄(GUI) Opus, **MuJoCo Opus**(하드웨어 파일 변환·좌표 맞추기와 M5 구현이 몰림), 팔 Sonnet(범위가 정해진 REQ와 runbook 실물 일. 하드웨어 반영으로 URDF 바닥을 바꿀 때는 Opus로 올림), 초음파 Sonnet.
+- **기획 세션 모델**(2026-11-16): 기획도 Opus로 내린다. Fable로 올려 다시 볼 일은 `planning/project-status.md` 8절 "Fable로 다시 볼 것"에 모아 두고, 그 목록이 찰 때 한 번에 올린다.
 - **모델**(2026-11-14 밤, 위 배정 전 기록): 기본은 기획 Fable, 총괄(GUI) Opus, 팔·MuJoCo·초음파 Sonnet. **Fable 사용량 초기화가 남아 있는 동안**은 총괄과 팔도 Fable로 올린다(총괄은 판단·검토, 팔은 로보나인 다시 맞추기와 실물 안전). 한도가 닳으면 팔 → Sonnet, 총괄 → Opus 순으로 내리고 기획은 끝까지 Fable이다. 새 PC 세팅처럼 기계적인 일은 Fable을 쓰지 않는다. Fable은 판단·점검·새 기능 방향 잡기에 쓴다: 전체 점검, 새 기능의 초기 설계, 총괄이 올리는 판단 요청(`[기획 요청]`). 구현은 그 영역 세션이 하고 총괄이 검토한다. 총괄이 Opus일 때도 무거운 검토(code-review medium 이상, EGM)는 하위 에이전트 모델을 Fable로 지정해 돌릴 수 있다. 총괄을 GUI와 따로 떼지 않는다(전달 단계만 늘어난다). 12/4 뒤에 다시 본다.
 - 모든 세션은 `docs/planning/`의 확정 문서와 `docs/decisions/`를 근거로 일한다. 설계서는 기획 세션만 고친다.
 - 로컬 세션은 자기 인수인계 문서만 고친다. GUI 세션은 `planning/gui-dev-status.md`, 팔 세션은 `planning/arm-dev-status.md`, 초음파 세션은 `planning/us-dev-status.md`(초음파 세션이 처음 만든다)이다. 실물 시험 순서와 측정값은 `planning/measurements.md`에 모은다.
