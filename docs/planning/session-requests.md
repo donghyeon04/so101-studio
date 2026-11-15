@@ -1,6 +1,6 @@
 # 세션 간 요청 대장
 
-상태: 초안 · 갱신 2026-11-14
+상태: 초안 · 갱신 2026-11-16
 
 절차와 양식은 `docs/guides/session-workflow.md`에 있다. GUI 세션(총괄)이 번호를 매기고 행과 상태를 관리한다(`decisions/0036`). 자세한 내용은 요청 메시지와 PR에 두고, 여기에는 한 줄만 남긴다.
 
@@ -74,3 +74,6 @@
 | REQ-064 | CHECK 경로 기준점: `gripper: parallel`이면 `tool_position`·`follow_path`(`points_mm`·`tool_z_mm`)·`PoseSample.tool_mm`을 두 턱 끝 가운데(TCP) 기준으로. 단동식은 그대로(고정 턱 끝) | 총괄 → 팔(2026-11-14) | 기존 동작 변경(병렬만, 기획 결정 `work-queue.md` 11-14 밤 (a), 결정 0043-1) | 완료(2026-11-15) | #364 합쳐짐(71dc0f3) | 센서 기준점은 #358로 이미 가운데. GUI 현재 좌표 표시(12.9)가 같이 바뀌는지 PR 본문에 적는다. 새 PC 실물 첫 연결 다음 순서 |
 | REQ-065 | 확인 전 레이더 후보를 도달 범위로 거를 때 여유를 둔다(`task/policy.py reachable`, +60mm 제안·설정 키. 확정·수동 물체의 집는 범위는 그대로) + 3물체 종단 시험 배치를 `[(180,170,0),(330,270,90),(330,150,0)]`으로 | 총괄 → 팔(2026-11-15) | 버그 수정(확인 전 후보를 고르는 범위만 넓어짐) | 완료(2026-11-15) | #386 합쳐짐, GUI 후속 #389 | 초음파 세션 분석(#379): 레이더 후보가 가까운 면 쪽으로 치우쳐(반경 222 → 260) CHECK 전에 걸러져 no_objects. `test_sim_three_objects_end_to_end` 알려진 실패의 원인. 기획 보고 `planning-inbox` `inbox/2026-11-15-check-yaw-benchmark.md` |
 | REQ-066 | `arm/trajectory.py` `fillet_path` + `LookaheadShape`가 경로 첫 구간 ≤ 1.0mm에서 `duration_s`를 1e12초대로 낸다(1.2mm 5.9초, 1.0mm 2.0e12초). 뿌리 수정 + 계획 시간이 비정상이면 움직이기 전에 실패 | 총괄 → 팔(2026-11-15) | 버그 수정(안전) | 완료(2026-11-15) | #392 합쳐짐 | 초음파 벤치마크 병렬 kin에서 메모리 22GB로 드러남(처음엔 placo로 오인). 실제 `follow_path`(CHECK)가 같은 함수라 초음파 실물 A0·A1의 선행 조건. 실제 실행 경로에서 나는지 확인 포함 |
+| REQ-067 | U16 안 A 첫 점 당기기(`ultrasonic-spec.md` 6절·8.2·8.3): `Probe.feed(poses, status="ok")`, `ik_fail`이고 샘플이 비면 그 단계 첫 점을 첫 구간을 따라 `check.retry_pull_mm`(2)씩 당겨 다시 낸다(합 `retry_pull_max_mm` 20, 단계마다 최대 10번, 첫 구간 5mm 아래면 그만, 끝 점은 당기지 않음). `ik_fail`만 다시 부른다. 벤치마크 `--trim-start`는 없애고 kin 가상 팔이 `ik_fail`을 돌려주게 | 총괄 → 초음파(2026-11-16) | 기존 동작 변경(CHECK 한정, 사용자 승인 U16 안 A 11-15, #408) | 요청 | - | REQ-068과 같은 날 합친다. 합친 뒤 총괄이 병렬 kin `single`·`demo`·`demo80`(75~250, 씨앗 20)을 다시 돌려 1절 병렬 표를 한 열로 |
+| REQ-068 | U16 연동: 작업 실행(CHECK 단계)이 `probe.feed(poses, arm.last_path.status)`로 `follow_path` 결과 상태를 넘긴다(`ultrasonic-spec.md` 8.2 310행) | 총괄 → 팔(2026-11-16) | 추가(인자 하나, #408) | 요청 | - | REQ-067의 `status` 인자가 기본값 "ok"라 어느 쪽이 먼저 합쳐져도 깨지지 않는다 |
+| REQ-069 | 장면 부품 선택 키 `gripper: parallel|single_jaw`(`mujoco-spec.md` 13.10.1 "장면을 하나로"): 지금 cfg 그리퍼와 다르면 `load_scene`을 쓰는 쪽(GUI 3D·충돌 검사·드라이버)이 모두 건너뜀. `config/scene.yaml`의 손목 부품 둘(`wrist_hcsr04`, `wrist_bracket`) 주석을 풀고 `gripper: parallel` | 총괄 → 팔(2026-11-16) | 추가(선택 키, #408. 13.10.1 Stage 9 전이지만 작고 독립이라 먼저) | 요청 | - | 걸러 읽는 자리와 `Scene`에 그리퍼를 넘기는 방법은 팔이 정하고 PR에 적는다. 13.10.1 시험 4번(드라이버 장면 = `svc.scene`)이 확인 기준. 단동식 기본에서 GUI 3D·충돌이 바뀌지 않음을 시험으로 |
