@@ -37,11 +37,11 @@
 | U5 로보나인 교체 날짜 | ☐ 로보나인 부품(출력물 + 기어·로드·나사)이 다 있는지 확인 ☐ 없으면 출력·구매할 것 목록을 하드웨어 담당에게 받기 ☐ 교체할 날을 정하기(교체 1시간 + 실측 반나절, 사용자가 팔 옆에 있는 날) ☐ 그날 runbook 2-10을 연다 | 2-10, 2-2 재시험, A0 |
 | U4 OpenRB 전원·작업대 | ☐ OpenRB-150 보드의 VIN 단자에 무엇이 연결되는지 회로를 확인(12V 어댑터가 닿으면 XL330이 망가진다) ☐ 테스터로 VIN 전압을 재서 5V 근처인지 보기(전원은 5V 강압 모듈이나 USB) ☐ 결과를 총괄에게 알리기 ☐ 작업대 조립 날짜를 정하기(판 600×400, `workbench-hardware-requirements.md`) | 초음파 B1, 레이더 배선, runbook 2-A |
 | U15 병렬 손 미끄러짐 기준·조임 힘(11-15) | ☐ MuJoCo 병렬 손 58mm 상자의 들고 가기 미끄러짐이 0.8mm 근처(절반)와 2~10mm로 갈린다(30·45mm는 0.7~1.4mm, `measurements.md`). 기준(임시 4.0mm, `measure` 시험)과 kp·forcerange 잠정값을 언제 정할지. 추천: 실물 2-10 실측 뒤. 지터인지 물리 편차인지는 시계 주입(M5b) 뒤에 갈린다 | M5 판정 기준 |
-| U16 실제 CHECK에 첫 점 당기기(11-15) | ☐ 벤치마크의 `--trim-start`(첫 점이 안 닿으면 경로를 안쪽으로 당겨 시작)를 실제 CHECK는 하지 않아, 병렬 손 실제 성능이 표의 당기기 있음 열보다 낮다(demo 75 / 50% 대 93 / 70%, `ultrasonic-spec.md` 1절 두 열). 안 A: `ik_fail`이면 `Probe`가 첫 점을 2mm씩(최대 약 20mm) 당겨 다시 시도(CHECK 한정, **기획·총괄·초음파 추천**). 안 B: `follow_path` 옵션. 안 C: 넣지 않고 표를 없음 열로. 승인되면 기획이 6절·8.2를 고친 뒤 REQ가 나간다. 그 전에 구현하지 않는다 | 병렬 손 CHECK 성공률 |
 | U13 실물 팔 첫 연결(11-15) | ☐ 보드가 오는 날 정하기. 순서: 캘리브레이션 파일을 LeRobot 캐시에 복사 → `doctor` → `status` → `--speed 20 home` | 실물 시험 전부 |
 - 11-15 밤 보고와 기획 요청 원문: `planning-inbox` `inbox/2026-11-15-night-report.md`. 참고: 병렬 손 blocker 30% fault는 막힘 감지 문제가 아니라 시나리오 벽이 home→radar_clear 경로에 걸린 것이었다(MuJoCo #370, 병렬용 시나리오 추가).
 - 알려진 실패(main): `tests/test_task_check.py::test_sim_three_objects_end_to_end`. U11(#378, 벤치마크 single 95/88%·demo 98/83%, 총괄 재실행 값은 `planning-inbox` `inbox/2026-11-15-check-yaw-benchmark.md`)로는 풀리지 않았다. 원인은 시험 배치의 모서리 간격 14·35mm와 확인 전 레이더 후보의 도달 거르기이고 REQ-065(팔)로 고친다. 흔들림: `tests/gui/test_watchdog_link.py::test_refused_run_folder_turns_the_watchdog_off`(부하 때 1회, 단독 통과).
 - 11-15 사용자 승인: U11 CHECK yaw를 후보 반경별로 켠다(결정 0065. 켜는 PR에서 총괄이 벤치마크 고정 시나리오를 다시 돌려 남긴다), U12 nicegui·viser·playwright 계열을 `environment.yml`에 `==`로 고정(팔 세션 PR, `tooling-setup.md` C-4), U14 13.7 (a) topedge는 단동식 비교 옵션 전용(`mujoco-spec.md` 13.7, 병렬의 대응 실패는 M5에서).
+- 11-15 사용자 승인: **U16 실제 CHECK에 첫 점 당기기는 안 A**(`ik_fail`이면 `Probe`가 첫 점을 안쪽으로 당겨 다시 시도, CHECK 한정). 순서: 기획이 `ultrasonic-spec.md` 6절·8.2를 고침 → 총괄이 REQ(초음파 `Probe`·벤치마크, 팔 작업 실행 연동) → 구현 → 총괄이 병렬 kin 벤치마크를 다시 돌려 1절 병렬 표 확정. 기획 반영 전에는 구현하지 않는다(`planning-inbox` `inbox/2026-11-15-benchmark-final.md`).
 - U10(시험 계획)은 결정 0064로 승인했다(11-14).
 - U7(브래킷 출력 방향: 손목 쪽 평면 +z 바닥, 6.4mm 걸림은 손목 카메라 팔 때문이었고 #357로 0), U8(시연 속도 30~40%), U9(NOTICE 이름 빼기, #347)는 11-14에 사용자가 승인했다. U6은 닫았다.
 
