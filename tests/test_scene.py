@@ -30,3 +30,33 @@ def test_rpy_and_errors(tmp_path):
     f.write_text("parts:\n  - {name: a, box_mm: [1, 1, 1]}\n  - {name: a, box_mm: [1, 1, 1]}\n", encoding="utf-8")
     with pytest.raises(ValueError):
         load_scene(f)
+
+
+def _cfg(tmp_path, gripper):
+    from so101_studio.core.config import load_robot
+
+    lp = tmp_path / f"{gripper}.yaml"
+    lp.write_text(f"gripper: {gripper}\n", encoding="utf-8")
+    return load_robot("config/robot.yaml", local_path=str(lp))
+
+
+def test_for_gripper_filters_parts():
+    s = load_scene("config/scene.yaml")
+    assert {p.name for p in s.for_gripper("parallel").parts} == {"radar_station", "wrist_hcsr04", "wrist_bracket"}
+    assert [p.name for p in s.for_gripper("single_jaw").parts] == ["radar_station"]  # 키 없는 부품은 늘 쓴다
+
+
+@pytest.mark.parametrize("gripper, wrist", [("parallel", {"wrist_hcsr04", "wrist_bracket"}), ("single_jaw", set())])
+def test_service_and_mujoco_driver_share_the_filtered_scene(tmp_path, gripper, wrist):
+    """mujoco-spec 13.10.1 시험 4: 드라이버 장면 = svc.scene."""
+    pytest.importorskip("mujoco")
+    from so101_studio.arm.sim_driver import make_sim_driver
+    from so101_studio.core.config import load_workspace
+    from so101_studio.service.arm_service import ArmService
+
+    cfg, ws = _cfg(tmp_path, gripper), load_workspace("config/workspace.yaml")
+    d = make_sim_driver(cfg, ws, load_scene())
+    svc = ArmService(d, cfg, ws, 30)
+    names = [p.name for p in svc.scene.parts]
+    assert [p.name for p in d.scene.parts] == names
+    assert wrist == set(names) & {"wrist_hcsr04", "wrist_bracket"}
