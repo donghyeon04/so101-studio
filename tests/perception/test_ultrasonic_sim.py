@@ -541,3 +541,26 @@ def test_make_ultrasonic_source_reads_reach_from_arm_gripper(gripper, lo, hi, tm
     src = make_ultrasonic_source(arm, sim=True, boxes=[])
     assert (src.cfg.check.tool_reach_mm.min, src.cfg.check.tool_reach_mm.max) == (lo, hi)
     arm.disconnect()
+
+
+def test_clip_pieces_drop_collinear_points():
+    """_clip: 도달 범위로 잘린 조각은 일직선 중간 점(2mm 판정 점)을 빼고 꺾이는 점·양 끝만 팔에 준다(fillet_path가 2mm마다 서지 않게)."""
+    from so101_studio.perception.ultrasonic.check import _straighten
+
+    line = [(float(x), 0.0) for x in range(0, 21, 2)]
+    assert _straighten(line) == [(0.0, 0.0), (20.0, 0.0)]
+    bent = [*line, *[(20.0, float(y)) for y in range(2, 9, 2)]]
+    assert _straighten(bent) == [(0.0, 0.0), (20.0, 0.0), (20.0, 8.0)]
+    assert _straighten([(0.0, 0.0), (5.0, 0.0), (0.0, 0.0)]) == [(0.0, 0.0), (5.0, 0.0), (0.0, 0.0)]  # 되돌아가는 점은 그대로
+    assert _straighten([(0.0, 0.0), (1.0, 1.0)]) == [(0.0, 0.0), (1.0, 1.0)]
+
+
+def test_clipped_ring_pieces_are_short(tmp_path):
+    """잘린 원 조각은 판정 점(2mm 간격, 수십 개)이 아니라 꼭짓점만 남는다."""
+    cfg, clk, esp, arm = build([Box(300, 330, 0)])
+    src = make_source(cfg, clk, esp, arm, tmp_path)
+    probe = src.start_check(src.scan().objects[0])
+    ring = [(310 + 60 * math.cos(2 * math.pi * k / 36), 330 + 60 * math.sin(2 * math.pi * k / 36)) for k in range(36)]
+    ring.append(ring[0])
+    pieces = probe._clip([(x, y - 130) for x, y in ring])  # 팔 원점 쪽으로 내려 도달 범위에 걸치게
+    assert pieces and all(len(pc) <= 37 for pc in pieces)

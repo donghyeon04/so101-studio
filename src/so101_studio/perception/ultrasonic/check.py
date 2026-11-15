@@ -37,6 +37,18 @@ def pick_yaw(cfg, cand_xy, origin):
     return min(sols, key=lambda y: abs(wrap(y - cfg.check.yaw_deg)))
 
 
+def _straighten(run, tol=1e-6):
+    """일직선으로 이어지는 중간 점을 뺀다(꺾이는 점·양 끝만 남김). 판정용 2mm 점을 그대로 팔에 주면 fillet_path가 같은 변 위의
+    점마다 "서서 도는 꺾임"으로 처리해 2mm마다 선다. 점이 둘 이하면 그대로."""
+    out = list(run[:1])
+    for i in range(1, len(run) - 1):
+        ax, ay, bx, by = run[i][0] - out[-1][0], run[i][1] - out[-1][1], run[i + 1][0] - run[i][0], run[i + 1][1] - run[i][1]
+        na, nb = math.hypot(ax, ay), math.hypot(bx, by)
+        if na < 1e-9 or nb < 1e-9 or abs(ax * by - ay * bx) / (na * nb) > tol or ax * bx + ay * by < 0:
+            out.append(run[i])
+    return out + run[-1:]
+
+
 def _near(p, poly, tol) -> bool:
     for (ax, ay), (bx, by) in itertools.pairwise(poly):
         vx, vy = bx - ax, by - ay
@@ -139,7 +151,7 @@ class Probe:
                 run.append(p)
                 continue
             if len(run) >= 2:  # 2mm 간격 점이 둘 이상. 닫힌 원은 처음과 끝이 같으니 끝점 거리로 거르지 않는다
-                pieces.append([run[0], run[-1]] if len(pts) == 2 else run)
+                pieces.append([run[0], run[-1]] if len(pts) == 2 else _straighten(run))
             run = []
         return pieces
 
