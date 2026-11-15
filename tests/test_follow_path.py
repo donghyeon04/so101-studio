@@ -478,14 +478,11 @@ def _shape_duration(P, v=100.0):
 @pytest.mark.parametrize("first", [0.1, 0.5, 0.87, 0.9, 1.0])
 def test_short_first_segment_gives_a_finite_duration(first):
     xs = [0, first] + [first + 1.74 * k for k in range(1, 19)]
-    assert 4.0 < _shape_duration([(x, 0, 0) for x in xs]) < 8.0  # 고치기 전: 1e12초
+    assert 1.0 < _shape_duration([(x, 0, 0) for x in xs]) < 2.0  # REQ-066 전: 1e12초, 일직선 점에서 서던 때: 5~6초
 
 
 def test_durations_of_normal_paths_are_unchanged():
-    """고치기 전 값(main caf937c)과 같다: 서는 점 사이가 1mm보다 먼 경로에는 점을 더하지 않는다."""
-    line = lambda first: [(x, 0, 0) for x in [0, first] + [first + 1.74 * k for k in range(1, 19)]]
-    assert _shape_duration(line(1.74)) == pytest.approx(5.836139409140883, rel=1e-12)
-    assert _shape_duration(line(1.2)) == pytest.approx(5.9239228586, rel=1e-9)
+    """REQ-066 전 값(main caf937c)과 같다: 서는 점 사이가 1mm보다 먼 경로에는 점을 더하지 않는다. 일직선 점이 있는 경로는 아래 시험."""
     assert _shape_duration([(0, 0.5, 0), (0, 0, 0), (50, 0, 0)]) == pytest.approx(1.6729550651178162, rel=1e-12)
 
 
@@ -525,3 +522,55 @@ def test_absurdly_long_plan_is_refused_before_moving(svc, monkeypatch):
     assert svc.follow_path([(260.0, 200.0), (300.0, 200.0)], Z, 60.0) == []
     assert svc.last_path.status == "out_of_bounds" and svc.last_path.reason.startswith("plan_too_slow")
     assert svc.driver.read_joints() == q0
+
+
+# ---- 정확히 일직선인 꼭짓점은 서지 않고 지나간다 (총괄 승인 11-16, follow_path 설계: 처음·끝과 180° 되돌아감에서만 선다)
+def _dense(P, step=2.0):
+    out = []
+    for p, q in itertools.pairwise(P):
+        n = max(1, math.ceil(math.dist(p, q) / step))
+        out += [tuple(p[i] + (q[i] - p[i]) * k / n for i in range(3)) for k in range(n)]
+    return [*out, P[-1]]
+
+
+RING = [(60 * math.cos(math.radians(t)), 60 * math.sin(math.radians(t)), 0) for t in range(0, 361, 10)]
+GRID = [(0, 0, 0), (100, 0, 0), (100, 20, 0), (0, 20, 0), (0, 40, 0), (100, 40, 0), (100, 60, 0), (0, 60, 0), (0, 80, 0), (100, 80, 0), (100, 100, 0)]
+
+
+@pytest.mark.parametrize(("path", "v", "before"), [  # 일직선 점이 없는 경로: 고치기 전과 같은 값
+    ([(0, 0, 0), (180, 0, 0)], 100.0, 2.978517194224143),
+    (RING, 100.0, 6.1130970671535865), (RING, 30.0, 12.87297680603107),
+    (GRID, 100.0, 13.667003325360213), (GRID, 30.0, 20.69818272777902),
+    ([(0, 0, 0), (80, 0, 0), (80, 60, 0)], 100.0, 3.4294351471984967),
+    ([(0, 0, 0), (80, 0, 0), (20, 60, 0)], 100.0, 3.918501468772328),
+    ([(0, 0, 0), (80, 0, 0), (0, 0, 0)], 100.0, 3.883934173658592),
+])
+def test_paths_without_straight_vertices_keep_their_duration(path, v, before):
+    assert _shape_duration(path, v) == pytest.approx(before, rel=1e-12)
+
+
+@pytest.mark.parametrize(("path", "v", "before", "after"), [  # 일직선 점을 준 경로: 고치기 전(점마다 섬) → 지금
+    (_dense([(0, 0, 0), (180, 0, 0)]), 100.0, 27.635, 2.978517194224143),
+    (_dense([(0, 0, 0), (180, 0, 0)]), 30.0, 27.635, 6.354),
+    ([(1.74 * k, 0, 0) for k in range(20)], 100.0, 5.836, 1.2485309840977725),
+    (_dense(RING), 100.0, 59.062, 11.677125870374137),
+    (_dense(RING), 30.0, 59.062, 12.988),
+    (_dense(GRID), 100.0, 94.791, 15.133),
+    (_dense(GRID), 30.0, 94.791, 22.821),
+])
+def test_straight_vertices_are_passed_without_stopping(path, v, before, after):
+    got = _shape_duration(path, v)
+    assert got == pytest.approx(after, rel=1e-3) and got < before / 4
+
+
+def test_exactly_straight_and_almost_straight_take_the_same_time_and_reversal_still_stops():
+    tilt = 90 * math.tan(math.radians(0.001))
+    exact = _shape_duration([(0, 0, 0), (90, 0, 0), (180, 0, 0)])
+    almost = _shape_duration([(0, 0, 0), (90, 0, 0), (180, tilt, 0)])
+    assert exact == pytest.approx(almost, rel=1e-6) == pytest.approx(_shape_duration([(0, 0, 0), (180, 0, 0)]), rel=1e-6)
+    from so101_studio.arm.trajectory import LookaheadShape, fillet_path
+
+    a = 120 / math.sqrt(2)
+    _, s, arcs, _, _ = fillet_path([np.array(p, float) for p in [(0, 0, 0), (80, 0, 0), (0, 0, 0)]], a, 1.0)
+    shape = LookaheadShape(float(s[-1]), arcs, 100.0, a)
+    assert shape._v[int(np.argmin(np.abs(shape._s - 80.0)))] == 0.0  # 180° 되돌아감은 그대로 선다
