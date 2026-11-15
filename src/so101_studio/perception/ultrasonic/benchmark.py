@@ -49,6 +49,7 @@ SCENARIOS = {  # 이름: (물체 수, 반경 mm, 방위 °, 중심 간격 mm 이
     "spread120": (3, (100, 240), (25, 155), 120),
     "demo": (3, (120, 220), (25, 155), 120),
     "single": (1, (100, 240), (25, 155), 0),
+    "pair": (2, (120, 240), (25, 155), 0),  # 물체 둘, 모서리 사이 간격을 --pair-gap으로 정한다(이웃 물체를 따로 보는 최소 간격 재기)
 }
 SINGLE_RADII = (100, 120, 140, 160, 180, 200, 220, 240)
 
@@ -273,6 +274,50 @@ def random_layout(rng, name) -> list[Box]:
     raise RuntimeError("배치를 못 만들었다")
 
 
+def _edge_pts(b: Box):
+    """사각형 테두리를 1mm 간격으로 찍은 점."""
+    a = math.radians(b.angle_deg)
+    u, v = (math.cos(a), math.sin(a)), (-math.sin(a), math.cos(a))
+    cs = [(sx * b.length / 2, sy * b.width / 2) for sx, sy in ((1, 1), (-1, 1), (-1, -1), (1, -1))]
+    pts = []
+    for (x0, y0), (x1, y1) in itertools.pairwise([*cs, cs[0]]):
+        n = max(1, round(math.hypot(x1 - x0, y1 - y0)))
+        pts += [(x0 + (x1 - x0) * k / n, y0 + (y1 - y0) * k / n) for k in range(n)]
+    return [(b.x + px * u[0] + py * v[0], b.y + px * u[1] + py * v[1]) for px, py in pts]
+
+
+def edge_gap(a: Box, b: Box) -> float:
+    """두 사각형 모서리 사이 최소 거리(테두리 점 기준, 겹치면 0)."""
+    pb = np.array(_edge_pts(b))
+    return float(min(np.min(np.hypot(pb[:, 0] - x, pb[:, 1] - y)) for x, y in _edge_pts(a)))
+
+
+def pair_layout(rng, gap_mm) -> list[Box]:
+    """물체 둘: 첫 물체는 random_layout처럼, 둘째는 무작위 방향으로 모서리 간격이 gap_mm가 되는 자리(이분법)에 둔다."""
+    _n, (r0, r1), (b0, b1), _ = SCENARIOS["pair"]
+    bx, by = arm_base()
+    zones = load_workspace().ignore_zones()  # 후보에서 빼는 배출 구역: 물체 중심이 그 둘레 50mm 안이면 일부가 가려지니 피한다
+    for _ in range(10000):
+        boxes = []
+        for _ in range(2):
+            r, th = rng.uniform(r0, r1), math.radians(rng.uniform(b0, b1))
+            w, length = rng.choice(OBJECT_SIZES)
+            boxes.append(Box(bx + r * math.cos(th), by + r * math.sin(th), rng.choice((0, 45, 90, 135)) + rng.uniform(-5, 5), w, length))
+        a, b = boxes
+        phi = rng.uniform(0, 2 * math.pi)
+        lo, hi = 0.0, 400.0
+        for _ in range(30):
+            mid = (lo + hi) / 2
+            b.x, b.y = a.x + mid * math.cos(phi), a.y + mid * math.sin(phi)
+            lo, hi = (mid, hi) if edge_gap(a, b) < gap_mm else (lo, mid)
+        b.x, b.y = a.x + hi * math.cos(phi), a.y + hi * math.sin(phi)
+        rb, thb = math.hypot(b.x - bx, b.y - by), math.degrees(math.atan2(b.y - by, b.x - bx))
+        near_drop = any(math.hypot(o.x - zx, o.y - zy) < zr + 50 for o in boxes for zx, zy, zr in zones)
+        if r0 <= rb <= r1 and b0 <= thb <= b1 and not near_drop and abs(edge_gap(a, b) - gap_mm) < 1.5:
+            return boxes
+    raise RuntimeError("배치를 못 만들었다")
+
+
 def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, rescan_home=None, report_failures=True):
     """처음 scan()부터 물체가 다 없어질 때까지(작업 실행 흉내). 인식 시간 = 레이더 + 확인, 집기·놓기는 뺀다.
     판정(8.5절): 확인 결과 자리에 가장 가까운 실제 물체가 30mm 안이면 그 물체를 집은 것. 위치 오차 15mm 이하이고 방향까지 맞으면 성공(정사각형은 위치만).
@@ -336,7 +381,7 @@ def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, resc
     return ok, recog, log
 
 
-def run_scenario(name, model, seeds, rescan_home=None, report_failures=True, arm_kw=None, **opts):
+def run_scenario(name, model, seeds, rescan_home=None, report_failures=True, arm_kw=None, pair_gap=None, **opts):
     """시나리오 하나: 씨앗값 0..seeds-1마다 배치를 만들어 사이클을 돈다. single은 반경 구간(SINGLE_RADII)마다 seeds번."""
     rows = []
     cells = [(r, s) for r in SINGLE_RADII for s in range(seeds)] if name == "single" else [(None, s) for s in range(seeds)]
@@ -348,7 +393,7 @@ def run_scenario(name, model, seeds, rescan_home=None, report_failures=True, arm
             w, length = rng.choice(OBJECT_SIZES)
             boxes = [Box(bx + radius * math.cos(th), by + radius * math.sin(th), rng.choice((0, 45, 90, 135)) + rng.uniform(-5, 5), w, length)]
         else:
-            boxes = random_layout(rng, name)
+            boxes = pair_layout(rng, pair_gap) if name == "pair" else random_layout(rng, name)
         n = len(boxes)
         cfg, clk, esp, arm = build(boxes, seed=seed, model=model, arm_kw=arm_kw, **opts)
         src = make_source(cfg, clk, esp, arm)
@@ -434,10 +479,11 @@ def main(argv=None):
     ap.add_argument("--trim-start", action="store_true", help="--reach kin에서 첫 점이 안 닿으면 경로 안쪽으로 당긴다. (다)안")
     ap.add_argument("--servo", choices=["pwm", "dxl"], default="pwm", help=f"가상 레이더 서보: pwm(기본, 지연 ±3°) | dxl(XL330: 지연 {DXL_LAG_DEG}° + 읽은 각도 ang 사용, 가정값이라 B4로 고친다)")
     ap.add_argument("--gripper", choices=["single_jaw", "parallel"], help="--reach kin의 그리퍼 종류(기본: 설정 파일 그대로 = 단동식). 병렬은 robot.yaml 위에 grippers/parallel.yaml(URDF 포함)을 겹친다")
+    ap.add_argument("--pair-gap", type=float, default=40.0, help="--scenario pair의 두 물체 모서리 간격 mm(기본 40)")
     ap.add_argument("--set", action="append", default=[], metavar="KEY=VAL", help="check.<KEY>를 이번만 바꾼다(여러 번 가능, 예: --set yaw_deg=45 --set ring_r_mm=50 --set clearance_mm=40)")
     ap.add_argument("--out", default="runs/bench")
     a = ap.parse_args(argv)
-    names = list(SCENARIOS) if a.scenario == "all" else [a.scenario]
+    names = [k for k in SCENARIOS if k != "pair"] if a.scenario == "all" else [a.scenario]
     models = list(MODELS) if a.model == "both" else [a.model]
     opts = {k: v for k, v in (("line_mm", a.line_mm), ("speed_mm_s", a.speed), ("max_fail_per_run", a.max_fail)) if v is not None}
     opts.update({k: json.loads(v) for k, v in (kv.split("=", 1) for kv in a.set)})
@@ -455,7 +501,7 @@ def main(argv=None):
     results, sha = [], commit()
     cmd = "python -m so101_studio.perception.ultrasonic.benchmark " + " ".join(argv if argv is not None else __import__("sys").argv[1:])
     for name, model in itertools.product(names, models):
-        rows = run_scenario(name, model, a.seeds, rescan_home=rescan, report_failures=not a.no_note_failure, arm_kw=arm_kw, **opts)
+        rows = run_scenario(name, model, a.seeds, rescan_home=rescan, report_failures=not a.no_note_failure, arm_kw=arm_kw, pair_gap=a.pair_gap, **opts)
         results.append({"commit": sha, "command": cmd, "scenario": name, "model": model, "options": {**opts, "reach": a.reach, "hover_mm": a.hover_mm, "trim_start": a.trim_start, "rescan_home": rescan, "note_failure": not a.no_note_failure}, "summary": summarize(rows),
                         "rows": [{k: v for k, v in r.items() if k != "log"} for r in rows]})
         print(f"  {name} {model}: 성공 {results[-1]['summary']['success_mean']:.2f}/{results[-1]['summary']['objects']}", flush=True)
