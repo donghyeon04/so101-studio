@@ -14,6 +14,12 @@ dependencies:
   - pip
   - pip:
       - "lerobot[feetech]==0.6.1"
+      # GUI·시험 도구는 == 로 고정한다(U12, tooling-setup.md C-4: 새 PC에서 전체 시험이 통과한 pip freeze 2026-11-15). 올릴 때는 tests/gui·tests/gui_visual을 돌린 PR로
+      - nicegui==3.18.0
+      - viser==1.1.1
+      - playwright==1.65.2
+      - pytest-playwright==0.10.0
+      - pytest-playwright-visual-snapshot==0.5.1
       - -e .[gui,test]
       # MuJoCo 물리 시뮬레이션은 기본에 넣지 않는다(결정 0053, arm-software-spec 13.8). 쓰려면: pip install --no-deps "mujoco>=4.0,<5" mujoco-core mujoco-studio glfw pyopengl
       # (pip가 conda의 numpy 2.2.6을 바꾸지 않게 --no-deps로 설치하고, 빠진 의존성만 따로). 설치 뒤 numpy 버전이 2.2.6인지 확인한다.
