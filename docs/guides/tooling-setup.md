@@ -1,6 +1,6 @@
 # 툴링 셋업
 
-상태: 확정 · 갱신 2026-11-14(C-1을 environment.yml 설치와 새 PC에 맞춤) · 2026-11-06
+상태: 확정 · 갱신 2026-11-15(GUI·시험 도구 버전 고정) · 2026-11-14(C-1을 environment.yml 설치와 새 PC에 맞춤) · 2026-11-06
 
 > 기획 계정과 개발 계정 모두 같은 도구를 갖추기 위한 체크리스트다.
 
@@ -74,6 +74,8 @@
 | C16 | **앱 내장 브라우저** (기본) / **Playwright CLI** (예비) | 실행한 GUI(`http://localhost:8080`)를 열어 화면 확인. Viser 3D(WebGL)가 내장 브라우저에 안 나오면 Playwright CLI로 스크린샷 | 내장 브라우저는 설치 불필요. Playwright CLI: `npm install -g @playwright/cli@latest` 후 `playwright-cli install --skills`. Playwright MCP는 쓰지 않는다 (`decisions/0025`). `playwright-cli` 스킬은 레포에 넣지 않고 사용자 전역 `~/.claude/skills/playwright-cli/`에 둔다(2026-11-11) |
 | C17 | **design 플러그인** | `/critique`(비전문가 관점 검토), `/ux-copy`(버튼·설명 문구), `/accessibility`(대비·글자 크기) | `/plugin marketplace add anthropics/knowledge-work-plugins` 후 `/plugin install design@knowledge-work-plugins` |
 | C18 | **frontend-design 스킬** (Anthropic 공식) | 색, 글자, 배치 원칙. Viser에서는 브랜드 색, `add_html` 설명 카드, plotly 그래프에 적용 | `/plugin install frontend-design@claude-plugins-official`. 목록에 없으면 `/plugin marketplace add anthropics/skills` 후 설치 |
+
+**버전 고정**(2026-11-15 사용자 결정 U12): nicegui·viser·playwright·pytest-playwright·pytest-playwright-visual-snapshot은 `environment.yml`의 pip 목록에 `==`로 고정한다(새 PC에서 전체 시험이 통과한 `pip freeze` 값, nicegui는 3.18.0). `pyproject.toml`의 선택 의존성은 느슨한 채로 둔다(MuJoCo C24와 같은 방식). 버전을 올릴 때는 `tests/gui`와 `tests/gui_visual`을 돌린 PR로 올린다. 고정 전에는 새로 설치한 PC마다 버전이 달라 GUI 시험 결과가 갈렸다(nicegui 3.18에서 5개).
 
 화면 하나를 만들 때마다 실행 → C16으로 화면 확인 → C17 `/critique` → 수정 순서로 반복한다. 상태 표시는 IBM Carbon 상태 표시 규칙(색 + 아이콘 + 글자)을 따른다.
 
