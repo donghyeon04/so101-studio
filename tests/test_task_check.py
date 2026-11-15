@@ -41,7 +41,8 @@ class StubProbe:
     def status(self): return "ok" if self.src.exists.get(self.c.id, True) else "empty"
 
     def result(self):
-        return DetectedObject(self.c.id, self.c.x_mm, self.c.y_mm, 10.0, 30.0, 100.0, 0.9, "ultrasonic") if self.status == "ok" else None
+        x, y = self.src.moved.get(self.c.id, (self.c.x_mm, self.c.y_mm))  # moved: CHECK가 바로잡은 확정 위치
+        return DetectedObject(self.c.id, x, y, 10.0, 30.0, 100.0, 0.9, "ultrasonic") if self.status == "ok" else None
 
 
 class StubSource:
@@ -53,6 +54,7 @@ class StubSource:
     def __init__(self, scans, rescans=(), exists=None, give_up_after=None):
         self.scans, self.rescans, self.exists, self.give_up_after = list(scans), list(rescans), exists or {}, give_up_after
         self.calls, self.failures, self.probes, self.prefetch_fn = [], [], [], None
+        self.moved = {}  # {id: (x, y)}: CHECK가 바로잡은 확정 위치
 
     def connect(self): ...
     def calibrate(self): return {}
@@ -116,6 +118,17 @@ def test_empty_check_drops_candidate_and_redecides_without_rescan():
     assert res["picked"] == ["us-2"]
     assert src.calls.count("scan") == 2 and "rescan" not in src.calls[: src.calls.index("check:us-2")]
     assert ("CHECK", "us-1", "empty") in states(seen)
+
+
+def test_far_candidate_is_checked_with_margin_and_picked_only_if_confirmed_inside_pick_reach():
+    """REQ-065: 확인 전 후보는 집기 범위 최대(250) + 여유(60)까지 고른다. 집는 것은 CHECK가 확정한 위치가 집기 범위 안일 때만."""
+    src = StubSource([[cand(1, 300, 330), cand(2, 300, 320), cand(3, 300, 400)], []])  # 반경 280·270(여유 안)·350(여유 밖)
+    src.moved = {"us-1": (300.0, 280.0)}  # us-1은 실제 반경 230, us-2는 그대로 270(집기 범위 밖)
+    res, seen = run(runner(src))
+    assert res["picked"] == ["us-1"]
+    assert ("CHECK", "us-2", "unreachable") in states(seen) and "check:us-3" not in src.calls
+    decide = next(e for e in seen if e.state == "DECIDE")
+    assert [r["reachable"] for r in decide.detail["objects"]] == [True, True, False]
 
 
 def test_rescan_when_no_candidate_once_then_done():
@@ -190,7 +203,8 @@ def test_source_without_check_runs_as_before():
 
 # ---- --sim 팔 + FakeESP32 (실제 시간으로 돈다: 레이더 회전과 팔 이동)
 CFG = load_robot("config/robot.yaml")
-SPREAD = [(420, 190, 0), (330, 250, 90), (330, 150, 0)]  # 팔 원점(300, 50) 기준. 대기 자세 팔 끝(300, 269)이 레이더 정면을 가려서 가운데(방위 90°) 물체는 못 찾는다: 비켜 둔다
+# 모서리 간격 50·55mm(설계 조건 안). 옛 배치 [(420,190,0),(330,250,90),(330,150,0)]는 간격 14·35mm라 센서 높이 154.5mm에서 이웃이 합쳐 보였다 (REQ-065)
+SPREAD = [(180, 170, 0), (330, 270, 90), (330, 150, 0)]  # 팔 원점(300, 50) 기준. 대기 자세 팔 끝(300, 269)이 레이더 정면을 가려서 가운데(방위 90°) 물체는 못 찾는다: 비켜 둔다
 
 
 class ReadFails(SimDriver):
