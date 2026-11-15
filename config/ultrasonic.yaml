@@ -25,6 +25,7 @@ check:
   max_object_height_mm: 40
   clearance_mm: 15
   speed_mm_s: 100         # tool_v_max_mm_s와 같게 (4절)
+  yaw_pivot_mm: 150       # 결정 0065: 후보 반경별 CHECK yaw(check.pick_yaw). 이 반경에서 센서가 손끝과 같은 반경에 온다. 0이면 끔(yaw_deg 고정)
   yaw_deg: 90             # 확인 경로 동안 고정할 손목 각도(평소 자세, 6절 "손목 회전은 지금 그대로"). 센서 오프셋은 도구 프레임 값이라 이 각도로 돌려 작업대 좌표로 바꾼다
   sample_mm: 6
   line_mm: 180
