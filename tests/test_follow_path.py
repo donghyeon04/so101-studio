@@ -460,3 +460,66 @@ def test_plan_goto_tries_several_ik_seeds_from_radar_clear(svc):
     hover = replace(goal, z_mm=goal.z_mm + CFG.approach_height_mm)
     assert svc.kin.ik(hover, q0) is None  # 현재 관절만으로는 못 푼다(이 시험의 전제)
     assert plan_goto(svc.kin, CFG, q0, goal, 100) is not None
+
+
+# ---- REQ-066: 서는 점 둘이 1mm 격자보다 가까우면 계획 시간이 1e12초로 터지던 문제
+def _shape_duration(P, v=100.0):
+    from so101_studio.arm.trajectory import LookaheadShape, fillet_path
+
+    a = 120 / math.sqrt(2)
+    _, s, arcs, _, _ = fillet_path([np.array(p, float) for p in P], a, 1.0)
+    shape = LookaheadShape(float(s[-1]), arcs, v, a)
+    assert shape.frac(shape.duration_s)[0] == pytest.approx(1.0, abs=1e-6)
+    return shape.duration_s
+
+
+@pytest.mark.parametrize("first", [0.1, 0.5, 0.87, 0.9, 1.0])
+def test_short_first_segment_gives_a_finite_duration(first):
+    xs = [0, first] + [first + 1.74 * k for k in range(1, 19)]
+    assert 4.0 < _shape_duration([(x, 0, 0) for x in xs]) < 8.0  # 고치기 전: 1e12초
+
+
+def test_durations_of_normal_paths_are_unchanged():
+    """고치기 전 값(main caf937c)과 같다: 서는 점 사이가 1mm보다 먼 경로에는 점을 더하지 않는다."""
+    line = lambda first: [(x, 0, 0) for x in [0, first] + [first + 1.74 * k for k in range(1, 19)]]
+    assert _shape_duration(line(1.74)) == pytest.approx(5.836139409140883, rel=1e-12)
+    assert _shape_duration(line(1.2)) == pytest.approx(5.9239228586, rel=1e-9)
+    assert _shape_duration([(0, 0.5, 0), (0, 0, 0), (50, 0, 0)]) == pytest.approx(1.6729550651178162, rel=1e-12)
+
+
+def test_tiny_and_reversing_paths_take_about_the_bang_bang_time():
+    a = 120 / math.sqrt(2)
+    assert _shape_duration([(0, 0, 0), (0.5, 0, 0)]) == pytest.approx(2 * math.sqrt(0.5 / a), rel=1e-6)  # 반 가속·반 감속. 고치기 전: 1e12초
+    assert _shape_duration([(0.5, 0, 0), (0, 0, 0), (50, 0, 0)]) < 3.0  # 0.5mm 가서 되돌아감
+
+
+def test_follow_path_finishes_when_the_tip_is_half_a_mm_from_the_first_point(svc):
+    _goto(svc, 260.5, 200.0)
+    assert svc.follow_path([(260.0, 200.0), (300.0, 200.0)], Z, 60.0) and svc.last_path.status == "ok"
+    assert svc.last_path.duration_s < 10.0
+
+
+def test_follow_path_of_a_half_mm_path_finishes(svc):
+    _goto(svc, 260.0, 200.0)
+    svc.follow_path([(260.0, 200.0), (260.5, 200.0)], Z, 60.0)
+    assert svc.last_path.status == "ok" and svc.last_path.duration_s < 5.0
+
+
+def test_absurdly_long_plan_is_refused_before_moving(svc, monkeypatch):
+    """안전망: 계획 시간이 30초 + 20 × 길이/속도를 넘으면 움직이지 않고 이유(plan_too_slow)와 함께 거부한다."""
+    import so101_studio.service.arm_service as mod
+
+    real = mod.smooth_l
+
+    def slow(*a, **k):
+        tr = real(*a, **k)
+        if tr is not None:
+            tr.duration_s = 1e12
+        return tr
+
+    monkeypatch.setattr(mod, "smooth_l", slow)
+    _goto(svc, 260.0, 200.0)
+    q0 = svc.driver.read_joints()
+    assert svc.follow_path([(260.0, 200.0), (300.0, 200.0)], Z, 60.0) == []
+    assert svc.last_path.status == "out_of_bounds" and svc.last_path.reason.startswith("plan_too_slow")
+    assert svc.driver.read_joints() == q0

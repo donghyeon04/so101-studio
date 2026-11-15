@@ -36,6 +36,7 @@ STATUS_HZ = 10
 HEALTH_HZ = 2
 LOAD_PROBE_PCT = 50.0  # 어느 관절이든 부하가 이 값 이상이거나 상태 루프가 오류를 내면 그 순간 토크·상태 비트·부하를 바로 한 번 더 읽어 남긴다 (결정 0030 보강)
 PROBE_COOLDOWN_S = 1.0
+PLAN_SLOW_BASE_S, PLAN_SLOW_FACTOR = 30.0, 20.0  # follow_path 계획 시간 상한 = 30초 + 20 × 길이/속도. 넘으면 계획이 터진 것으로 보고 움직이지 않는다 (REQ-066)
 INCIDENT_COOLDOWN_S = 10.0  # 같은 이유의 사고 묶음은 이 시간 안에 다시 만들지 않는다(연달아 나는 fault·E-STOP이 묶음을 쏟아내지 않게)
 # 이벤트 종류별 기본 수준과 코드(기록 형식은 decisions/0030). 나머지는 INFO, 코드는 종류 이름 대문자
 EVENT_LEVEL = {"estop": ("WARN", "ARM-ESTOP"), "locked": ("WARN", "ARM-LOCKED"), "connect_failed": ("ERROR", "ARM-CONNECT-FAILED")}
@@ -592,6 +593,9 @@ class ArmService:
             if tr is None:
                 return [], [], "ik_fail", None
             runs = [tr]
+        for tr in runs:  # 안전망(REQ-066): 계획 시간이 말이 안 되게 길면(속도 곡선 계산이 터진 경우) 움직이지 않는다. 정상 경로는 길이/속도의 몇 배 안이다. 안전 검사(경로 전체 샘플링)보다 먼저 본다
+            if tr.duration_s > PLAN_SLOW_BASE_S + PLAN_SLOW_FACTOR * tr.length / v:
+                return [], [], "out_of_bounds", f"plan_too_slow: 계획 시간 {tr.duration_s:.3g}s (길이 {tr.length:.1f}mm, 속도 {v:.0f}mm/s)"
         for tr in pre + runs:
             if why := self.safety.check_path(tr):
                 return [], [], "out_of_bounds", why
