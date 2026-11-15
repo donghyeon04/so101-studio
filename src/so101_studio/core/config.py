@@ -100,6 +100,7 @@ class WorkspaceConfig:
     drop_zones: dict = field(default_factory=dict)
     safety_margin_mm: float = 10
     reach_mm: dict = field(default_factory=lambda: {"min": 90.0, "max": 250.0})
+    candidate_reach_margin_mm: float = 60.0  # 확인(CHECK) 전 레이더 후보를 고를 때 reach_mm 최대에 더하는 여유. 레이더 위치 오차 90%값 (REQ-065). 집는 범위는 넓히지 않는다
     drop_zone_ignore_radius_mm: float = 75.0  # 초음파가 배출 구역 둘레 이 반경 안의 후보를 무시한다. 구역 표시(80x80, 반 대각선 약 57mm) + 레이더 오차 여유 (REQ-045)
 
     @property

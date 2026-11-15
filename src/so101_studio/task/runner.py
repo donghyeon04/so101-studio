@@ -7,7 +7,7 @@ from collections.abc import Callable
 
 from ..core.events import EventBus
 from ..core.types import TaskEvent
-from .policy import choose, explain
+from .policy import choose, explain, reachable
 from .trail import PoseTrail
 
 MAX_CYCLES = 20  # 사이클 상한
@@ -171,8 +171,9 @@ class TaskRunner:
                     self._emit("DONE", result="give_up")
                     return self._end("give_up")
                 objs = [o for o in scan.objects if o.id not in dropped and o.id not in self.skipped]
-                obj = choose(objs, self.ws)
-                self._emit("DECIDE", detail_n=len(objs), scan_s=scan.duration_s, **explain(objs, self.ws, obj))
+                # 확인 전 레이더 후보는 가까운 면 쪽으로 치우쳐 실제보다 멀게 보인다: 최대 반경에 여유를 두고 고르고, 집는 범위는 CHECK 뒤 확정 위치로 다시 본다 (REQ-065)
+                obj = choose(objs, self.ws, unconfirmed=chk)
+                self._emit("DECIDE", detail_n=len(objs), scan_s=scan.duration_s, **explain(objs, self.ws, obj, unconfirmed=chk))
                 if obj is None:
                     if chk and not rescanned and self._rescan_enabled():  # 연달아 두 번은 안 한다
                         rescanned = True
@@ -195,6 +196,8 @@ class TaskRunner:
                 res, status = self._check(obj)
                 if status == "aborted":
                     return self._end("STOPPED") if self._stopped() else self._fault("check")
+                if res is not None and not reachable(res, self.ws):  # 확정 위치가 집기 범위 밖: 집지 않는다
+                    res, status = None, "unreachable"
                 self._emit("CHECK", obj.id, result=status, duration_s=time.time() - t0)
                 if res is not None:
                     obj = res
