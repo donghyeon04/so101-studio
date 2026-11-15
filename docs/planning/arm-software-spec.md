@@ -269,7 +269,7 @@ GUI·CLI가 부르는 공개 메서드 목록이다(2026-11-13 코드 대조). �
 | `move_joints` / `move_tool` | `JointState` 또는 `ToolPose`, 속도 %(생략 시 지금 속도) | `MotionResult` |
 | `point_pose` | x, y, 높이, yaw(기본 90), 좌표계(`table`/`robot`/`tool`), TCP(`tip`/`ref`), pitch(기본 −90) | `ToolPose` |
 | `preview_tool` / `preview_path` | `ToolPose`(, 속도 %, 샘플 간격) | 움직이지 않고 가능 여부·이유·관절값 / 경로 샘플 |
-| `follow_path` | 점 목록(mm), 손끝 높이, 속도 mm/s, yaw | 자세 샘플 목록. 점의 기준은 `tool_position`이다. 병렬이면 두 턱 끝 가운데(TCP, 0043-1)로 바꾼다(11-14 기획 결정, 팔 REQ, 지금 코드는 한쪽 턱 끝) |
+| `follow_path` | 점 목록(mm), 손끝 높이, 속도 mm/s, yaw | 자세 샘플 목록. 계획한 경로 시간이 비정상으로 길면(첫 구간이나 전체 길이가 1mm 이하일 때 났던 버그의 안전망, REQ-066) 움직이기 전에 `out_of_bounds`(이유 `plan_too_slow: …`)로 끝낸다. 점의 기준은 `tool_position`이다. 병렬이면 두 턱 끝 가운데(TCP, 0043-1)로 바꾼다(11-14 기획 결정, 팔 REQ, 지금 코드는 한쪽 턱 끝) |
 | `pick_and_place` | `DetectedObject`, `zone`(선택), `place_at=(x, y)`(선택) | `MotionResult`. `zone`·`place_at` 둘 다 주면 ValueError. 둘 다 없으면 집기만 한다. 놓을 점이 범위 밖이면 움직이지 않고 `out_of_bounds` |
 | `place` | `zone`과 `at=(x, y)` 가운데 정확히 하나 | `MotionResult` |
 | `set_gripper` | 값 0~100, `as_width=True`면 폭 mm | `MotionResult` |
