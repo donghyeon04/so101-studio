@@ -37,7 +37,7 @@ class PoseSample:  # 팔 50Hz 제어 틱마다 한 개
 class CheckProbe(Protocol):
     def next_segment(self) -> PathSegment | None: ...
 
-    def feed(self, poses: list[PoseSample]) -> None: ...
+    def feed(self, poses: list[PoseSample], status: str = "ok") -> None: ...  # status = follow_path 결과 상태
 
     def result(self) -> DetectedObject | None: ...  # None = 물체 없음
 

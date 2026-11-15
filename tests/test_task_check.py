@@ -28,13 +28,13 @@ def cand(i, x=300.0, y=200.0):
 
 class StubProbe:
     def __init__(self, src, c):
-        self.src, self.c, self.sent, self.fed, self.aborted = src, c, 0, [], False
+        self.src, self.c, self.sent, self.fed, self.aborted, self.statuses = src, c, 0, [], False, []
 
     def next_segment(self):
         self.sent += 1
         return PathSegment([(0.0, 0.0), (10.0, 0.0)], 55.0, 100.0) if self.sent == 1 else None
 
-    def feed(self, poses): self.fed.append(poses)
+    def feed(self, poses, status="ok"): self.fed.append(poses), self.statuses.append(status)
     def abort(self): self.aborted = True
 
     @property
@@ -163,6 +163,13 @@ def test_unreachable_segment_feeds_empty_and_goes_on():
     src, arm = StubSource([[cand(1)], []]), StubArm(status="out_of_bounds")
     run(runner(src, arm))
     assert src.probes[0].fed == [[]] and not src.probes[0].aborted
+    assert src.probes[0].statuses == ["out_of_bounds"]  # REQ-068: follow_path 결과 상태를 Probe.feed에 넘긴다
+
+
+def test_reachable_segment_feeds_ok_status():
+    src = StubSource([[cand(1)]])
+    run(runner(src))
+    assert src.probes[0].statuses == ["ok"]
 
 
 def test_stop_during_check_aborts_probe_and_ends_stopped():
