@@ -168,9 +168,10 @@ class Demo:
     """가상 ESP32와 가상 팔로 인식을 돌린다. 진짜 팔과 포트는 쓰지 않는다.
     shortcut: 작업 실행 흉내는 벤치마크의 run_cycle을 빌려 쓴다, REQ-025와 #73이 합쳐지면 Studio.bus의 이벤트를 받는 것으로 바꾼다."""
 
-    def __init__(self, speed: float = DEMO_SPEED):
+    def __init__(self, speed: float = DEMO_SPEED, gripper: str | None = None):
         self.log = UltrasonicLog()
         self.speed = speed
+        self.gripper = gripper  # 그리퍼별 check.tool_reach(#390): 병렬 팔이면 병렬 도달 범위로 그린다
         self.error: str | None = None
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
@@ -207,7 +208,7 @@ class Demo:
 
     def _run(self, boxes: list[Box], calibrate_only: bool) -> None:
         try:
-            cfg, clk, esp, arm = benchmark.build(list(boxes))
+            cfg, clk, esp, arm = benchmark.build(list(boxes), gripper=self.gripper)
             clk.sleep = self._paced(clk)
             bus = EventBus()
             self.log.attach(bus)
@@ -230,7 +231,7 @@ _demos: WeakKeyDictionary = WeakKeyDictionary()
 
 
 def demo_of(backend) -> Demo:
-    return _demos.setdefault(backend, Demo())
+    return _demos.setdefault(backend, Demo(gripper=getattr(getattr(backend.arm, "cfg", None), "gripper", None)))
 
 
 def demo_boxes(backend) -> list[Box]:
