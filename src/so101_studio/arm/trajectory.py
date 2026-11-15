@@ -295,6 +295,8 @@ def fillet_path(P: list[np.ndarray], a_eff: float, step_mm: float = 2.0, tol_mm:
                     pts.append(center + r * (-nrm * math.cos(th) + unit[i] * math.sin(th)))
                 arcs.append((s_start, v, r * phi / 2))
                 vert_idx.append(s_start + m // 2)
+            elif math.isinf(v):  # 정확히 일직선인 꼭짓점(junction_arcs의 inf): 서지 않고 지나간다. 경로 점은 그대로, 속도 상한만 두지 않는다
+                vert_idx.append(len(pts) - 1)
             else:  # 되돌아가는 꺾임: 그 점에서 선다
                 if not np.allclose(pts[-1], P[i + 1]):
                     pts.append(P[i + 1].copy())
