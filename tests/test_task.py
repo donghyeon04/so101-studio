@@ -86,6 +86,9 @@ def test_policy_skips_unreachable_and_prefers_the_nearest():
     assert reachable(near, WS) and not reachable(out, WS)
     assert choose([far, out, near], WS).id == "obj-1"
     assert choose([out], WS) is None
+    edge = obj(4, 300, 330)  # 반경 280: 집기 범위(250) 밖, 확인 전 후보 여유(+60) 안 (REQ-065)
+    assert not reachable(edge, WS) and reachable(edge, WS, unconfirmed=True) and choose([edge], WS, unconfirmed=True).id == "obj-4"
+    assert not reachable(obj(5, 300, 100), WS, unconfirmed=True)  # 최소 반경(90) 쪽은 넓히지 않는다
 
 
 # ---- S2: state machine (fast, stubbed arm)
