@@ -1,6 +1,6 @@
 # MuJoCo 물리 시뮬레이션·시험장 설계서
 
-상태: 확정 · 2026-11-14 (`arm-software-spec.md` 13절에서 옮김. 13.1~13.9는 M1~M4로 구현됨, 13.10 시험장 계획은 결정 0062. 2026-11-14 drift-report(main fcdcb0f, #348~#357) 반영: 13.9 병렬·뷰어, 13.10 M5 판정·시험장 기준 설정. 2026-11-15 총괄 밤 보고 반영: 시나리오는 그리퍼별, M5 설계 입력, M5b 시계 주입 계획)
+상태: 확정 · 2026-11-14 (`arm-software-spec.md` 13절에서 옮김. 13.1~13.9는 M1~M4로 구현됨, 13.10 시험장 계획은 결정 0062. 2026-11-14 drift-report(main fcdcb0f, #348~#357) 반영: 13.9 병렬·뷰어, 13.10 M5 판정·시험장 기준 설정. 2026-11-15 총괄 밤 보고 반영: 시나리오는 그리퍼별, M5 설계 입력, M5b 시계 주입 계획. 2026-11-16 M5·M5b 첫 단계·M6 세부 설계 13.10.1~13.10.3(초안, EGM Stage 9 전))
 
 로컬 세션이 MuJoCo 드라이버(M1~M4)와 시험장(M5~M9)을 구현하는 기준이다. 절 번호는 옮기기 전과 같다(13.x). 팔 쪽 기본 규약(타입, `ArmService`, 안전, 집기·놓기)은 `arm-software-spec.md`, GUI 쪽은 `gui-spec.md` 12.8이다. 근거 결정: 0053(MuJoCoDriver), 0062(시험장), 0037(주제마다 도구 하나).
 
@@ -265,7 +265,7 @@
 - **실행기 B (나중, 강화학습)**: 같은 공통 층의 Gymnasium 환경을 시뮬레이션 시간으로 빠르게 돌린다. 행동은 관절 또는 손끝 변화량이다. 학습 틀은 새로 만들지 않고 가져온다(후보 so101-nexus·mjlab, 평가 뒤 정함).
 - 초음파 성능은 지금처럼 초음파 벤치마크(`ultrasonic-spec.md` 8.5)가 맡는다. 벤치마크에 MuJoCo 엔진 옵션을 더하는 것이지 두 번째 도구가 아니다. 팔 도달 범위도 지금 도달 계산 그대로다.
 
-**M5 세부 설계 입력**(2026-11-15 MuJoCo 세션 메모, 설계 때 확인하고 지운다): ① 지금 시험은 덮어쓰기를 임시 `local.yaml`(`gripper: parallel` 한 줄, `load_robot(local_path=)`)로 한다. 팔 파일이 둘이 되면 팔도 지정해야 한다. ② 손목 부품은 임시 `scene.yaml`에 절대경로 `file`로 적어 `load_scene` → `make_sim_driver(cfg, ws, scene, scenario=)`로 넘긴다(상대경로는 yaml의 부모의 부모 기준). `ArmService`는 init에서 스스로 `load_scene()`(`config/scene.yaml`)을 읽어 계획 쪽 충돌 검사(`collision.set_scene`)에 쓰므로, 드라이버에만 넘긴 장면과는 별개다(#375 확인: 병렬 시험에서 드라이버 장면에는 손목 부품 둘이 있지만 `svc.scene`은 `radar_station`뿐이고 붙은 부품 목록은 비어 있다). 즉 지금 시험은 MuJoCo 물리에는 손목 부품이 실리지만 계획 쪽 충돌 검사는 보지 않는다. 시험장 기준 설정은 두 쪽이 같은 Scene을 보게 해야 한다(`svc.scene = sc; svc.collision.set_scene(sc, ws)`처럼. CLI `--sim-engine mujoco`는 `load_scene()`을 둘 다에 써서 같다). 맞추는 방법(ArmService에 scene 인자를 더할지 포함)은 M5 세부 설계에서 정한다. ③ 손목 부품 둘은 한 쌍으로만 온다(하나면 ValueError, 단동식이면 `SIM-PART-SKIPPED`). ④ 시험 하나가 연결부터 새로 해 실시간 20~27초다. ⑤ 병렬 carry 58mm의 미끄러짐이 실행마다 0.8~10mm로 갈린다(30·45mm는 0.7~1.4mm). 실시간 지터인지 물리 편차인지 못 갈랐고, 그래서 미끄러짐은 `measure` 시험(임시 4.0mm)으로 분리했다(#370). 미끄러짐 기준과 조임 힘(kp·forcerange)은 실물 2-10 뒤에 정한다(U15). 결정 스텝(M5b 첫 단계)으로 돌리면 지터인지 갈린다.
+**M5 세부 설계 입력**(2026-11-15 MuJoCo 세션 메모. 13.10.1~13.10.3에 반영했고, Stage 9가 끝나면 이 문단을 지운다): ① 지금 시험은 덮어쓰기를 임시 `local.yaml`(`gripper: parallel` 한 줄, `load_robot(local_path=)`)로 한다. 팔 파일이 둘이 되면 팔도 지정해야 한다. ② 손목 부품은 임시 `scene.yaml`에 절대경로 `file`로 적어 `load_scene` → `make_sim_driver(cfg, ws, scene, scenario=)`로 넘긴다(상대경로는 yaml의 부모의 부모 기준). `ArmService`는 init에서 스스로 `load_scene()`(`config/scene.yaml`)을 읽어 계획 쪽 충돌 검사(`collision.set_scene`)에 쓰므로, 드라이버에만 넘긴 장면과는 별개다(#375 확인: 병렬 시험에서 드라이버 장면에는 손목 부품 둘이 있지만 `svc.scene`은 `radar_station`뿐이고 붙은 부품 목록은 비어 있다). 즉 지금 시험은 MuJoCo 물리에는 손목 부품이 실리지만 계획 쪽 충돌 검사는 보지 않는다. 시험장 기준 설정은 두 쪽이 같은 Scene을 보게 해야 한다(`svc.scene = sc; svc.collision.set_scene(sc, ws)`처럼. CLI `--sim-engine mujoco`는 `load_scene()`을 둘 다에 써서 같다). 맞추는 방법(ArmService에 scene 인자를 더할지 포함)은 M5 세부 설계에서 정한다. ③ 손목 부품 둘은 한 쌍으로만 온다(하나면 ValueError, 단동식이면 `SIM-PART-SKIPPED`). ④ 시험 하나가 연결부터 새로 해 실시간 20~27초다. ⑤ 병렬 carry 58mm의 미끄러짐이 실행마다 0.8~10mm로 갈린다(30·45mm는 0.7~1.4mm). 실시간 지터인지 물리 편차인지 못 갈랐고, 그래서 미끄러짐은 `measure` 시험(임시 4.0mm)으로 분리했다(#370). 미끄러짐 기준과 조임 힘(kp·forcerange)은 실물 2-10 뒤에 정한다(U15). 결정 스텝(M5b 첫 단계)으로 돌리면 지터인지 갈린다.
 
 **시험장 기준 설정**(2026-11-14, drift-report 4번): 코드 기본값은 로보나인 교체(U5) 전까지 단동식이고(`gripper` 기본 `single_jaw`), 손목 브래킷·센서 부품은 `config/scene.yaml`에서 주석이며, `wrist_sonar` site는 병렬일 때만 생긴다. 그래서 M5·M6는 13.7 공통 cfg를 그대로 쓰지 않고 아래 기준 설정으로 돈다.
 - cfg = `config/robot.yaml` + `config/arms/so101_follower_01.yaml` + **시험장 덮어쓰기(`gripper: parallel`)**. PC의 `config/local.yaml`은 읽지 않는다(PC마다 결과가 달라지지 않게). 지금 `tests/test_mujoco_parallel.py`가 임시 `local.yaml`로 하는 것과 같은 방식이다.
@@ -295,3 +295,121 @@
 - **실물과의 차이**: 성공률 숫자는 "시뮬레이션 기준"으로만 쓰고, 실물 결과가 있으면 실물을 따른다(0037).
 - **PC**: 지금 단계(M4b·M5·M6)는 노트북(CPU)으로 된다. M5b 대량 시험(수백 회)은 코어가 많은 데스크탑(RTX 5070 Ti PC)에서 병렬 프로세스로 돌린다. M9 강화학습의 GPU 병렬(MJX·MuJoCo Warp)은 NVIDIA GPU가 필요하고, JAX GPU는 리눅스(Windows는 WSL2)에서 돈다. 그래서 데스크탑이 필요한 시점은 M5b 대량 시험과 M9다.
 - **마감**: 12/4까지는 M7a(끝) → M4b(끝) → M5·M6 → (여유가 있으면) M5b·M5c 순서다(결정 0063). 11/30부터 새 기능은 멈춘다. M8은 여유가 있을 때, M9는 12/4 뒤다.
+
+#### 13.10.1 M5 집기 시험장 세부 설계 (2026-11-16 초안, EGM Stage 9 전 — 구현은 Stage 9 뒤 REQ로)
+**무엇을 답하나**: 로보나인 손으로 어떤 크기·자리·각도의 물체를 집어 옮길 수 있는가, 그리고 **팔이 보고한 결과와 물리에서 실제로 일어난 일이 같은가**(기구학 엔진은 뒤쪽을 볼 수 없다).
+
+**파일**(모두 MuJoCo 세션 영역)
+| 파일 | 내용 |
+|---|---|
+| `arm/mujoco_bench.py` | 공통 층(세계 짓기·판정·기록)과 실행기 A. 실행: `python -m so101_studio.arm.mujoco_bench --suite <이름> [--seeds N] [--gripper parallel\|single_jaw] [--jobs N] [--only <에피소드 id>]` |
+| `config/sim_scenarios/bench/robot.yaml` | 시험장 덮어쓰기. 지금 내용은 `gripper: parallel` 한 줄. `load_robot("config/robot.yaml", arm="so101_follower_01", local_path=이 파일)`로 읽어 PC의 `local.yaml`을 대신한다. U5 뒤 팔 파일 기본값이 `parallel`이 되면 빈 파일이 된다 |
+| `config/sim_scenarios/bench/<suite>.yaml` | 묶음 정의(아래). 폴더가 달라 13.5의 시나리오 목록에는 섞이지 않는다 |
+| `tests/test_mujoco_bench.py` | 아래 완료 기준 |
+
+**장면을 하나로**(M5 설계 입력 ② 해결, 팔 REQ 하나): 손목 부품을 시험장만의 임시 `scene.yaml`로 켜면 드라이버(물리)와 `ArmService`(계획 쪽 충돌 검사)가 서로 다른 장면을 본다. 그래서 장면 파일은 `config/scene.yaml` 하나만 쓰고, 부품에 선택 키 **`gripper: parallel|single_jaw`**(없으면 늘 씀)를 더한다. 그 키가 지금 cfg의 그리퍼와 다르면 `load_scene`을 쓰는 쪽(GUI 3D·충돌 검사·드라이버)이 모두 그 부품을 건너뛴다. 손목 부품 둘(`wrist_hcsr04`, `wrist_bracket`)은 주석을 풀고 `gripper: parallel`을 단다. 그러면 시험장은 `load_scene()`을 드라이버에 넘기기만 하면 되고 `ArmService`가 스스로 읽는 장면과 같아진다. 하드웨어 반영(H-2·H-3)의 작업대·레이더 부품도 같은 파일에 들어가므로 시험장 쪽은 고칠 것이 없다. `core/scene.py`·`config/scene.yaml`은 팔 영역이라 REQ로 낸다(걸러 읽는 자리와 `Scene`에 그리퍼를 넘기는 방법은 팔 세션이 정하고 PR에 적는다).
+
+**에피소드**: 한 시도 = 한 에피소드이고 서로 아무것도 나누지 않는다.
+1. 묶음에서 물체 참값과 "팔에게 알려 주는 값"을 만든다(씨앗 고정).
+2. `make_sim_driver(cfg, ws, load_scene(), scenario=임시 시나리오)` → 새 `ArmService(driver, cfg, ws, log_root=에피소드 폴더)` → `connect()`.
+3. `svc.pick_and_place(obj, zone 또는 place_at)`. 그동안 `sim_state()`를 50Hz로 읽는다(13.7과 같은 방법).
+4. 끝나고 1.0초 뒤 판정하고 `disconnect()`.
+- M5b 첫 단계(13.10.2) 전에는 실시간 모드로 돈다(에피소드 20~27초). 그 뒤에는 `realtime=False` + `StepClock`으로 바꾼다. 바뀌는 것은 드라이버·시계를 만드는 한 곳뿐이게 짠다.
+- 겉모양은 Gymnasium 꼴로 둔다: `BenchEnv.reset(seed=, options=)`가 세계를 새로 짓고 관측(관절, 물체 참값, 알려 준 값)을 돌려준다. `step`은 실행기 B(M9) 몫이라 M5에서는 만들지 않는다. 실행기 A는 `reset` 뒤 위 3~4를 부르는 함수 하나다.
+
+**묶음 정의**(YAML)
+```yaml
+name: pick_grid
+objects:                      # 물체 한 개짜리 격자. 곱집합으로 에피소드를 만든다
+  size_mm: [[30, 30, 40], [58, 58, 39], [100, 30, 40], [80, 40, 40], [50, 50, 40]]   # [길이, 폭, 높이]
+  radius_mm: [120, 150, 180, 210, 240]     # 팔 원점에서
+  bearing_deg: [-40, 0, 40]                # 팔 정면 기준
+  angle_deg: [0, 45, 90]
+place: {zone: right}                       # 또는 {at: [x, y]}
+given: {}                                  # 팔에게 알려 주는 값의 어긋남(아래 실패 주입). 비면 참값 그대로
+jitter: {xy_mm: 0, angle_deg: 0}           # 씨앗마다 자리·각도를 흔드는 폭. 0이면 격자 그대로(씨앗 1개면 충분)
+```
+- 고정 묶음(결정 0037, 설계서·`measurements.md`에 적는 숫자는 이것만): `pick_grid`(위, 225 에피소드), `inject_grid`(아래), `pick_smoke`(12 에피소드, 시험용).
+- 물체 여러 개(배출 구역 겹침·폴백, 남은 물체 피하기)는 `objects`를 목록으로 주는 둘째 형식으로 M5 안에서 이어서 더한다(`multi3`: 13.5의 기본 물체 셋). 첫 PR은 한 개짜리만이다.
+
+**판정**: 에피소드마다 "보고"와 "물리"를 따로 적고 둘을 맞춰 본다.
+| 값 | 정의 |
+|---|---|
+| `reported` | `pick_and_place` 결과의 `status`와 `reason` 그대로(`ok`, `no_object`, `ik_fail`, `stopped(blocked …)`, `drop_zone_full` 등) |
+| `picked` | 물체가 `held`이면서 바닥 높이 `z_mm` > 5인 표본이 한 번이라도 있다 |
+| `placed` | 끝나고 1.0초 뒤 물체 바닥 가운데가 놓으려던 점에서 수평 `place_tol_mm`(10) 안이고 `tilt_deg` < 10 |
+| `outcome` | 아래에서 처음 맞는 것 하나: `sim_fail`(물리 실패) → `rejected`(움직이기 전 거부) → `placed_ok`(`placed`) → `dropped`(`picked`였는데 `placed` 아님) → `toppled`(끝에 `tilt_deg` ≥ 10) → `pushed`(안 집혔고 처음 자리에서 10mm 넘게 밀림) → `untouched` |
+| `agree` | 보고가 `ok`인데 `outcome`이 `placed_ok`가 아니면 **거짓 성공**, 보고가 `ok`가 아닌데 `placed_ok`면 거짓 실패, 나머지는 일치 |
+| 재는 값 | 미끄러짐 mm(13.7 (b)의 정의), 놓은 자리 오차 mm, 끝 기울기, 다른 물체가 밀린 거리, 이벤트 건수(`ARM-BLOCKED`, `ARM-GRIP-OVERLOAD*`, `ARM-FAULT`, `ARM-CARRY-LOW`, `ARM-OPENING-PATH-FALLBACK`), 시뮬레이션 시간, 벽시계 시간, `dropped_count` |
+- 미끄러짐은 값만 적고 실패로 치지 않는다(기준과 조임 힘은 U15: 실물 2-10과 13.10.2의 결정 스텝 결과 뒤).
+- 실시간 모드에서 `dropped_count` > 0인 에피소드는 `jitter` 표시를 달고 요약 표에서 따로 센다.
+
+**실패 주입**(병렬 손의 topedge 대응, U14): 병렬 손은 높이를 잘못 알아도 윗모서리를 치지 않는다. 대신 **자리가 어긋나면 클램프가 물체 윗면에 내려앉는다.** `given`으로 팔에게 알려 주는 값을 참값에서 어긋나게 한다: `pos_offset_mm: [벌림 축, 그 수직]`, `width_error_mm`, `height_error_mm`, `angle_error_deg`.
+- 고정 묶음 `inject_grid`: 58×58×39 상자, 자리 셋(정면 150·225mm, 방위 40° 180mm) × 벌림 축 어긋남 {0, 5, 10, 15, 20}mm × 높이 오차 {−20, 0, +20}mm.
+- 보는 것: 어긋남이 (G − W)/2를 넘는 칸에서 **거짓 성공이 0건**인가(막힘 감지나 `no_object`로 끝나야 한다), 물체가 쓰러지지 않는가. 넘지 않는 칸은 `placed_ok`여야 한다. G는 그 에피소드의 시작 벌림(이벤트 기록에서 읽는다).
+- 결과는 표로 보고하고, 거짓 성공이 나오면 [기획 요청]으로 올린다(막힘 문턱 `sim_blocked`나 알고리즘의 문제인지 가른다).
+
+**기록**: `runs/bench-mujoco/<시각>-<커밋 7자>/`에 `results.jsonl`(에피소드마다 한 줄: 묶음, 에피소드 id, 씨앗, 그리퍼, 켠 장면 부품, 물체 참값, 알려 준 값, 위 판정 값 전부), `summary.json`, `summary.md`(크기 × 반경 성공률 표, `outcome`별 건수, 거짓 성공·거짓 실패 목록), 에피소드별 `events.jsonl`·`status.jsonl`(ArmService가 남기는 그대로). 실패 영상은 모델에 카메라가 들어간 뒤(H-3) `--video failed`로 더한다.
+
+**나란히 돌리기**: `--jobs N`은 프로세스 N개다. 실시간 모드에서는 서로 CPU를 빼앗아 물리가 밀리므로 N은 물리 코어 수의 절반까지로 하고 `jitter` 건수를 본다. `pick_grid` 225개는 실시간 4개로 약 25분이다.
+
+**완료 기준**(`tests/test_mujoco_bench.py`, 실시간이라 `slow`)
+1. `pick_smoke`가 끝까지 돌고 `results.jsonl`이 12줄, 줄마다 위 값이 다 있다.
+2. 같은 묶음·씨앗이면 물체 참값과 알려 준 값이 두 번 돌려도 같다(세계가 씨앗으로 정해진다. 결과까지 같은 것은 13.10.2 뒤에 본다).
+3. 한 에피소드의 `ArmService`가 다음 에피소드에 넘어가지 않는다(둘째 에피소드의 `Skills`에 놓은 자리·남은 물체 기억이 없다).
+4. 덮어쓰기 `gripper: parallel`에서 드라이버 장면 부품과 `svc.scene` 부품 이름이 같고 손목 부품 둘이 들어 있다. `single_jaw`에서는 둘 다 없다.
+5. 실패 주입 한 칸: 58 상자, 정면 180mm, 벌림 축 어긋남 = (G − W)/2 + 8mm → 클램프(`clamp_right` 또는 `clamp_left`)와 물체의 접촉 가운데 `z_mm`가 물체 높이 ±5mm인 것이 한 번 이상 나오고 `outcome`이 `placed_ok`가 아니다.
+6. 손으로 한 번: `pick_grid` 전체 결과의 `summary.md` 표를 `measurements.md`에 커밋·묶음 이름과 함께 남긴다.
+
+**공유 파일**: 팔 영역은 위 장면 부품 `gripper` 키 하나뿐이다(REQ). `ArmService`·`Skills`는 고치지 않는다.
+
+#### 13.10.2 M5b 첫 단계: 시계 주입 (2026-11-16 초안, EGM Stage 9 전)
+**왜**: 제어가 벽시계에 묶여 있어(`arm/motion.py`·`arm/skills.py`·`service/arm_service.py`의 `perf_counter`·`sleep` 약 47곳) `ArmService` 위 시험과 시험장이 실시간보다 빨라지지 못하고, 부하에 따라 결과가 흔들린다(병렬 58mm 미끄러짐 0.8~10mm).
+
+**설계**
+- `core/clock.py`(팔 영역): `Clock` 규약은 `now() -> float`(단조 초)와 `sleep(seconds)` 둘이다. `WallClock`은 `time.perf_counter`·`time.sleep`을 그대로 부른다.
+- `MotionController`, `Skills`, `ArmService`는 선택 인자 `clock`(기본 `WallClock()`)을 받고, 제어 시간에는 `time` 모듈을 직접 부르지 않는다. `ArmService`가 받은 시계를 아래 둘에 넘긴다. **기본값에서는 동작이 지금과 같다**(실제 팔, `SimDriver`, 실시간 MuJoCo, GUI).
+- 기록 시각(`time_ns`, 이벤트·상태 줄의 t)은 벽시계 그대로다. 단 `follow_path`가 돌려주는 `PoseSample.t_ns`는 받은 시계로 찍는다(13.10.3에서 가상 ESP32와 같은 시계로 맞추기 위해).
+- `StepClock(driver)`(`arm/mujoco_clock.py`, MuJoCo 영역): `now()`는 드라이버의 시뮬레이션 시간이다. **시간을 흘리는 것은 제어 틱 스레드 하나뿐이다**: 틱 스레드의 `sleep(s)`는 `driver.advance(s)`를 부른다. 다른 스레드(`ArmService`를 부른 쪽, `Skills`의 기다림)의 `sleep(s)`는 시뮬레이션 시간이 그만큼 흐를 때까지 기다리기만 한다(조건 변수. 벽시계 5초 동안 시간이 안 흐르면 `RuntimeError`로 끝낸다: 틱 스레드가 죽었을 때 시험이 매달리지 않게). 틱 루프는 동작이 없을 때도 주기마다 돌므로 쉬는 구간에도 시간이 흐른다.
+- 상태 루프(10Hz)는 `StepClock`일 때 자기 스레드를 띄우지 않고 틱 스레드가 `control_hz / 10`틱마다 직접 부른다. 벽시계에서는 지금 그대로다.
+- `StepClock`은 `MuJoCoDriver(realtime=False)`와만 쓴다. 뷰어·GUI·감시 프로세스와는 쓰지 않는다(만들 때 검사해 `ValueError`). 13.3에는 "`realtime=False`는 `advance`로만 시간이 흐른다. `StepClock`이 그 `advance`를 부르는 시험·시험장 전용 경로다"를 더한다.
+
+**같은 시계를 써야 하는 감시**(구현 PR이 하나씩 확인해 표로 남긴다): 막힘 감지(연속 2회, 횟수 기준이라 그대로), 그리퍼 부하 60% 1초·관절 부하 90% 3초, 과열 3회 연속, 접촉 판단의 기다림, 놓은 뒤 기다림, 동작 시간 초과. 벽시계로 남는 것: 기록 시각, 기록 스레드, 감시 프로세스 heartbeat, 교시 기록(`record`).
+
+**완료 기준**
+1. 기본 시계에서 빠른 묶음 전체가 그대로 통과한다. 세 파일에 제어 시간을 `time` 모듈로 직접 부르는 곳이 남지 않았는지 보는 시험이 있다(허용 목록: 기록 시각).
+2. `carry45`를 `realtime=False` + `StepClock`으로 돌리면 13.7 (b) 기준을 통과하고, 벽시계로 실시간 모드의 1/5 이하다(목표. 못 미치면 측정값과 막는 곳을 보고).
+3. 같은 씨앗을 두 번 돌리면 `results.jsonl`의 판정 값이 같고 미끄러짐·놓은 자리 오차가 0.01mm 안에서 같다.
+4. `carry58`을 14번 돌린 미끄러짐 분포를 `measurements.md`에 남긴다. 한 값으로 모이면 그동안의 흔들림은 실시간 지터였고, 그래도 갈리면 물리(접촉) 편차다. U15의 입력이다.
+- 스레드를 스케줄러 하나로 모으는 완전 결정 실행과 프로세스 병렬 대량 시험은 이 단계 뒤(M5b 둘째 단계)다.
+
+**공유 파일**: 팔 영역 셋(`arm/motion.py`, `arm/skills.py`, `service/arm_service.py`)과 `core/clock.py`. 인자가 늘어나는 변경이라 팔 세션이 구현하고, `StepClock`과 시험은 MuJoCo 세션이 한다. 순서는 총괄이 정한다.
+
+#### 13.10.3 M6 초음파를 MuJoCo에 세부 설계 (2026-11-16 초안, EGM Stage 9 전)
+**무엇을 답하나**: 실제 브래킷·손·팔 형상에서 초음파 인식이 도는가. 지금 벤치마크의 가상 ESP32는 상자 목록과 수식으로 거리를 만들어, 빔이 자기 클램프나 팔에 걸리는 것, 레이더가 실제 팔 형상에 가리는 것, 인식한 자리로 **물리에서 실제로 집히는지**를 볼 수 없다.
+
+**도구는 하나**(결정 0037): 새 도구가 아니라 초음파 벤치마크(`ultrasonic-spec.md` 8.5)에 `--engine analytic|mujoco`(기본 `analytic`) 옵션을 더한다. 레이더·확인·작업 실행 코드는 실제 코드 그대로다.
+
+**순서 조건**: 13.10.2(시계 주입) 뒤에 한다. 가상 ESP32의 시계(`SimClock`)와 `MuJoCoDriver`의 시간이 하나여야 팔 자세 샘플과 센서 측정의 시각이 맞는다. `--engine mujoco`에서는 가상 ESP32가 `StepClock`과 같은 시뮬레이션 시간을 쓴다.
+
+**설계**
+- `arm/mujoco_sonar.py`(MuJoCo 영역) `SonarRays(driver)`: `range_mm(origin_mm, axis, half_angle_deg, max_mm, n_rays=19) -> float | None`. 원뿔 안에 광선을 고르게 쏘고(`mj_multiRay`, 드라이버 잠금 안에서) 가장 가까운 거리를 낸다(첫 메아리). 센서 자기 몸(센서 부품 geom)은 뺀다. 잡음·응답 없음·면 각도 한계는 `perception/ultrasonic/model.py`의 지금 모델 함수를 그대로 쓴다(값을 두 곳에 두지 않는다). 면 각도에 필요한 법선은 맞은 geom이 상자면 맞은 면에서 구한다(법선을 주는 광선 API가 MuJoCo 4.0에 있는지는 구현 때 문서로 확인하고 PR에 적는다).
+- 가상 ESP32의 거리 계산을 갈아 끼울 수 있게 한다(초음파 영역 REQ): 지금 수식 계산을 기본 "거리 제공자"로 두고, `--engine mujoco`면 `SonarRays`를 쓰는 제공자를 넣는다. 규약은 `radar(angle_deg) -> mm | None`, `arm() -> mm | None` 둘이다. 인식 모듈이 MuJoCo를 import하지 않게 제공자는 벤치마크가 만들어 넘긴다.
+- 손목 센서: 원점·축은 모델의 `wrist_sonar` site다(CAD 값, x 0.0). 인식 쪽은 지금처럼 `arm_sensor_offset_mm`(x 0.6)을 쓴다. **맞추지 않는다**: 0.6mm 차이는 실물의 조립 오차 구실을 하고, MuJoCo 엔진에서 A0 절차(10mm 막대 십자 확인)를 돌려 오프셋이 site 값으로 고쳐지는지로 A0 절차 자체를 시험한다.
+- 레이더: 모델에 관절을 더하지 않는다. `radar.station_mm`·`radar.height_mm`·명령 각도로 센서 원점과 축을 계산해 광선을 쏜다(서보 지연 모델은 지금 것 그대로). 레이더 받침 형상은 장면 부품이다(H-3).
+- 바닥: 광선이 맞을 판이 있어야 한다. H-3 전에는 `table_mm` 크기의 얇은 상자를 시험장이 임시로 놓는다.
+- 물체: 벤치마크 시나리오의 상자를 MuJoCo 물체로 놓고(13.5의 겹침 검사 그대로), 판정의 참값은 **그 순간의 `sim_state()`**에서 읽는다(팔이 밀면 참값도 움직인다).
+- 집기까지: `--engine mujoco --with-pick`이면 확인 뒤 `pick_and_place`를 물리로 돌리고 13.10.1의 판정(`placed_ok` 등)을 같은 결과 줄에 붙인다. 벤치마크의 "성공"(위치 15mm·방향) 정의는 그대로 두고 "물리로 놓임" 열을 더한다.
+
+**완료 기준**
+1. 정적 대조: 빈 판 위와 40mm 상자 위에서 손목 자세 20개의 `SonarRays` 거리가 수식 모델과 3mm 안이다(잡음을 끈 채).
+2. 빈 판에서 레이더 한 바퀴가 수식 모델의 기준값과 각도마다 3mm 안이다(판 밖을 보는 각도는 둘 다 응답 없음).
+3. 팔 가림: `radar_clear` 자세와 판 위로 뻗은 자세에서 레이더가 팔을 보는 각도 목록을 내고, 5절 "팔 지우기"가 그 각도를 모두 덮는지 본다(덮지 못하는 각도가 있으면 [기획 요청]).
+4. 자기 간섭: 확인 높이 55mm, 그리퍼 닫힘·최대 벌림에서 손목 빔에 클램프·브래킷이 걸리는 자세가 있는지(M7a는 정적 CAD 평가였다).
+5. `single` 씨앗 20을 `--engine mujoco`로 돌린 성공률을 수식 엔진의 병렬 실제 기구학 값과 나란히 보고한다. 10%p 넘게 다르면 원인(빔 모델, 가림, 물체 밀림)을 적는다. 이 값은 총괄이 다시 돌린 뒤 `ultrasonic-spec.md` 1절에 "MuJoCo 엔진" 줄로 적는다.
+6. `demo` 씨앗 5를 `--with-pick`으로 끝(`DONE`)까지 돌려 "물리로 놓임" 수를 낸다.
+
+**공유 파일**: 초음파 영역(`fake_esp32.py`의 거리 제공자, `benchmark.py`의 `--engine`)은 초음파 세션, `arm/mujoco_sonar.py`와 시험은 MuJoCo 세션이다.
+
+**세 단계의 순서와 일정**: 13.10.1(M5, 실시간으로 바로 시작) → 13.10.2(시계 주입) → 13.10.3(M6). 하드웨어 반영 H-3(새 작업대·받침·카메라)은 어느 단계에서든 `config/scene.yaml`과 모델만 바꾸면 되고, 그 뒤 고정 묶음을 다시 돌려 표를 갱신한다. 11/30 동결 전에 M5와 시계 주입까지를 목표로 하고, M6는 초음파 실물(B1~I1)과 겹치면 실물이 먼저다(결정 0062-4).
+
