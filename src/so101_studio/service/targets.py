@@ -43,10 +43,7 @@ def from_table(x: float, y: float, frame: str, base: frames.Pose2D) -> tuple[flo
 def tip_vector(kin, pitch_deg: float, yaw_deg: float, gripper: float, tcp: str) -> np.ndarray:
     """ref 점에서 끝점까지의 벡터(작업대 좌표계 mm). tcp가 ref면 0.
     tip: 단동식은 고정 턱 끝, 병렬은 두 턱 끝 가운데(TCP, 결정 0043-1: 벌림에 따라 움직이지 않는다)."""
-    if tcp == "ref":
-        return np.zeros(3)
-    f, m = kin.jaw_tip_offsets(pitch_deg, yaw_deg, gripper)
-    return (np.asarray(f, float) + np.asarray(m, float)) / 2 if kin.gripper.name == "parallel" else np.asarray(f, float)
+    return np.zeros(3) if tcp == "ref" else kin.tcp_offset(pitch_deg, yaw_deg, gripper)
 
 
 def point_to_pose(x: float, y: float, h: float, yaw: float, frame: str, base: frames.Pose2D, table_z: float = 0.0,

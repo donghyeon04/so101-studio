@@ -81,6 +81,8 @@ def test_parallel_sensor_position_does_not_move_with_the_jaw_opening(tmp_path):
         closed, opened = replace(q, gripper=0.0), replace(q, gripper=100.0)
         assert np.allclose(s.sensor_position(closed), s.sensor_position(opened), atol=0.5)
         assert np.allclose(s.tool_position(closed), s.tool_position(opened), atol=0.5)  # 손끝도 가운데 기준(CHECK 경로 기준점 REQ)
+        assert s.arm_links(opened)[-1] == pytest.approx(s.tool_position(opened)[:2], abs=1e-6)  # 레이더가 팔 자리를 지우는 손끝 점도 같은 기준
+        assert s.arm_links(opened)[-1] == pytest.approx(s.arm_links(closed)[-1], abs=0.5)
         # follow_path·좌표 이동의 점도 같은 기준: 벌린 채 보낸 점에 tool_position이 온다
         pose = s.point_pose(300.0, 200.0, 55.0)
         assert s.tool_position(replace(s.skills._ik(pose), gripper=q.gripper))[:2] == pytest.approx((300.0, 200.0), abs=0.5)
