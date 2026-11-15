@@ -19,7 +19,7 @@
 5. **시험 시간 줄이기**(결정 0064, 11-14 승인): 총괄은 시험 포트 0·xdist·loadgroup·testmon 설정·화면 비교 마스킹, 각 세션은 `--durations=50`으로 자기 영역 느린 시험 정리(측정 시험은 `measure` 표시). 첫 전체 시험(첫날 2번)은 지금 방식으로 돌려 기준 시간을 남긴다.
 6. **하드웨어**: H1 레이더 부품, H2 OpenRB VIN, H5 작업대, H7 카메라 주문.
 7. 비교 실험(11/23~29) → 마무리(11/30~12/4, `release-checklist.md`). 11/30부터 새 기능은 멈춘다.
-- **A0·A1의 선행 조건**(11-15): REQ-066(경로 첫 구간 ≤ 1.0mm에서 이동 시간이 터지는 버그, `arm/trajectory.py`)이 닫혀 있어야 한다. 실제 `follow_path`(CHECK)가 같은 함수를 쓴다.
+- **A0·A1의 선행 조건**(11-15): REQ-066(경로 첫 구간·전체 길이 ≤ 1.0mm에서 계획 시간이 터지는 버그, `arm/trajectory.py`)이 닫혀 있어야 한다. 실제 `follow_path`(CHECK)가 같은 함수를 쓴다. **#392로 닫혔다(11-15)**: 뿌리 수정 + 안전망(`out_of_bounds`, 이유 `plan_too_slow`). 되돌리는 변경이 생기면 A0 전에 `tests/test_follow_path.py`의 REQ-066 시험을 다시 본다.
 - 11-15 기획 결정(`ultrasonic-spec.md` 1절): `check.tool_reach_mm`은 그리퍼별(단동식 60~255, 병렬 70~250), 인식 시간 기준 120초(임시). 그리퍼별 설정 PR(초음파) 뒤 총괄이 병렬 kin single·demo·demo80을 다시 돌려 inbox에 올린다.
 - **I1과 시연 배치 조건**(11-15, `ultrasonic-spec.md` 6절): 반경 120~220mm, 물체 중심 사이 120mm 이상, **모서리(가장 가까운 두 변) 사이 80mm 이상**으로 놓는다. 센서 높이 154.5mm에서는 모서리 간격이 좁으면 이웃을 합쳐 본다(따로 보이는 한계: 낙관 50mm, 비관 80mm).
 - 실물이 먼저다. 하드웨어를 기다리는 동안은 MuJoCo 시험장이 정식 작업이다(결정 0062).
@@ -37,6 +37,7 @@
 | U5 로보나인 교체 날짜 | ☐ 로보나인 부품(출력물 + 기어·로드·나사)이 다 있는지 확인 ☐ 없으면 출력·구매할 것 목록을 하드웨어 담당에게 받기 ☐ 교체할 날을 정하기(교체 1시간 + 실측 반나절, 사용자가 팔 옆에 있는 날) ☐ 그날 runbook 2-10을 연다 | 2-10, 2-2 재시험, A0 |
 | U4 OpenRB 전원·작업대 | ☐ OpenRB-150 보드의 VIN 단자에 무엇이 연결되는지 회로를 확인(12V 어댑터가 닿으면 XL330이 망가진다) ☐ 테스터로 VIN 전압을 재서 5V 근처인지 보기(전원은 5V 강압 모듈이나 USB) ☐ 결과를 총괄에게 알리기 ☐ 작업대 조립 날짜를 정하기(판 600×400, `workbench-hardware-requirements.md`) | 초음파 B1, 레이더 배선, runbook 2-A |
 | U15 병렬 손 미끄러짐 기준·조임 힘(11-15) | ☐ MuJoCo 병렬 손 58mm 상자의 들고 가기 미끄러짐이 0.8mm 근처(절반)와 2~10mm로 갈린다(30·45mm는 0.7~1.4mm, `measurements.md`). 기준(임시 4.0mm, `measure` 시험)과 kp·forcerange 잠정값을 언제 정할지. 추천: 실물 2-10 실측 뒤. 지터인지 물리 편차인지는 시계 주입(M5b) 뒤에 갈린다 | M5 판정 기준 |
+| U16 실제 CHECK에 첫 점 당기기(11-15) | ☐ 벤치마크의 `--trim-start`(첫 점이 안 닿으면 경로를 안쪽으로 당겨 시작)를 실제 CHECK는 하지 않아, 병렬 손 실제 성능이 표의 당기기 있음 열보다 낮다(demo 75 / 50% 대 93 / 70%, `ultrasonic-spec.md` 1절 두 열). 안 A: `ik_fail`이면 `Probe`가 첫 점을 2mm씩(최대 약 20mm) 당겨 다시 시도(CHECK 한정, **기획·총괄·초음파 추천**). 안 B: `follow_path` 옵션. 안 C: 넣지 않고 표를 없음 열로. 승인되면 기획이 6절·8.2를 고친 뒤 REQ가 나간다. 그 전에 구현하지 않는다 | 병렬 손 CHECK 성공률 |
 | U13 실물 팔 첫 연결(11-15) | ☐ 보드가 오는 날 정하기. 순서: 캘리브레이션 파일을 LeRobot 캐시에 복사 → `doctor` → `status` → `--speed 20 home` | 실물 시험 전부 |
 - 11-15 밤 보고와 기획 요청 원문: `planning-inbox` `inbox/2026-11-15-night-report.md`. 참고: 병렬 손 blocker 30% fault는 막힘 감지 문제가 아니라 시나리오 벽이 home→radar_clear 경로에 걸린 것이었다(MuJoCo #370, 병렬용 시나리오 추가).
 - 알려진 실패(main): `tests/test_task_check.py::test_sim_three_objects_end_to_end`. U11(#378, 벤치마크 single 95/88%·demo 98/83%, 총괄 재실행 값은 `planning-inbox` `inbox/2026-11-15-check-yaw-benchmark.md`)로는 풀리지 않았다. 원인은 시험 배치의 모서리 간격 14·35mm와 확인 전 레이더 후보의 도달 거르기이고 REQ-065(팔)로 고친다. 흔들림: `tests/gui/test_watchdog_link.py::test_refused_run_folder_turns_the_watchdog_off`(부하 때 1회, 단독 통과).
