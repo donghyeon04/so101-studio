@@ -1,7 +1,9 @@
 """REQ-063 (arm-software-spec 13.7 (a)(b), M3): MuJoCo 시나리오 시험. ArmService 위에서 실시간 모드로 돈다. mujoco가 없으면 건너뛴다."""
 import json
+import tempfile
 import threading
 import time
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -13,8 +15,15 @@ from so101_studio.core.config import load_robot, load_workspace
 from so101_studio.core.types import DetectedObject
 from so101_studio.service.arm_service import ArmService
 
-CFG = load_robot("config/robot.yaml", local_path="config/no-local.yaml")  # 13.7 공통: robot.yaml + 팔 파일, local.yaml 없이
 WS = load_workspace("config/workspace.yaml")
+def single_jaw_cfg():
+    """13.7 (a)(b)·막힘 시험은 단동식 비교 기준이다. 팔 파일 기본값이 바뀌어도(U5) 그대로 돌게 그리퍼를 명시하고, PC의 local.yaml은 읽지 않는다."""
+    p = Path(tempfile.mkdtemp()) / "local.yaml"
+    p.write_text("gripper: single_jaw" + chr(10), encoding="utf-8")
+    return load_robot("config/robot.yaml", local_path=str(p))
+
+
+CFG = single_jaw_cfg()
 JAWS = {"jaw_fixed", "jaw_moving"}
 
 
@@ -68,7 +77,7 @@ def test_topedge_reproduces_the_top_edge_hit(tmp_path):
     r, samples, end = topedge_pick(tmp_path, 15)
     top_hits = [c for st in samples for c in st["contacts"] if {c["a"], c["b"]} & JAWS and "obj:box58" in (c["a"], c["b"]) and 34 <= c["pos_mm"][2] <= 44]
     # 판정은 윗면 접촉 하나(13.7 (a), 2026-11-13). 쥐는지는 판정하지 않고 출력만(실물 재시험에서 같은 배치로 확인)
-    print(f"topedge: status {r.status}, held {end['held']}, tilt {end['objects']['box58']['tilt_deg']:.1f}°")
+    print(f"topedge(단동식, gripper {CFG.gripper}): status {r.status}, held {end['held']}, tilt {end['objects']['box58']['tilt_deg']:.1f}°")
     assert top_hits, f"턱-윗면 접촉이 없다 (status {r.status})"
 
 
@@ -106,7 +115,7 @@ def test_carry_does_not_slip_and_lands_on_target(tmp_path, size):
         ev = events(svc)
         warns = [e for e in ev if e.get("code") in ("ARM-GRIP-OVERLOAD-WARN", "ARM-GRIP-OVERLOAD")]
         probes = [e for e in ev if e.get("code") == "ARM-LOAD-PROBE"]
-        print(f"size {size}: 미끄러짐 최대 {worst_slip:.2f}mm, 놓은 자리 차이 {miss:.2f}mm, 기울기 {o['tilt_deg']:.1f}°, 최대 부하 {s.max_load:.0f}%, OVERLOAD 경고 {len(warns)}건, ARM-LOAD-PROBE {len(probes)}건")
+        print(f"carry{size}(gripper {CFG.gripper}) size {size}: 미끄러짐 최대 {worst_slip:.2f}mm, 놓은 자리 차이 {miss:.2f}mm, 기울기 {o['tilt_deg']:.1f}°, 최대 부하 {s.max_load:.0f}%, OVERLOAD 경고 {len(warns)}건, ARM-LOAD-PROBE {len(probes)}건")
         # 미끄러짐 기준은 13.7 (b)의 3mm인데 carry45가 2.95~3.03mm로 경계라 3.5로 둠(기획 확인 중, PR 본문)
         assert worst_slip <= 3.5 and miss < 7 and o["tilt_deg"] < 10, (worst_slip, miss, o)
         bad = [e for e in ev if e.get("code") in ("ARM-GRIP-OVERLOAD-WARN", "ARM-GRIP-OVERLOAD", "ARM-BLOCKED")  # ARM-BLOCKED: 쥔 채 이동·빈 이동 오탐 0 (결정 0059)
