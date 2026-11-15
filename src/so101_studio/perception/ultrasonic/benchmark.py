@@ -27,6 +27,7 @@ from ...arm.trajectory import LookaheadShape, fillet_path
 from ...core.config import load_robot, load_workspace
 from ...core.types import JointState
 from ...service.targets import point_to_pose, tip_vector
+from ...task import policy
 from ..base import PoseSample
 from .fake_esp32 import FakeESP32, SimClock
 from .link import Link
@@ -332,6 +333,7 @@ def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, resc
     if rescan_home is None:
         rescan_home = src.cfg.radar.rescan_home
     clk, recog, log, ok, rescanned = arm.clk, 0.0, [], 0, False
+    ws, dropped = load_workspace(), []  # DECIDE는 작업 실행과 같은 task/policy를 쓴다(REQ-065). dropped = 확정 위치가 집기 범위 밖이라 뺀 후보 자리
     src.begin_cycle()
     arm.move(*arm.wait_pose)  # PREPARE(결정 0039·0041): 첫 scan 전에 radar_clear로. 올라가는 이동은 인식 시간에 넣지 않는다
     for _ in range(max_iter):
@@ -346,19 +348,22 @@ def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, resc
         for o in scan.objects:  # 레이더 후보 위치 오차: 남은 실제 물체 중 가장 가까운 것까지(없으면 기록 안 함)
             if esp.boxes:
                 log.append({"result": "radar", "err": min(math.dist((b.x, b.y), (o.x_mm, o.y_mm)) for b in esp.boxes)})
-        near = [o for o in scan.objects if 90 <= math.dist((o.x_mm, o.y_mm), arm.base) <= 250]
-        if not near:
+        cand = policy.choose([o for o in scan.objects if all(math.dist((o.x_mm, o.y_mm), d) > 60 for d in dropped)], ws, unconfirmed=True)  # 확인 전 후보는 reach_mm 최대 + candidate_reach_margin_mm까지
+        if cand is None:
             if rescan_home and not rescanned:
                 rescanned = True
                 arm.move(*arm.wait_pose)  # 레이더 시야 밖 대기 자세(poses.radar_clear)
                 continue
             break
         rescanned = False  # 후보가 나왔으니 다음에 또 없으면 다시 RESCAN할 수 있다(연달아 두 번만 안 함)
-        cand = min(near, key=lambda o: math.dist((o.x_mm, o.y_mm), arm.base))
         obj, probe, dt = do_check(src, arm, cand)
         recog += dt
         if obj is None:
             log.append({"result": probe.status, "cand": (cand.x_mm, cand.y_mm)})
+            continue
+        if not policy.reachable(obj, ws):  # 확정 위치가 집기 범위 밖: 집지 않고 이 후보를 뺀다(runner.py와 같은 규칙)
+            dropped.append((cand.x_mm, cand.y_mm))
+            log.append({"result": "unreachable", "cand": (cand.x_mm, cand.y_mm)})
             continue
         box = min(esp.boxes, key=lambda b: math.dist((b.x, b.y), (obj.x_mm, obj.y_mm)), default=None)
         err = math.dist((box.x, box.y), (obj.x_mm, obj.y_mm)) if box else 1e9
