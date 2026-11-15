@@ -179,7 +179,7 @@
 
 ### 13.7 완료 기준
 - **(a)(b) 공통**: cfg는 `config/robot.yaml` + `config/arms/so101_follower_01.yaml`(local.yaml 없이)이다. 지금 시험은 `load_robot`이 `local.yaml`과 팔 고르기를 겹쳐 PC마다 결과가 달라질 수 있어 팔 REQ로 고친다. `driver = make_sim_driver(cfg, ws, None, scenario=이름)`, `svc = ArmService(driver, cfg, ws, log_root=tmp_path)`, `svc.connect()`. 집기는 `svc.pick_and_place(obj)`(놓을 곳 없이 집기만), 놓기는 `svc.place(at=(x, y))`다. 둘 다 `slow`로 표시한다.
-- (a) **재현**(M3, 시나리오 `topedge`):
+- (a) **재현**(M3, 시나리오 `topedge`. **단동식 비교 옵션 전용**, 2026-11-15 사용자 결정 U14: 윗모서리를 치는 것은 V자 턱이 위로 좁아지는 단동식의 물리라 병렬 손에서는 재현되지 않는다(면에 맞춰 내려가 `ok`·`held`). 이 시험은 그리퍼를 `single_jaw`로 명시해 돌린다. 병렬 손에서 대응하는 실패(위치가 어긋나 클램프가 물체 윗면에 내려앉음)는 M5 세부 설계의 실패 주입 항목으로 새로 정한다):
   - `obj = DetectedObject(id="box58", x_mm=300, y_mm=275, angle_deg=45, width_mm=58, length_mm=58, confidence=1.0, source="manual", height_mm=15)`를 넘긴다(실제 상자 높이 39).
     - 계획 쪽 계산: 각도 45°라 `tilt_ok=False`이고, 높이 15를 아니까 결정 0052의 `height_required`에 걸리지 않는다.
     - 기호는 11.2와 같다. W 물체 폭 58, H 계획에 넘긴 높이 15, t 낮은 턱 끝 높이, G 시작 벌림(`Skills._needed_gap`이 고름), s = `Gripper.narrowing(v(G), tilt_ok=False)`.
