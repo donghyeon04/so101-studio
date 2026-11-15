@@ -2,7 +2,7 @@
 
 상태: 초안
 
-갱신: 2026-11-14 (main 5e8a1c8 기준). 옛 이력(T0~T11, 떨림·전원 조사, 11-01~07 인수인계)은 git 기록과 `decisions/0008~0061`, `measurements.md`에 있다. 이 문서는 지금 상태·남은 일·함정과, GUI가 쓰는 API 요약(14절~)만 남긴다.
+갱신: 2026-11-15 (main eb13fa3 기준, 아래 "11-15 새 PC에서 한 일"). 옛 이력(T0~T11, 떨림·전원 조사, 11-01~07 인수인계)은 git 기록과 `decisions/0008~0061`, `measurements.md`에 있다. 이 문서는 지금 상태·남은 일·함정과, GUI가 쓰는 API 요약(14절~)만 남긴다.
 
 ## 인수인계 (2026-11-14)
 읽는 순서: `CLAUDE.md` → `docs/guides/session-workflow.md` → `work-queue.md` → 이 절. 요청 대장 `session-requests.md`는 총괄(GUI 세션)이 관리하고, 팔 세션은 상태 변화를 총괄에게 알린다. 실제 팔·COM 포트는 총괄이 사용자와 쓰고 반납을 알리기 전에는 열지 않는다(전부 `--sim`·가짜 버스·`FakeESP32`·MuJoCo).
@@ -26,11 +26,19 @@
 3. MuJoCo 시험장 M5~(기획 계획, 실물 작업이 생기면 멈춘다). 막힘·접촉 즉시 정지 조사는 기획 몫.
 4. 낮은 우선순위: 안전 설정에 속도 상한(`max_speed_pct`), 서보 시동 힘(`Minimum_Startup_Force`) 시험.
 
-**11-15 새 PC 추가**
-- REQ-064(#364): 병렬이면 손끝 기준점(`tip_vector`의 `tip`, `tool_position`, `follow_path`의 점, `PoseSample.tool_mm`, GUI 현재 좌표)이 두 턱 끝 가운데다. 단동식은 고정 턱 끝 그대로. `kin.link_points`의 손끝 점은 안 바꿨다.
-- 병렬 손은 손끝 55mm에서 `follow_path`가 닿는 범위가 좁아 `--sim run --source ultrasonic`의 CHECK가 `unreachable`이다(#364 전 main도 같다). 초음파 세션의 "CHECK 높이·경로 다시 고르기" 몫이다.
+**11-15 새 PC에서 한 일**(모두 main에 합쳐짐, 이 PR 빼고)
+- REQ-064(#364) + 이 PR: 병렬이면 손끝 기준점이 두 턱 끝 가운데다. 한 곳은 `Kinematics.tcp_offset`이고 `tip_vector`의 `tip`, `tool_position`, `follow_path`의 점, `PoseSample.tool_mm`, GUI 현재 좌표, `link_points`(레이더가 팔 자리를 지우는 손끝 점)가 모두 이것을 쓴다. 단동식은 고정 턱 끝 그대로.
+- REQ-065(#386): 확인(CHECK) 전 레이더 후보만 `reach_mm` 최대 + `workspace.yaml`의 `candidate_reach_margin_mm`(60)으로 고른다. `task/policy.py`의 `reachable`·`choose`·`explain`은 `unconfirmed` 인자로 후보 종류를 받는다. CHECK가 확정한 위치가 `reach_mm` 밖이면 CHECK 결과 `unreachable`로 건너뛴다.
+- REQ-066(#392): `LookaheadShape`에서 서는 점 둘이 1mm 이하로 붙으면 계획 시간이 1e12초로 터지던 문제를 고쳤다(가운데 점을 넣는다). `follow_path` 안전망: 계획 시간이 30초 + 20 × 길이/속도(`PLAN_SLOW_BASE_S`·`PLAN_SLOW_FACTOR`)를 넘으면 움직이지 않고 `out_of_bounds`, 이유 `plan_too_slow`. 이 표기는 설계서에 적혔으니 바꾸려면 총괄에 먼저 알린다.
+- 버전 고정(#377, U12): `environment.yml`에 nicegui 3.18.0·viser 1.1.1·playwright 1.65.2·pytest-playwright 0.10.0·pytest-playwright-visual-snapshot 0.5.1.
+- 느린 시험 표시(#368, 결정 0064): 5초 넘는 팔 시험 21개에 `slow`. 팔 영역 빠른 묶음은 아직 약 8분이다(목표 5분). 남은 시간은 3초 안 되는 시험 수백 개에 퍼져 있어 시험을 고쳐야 줄어든다.
+- 도달 대조(#393, `measurements.md`): 병렬 손·손끝 55mm 수직 아래의 날값은 73~250mm(yaw 90 고정과 반경별 yaw가 같다). 기획이 병렬 `check.tool_reach_mm` 최소를 75로 올렸다.
+
+**열린 것**
+- 일직선 꼭짓점(`fillet_path`, phi < 1e-6)은 지금 "서서 도는 꺾임"으로 처리돼 그 점마다 선다. 지나가게 고치는 제안을 총괄에 보냈고(전후 시간 비교 포함) 답을 받은 뒤 PR을 낸다. 그때까지 초음파 쪽이 잘린 조각의 중간 점을 빼서 피한다(#394).
+- 새 PC 실물 첫 연결(`doctor` → `status` → `--speed 20 home`)은 아직 안 했다(보드 없음, 사용자가 정한다). LeRobot 캐시에는 `so101_follower_01.json`이 이미 있고 레포 파일과 같다. `calibrate --verify-zero`는 다시 하지 않는다(캘리브레이션 파일이 바뀐 뒤와 U5 뒤에만).
 - 2-10(로보나인 폭 표) 때: 잰 폭이 84mm를 넘으면 MuJoCo `STROKE_M`(0.042)과 어긋나므로 총괄에 알린다(기획 전달).
-- 새 PC 실물 첫 연결(`doctor` → `status` → `--speed 20 home`)은 아직 안 했다. LeRobot 캐시에는 `so101_follower_01.json`이 이미 있고 레포 파일과 같다. `calibrate --verify-zero`는 다시 하지 않는다(캘리브레이션 파일이 바뀐 뒤와 U5 뒤에만).
+- `Kinematics.ik`는 반복 상한(30걸음, 조그용 3×8걸음)만 있고 시간 상한은 없다. placo 한 걸음이 안에서 멈춘 사례는 아직 없다(REQ-066의 "멈춤"은 IK가 아니라 계획 시간이었다).
 
 **알려진 함정**
 - 잠긴 팔에는 토크를 켜지 않는다: 움직이는 명령은 `ArmService.enable_torque()`만 쓴다. 0° 확인(`calibrate --verify-zero`) 기록이 없거나 캘리브레이션 해시가 다르면 `locked`(home은 허용, 결정 0051).

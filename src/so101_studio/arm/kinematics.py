@@ -79,11 +79,17 @@ class Kinematics:
         """기준점(gripper_frame)에서 본 두 턱 끝의 위치 벡터(작업대 좌표계, mm). 구현은 그리퍼에 있다 (arm/gripper.py)."""
         return self.gripper.jaw_tips(pitch_deg, yaw_table_deg, gripper_value)
 
+    def tcp_offset(self, pitch_deg: float, yaw_table_deg: float, gripper_value: float) -> np.ndarray:
+        """기준점에서 손끝(TCP)까지의 벡터(작업대 좌표계, mm). 단동식은 고정 턱 끝, 병렬은 두 턱 끝 가운데(결정 0043-1: 벌림에 따라 움직이지 않는다).
+        좌표 이동·tool_position·follow_path(service/targets.tip_vector)와 link_points가 이 한 곳을 쓴다."""
+        f, m = self.jaw_tip_offsets(pitch_deg, yaw_table_deg, gripper_value)
+        return (np.asarray(f, float) + np.asarray(m, float)) / 2 if self.gripper.name == "parallel" else np.asarray(f, float)
+
     @locked
     def link_points(self, q: JointState) -> list[tuple[float, float]]:
-        """어깨(위팔 관절)·팔꿈치·손목·고정 턱 끝의 작업대 xy(mm). 레이더가 팔이 가린 자리를 지울 때 쓴다."""
+        """어깨(위팔 관절)·팔꿈치·손목·손끝(tcp_offset: 단동식 고정 턱 끝, 병렬 두 턱 끝 가운데)의 작업대 xy(mm). 레이더가 팔이 가린 자리를 지울 때 쓴다."""
         tip = self.fk(q)
-        f, _ = self.jaw_tip_offsets(tip.pitch_deg, tip.yaw_deg, q.gripper)
+        f = self.tcp_offset(tip.pitch_deg, tip.yaw_deg, q.gripper)
         self._k.forward_kinematics(np.array([getattr(q, j) for j in ARM_JOINTS], float))  # 프레임 위치는 마지막 FK 상태에서 읽는다
         out = []
         for name in ("upper_arm_link", "lower_arm_link", "wrist_link"):
