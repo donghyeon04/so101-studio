@@ -36,7 +36,7 @@
 | 병렬 + 실제 기구학 + `trim_start`, `single` | 19%(비관, 호버 40mm 포함, trim 없음) | **79 / 75%** (trim 없으면 62 / 63%) |
 | 병렬 + 실제 기구학 + `trim_start`, `demo` | 43 / 28% | **78 / 62%** · 70 / 71s |
 | 병렬 + 실제 기구학 + `trim_start`, `spread120` | 35 / 22% | **78 / 67%** · 63 / 70s |
-| 병렬 + 실제 기구학 + `trim_start`, `spread90` | 30 / 22% | **85% / 측정 못 함**(아래) · 68s |
+| 병렬 + 실제 기구학 + `trim_start`, `spread90` | 30 / 22% | **85 / 55%** · 68 / 69s |
 
 **확인 높이 55mm 유지**: 병렬 기구학에서 80mm는 도달 띠가 100~220mm로 좁아져 0~21%(`single`, pivot 150·호버 0도 18~21%). 55mm는 70~250mm다. 팔 세션이 본 "80mm는 풀림"은 점 하나의 IK이고 경로 전체로는 55mm가 낫다.
 
@@ -49,7 +49,7 @@
 - yaw를 돌리는 시간: 가상 팔은 손목 회전 시간을 재지 않는다(손끝 이동 시간만). 후보마다 yaw가 달라 접근 이동에 최대 약 140° 회전이 더해질 수 있고 인식 시간에는 안 들어갔다. A1에서 잰다.
 - 집기 직전 yaw와의 관계: 확인이 끝난 뒤 집기는 물체 각도로 yaw를 새로 정하므로(arm 세션 Skills) 확인 yaw와 상관없다. 이어붙이는 회전량만 늘 수 있다.
 - 레이더 가림: 레이더 가림 계산(`links_at`, 팔 링크 4점)은 센서 끝점도 같은 yaw로 쓰므로 바뀐 yaw를 그대로 따른다. 가상 벤치마크(위 표)에는 이미 반영됐다.
-- 알려진 문제: 병렬 기구학 `spread90` 비관 시드 7에서 placo 호출이 끝나지 않고 메모리가 22GB까지 늘어 중단했다(네이티브 정지라 `faulthandler` 타이머도 못 끊는다). 벤치마크 `--reach kin`은 이제 씨앗마다 자식 프로세스에서 돌리고 `--seed-timeout`(기본 300초, 0이면 끔)을 넘기면 그 씨앗을 실패로 적고 다음으로 간다(메모리 상한은 없다: 긴 병렬 기구학 시험은 시나리오·모델별로 나눠 돌린다). 시간 초과 씨앗은 성공 0·인식 시간 = 제한으로 들어가 평균을 끌어올린다.
+- 알려진 문제(정정 11-15): 병렬 기구학 `spread90` 비관 시드 7의 멈춤은 placo가 아니다. `trim_start`가 경로 첫 구간을 0.87mm로 줄여, `arm/trajectory.py`의 `fillet_path`+`LookaheadShape`가 첫 구간 ≤ 1.0mm인 경로에서 `duration_s`를 약 1e12초로 계산해 50Hz 틱 루프가 끝나지 않았다(메모리 22GB). 총괄에 최소 재현을 보냈고 팔 세션이 실제 `smooth_l`에서도 나는지 확인한다(팔 영역). 벤치마크는 `trim_start` 뒤 첫 구간이 1.5mm 미만이면 둘째 점을 뺀다. `--reach kin`은 `--seed-timeout`(기본 300초)으로 씨앗마다 끊고, 메모리 상한은 없다.
 
 **`test_sim_three_objects_end_to_end` (2026-11-15, 원인 둘, 아직 실패)**
 1. **배치가 너무 촘촘하다**: `SPREAD` (420,190,0)·(330,150,0)은 모서리 간격 약 14mm, (330,250,90)과 35mm다. 센서 높이 154.5mm의 빔(물체 윗면에서 반경 약 15mm + 판정 15mm)이 이웃을 합쳐 본다(확인 폭 125mm, 각도 없음, 집기 실패). 중심 간격 기준으로는 spread90(90 이상)만 만족하고 demo·spread120(120 이상)은 아니다.
@@ -77,6 +77,7 @@ python -m so101_studio.perception.ultrasonic.benchmark --scenario spread90 --see
 끈 값 비교는 `--set yaw_pivot_mm=0`. 병렬 손 + 기구학은 `--reach kin --gripper parallel --trim-start`(느리고 메모리를 쓴다). 설정 덮어쓰기 `--set 키=값`(check.<키>), 그리퍼 `--gripper single_jaw|parallel`은 이번에 추가했다.
 
 ## 알려진 함정
+0. 벤치마크 시나리오: `spread90`·`spread120`·`demo`·`single`(`--scenario all`), `pair`(모서리 간격 `--pair-gap`), `demo80`(demo + 모서리 80mm 이상, 설계서 6절 권장 배치; 단동식 반경 모델 씨앗 20에서 낙관 98%·비관 85%, 인식 83/80초). 결과 표의 "방향 정답률 %" 열이 1절 방향 정답률이다.
 1. 편집 설치가 원래 폴더를 가리킨다: 이 worktree(`../so101-studio-us`)에서 `python -m so101_studio...`는 `PYTHONPATH=src`가 필요하다(`pytest`는 설정으로 괜찮다).
 2. 초음파 시험만 `python -m pytest -q tests/perception`(약 6초). 팔·초음파 세션은 `--ignore=tests/gui`. 벤치마크는 `python -m so101_studio.perception.ultrasonic.benchmark --seeds 20`(1~2분), 결과 JSON은 `runs/bench/`(git 제외라 새 PC에 안 온다). **성능 숫자는 이 도구의 고정 시나리오 결과만 쓴다**(결정 0037). 모델 값(`MODELS`, `DXL_LAG_DEG`)이 바뀌면 다시 내고, 비교가 ±5%p 근처면 씨앗 60개로 확인한다.
 3. 벤치마크 사이클은 작업 실행을 흉내 낸 것이다(`poses.radar_clear`로 RESCAN, 집은 뒤 PLACE 시작에 prefetch, 빈 자리는 `note_failure`). 실제 작업 실행과 다르면 고친다. 가상 팔은 `arm/trajectory.py`의 `fillet_path`·`LookaheadShape`를 import한다(벤치마크 도구만의 예외, source·check·radar는 팔을 import하지 않는다). `test_fake_arm_matches_real_arm_times`가 `--sim` 실측 시간에 고정한다.
