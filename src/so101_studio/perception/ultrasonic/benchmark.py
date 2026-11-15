@@ -224,13 +224,13 @@ class FakeArm:
         return poses
 
 
-def build(boxes, seed=0, model="optimistic", reach=REACH, arm_kw=None, esp_kw=None, radar=None, **check):
+def build(boxes, seed=0, model="optimistic", reach=REACH, arm_kw=None, esp_kw=None, radar=None, gripper=None, **check):
     """설정 + 가상 시계 + 가상 ESP32 + 가상 팔. model: MODELS 이름 또는 None(이상적 센서)."""
     clk = SimClock()
     holder = {}
     kw = dict(MODELS[model]) if model else {}
     kw.update(esp_kw or {})
-    cfg = load_config(radar=radar, servo={"driver": kw.get("servo", "pwm")}, **check)
+    cfg = load_config(radar=radar, servo={"driver": kw.get("servo", "pwm")}, gripper=gripper, **check)
     esp = FakeESP32(clk, boxes, cfg, seed=seed, arm_sensor_fn=lambda t: holder["a"].sensor_at(t),
                     arm_links_fn=lambda t: holder["a"].links_at(t), **kw)
     arm = holder["a"] = FakeArm(clk, cfg, arm_base(), reach=reach, **(arm_kw or {}))
@@ -553,6 +553,8 @@ def main(argv=None):
     models = list(MODELS) if a.model == "both" else [a.model]
     opts = {k: v for k, v in (("line_mm", a.line_mm), ("speed_mm_s", a.speed), ("max_fail_per_run", a.max_fail)) if v is not None}
     opts.update({k: json.loads(v) for k, v in (kv.split("=", 1) for kv in a.set)})
+    if a.gripper:  # 그리퍼별 도달 범위(check.tool_reach_by_gripper)를 같은 길로 읽는다. --tool-reach가 있으면 그쪽이 우선
+        opts["gripper"] = a.gripper
     if a.approach_line:
         opts["approach_line"] = True
     if a.tool_reach:

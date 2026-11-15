@@ -21,9 +21,13 @@ def _wrap(v):
     return Cfg({k: _wrap(x) for k, x in v.items()}) if isinstance(v, dict) else v
 
 
-def load_config(path="config/ultrasonic.yaml", radar=None, servo=None, **check) -> Cfg:
+def load_config(path="config/ultrasonic.yaml", radar=None, servo=None, gripper=None, **check) -> Cfg:
+    """gripper(robot.yaml의 그리퍼 종류)가 check.tool_reach_by_gripper에 있으면 그 값이 check.tool_reach_mm이 된다. 명시한 check 값이 가장 우선."""
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     raw.setdefault("servo", {"driver": "pwm"}).update(servo or {})
+    by = raw["check"].get("tool_reach_by_gripper") or {}
+    if gripper in by:
+        raw["check"]["tool_reach_mm"] = dict(by[gripper])
     raw["check"].update(check)
     raw["radar"].update(radar or {})
     return _wrap(raw)
