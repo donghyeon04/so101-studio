@@ -1,7 +1,9 @@
 """REQ-064 (결정 0059): MuJoCo에서 막힘 감지 판정 확인. 장애물(config/sim_scenarios/blocker.yaml)에 막힌 이동은 멈추고, 장애물 없는 빈 이동은 오탐 0.
 쥔 채 이동의 오탐 0은 test_mujoco_scenarios.py의 carry 시험이 ARM-BLOCKED 0건으로 본다. mujoco가 없으면 건너뛴다."""
 import json
+import tempfile
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -12,7 +14,15 @@ from so101_studio.core.config import load_robot, load_workspace
 from so101_studio.core.types import JointState
 from so101_studio.service.arm_service import ArmService
 
-CFG = load_robot("config/robot.yaml")
+
+def single_jaw_cfg():
+    """13.7 (a)(b)·막힘 시험은 단동식 비교 기준이다. 팔 파일 기본값이 바뀌어도(U5) 그대로 돌게 그리퍼를 명시하고, PC의 local.yaml은 읽지 않는다."""
+    p = Path(tempfile.mkdtemp()) / "local.yaml"
+    p.write_text("gripper: single_jaw" + chr(10), encoding="utf-8")
+    return load_robot("config/robot.yaml", local_path=str(p))
+
+
+CFG = single_jaw_cfg()
 WS = load_workspace("config/workspace.yaml")
 RADAR = JointState(*CFG.poses["radar_clear"])
 

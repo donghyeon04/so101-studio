@@ -141,7 +141,7 @@ def carry_run(cfg, tmp_path, size):
         bad = [e for e in ev if e.get("code") in ("ARM-GRIP-OVERLOAD-WARN", "ARM-GRIP-OVERLOAD", "ARM-BLOCKED")
                or (e.get("code") == "ARM-FAULT" and str(e.get("data", {}).get("reason", "")).startswith(("overload", "overcurrent", "overheat")))]
         miss = float(np.hypot(end["x_mm"] - 420, end["y_mm"] - 170))
-        print(f"size {size}: held {held}, 공중 미끄러짐(z>15) {air:.2f}mm, 전체 미끄러짐 {slip:.2f}mm(들어 올린 뒤 {slip_t:.1f}초, z {slip_z:.0f}mm), 놓은 자리 차이 {miss:.2f}mm, 기울기 {end['tilt_deg']:.1f}°")
+        print(f"carry{size}(gripper {cfg.gripper}) size {size}: held {held}, 공중 미끄러짐(z>15) {air:.2f}mm, 전체 미끄러짐 {slip:.2f}mm(들어 올린 뒤 {slip_t:.1f}초, z {slip_z:.0f}mm), 놓은 자리 차이 {miss:.2f}mm, 기울기 {end['tilt_deg']:.1f}°")
         assert d.failed_reason is None and isinstance(d, MuJoCoDriver)
         return {"held": held, "first": first, "slip": slip, "air": air, "miss": miss, "tilt": end["tilt_deg"], "bad": bad}
     finally:
