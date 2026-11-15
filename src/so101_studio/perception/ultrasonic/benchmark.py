@@ -48,6 +48,7 @@ SCENARIOS = {  # 이름: (물체 수, 반경 mm, 방위 °, 중심 간격 mm 이
     "spread90": (3, (100, 240), (25, 155), 90),
     "spread120": (3, (100, 240), (25, 155), 120),
     "demo": (3, (120, 220), (25, 155), 120),
+    "demo80": (3, (120, 220), (25, 155), 120),  # demo + 물체 모서리 사이 80mm 이상(설계서 6절 권장 배치, edge_gap)
     "single": (1, (100, 240), (25, 155), 0),
     "pair": (2, (120, 240), (25, 155), 0),  # 물체 둘, 모서리 사이 간격을 --pair-gap으로 정한다(이웃 물체를 따로 보는 최소 간격 재기)
 }
@@ -202,6 +203,8 @@ class FakeArm:
             start_ok = (lambda p: self.kin.start_ok(p, z, yw)) if need_hover else (lambda p: self.kin.ok(p, z, yw))
             if self.trim_start and not start_ok(pts[0]):
                 pts[0] = self._trim(pts, start_ok)
+                if pts[0] is not None and len(pts) > 2 and math.dist(pts[0], pts[1]) < 1.5:  # 첫 구간이 1mm 이하면 arm/trajectory.py가 duration 1e12초로 터진다(총괄에 보고, 팔 영역)
+                    del pts[1]
             bad = [p for p in pts[1:] if not self.kin.ok(p, z, yw)] + ([] if pts[0] is not None and start_ok(pts[0]) else [pts[0]])
         if bad:
             self.last_path = {"reason": "unreachable", "points": bad}
@@ -269,7 +272,7 @@ def random_layout(rng, name) -> list[Box]:
             r, th = rng.uniform(r0, r1), math.radians(rng.uniform(b0, b1))
             w, length = rng.choice(OBJECT_SIZES)
             boxes.append(Box(bx + r * math.cos(th), by + r * math.sin(th), rng.choice((0, 45, 90, 135)) + rng.uniform(-5, 5), w, length))
-        if all(math.dist((a.x, a.y), (b.x, b.y)) >= spacing for a, b in itertools.combinations(boxes, 2)):
+        if all(math.dist((a.x, a.y), (b.x, b.y)) >= spacing and (name != "demo80" or edge_gap(a, b) >= 80) for a, b in itertools.combinations(boxes, 2)):
             return boxes
     raise RuntimeError("배치를 못 만들었다")
 
@@ -520,7 +523,7 @@ def format_table(results: list[dict]) -> str:
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--scenario", default="all", help="spread90 | spread120 | demo | single | all")
+    ap.add_argument("--scenario", default="all", help="spread90 | spread120 | demo | demo80(모서리 80mm 이상) | single | pair | all(pair·demo80 뺀 넷)")
     ap.add_argument("--seeds", type=int, default=20, help="시나리오마다 배치 수(8.5절: 20 이상). single은 반경 구간마다")
     ap.add_argument("--approach-line", action="store_true", help="T8: 첫 확인선을 팔 원점에서 후보로 가는 방향으로(check.approach_line)")
     ap.add_argument("--model", default="both", help="optimistic | pessimistic | both")
@@ -541,7 +544,7 @@ def main(argv=None):
     ap.add_argument("--set", action="append", default=[], metavar="KEY=VAL", help="check.<KEY>를 이번만 바꾼다(여러 번 가능, 예: --set yaw_deg=45 --set ring_r_mm=50 --set clearance_mm=40)")
     ap.add_argument("--out", default="runs/bench")
     a = ap.parse_args(argv)
-    names = [k for k in SCENARIOS if k != "pair"] if a.scenario == "all" else [a.scenario]
+    names = [k for k in SCENARIOS if k not in ("pair", "demo80")] if a.scenario == "all" else [a.scenario]
     models = list(MODELS) if a.model == "both" else [a.model]
     opts = {k: v for k, v in (("line_mm", a.line_mm), ("speed_mm_s", a.speed), ("max_fail_per_run", a.max_fail)) if v is not None}
     opts.update({k: json.loads(v) for k, v in (kv.split("=", 1) for kv in a.set)})
