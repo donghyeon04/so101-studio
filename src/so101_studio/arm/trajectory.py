@@ -67,7 +67,11 @@ class LookaheadShape:
 
     def __init__(self, length: float, vertices: list[tuple[float, float, float]], v_max: float, a_max: float, ds: float = 1.0):
         edges = [e for p, _, t in vertices if t > 1e-9 for e in (p - t, p + t)]  # 호의 양 끝도 점으로 둔다: 곡률이 끝나는 곳에서만 가속을 다시 시작하려고
-        s = sorted({*np.arange(0.0, length, ds).tolist(), length, *[p for p, _, _ in vertices], *edges})
+        # 서는 점(처음·끝·서서 도는 꺾임) 둘이 ds 이하로 붙어 있으면 그 사이에 격자 점이 없어 두 점 모두 속도 0이 되고 구간 시간이 2d/0으로 터진다(REQ-066: 1e12초).
+        # 가운데 점을 하나 넣어 반은 가속, 반은 감속하게 한다. ds보다 먼 쌍은 격자 점이 이미 사이에 있어 그대로다.
+        stops = sorted({0.0, float(length), *[float(p) for p, v, t in vertices if v <= 1e-9 or t <= 1e-9]})
+        mids = [(a + b) / 2 for a, b in itertools.pairwise(stops) if b - a <= ds]
+        s = sorted({*np.arange(0.0, length, ds).tolist(), length, *[p for p, _, _ in vertices], *edges, *mids})
         s = np.array(s)
         lim = np.full(len(s), float(v_max))
         lim[0] = lim[-1] = 0.0
