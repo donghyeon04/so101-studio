@@ -4,23 +4,23 @@
 
 > 새 PC·새 세션은 `project-status.md`(총정리) → 이 문서 순서로 읽는다. 사용자 결정이 필요한 것은 "사용자 결정 대기"에 쌓고, 그 밖의 일은 기다리지 않고 진행한다.
 
-## 새 PC 첫날 순서
-1. **이전**(`session-workflow.md` 8절 "새 PC로"): 클론, 환경(+ `python -m playwright install chromium`, MuJoCo는 `tooling-setup.md` C24), 폴더 넷(2절: 팔 폴더만 `main`, 나머지 셋은 `--detach origin/main`), `so101-이전-1114.zip` 풀기, 세션 다섯을 시작 프롬프트로.
-2. **합친 main 전체 시험**(총괄): 11-14에 끝까지 못 돌렸다. **팔 보드를 꽂기 전에**, 다른 GUI·감시 프로세스를 끄고 `python -m pytest -q`(지금 방식 그대로, 약 1시간 40분. 결정 0064의 `-n auto`·`--testmon`·`measure` 표시는 아래 "이어지는 순서" 5번이 끝나야 쓸 수 있다), `python -m ruff check src tests`. 도는 동안 다른 세션은 `tests/gui`·`tests/gui_visual`을 돌리지 않는다(고정 포트). 통과 수와 실패 이름을 이 문서에 적는다.
+## 새 PC 첫날 순서 (11-16 기준: 1·2·4 끝, 3만 남음)
+1. ~~이전~~ 끝(11-14 밤).
+2. ~~합친 main 전체 시험~~ 끝(11-15 fcdcb0f 1218 passed, 실패는 #369·#386으로 고침, 아래 시험 결과). 11-16 하루 마감 전체는 1011f60에서(`runs/fulltest-1114/full-1116.log`).
 3. **실물 팔 첫 연결**(사용자 + 팔 세션, 2번이 끝난 뒤): 새 PC에는 LeRobot 캐시가 없다. `config/calibration/so101_follower_01.json`을 `%USERPROFILE%\.cache\huggingface\lerobot\calibration\robots\so_follower\`로 복사 → `so101.cmd doctor` → `so101.cmd status` → `so101.cmd --speed 20 home`(클램프·전원 스위치 옆). 복사하지 않으면 "캘리브레이션 불일치"로 잠긴다. 0° 확인 기록은 git의 팔 파일에 있고 해시가 맞아(#344) `calibrate --verify-zero`를 다시 하지 않아도 움직인다(다시 하는 때: 캘리브레이션 파일이 바뀐 뒤, 로보나인 교체 뒤).
-4. **EGM drift-report**(총괄): 대상 `mujoco-spec.md`(13.9·13.10 vs M4b 코드 #348~#357). 결과의 꼭 고칠 것만 `planning-inbox` `inbox/`로.
+4. ~~EGM drift-report~~ 끝(mujoco-spec #366 반영, 11-16 ultrasonic-spec도 돌림 `inbox/2026-11-16-egm-ultrasonic-drift.md`).
 5. 그다음은 아래 "이어지는 순서".
 
 ## 이어지는 순서
 1. **로보나인으로 다시 맞추기**(결정 0063): 교체(U5) → 그리퍼 범위 캘리브레이션 → runbook 2-10(폭 표·접촉·조임) → 2-2 재시험 30%·50%(결정 0063 그대로, 사용자 확인 11-14. 0061 문턱 다시 재기, `runs/handoff-1114/real_22.py`) → 브래킷 출력(U7 결정: 손목 쪽 평면 +z를 바닥)·장착 → A0.
-2. **CHECK 경로 기준점 REQ**(팔, 기획 결정 아래): 병렬일 때 `tool_position`·`follow_path`도 두 턱 끝 가운데(TCP) 기준으로.
-3. **MuJoCo**: 병렬 손으로 `mujoco-spec.md` 13.7 (a)(b)·`sim_blocked`·부하 문턱 다시 재기 → 기획이 M5·M6 세부 설계(EGM 결과 뒤, EGM Stage 9).
-4. **초음파**: 오프셋은 #359로 넣었다({0.6, 66.5, 99.5}, `ring_r_mm` 60). 새 센서 높이(약 154.5mm)에서 CHECK 높이·경로를 벤치마크로 다시 고른다. 부품 뒤 B1~B4 → R1 → A0·A1 → I1.
-5. **시험 시간 줄이기**(결정 0064, 11-14 승인): 총괄은 시험 포트 0·xdist·loadgroup·testmon 설정·화면 비교 마스킹, 각 세션은 `--durations=50`으로 자기 영역 느린 시험 정리(측정 시험은 `measure` 표시). 첫 전체 시험(첫날 2번)은 지금 방식으로 돌려 기준 시간을 남긴다.
+2. ~~CHECK 경로 기준점~~ 끝(REQ-064 #364, 레이더 가림 점도 #400).
+3. **MuJoCo**: 병렬 손 재측정 끝(#367·#370·#375). 다음은 기획의 M5·M6 세부 설계(하드웨어 반영 계획과 한 묶음일 수 있음) → EGM Stage 9 → 구현.
+4. **초음파**: CHECK yaw 반경별(결정 0065 #378), 그리퍼별 도달 범위(병렬 75~250 #399), 후보 거르기(#386·#391), 인식 시간 단축(#394) 끝. 다음은 U16 안 A(기획 설계 뒤 REQ) → 부품 뒤 B1~B4 → R1 → A0·A1 → I1.
+5. **시험 시간 줄이기**(결정 0064): `slow` 기준 5초·`measure` 표시는 끝(#368·#369·#370). 남은 것(총괄): 시험 포트 0, xdist·loadgroup, testmon 설치·설정.
 6. **하드웨어**: H1 레이더 부품, H2 OpenRB VIN, H5 작업대, H7 카메라 주문.
 7. 비교 실험(11/23~29) → 마무리(11/30~12/4, `release-checklist.md`). 11/30부터 새 기능은 멈춘다.
 - **A0·A1의 선행 조건**(11-15): REQ-066(경로 첫 구간·전체 길이 ≤ 1.0mm에서 계획 시간이 터지는 버그, `arm/trajectory.py`)이 닫혀 있어야 한다. 실제 `follow_path`(CHECK)가 같은 함수를 쓴다. **#392로 닫혔다(11-15)**: 뿌리 수정 + 안전망(`out_of_bounds`, 이유 `plan_too_slow`). 되돌리는 변경이 생기면 A0 전에 `tests/test_follow_path.py`의 REQ-066 시험을 다시 본다.
-- 11-15 기획 결정(`ultrasonic-spec.md` 1절): `check.tool_reach_mm`은 그리퍼별(단동식 60~255, 병렬 70~250), 인식 시간 기준 120초(임시). 그리퍼별 설정 PR(초음파) 뒤 총괄이 병렬 kin single·demo·demo80을 다시 돌려 inbox에 올린다.
+- 11-15·16 기획 결정(`ultrasonic-spec.md` 1절): `check.tool_reach_mm`은 그리퍼별(단동식 60~255, 병렬 **75~250**, #399), 인식 시간 기준 **100초**(임시). 병렬 표는 첫 점 당기기 없음/있음 두 열(U16 구현 뒤 한 열로).
 - **I1과 시연 배치 조건**(11-15, `ultrasonic-spec.md` 6절): 반경 120~220mm, 물체 중심 사이 120mm 이상, **모서리(가장 가까운 두 변) 사이 80mm 이상**으로 놓는다. 센서 높이 154.5mm에서는 모서리 간격이 좁으면 이웃을 합쳐 본다(따로 보이는 한계: 낙관 50mm, 비관 80mm).
 - 실물이 먼저다. 하드웨어를 기다리는 동안은 MuJoCo 시험장이 정식 작업이다(결정 0062).
 
@@ -60,8 +60,8 @@
 - **새 PC 전체**(11-15, fcdcb0f = 합친 main과 코드 같음, 보드 없음, `python -m pytest -q --durations=50`, 1:17:21): 1218 passed, 6 failed, 12 errors. ruff 0건. 기준 시간은 이 1시간 17분이다.
   - `tests/gui/test_numeric_input.py` 5개: nicegui 3.18의 `user_simulation`이 `ui.notify`를 바꿔 넣어 monkeypatch 가로채기가 안 먹음 → `user.notify.messages`로 고침(28 passed).
   - `tests/gui_visual` 12개: 새 PC 글꼴 렌더링 차이(배치 같음) → `.mode-detail` `w-full`, 기준 사진 12장 다시 찍음(56 passed). 그 뒤 `tests/gui` 425 passed(10:10).
-  - `tests/test_task_check.py::test_sim_three_objects_end_to_end`: picked 0, `give_up`. 초음파 세션이 원인 확인 중(#359 뒤 성능 저하로 추정).
-  - nicegui·playwright 버전이 `environment.yml`에 고정돼 있지 않아 PC마다 결과가 달라진다(아침 결정).
+  - `tests/test_task_check.py::test_sim_three_objects_end_to_end`: picked 0, `give_up` → **풀림**(REQ-065 #386: 확인 전 후보 여유 + 시험 배치 모서리 간격).
+  - nicegui·playwright 버전 → **고정함**(U12 #377).
 
 ## 나중에 할 일
 - GUI 알림을 아래로 끌면 흐려지며 사라지게(총괄). 장면 부품 편집기(STEP 뒤), 초음파 화면 실제 기록(B1 때).
