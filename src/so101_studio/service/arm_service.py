@@ -82,7 +82,7 @@ class ArmService:
         self.collision = None
         self.scene_error: str | None = None  # config/scene.yaml을 못 읽었을 때의 이유(빈 장면으로 시작한다)
         try:
-            self.scene = load_scene()  # 장면 부품 (config/scene.yaml, 없으면 빈 목록). reload_workspace가 다시 읽는다
+            self.scene = load_scene().for_gripper(cfg.gripper)  # 장면 부품 (config/scene.yaml, 없으면 빈 목록). reload_workspace가 다시 읽는다
         except Exception as e:  # noqa: BLE001 장면 파일 하나가 앱 시작을 막지 않게
             self.scene, self.scene_error = Scene(), str(e)
             warnings.warn(f"장면 부품 목록을 못 읽어 빈 장면으로 시작한다: {e}", stacklevel=2)
@@ -477,7 +477,7 @@ class ArmService:
             raise RuntimeError("MuJoCo 시뮬레이션은 작업대 설정을 바꾸면 다시 시작해야 합니다")
         ws = load_workspace(path)
         try:  # 장면을 먼저 읽는다: 실패하면 아무것도 바꾸지 않는다
-            scene = load_scene(Path(path).parent / "scene.yaml")
+            scene = load_scene(Path(path).parent / "scene.yaml").for_gripper(self.cfg.gripper)
         except Exception as e:
             raise RuntimeError(f"장면 부품 목록을 읽지 못했다: {e}") from e
         self.ws = self.skills.ws = self.safety.ws = ws

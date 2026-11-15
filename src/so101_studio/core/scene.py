@@ -16,12 +16,17 @@ class ScenePart:
     mesh: trimesh.Trimesh  # 부품 프레임, mm
     collide: bool = True
     color: str | None = None
+    gripper: str | None = None  # parallel | single_jaw. None = 어느 그리퍼든 쓴다 (REQ-069)
 
 
 @dataclass
 class Scene:
     margin_mm: float = 10.0
     parts: list[ScenePart] = field(default_factory=list)
+
+    def for_gripper(self, gripper: str) -> "Scene":
+        """cfg 그리퍼와 다른 `gripper:` 부품을 뺀 장면. 장면을 쓰는 쪽(ArmService·시뮬레이션 드라이버)이 읽은 뒤 한 번 거른다."""
+        return Scene(self.margin_mm, [p for p in self.parts if p.gripper in (None, gripper)])
 
 
 def _transform(xyz_mm, rpy_deg) -> np.ndarray:
@@ -59,5 +64,5 @@ def load_scene(path: str | Path = "config/scene.yaml") -> Scene:
             raise ValueError(f"장면 부품 이름이 비었거나 겹친다: {name!r}")
         seen.add(name)
         parts.append(ScenePart(name, str(spec.get("attach", "table")), _transform(spec.get("xyz_mm", [0, 0, 0]), spec.get("rpy_deg", [0, 0, 0])),
-                               _mesh(spec, root, name), bool(spec.get("collide", True)), spec.get("color")))
+                               _mesh(spec, root, name), bool(spec.get("collide", True)), spec.get("color"), spec.get("gripper")))
     return Scene(float(data.get("margin_mm", 10.0)), parts)

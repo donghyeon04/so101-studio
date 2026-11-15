@@ -29,7 +29,8 @@ class MuJoCoDriver:
     def __init__(self, cfg, ws, *, scene=None, objects=(), realtime=True, viewer=False, scenario=None):
         if viewer and not realtime:
             raise ValueError("뷰어는 실시간 모드에서만")
-        self.cfg, self.ws, self.scene, self.objects, self.realtime = cfg, ws, scene, list(objects), realtime
+        self.cfg, self.ws, self.objects, self.realtime = cfg, ws, list(objects), realtime
+        self.scene = scene.for_gripper(cfg.gripper) if scene is not None else None  # REQ-069: cfg 그리퍼와 다른 `gripper:` 부품은 건너뛴다
         self.viewer = viewer
         self._parallel = cfg.gripper == "parallel"  # 로보나인 병렬 손(M4b): 그리퍼 관절이 slide(m)
         self._handle = None  # mujoco.viewer 핸들(뷰어를 켠 경우)

@@ -10,6 +10,6 @@ parts:
     collide: true
     color: "#8a8f98"
 
-  # 손목 초음파 브래킷(H4, 병렬 그리퍼 전용: gripper_link가 병렬 URDF의 것). 쓰려면 주석을 풀고 `gripper: parallel`로 다시 연결한다. 출처 assets/scene/NOTICE.txt, 평가 arm/parts_eval.py
-  # - {name: wrist_hcsr04, file: assets/scene/wrist_hcsr04.stl, attach: gripper_link, collide: true, color: "#2f6fdb"}
-  # - {name: wrist_bracket, file: assets/scene/wrist_bracket.stl, attach: gripper_link, collide: true, color: "#e08a1e"}
+  # 손목 초음파 브래킷(H4, 병렬 그리퍼 전용: gripper_link가 병렬 URDF의 것). `gripper:`가 cfg 그리퍼와 다르면 모든 쪽(3D·충돌·MuJoCo)이 건너뛴다(키가 없으면 늘 쓴다). 출처 assets/scene/NOTICE.txt, 평가 arm/parts_eval.py
+  - {name: wrist_hcsr04, file: assets/scene/wrist_hcsr04.stl, attach: gripper_link, collide: true, color: "#2f6fdb", gripper: parallel}
+  - {name: wrist_bracket, file: assets/scene/wrist_bracket.stl, attach: gripper_link, collide: true, color: "#e08a1e", gripper: parallel}
