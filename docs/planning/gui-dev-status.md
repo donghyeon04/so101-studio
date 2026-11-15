@@ -1,8 +1,17 @@
 # GUI 개발 현황
 
-상태: 초안 · 2026-11-14 밤 (로컬 총괄, 새 PC 이전 전 인수인계 절 추가. 지난 단계별 기록은 git 기록에 있다)
+상태: 초안 · 2026-11-16 (로컬 총괄, 새 PC 이틀 인수인계 절 추가. 지난 단계별 기록은 git 기록에 있다)
 
 GUI 세션(총괄)의 인수인계 문서다. 기준 설계는 `planning/gui-spec.md`, 세션 절차는 `guides/session-workflow.md`, 할 일은 `planning/work-queue.md`.
+
+## 인수인계 (2026-11-16, 새 PC 이틀 뒤, main 583ab31 이후)
+- 새 총괄 세션은 `project-status.md` → `work-queue.md` → 이 절 → 아래 11-14 절 순서로 읽는다.
+- **운영 규칙(11-14 사용자 지시, `session-workflow.md` 7절)**: 각 세션은 커밋·푸시·PR까지 묻지 않고 하고 총괄에 사후 보고한다. 총괄은 받은 PR을 main 위에 임시 브랜치로 받아 관련 시험·ruff(GUI면 `tests/gui`)를 직접 돌리고 사용자에게 묻지 않고 `gh pr merge N --merge`로 합친다. 미리 묻는 것: 실물 하드웨어, 지우기, 구매, 설계서와 다른 구현, 기획 브랜치 합치기(사용자가 기획 메시지를 붙여 넣으면 그것을 합치기 승인으로 본다), 설치.
+- **도구**: gh는 `"/c/Program Files/GitHub CLI/gh.exe"`(PATH에 없음, 로그인됨). git 작성자는 이 레포에 noreply 주소로 설정됨. EGM은 설치됨(`egm:egm-synthesizer`).
+- **폴더**: GUI 폴더는 `--detach origin/main`, 검토는 `tmp/review-NNN` 임시 브랜치. 임시 worktree 둘: `../so101-gui-docs-tmp`(문서 PR·두 번째 검토용), `../so101-inbox-tmp`(planning-inbox 쓰기용, 문서 PR 때만 잠시 다른 브랜치). 벤치마크나 시험이 도는 폴더에서는 브랜치를 바꾸지 않는다(돌고 있는 파이썬이 바뀐 파일을 읽는다).
+- **11-14~16에 합친 것**: #362~#399(약 35개). 새 PC GUI 시험 고침(#369), 버전 고정(#377), REQ-064~066, 결정 0065(CHECK yaw 반경별)와 벤치마크 갱신, 그리퍼별 `tool_reach_mm`(병렬 75~250), 병렬 MuJoCo 시나리오. 벤치마크 최종 값과 근거는 `planning-inbox` `inbox/2026-11-15-benchmark-final.md`.
+- **시험 기준(11-15·16)**: 빠른 묶음 620 passed(~8분), `tests/gui` 426 passed(~10분), `tests/gui_visual` 56 passed(기준 사진은 새 PC에서 다시 찍음), 전체(11-14 fcdcb0f) 1:17:21.
+- **열린 것(11-16)**: #400(레이더 가림 점 병렬 보정, 총괄 검토 중), 팔 세션의 일직선 꼭짓점 수정 PR(승인함, 합칠 때 초음파 벤치마크 값 변화 확인), #399 뒤 병렬 도달 띠 75 대 73 비교 값(씨앗 60)을 inbox에 올릴 것. U16 안 A는 기획 설계 → REQ → 구현 순서라 기획 브랜치를 기다린다.
 
 ## 인수인계 (2026-11-14 밤, main 5edec34, 새 PC 이전 전)
 - 새 총괄 세션은 `project-status.md` → `work-queue.md` → 이 절 순서로 읽는다. 세션 시작 프롬프트는 `guides/session-workflow.md` 8절.
