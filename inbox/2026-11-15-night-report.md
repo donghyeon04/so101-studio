@@ -49,3 +49,9 @@
 - 13.3과의 관계: 규약을 깨지 않고 "StepClock이 advance를 부르는 시험 전용 경로"를 더한다. 13.3에 한 줄.
 - 한계: 스레드 셋(틱·상태 10Hz·ArmService)이 시계를 나눠 써 완전 결정적이려면 스케줄러를 하나로 모아야 한다(규모 2~3배). 첫 단계는 틱 스레드 하나 + 상태 루프는 틱마다 직접 호출.
 - 기존 API에 인자가 늘어나는 변경이라 기획 확인이 필요하다. M5 세부 설계 때 M5b와 같이 정해 달라.
+
+## 6. 추가(11-15 아침, MuJoCo 세션 #375 보고) — mujoco-spec 13.10 "M5 세부 설계 입력" ② 한 문장 고칠 것
+"`ArmService`에는 scene 인자가 없어 … 확인하지 않았다"를 확인한 내용으로 바꿔 달라.
+- `ArmService`는 init에서 스스로 `load_scene()`(`config/scene.yaml`)을 읽고 그 장면으로 계획 쪽 충돌 검사(`SceneCollision.set_scene`)를 한다. 드라이버에 따로 넘긴 장면(임시 `scene.yaml`의 손목 부품)과는 별개다.
+- 실측: 병렬 시험에서 드라이버 장면 부품은 `wrist_hcsr04`·`wrist_bracket`인데 `svc.scene` 부품은 `['radar_station']`뿐이고 `svc.collision._attached`는 비어 있다. 지금 시험들은 계획 쪽 충돌 검사가 손목 부품을 보지 않는다(MuJoCo 물리에는 실린다).
+- M5에서 시험장 기준 설정이 계획 쪽도 손목 부품을 보게 하려면 `ArmService.scene`을 같은 Scene으로 맞춰야 한다(`svc.scene = sc; svc.collision.set_scene(sc, ws)`처럼). CLI(`--sim-engine mujoco`)는 `load_scene()`을 둘 다에 넘겨 같다.
