@@ -11,12 +11,30 @@ from .model import beam_radius
 UNREACHABLE = object()  # 제너레이터에 보내는 표시: 그 구간을 팔이 못 갔다
 
 
-def sensor_to_tip(pts, cfg):
+def sensor_to_tip(pts, cfg, yaw_deg=None):
     """센서가 지날 선 -> 손끝 xy 경로. 이 변환은 여기 한 곳뿐이다(설계서 8.2절).
-    arm_sensor_offset_mm를 경로 동안 고정한 yaw로 돌려 센서 점에서 뺀다."""
-    off, a = cfg.arm_sensor_offset_mm, math.radians(cfg.check.yaw_deg)
+    arm_sensor_offset_mm를 경로 동안 고정한 yaw(기본 check.yaw_deg)로 돌려 센서 점에서 뺀다."""
+    off, a = cfg.arm_sensor_offset_mm, math.radians(cfg.check.yaw_deg if yaw_deg is None else yaw_deg)
     ox, oy = off.x * math.cos(a) - off.y * math.sin(a), off.x * math.sin(a) + off.y * math.cos(a)
     return [(x - ox, y - oy) for x, y in pts]
+
+
+def pick_yaw(cfg, cand_xy, origin):
+    """후보 반경에 맞춰 경로 동안 고정할 손목 각도. check.yaw_pivot_mm이 없거나 0이면 고정값(yaw_deg).
+    센서가 손끝보다 바깥으로 나가는 양 c = clamp(r - pivot, -L, L): 먼 물체는 센서를 바깥으로(손끝은 안쪽, 최대 도달 안),
+    가까운 물체는 안쪽으로(손끝은 바깥, 최소 도달 밖) 둬 손끝 경로가 도달 범위 안에 들게 한다. 오프셋 방향이 팔→후보 방향에서
+    acos(c/L)만큼 벗어나게 yaw를 풀고, 두 해 중 yaw_deg에 가까운 쪽을 쓴다(손목 회전이 덜 돈다)."""
+    pivot = cfg.check.get("yaw_pivot_mm")
+    if not pivot:  # 없음·null·0 = 끔(설계서 표기 0)
+        return cfg.check.yaw_deg
+    off = cfg.arm_sensor_offset_mm
+    L = math.hypot(off.x, off.y)
+    dx, dy = cand_xy[0] - origin[0], cand_xy[1] - origin[1]
+    c = max(-L, min(L, math.hypot(dx, dy) - pivot))
+    delta, th, base = math.acos(c / L), math.atan2(dy, dx), math.atan2(off.y, off.x)
+    sols = [math.degrees(th + sg * delta - base) for sg in (1, -1)]
+    wrap = lambda a: (a + 180) % 360 - 180
+    return min(sols, key=lambda y: abs(wrap(y - cfg.check.yaw_deg)))
 
 
 def _near(p, poly, tol) -> bool:
@@ -38,6 +56,7 @@ class Probe:
         self.src, self.cand, self.cfg, self.bus = src, cand, cfg, bus
         self.origin = arm_origin_mm
         self.tool_z = c.max_object_height_mm + c.clearance_mm
+        self.yaw = pick_yaw(cfg, (cand.x_mm, cand.y_mm), arm_origin_mm)
         self.info: dict = {}
         self._gen = self._run()
         self._seg = None
@@ -99,7 +118,7 @@ class Probe:
 
     # --- 경로 ---
     def _inside(self, sensor_p) -> bool:
-        tip = sensor_to_tip([sensor_p], self.cfg)[0]
+        tip = sensor_to_tip([sensor_p], self.cfg, self.yaw)[0]
         r = math.hypot(tip[0] - self.origin[0], tip[1] - self.origin[1])
         reach = self.cfg.check.tool_reach_mm
         return reach.min <= r <= reach.max
@@ -147,8 +166,8 @@ class Probe:
         return pts
 
     def _seg_of(self, name, sensor_pts):
-        seg = PathSegment(sensor_to_tip(sensor_pts, self.cfg), self.tool_z, self.cfg.check.speed_mm_s,
-                          self.cfg.check.yaw_deg)
+        seg = PathSegment(sensor_to_tip(sensor_pts, self.cfg, self.yaw), self.tool_z, self.cfg.check.speed_mm_s,
+                          self.yaw)
         self._cur = (name, seg, sensor_pts)
         return seg
 

@@ -73,8 +73,14 @@ class KinReach:
     """실제 팔 기구학으로 하는 도달 판정(--reach kin): 점에서 손끝을 수직 아래로 둔 IK가 풀리는지(관절 한계 포함, 시드는 plan_goto와 같이 홈 + SEEDS).
     hover_mm는 접근 호버(첫 점 위 높이, 기본 robot.yaml approach_height_mm). 같은 점은 1mm 격자로 모아 한 번만 푼다."""
 
-    def __init__(self, hover_mm=None):
-        self.cfg, self.ws = load_robot(), load_workspace()
+    def __init__(self, hover_mm=None, gripper=None):
+        if gripper:  # 그리퍼 종류만 바꾼 임시 local.yaml(로컬 설정은 읽지 않는다)
+            tmp = Path(tempfile.mkdtemp()) / "local.yaml"
+            tmp.write_text(f"gripper: {gripper}\n", encoding="utf-8")
+            self.cfg = load_robot(local_path=tmp)
+        else:
+            self.cfg = load_robot()
+        self.ws = load_workspace()
         self.kin = Kinematics(self.cfg.urdf, self.ws.base, self.cfg.joint_limits_deg)
         self.hover = self.cfg.approach_height_mm if hover_mm is None else hover_mm
         home = JointState(*self.cfg.poses["home"])
@@ -97,10 +103,10 @@ class KinReach:
 _KIN = {}
 
 
-def kin_reach(hover_mm=None):
-    if hover_mm not in _KIN:
-        _KIN[hover_mm] = KinReach(hover_mm)
-    return _KIN[hover_mm]
+def kin_reach(hover_mm=None, gripper=None):
+    if (hover_mm, gripper) not in _KIN:
+        _KIN[hover_mm, gripper] = KinReach(hover_mm, gripper)
+    return _KIN[hover_mm, gripper]
 
 
 class FakeArm:
@@ -427,17 +433,20 @@ def main(argv=None):
     ap.add_argument("--tool-reach", help="MIN,MAX: check.tool_reach_mm를 이번만 바꾼다(기본 설정값 60,255). (나)안")
     ap.add_argument("--trim-start", action="store_true", help="--reach kin에서 첫 점이 안 닿으면 경로 안쪽으로 당긴다. (다)안")
     ap.add_argument("--servo", choices=["pwm", "dxl"], default="pwm", help=f"가상 레이더 서보: pwm(기본, 지연 ±3°) | dxl(XL330: 지연 {DXL_LAG_DEG}° + 읽은 각도 ang 사용, 가정값이라 B4로 고친다)")
+    ap.add_argument("--gripper", choices=["single_jaw", "parallel"], help="--reach kin의 그리퍼 종류(기본: 설정 파일 그대로 = 단동식). 병렬은 robot.yaml 위에 grippers/parallel.yaml(URDF 포함)을 겹친다")
+    ap.add_argument("--set", action="append", default=[], metavar="KEY=VAL", help="check.<KEY>를 이번만 바꾼다(여러 번 가능, 예: --set yaw_deg=45 --set ring_r_mm=50 --set clearance_mm=40)")
     ap.add_argument("--out", default="runs/bench")
     a = ap.parse_args(argv)
     names = list(SCENARIOS) if a.scenario == "all" else [a.scenario]
     models = list(MODELS) if a.model == "both" else [a.model]
     opts = {k: v for k, v in (("line_mm", a.line_mm), ("speed_mm_s", a.speed), ("max_fail_per_run", a.max_fail)) if v is not None}
+    opts.update({k: json.loads(v) for k, v in (kv.split("=", 1) for kv in a.set)})
     if a.approach_line:
         opts["approach_line"] = True
     if a.tool_reach:
         lo, hi = (float(v) for v in a.tool_reach.split(","))
         opts["tool_reach_mm"] = {"min": lo, "max": hi}
-    arm_kw = {"kin": kin_reach(a.hover_mm), "trim_start": a.trim_start} if a.reach == "kin" else None
+    arm_kw = {"kin": kin_reach(a.hover_mm, a.gripper), "trim_start": a.trim_start} if a.reach == "kin" else None
     if a.servo == "dxl":
         opts["esp_kw"] = {"servo": "dxl", "servo_lag_deg": DXL_LAG_DEG}
     if a.empty_extra is not None:

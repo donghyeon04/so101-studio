@@ -201,6 +201,24 @@ def test_sensor_to_tip_default_yaw_90():
     assert tip == pytest.approx((166.5, 99.4))
 
 
+def test_pick_yaw_puts_sensor_outward_for_far_and_inward_for_near():
+    """check.pick_yaw: 먼 후보는 센서가 손끝보다 바깥(팔→후보 방향), 가까운 후보는 안쪽. pivot이 없으면 yaw_deg 고정."""
+    from so101_studio.perception.ultrasonic.check import pick_yaw, sensor_to_tip
+    from so101_studio.perception.ultrasonic.model import load_config
+
+    cfg, origin = load_config(), (300.0, 50.0)
+    for cand, sign in (((300.0, 300.0), 1), ((300.0, 90.0), -1)):  # 반경 250(먼) / 40(가까운), 방위 90
+        y = pick_yaw(cfg, cand, origin)
+        (tip,) = sensor_to_tip([cand], cfg, y)
+        radial = (cand[1] - tip[1]) * 1.0  # 센서(=cand) - 손끝, 팔→후보가 +y
+        assert sign * radial > 0 and abs(radial) == pytest.approx(66.5, abs=1.0)
+    y = pick_yaw(cfg, (300.0, 200.0), origin)  # 반경 150 = pivot: 오프셋이 접선 방향
+    (tip,) = sensor_to_tip([(300.0, 200.0)], cfg, y)
+    assert abs(200.0 - tip[1]) < 1.0
+    assert load_config().check.yaw_pivot_mm == 150  # 결정 0065: 기본으로 켠다
+    assert pick_yaw(load_config(yaw_pivot_mm=0), (300.0, 300.0), origin) == 90  # 끄면(0) 고정 yaw 90
+
+
 def test_origin_comes_from_workspace_config(tmp_path):
     from so101_studio.perception.ultrasonic.fake_esp32 import FakeESP32, SimClock
     from so101_studio.perception.ultrasonic.link import Link
@@ -214,7 +232,7 @@ def test_origin_comes_from_workspace_config(tmp_path):
 
 def test_unreachable_twice_is_dropped_until_next_cycle(tmp_path):
     """못 가서 못 잰 후보는 두 번째에 뺀다(6절). 사이클 시작(begin_cycle)에 다시 나온다."""
-    cfg, clk, esp, arm = build([Box(300, 320, 0)], reach=STRICT_REACH)  # 레이더 가까이: 팔이 못 간다
+    cfg, clk, esp, arm = build([Box(300, 320, 0)], reach=STRICT_REACH, yaw_pivot_mm=0)  # 레이더 가까이: 팔이 못 간다(yaw 고정, 반경별 yaw는 도달을 넓혀 이 가정을 깬다)
     src = make_source(cfg, clk, esp, arm, tmp_path)
     for n in (1, 2):
         cands = src.scan().objects
@@ -266,7 +284,7 @@ def _all_segments(src, arm, cand):
 
 def test_clip_to_reach_splits_and_limits_paths(tmp_path):
     """PR #71: 손끝이 tool_reach_mm 밖인 점은 건너뛰고, 끊기면 조각마다 따로 보낸다."""
-    cfg, clk, esp, arm = build([Box(300, 170, 0)])
+    cfg, clk, esp, arm = build([Box(300, 170, 0)], yaw_pivot_mm=0)  # yaw 고정 90
     src = make_source(cfg, clk, esp, arm, tmp_path)
     probe = src.start_check(src.scan().objects[0])
     # yaw 90이라 손끝 = 센서 + (66.5, -0.6). 센서 x 250이면 손끝 x 316.5라 원점(300,50) 반경 60 안(손끝 y -7.7~107.7)은 건너뛴다
