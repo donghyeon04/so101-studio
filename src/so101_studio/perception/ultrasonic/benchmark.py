@@ -204,8 +204,6 @@ class FakeArm:
             start_ok = (lambda p: self.kin.start_ok(p, z, yw)) if need_hover else (lambda p: self.kin.ok(p, z, yw))
             if self.trim_start and not start_ok(pts[0]):
                 pts[0] = self._trim(pts, start_ok)
-                if pts[0] is not None and len(pts) > 2 and math.dist(pts[0], pts[1]) < 1.5:  # 첫 구간이 1mm 이하면 arm/trajectory.py가 duration 1e12초로 터진다(총괄에 보고, 팔 영역)
-                    del pts[1]
             bad = [p for p in pts[1:] if not self.kin.ok(p, z, yw)] + ([] if pts[0] is not None and start_ok(pts[0]) else [pts[0]])
         if bad:
             self.last_path = {"reason": "unreachable", "points": bad}

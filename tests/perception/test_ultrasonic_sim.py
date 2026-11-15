@@ -507,12 +507,12 @@ def test_benchmark_seed_timeout_marks_seed_failed():
 
 
 def test_tool_reach_by_gripper():
-    """그리퍼별 도달 범위: 병렬은 70~250, 단동식·없음은 60~255(기본), 명시한 값이 가장 우선."""
+    """그리퍼별 도달 범위: 병렬은 75~250, 단동식·없음은 60~255(기본), 명시한 값이 가장 우선."""
     from so101_studio.perception.ultrasonic.model import load_config
 
     assert load_config().check.tool_reach_mm == {"min": 60, "max": 255}
     assert load_config(gripper="single_jaw").check.tool_reach_mm == {"min": 60, "max": 255}
-    assert load_config(gripper="parallel").check.tool_reach_mm == {"min": 70, "max": 250}
+    assert load_config(gripper="parallel").check.tool_reach_mm == {"min": 75, "max": 250}
     assert load_config(gripper="parallel", tool_reach_mm={"min": 50, "max": 265}).check.tool_reach_mm == {"min": 50, "max": 265}
 
 
@@ -520,12 +520,12 @@ def test_benchmark_gripper_flows_into_check_reach():
     """벤치마크 build(gripper=...)가 실제 CHECK와 같은 길(load_config)로 그리퍼별 값을 읽는다."""
     from so101_studio.perception.ultrasonic.benchmark import build
 
-    assert build([], gripper="parallel")[0].check.tool_reach_mm.min == 70
+    assert build([], gripper="parallel")[0].check.tool_reach_mm.min == 75
     assert build([])[0].check.tool_reach_mm.min == 60
 
 
 @pytest.mark.slow  # 팔 서비스를 만들어 각 약 11초
-@pytest.mark.parametrize(("gripper", "lo", "hi"), [("single_jaw", 60, 255), ("parallel", 70, 250)])
+@pytest.mark.parametrize(("gripper", "lo", "hi"), [("single_jaw", 60, 255), ("parallel", 75, 250)])
 def test_make_ultrasonic_source_reads_reach_from_arm_gripper(gripper, lo, hi, tmp_path):
     """service/ultrasonic.py의 한 줄: 팔 cfg의 그리퍼 종류가 check.tool_reach_mm(그리퍼별)로 이어진다."""
     from so101_studio.arm.sim_driver import SimDriver
