@@ -1,6 +1,6 @@
 # MuJoCo 물리 시뮬레이션·시험장 설계서
 
-상태: 확정 · 2026-11-14 (`arm-software-spec.md` 13절에서 옮김. 13.1~13.9는 M1~M4로 구현됨, 13.10 시험장 계획은 결정 0062. 2026-11-14 drift-report(main fcdcb0f, #348~#357) 반영: 13.9 병렬·뷰어, 13.10 M5 판정·시험장 기준 설정)
+상태: 확정 · 2026-11-14 (`arm-software-spec.md` 13절에서 옮김. 13.1~13.9는 M1~M4로 구현됨, 13.10 시험장 계획은 결정 0062. 2026-11-14 drift-report(main fcdcb0f, #348~#357) 반영: 13.9 병렬·뷰어, 13.10 M5 판정·시험장 기준 설정. 2026-11-15 총괄 밤 보고 반영: 시나리오는 그리퍼별, M5 설계 입력, M5b 시계 주입 계획)
 
 로컬 세션이 MuJoCo 드라이버(M1~M4)와 시험장(M5~M9)을 구현하는 기준이다. 절 번호는 옮기기 전과 같다(13.x). 팔 쪽 기본 규약(타입, `ArmService`, 안전, 집기·놓기)은 `arm-software-spec.md`, GUI 쪽은 `gui-spec.md` 12.8이다. 근거 결정: 0053(MuJoCoDriver), 0062(시험장), 0037(주제마다 도구 하나).
 
@@ -138,6 +138,7 @@
 - **물체**:
   - 시나리오가 없으면 `config/manual_objects.yaml`의 물체를 `ManualSource`와 같은 이름 `obj-1`, `obj-2`, …(파일 순서, 1부터)로 놓는다. body는 `obj:obj-1`이다. M2는 물체를 넘기지 않았다(`objects=()`).
   - 시나리오 물체는 `name`이 필수이고 서로 달라야 한다. 시나리오 파일 이름과 물체 이름은 별개다.
+  - **시나리오는 그리퍼별이다**(2026-11-15). 손 모양이 달라 같은 배치가 다른 뜻이 된다(예: `blocker`의 벽 (300,200) 높이 120은 병렬 손이 home → `radar_clear`로 갈 때 쓸고 가는 자리(x 272~333, y 187 이상, 높이 86mm 이상)에 있어 시험하려던 동작 전에 막힌다). 이름 규칙: 접미사 없는 파일은 단동식 기준, 병렬은 `<이름>_parallel.yaml`(#370 `blocker_parallel`). 두 손에서 뜻이 같은 것(`carry30`·`carry45`·`carry58`)은 한 파일을 같이 쓴다. 시험과 시험장 결과 표에는 시나리오 이름과 그리퍼 종류를 함께 남긴다. 실물에도 같은 자리가 있다: 병렬 손에서는 높이 86mm가 넘는 물체가 x 270~335·y 187 이상에 있으면 `radar_clear`로 가는 길에 걸린다(시뮬레이션 충돌 형상 기준. 시연 물체는 40mm 이하라 해당 없다).
   - 물체 행의 키는 `SimObject` 필드(`name, x_mm, y_mm, angle_deg, width_mm, length_mm, height_mm, mass_g`)이고 필수는 `name`·`x_mm`·`y_mm`이다. 기본값은 각도 0, 폭 30, 길이 100, 높이 0(→ 40), 질량 30g이다. 마찰은 `1.0 0.005 0.0001`(작업대와 같음)이다. 상자의 길이 축이 `angle_deg` 방향이다. 시험 시나리오는 길이를 늘 적는다(기본 100이면 막대가 된다).
   - 높이가 없는(0) 물체는 상자 높이 40mm로 놓는다. `load_model`의 warnings 항목은 `(code, data)`이고, 높이 0 물체마다 `("SIM-OBJECT-HEIGHT-DEFAULT", {"object": 이름, "height_mm": 40})`을 하나씩 담아 드라이버가 WARN으로 보낸다. 계획 쪽 물체 높이는 0으로 남는다. 그래서 기울이지 못하는 집기는 `height_required`로 거부된다(결정 0052).
   ```yaml
@@ -264,6 +265,8 @@
 - **실행기 B (나중, 강화학습)**: 같은 공통 층의 Gymnasium 환경을 시뮬레이션 시간으로 빠르게 돌린다. 행동은 관절 또는 손끝 변화량이다. 학습 틀은 새로 만들지 않고 가져온다(후보 so101-nexus·mjlab, 평가 뒤 정함).
 - 초음파 성능은 지금처럼 초음파 벤치마크(`ultrasonic-spec.md` 8.5)가 맡는다. 벤치마크에 MuJoCo 엔진 옵션을 더하는 것이지 두 번째 도구가 아니다. 팔 도달 범위도 지금 도달 계산 그대로다.
 
+**M5 세부 설계 입력**(2026-11-15 MuJoCo 세션 메모, 설계 때 확인하고 지운다): ① 지금 시험은 덮어쓰기를 임시 `local.yaml`(`gripper: parallel` 한 줄, `load_robot(local_path=)`)로 한다. 팔 파일이 둘이 되면 팔도 지정해야 한다. ② 손목 부품은 임시 `scene.yaml`에 절대경로 `file`로 적어 `load_scene` → `make_sim_driver(cfg, ws, scene, scenario=)`로 넘긴다(상대경로는 yaml의 부모의 부모 기준). `ArmService`에는 scene 인자가 없어 계획 쪽 충돌 검사(coal)가 손목 부품을 보는지는 확인하지 않았다. ③ 손목 부품 둘은 한 쌍으로만 온다(하나면 ValueError, 단동식이면 `SIM-PART-SKIPPED`). ④ 시험 하나가 연결부터 새로 해 실시간 20~27초다. ⑤ 병렬 carry 58mm의 미끄러짐이 실행마다 0.8~10mm로 갈린다(30·45mm는 0.7~1.4mm). 실시간 지터인지 물리 편차인지 못 갈랐고, 그래서 미끄러짐은 `measure` 시험(임시 4.0mm)으로 분리했다(#370). 미끄러짐 기준과 조임 힘(kp·forcerange)은 실물 2-10 뒤에 정한다(U15). 결정 스텝(M5b 첫 단계)으로 돌리면 지터인지 갈린다.
+
 **시험장 기준 설정**(2026-11-14, drift-report 4번): 코드 기본값은 로보나인 교체(U5) 전까지 단동식이고(`gripper` 기본 `single_jaw`), 손목 브래킷·센서 부품은 `config/scene.yaml`에서 주석이며, `wrist_sonar` site는 병렬일 때만 생긴다. 그래서 M5·M6는 13.7 공통 cfg를 그대로 쓰지 않고 아래 기준 설정으로 돈다.
 - cfg = `config/robot.yaml` + `config/arms/so101_follower_01.yaml` + **시험장 덮어쓰기(`gripper: parallel`)**. PC의 `config/local.yaml`은 읽지 않는다(PC마다 결과가 달라지지 않게). 지금 `tests/test_mujoco_parallel.py`가 임시 `local.yaml`로 하는 것과 같은 방식이다.
 - 장면 = `config/scene.yaml`의 부품 + **손목 부품 둘(`wrist_hcsr04`, `wrist_bracket`)을 켠 것**. 브래킷 질량 15.5g과 `wrist_sonar`가 실린다.
@@ -277,7 +280,7 @@
 | M4b 로보나인 손 모델(A, 결정 0063) ✅ #348·#350·#357(11-14, FK 0.002mm, carry 30/45/58은 `held`·놓은 자리 7mm·기울기 10°만 통과(미끄러짐 3.5mm와 과부하·fault 0건은 아직 안 봄), kp·힘 잠정. 계획과 달라진 것: 묶기는 equality, 클램프 안쪽 패드 geom은 만들지 않음(z 조각 경계 상자), 손 메쉬는 손목 카메라 팔을 자른 파생 STL `parallel_hand_nocam`. 남은 것: 병렬 손으로 (a)(b)·`sim_blocked`·부하 문턱 다시 재기) | menagerie 팔(어깨~손목)은 그대로 두고 단동식 턱만 지운 뒤 로보나인 클램프 둘을 붙인다. ① 병렬 URDF `gripper_link`와 menagerie gripper body 좌표가 같은지 FK로 먼저 대조한다. ② 관절은 슬라이드 둘(0~42mm, 한쪽은 반대 방향)을 equality 또는 tendon으로 묶고 액추에이터는 하나다(MuJoCo는 URDF mimic을 무시한다). 접촉 때 한쪽만 밀리지 않게 solref를 맞춘다. ③ 그리퍼 단위가 힌지(°)에서 슬라이드(m)로 바뀌므로 서보값↔폭, kp·forcerange(N), 부하 % 정의, `Torque_Limit` 배율, 속도를 새로 정한다. 실물 조임 힘 측정(runbook 2-10)이 필요하다. ④ 충돌: 클램프·손의 볼록 껍질이 실제보다 4~6.5배 커서 시각은 원본 메쉬, 충돌은 상자 근사나 CoACD다. 클램프 안쪽에 얇은 패드 geom을 두고(치수는 CAD 확인), `jaw_*` 역할 이름과 `held` 판정·시험을 함께 고친다. ⑤ `gripper_frame` site는 병렬 값(z −121.8mm)으로 나눈다. ⑥ M7a의 브래킷 질량·`wrist_sonar` site(#336)를 같이 싣고, 로보나인 + 브래킷 + 센서 조립을 `--sim-viewer`로 띄워 사용자가 확인한다. 13.7 (a)(b)·`sim_blocked`·부하 문턱은 로보나인 손으로 다시 잰다 | 0063 | MjSpec, obj2mjcf/CoACD | **1 (M5·M6 앞)** |
 | M5 집기 시험장 | 공통 층 + 실행기 A(로보나인 손 위, M4b 뒤). 크기(폭·길이·높이)·자리(반경·방위)·각도를 바꿔 집기·놓기를 반복하고 성공률·실패 이유 표. 로보나인 손의 결정 근거를 낸다: 집을 수 있는 폭·높이 범위(W ≤ G − 4, 스트로크 84mm), 집는 높이와 벌림 여유, 여러 물체를 배출 구역에 놓을 때의 겹침·폴백. 단동식 전용 규칙(`grasp_tilt_tol_deg`, 45° 정사각형, `height_required`)은 기준에서 빼고 단동식 비교 옵션으로만 둔다(결정 0063, U6은 닫음) | ①② | robosuite 배치 초기화기, ManiSkill SO-100 무작위화, so101-nexus | **1** |
 | M6 초음파를 MuJoCo에 | (M4b 뒤) 레이더와 손목 센서(M7a의 CAD site, `wrist_sonar`)를 광선으로 흉내 내는 가상 ESP32. 찾기 → CHECK → 집기 → 놓기 전체를 물리로 돈다. 새 센서 높이(약 155mm)에 맞춰 확인 높이·경로 값을 벤치마크로 다시 고른다(알고리즘을 브래킷에 맞추기) | ⑤ | MuJoCo rangefinder·`mj_multiRay` | **1** |
-| M5b 빠른 모드 | 제어기를 시뮬레이션 시간으로 돌려 벽시계보다 빠르게 한다. 대량 시험과 강화학습의 전제다. 첫 버전은 프로세스 여러 개를 나란히 돌린다 | ①, RL | so101-nexus(MuJoCo 병렬) | 2 |
+| M5b 빠른 모드 | 제어기를 시뮬레이션 시간으로 돌려 벽시계보다 빠르게 한다. 대량 시험과 강화학습의 전제다. 첫 버전은 프로세스 여러 개를 나란히 돌린다. **첫 단계 = 시계 주입**(2026-11-15 방향만 정함, 세부는 M5 세부 설계에서 M5와 한 묶음으로 쓰고 EGM Stage 9 뒤 REQ): `MotionController`·`Skills`·`ArmService`가 벽시계(`perf_counter`·`sleep`, 약 49곳)를 직접 부르지 않고 시계 객체(now·sleep)를 받는다. 기본은 지금과 같은 벽시계라 실제 팔·`SimDriver`·실시간 MuJoCo의 동작은 바뀌지 않는다. 시험·시험장용 `StepClock`은 sleep에서 `driver.advance`를 불러 `realtime=False` 드라이버 위에서 `ArmService`를 돌린다(13.3에 시험 전용 경로로 더한다). 조건: 안전 감시(막힘 0.2초, 부하 3초, 감시 heartbeat)의 시간 기준이 같은 시계를 쓰는지 목록으로 확인하고, 로그 시각(`time_ns`)은 벽시계 그대로 둔다. 스레드 셋을 스케줄러 하나로 모으는 완전 결정 실행은 그다음 단계다 | ①, RL | so101-nexus(MuJoCo 병렬) | 2 |
 | M5c 서보 맞추기(시스템 식별) | 실물 `status.jsonl`(명령·실제)을 다시 틀어 kp·감쇠·armature·마찰·힘 한계를 맞춘다. 시뮬레이션 성공률을 믿고 강화학습 결과를 실물로 옮기기 위한 전제다 | RL | ALOHA 2(MuJoCo 맞춤), BAM(STS3215 모델) | 2 |
 | M8 GUI 시험장 | GUI에서 시나리오를 고르고 물체를 바꾸고(세계 다시 짓기) M5 결과 표·실패 영상을 본다 | ③ | mjviser | 3 |
 | M9 강화학습(12/4 뒤) | 실행기 B. 우리 알고리즘이 구조상 못 하는 경우(예: 45° 정사각형 — 밀거나 돌린 뒤 집기, 초음파만 보고 다가가 집기)를 학습한다. 실물로는 시뮬레이션 체크포인트에서 시작해 실물에서 이어 배운다(HIL-SERL) | RL | so101-nexus, mjlab, LeRobot HIL-SERL | 4 |
