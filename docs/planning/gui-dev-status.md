@@ -11,6 +11,7 @@ GUI 세션(총괄)의 인수인계 문서다. 기준 설계는 `planning/gui-spe
 - **폴더**: GUI 폴더는 `--detach origin/main`, 검토는 `tmp/review-NNN` 임시 브랜치. 임시 worktree 둘: `../so101-gui-docs-tmp`(문서 PR·두 번째 검토용), `../so101-inbox-tmp`(planning-inbox 쓰기용, 문서 PR 때만 잠시 다른 브랜치). 벤치마크나 시험이 도는 폴더에서는 브랜치를 바꾸지 않는다(돌고 있는 파이썬이 바뀐 파일을 읽는다).
 - **11-14~16에 합친 것**: #362~#399(약 35개). 새 PC GUI 시험 고침(#369), 버전 고정(#377), REQ-064~066, 결정 0065(CHECK yaw 반경별)와 벤치마크 갱신, 그리퍼별 `tool_reach_mm`(병렬 75~250), 병렬 MuJoCo 시나리오. 벤치마크 최종 값과 근거는 `planning-inbox` `inbox/2026-11-15-benchmark-final.md`.
 - **시험 기준(11-15·16)**: 빠른 묶음 620 passed(~8분), `tests/gui` 426 passed(~10분), `tests/gui_visual` 56 passed(기준 사진은 새 PC에서 다시 찍음), 전체(11-14 fcdcb0f) 1:17:21.
+- **GUI 할 일(11-16 drift-report)**: 초음파 화면 가상 실행 `ultrasonic_view.Demo._run`이 `benchmark.build(boxes)`를 그리퍼 없이 불러 병렬 팔에서도 단동식 도달 범위(60~255)로 그린다. `Demo.start`에 그리퍼를 넘기고 `build(..., gripper=backend.arm.cfg.gripper)`로 고친다(표시용, 작업 실행은 영향 없음). 하루 마감 전체 시험(1011f60) 결과는 `runs/fulltest-1114/full-1116.log`.
 - **열린 것(11-16)**: #400(레이더 가림 점 병렬 보정, 총괄 검토 중), 팔 세션의 일직선 꼭짓점 수정 PR(승인함, 합칠 때 초음파 벤치마크 값 변화 확인), #399 뒤 병렬 도달 띠 75 대 73 비교 값(씨앗 60)을 inbox에 올릴 것. U16 안 A는 기획 설계 → REQ → 구현 순서라 기획 브랜치를 기다린다.
 
 ## 인수인계 (2026-11-14 밤, main 5edec34, 새 PC 이전 전)
