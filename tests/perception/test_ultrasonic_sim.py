@@ -504,3 +504,21 @@ def test_benchmark_seed_timeout_marks_seed_failed():
 
     (row,) = run_scenario("spread120", "optimistic", 1, kin_spec=(None, "parallel", True), seed_timeout=1)
     assert row["timeout"] and row["ok"] == 0 and row["recog_s"] == 1.0
+
+
+def test_tool_reach_by_gripper():
+    """그리퍼별 도달 범위: 병렬은 70~250, 단동식·없음은 60~255(기본), 명시한 값이 가장 우선."""
+    from so101_studio.perception.ultrasonic.model import load_config
+
+    assert load_config().check.tool_reach_mm == {"min": 60, "max": 255}
+    assert load_config(gripper="single_jaw").check.tool_reach_mm == {"min": 60, "max": 255}
+    assert load_config(gripper="parallel").check.tool_reach_mm == {"min": 70, "max": 250}
+    assert load_config(gripper="parallel", tool_reach_mm={"min": 50, "max": 265}).check.tool_reach_mm == {"min": 50, "max": 265}
+
+
+def test_benchmark_gripper_flows_into_check_reach():
+    """벤치마크 build(gripper=...)가 실제 CHECK와 같은 길(load_config)로 그리퍼별 값을 읽는다."""
+    from so101_studio.perception.ultrasonic.benchmark import build
+
+    assert build([], gripper="parallel")[0].check.tool_reach_mm.min == 70
+    assert build([])[0].check.tool_reach_mm.min == 60
