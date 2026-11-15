@@ -522,3 +522,22 @@ def test_benchmark_gripper_flows_into_check_reach():
 
     assert build([], gripper="parallel")[0].check.tool_reach_mm.min == 70
     assert build([])[0].check.tool_reach_mm.min == 60
+
+
+@pytest.mark.slow  # 팔 서비스를 만들어 각 약 11초
+@pytest.mark.parametrize(("gripper", "lo", "hi"), [("single_jaw", 60, 255), ("parallel", 70, 250)])
+def test_make_ultrasonic_source_reads_reach_from_arm_gripper(gripper, lo, hi, tmp_path):
+    """service/ultrasonic.py의 한 줄: 팔 cfg의 그리퍼 종류가 check.tool_reach_mm(그리퍼별)로 이어진다."""
+    from so101_studio.arm.sim_driver import SimDriver
+    from so101_studio.core.config import load_robot, load_workspace
+    from so101_studio.service.arm_service import ArmService
+    from so101_studio.service.ultrasonic import make_ultrasonic_source
+
+    local = tmp_path / "local.yaml"  # 그리퍼 종류만 바꾼 설정(이 PC의 local.yaml은 읽지 않는다)
+    local.write_text(f"gripper: {gripper}\n", encoding="utf-8")
+    cfg = load_robot("config/robot.yaml", local_path=local)
+    arm = ArmService(SimDriver(cfg.poses["home"]), cfg, load_workspace("config/workspace.yaml"), speed_pct=100, log_root=str(tmp_path / "runs"))
+    assert arm.connect()[0]
+    src = make_ultrasonic_source(arm, sim=True, boxes=[])
+    assert (src.cfg.check.tool_reach_mm.min, src.cfg.check.tool_reach_mm.max) == (lo, hi)
+    arm.disconnect()
