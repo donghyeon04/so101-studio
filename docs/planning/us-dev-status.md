@@ -42,6 +42,9 @@
 | 병렬 + 실제 기구학, trim 끔(= 지금 실제 CHECK) | `single` | 79 / 69% | 29 / 30 |
 | | `demo` | 75 / 50% | 69 / 68 |
 | | `demo80` | 82 / 62% | 71 / 71 |
+| 병렬 + 실제 기구학, 첫 점 당기기 구현(REQ-067, 75~250, 커밋 c5db419 위 구현본) | `single` | 82 / 74% | 28 / 30 |
+| | `demo` | 80 / 55% | 73 / 68 |
+| | `demo80` | 93 / 63% | 79 / 74 |
 
 - yaw 고정 90(끔) 대비: 단동식 `single` 73 / 62%, `demo` 85 / 63%(143 / 147초), 병렬 `demo` 43 / 28%. 병렬 `spread90`·`spread120`은 최종 재실행에 없다(이전 측정 `spread120` 78 / 67%, `spread90` 85 / 55%, 씨앗 20).
 - 합쳐진 것: #378(yaw 반경별, 결정 0065), #379(`pair` 시나리오·e2e 원인), #381(`--seed-timeout`), #384(`demo80`·멈춤 원인 정정), #385(병렬 `tool_reach` 근거), #390(그리퍼별 `tool_reach_by_gripper`, 병렬 70~250, 팔 영역 한 줄은 총괄 허용), #391(벤치마크 DECIDE를 `task/policy.py` +60mm로), #394(잘린 조각 일직선 중간 점 제거, 병렬 인식 −20%).
@@ -65,7 +68,7 @@
 
 병렬 손은 70~250이면 `demo80` 낙관의 손해(−9%p)가 사라진다(95 → 93). 인식 시간이 늘어나는 것은 60~255가 도달 밖 점을 건너뛰며 일찍 실패로 끝나던 사이클이 이제 끝까지 가서다. 설정은 바꾸지 않았다(그리퍼별 값은 기획이 정한다).
 
-**`trim_start`**(벤치마크 옵션 `--trim-start`, 설계서에 없음): `--reach kin`에서 경로 첫 점이 호버까지 안 닿으면 첫 구간 위를 1mm씩 안쪽으로 가며 닿는 첫 점으로 당긴다(결정 0042 (다)안). 가상 팔 판정에만 있고 CHECK 코드·설정의 동작은 바꾸지 않는다. 실제 팔 `follow_path`가 같은 일을 하는지는 팔 세션 몫이다.
+**첫 점 당기기**(REQ-067, 설계서 6절): `Probe.feed(poses, status)`가 `ik_fail`이면 그 단계 첫 점을 첫 구간 따라 2mm씩(합 20mm, 첫 구간 5mm 아래면 그만) 당겨 다시 낸다. 벤치마크 `--trim-start`는 없앴다. `--reach kin` 가상 팔이 `ik_fail`을 돌려주고 당기기는 실제 `Probe` 코드가 한다. 작업 실행이 `last_path.status`를 넘기는 연동은 REQ-068(팔).
 
 **yaw가 바뀌면 걸리는 것**
 - 도달·손목 한계: pivot 150이면 경로 점 1056개(반경 100~240, 방위 25~155°, 선 ±90mm·원 60mm) 가운데 손끝 반경이 60~255 밖인 점이 4개(최대 262mm), IK 실패는 단동식 0개·병렬 11개(고정 yaw 90은 밖 216개, IK 실패 176·241개). 손목 회전은 단동식 −122~97°, 병렬 −125~101°로 한계(±168.8°) 안이다. `tool_reach_mm`은 바꾸지 않는다(밖의 점은 잘린 채 신뢰도만 −0.2). 병렬 손은 실제 띠가 70~250이라 아래 "남은 것"으로 둔다.
@@ -87,7 +90,7 @@
 **재실행 명령**(설계서 1절 표 값, 씨앗 20; 커밋 SHA는 JSON에 남는다):
 ```
 python -m so101_studio.perception.ultrasonic.benchmark --scenario single --seeds 20     # demo, demo80, spread120, spread90도 같은 식
-python -m so101_studio.perception.ultrasonic.benchmark --scenario demo --seeds 20 --reach kin --gripper parallel --trim-start   # trim 끔은 --trim-start 없이
+python -m so101_studio.perception.ultrasonic.benchmark --scenario demo --seeds 20 --reach kin --gripper parallel
 ```
 끈 값 비교는 `--set yaw_pivot_mm=0`(0이면 yaw 고정 90). 설정 덮어쓰기 `--set 키=값`(check.<키>), 그리퍼 `--gripper single_jaw|parallel`(`--reach kin`의 URDF와 그리퍼별 `tool_reach`를 같은 길로), `--scenario pair --pair-gap N`·`demo80`, `--seed-timeout`(`--reach kin`, 기본 300초). 병렬 기구학은 느리고 메모리를 쓰니 시나리오별로 나눠 돌린다.
 
@@ -104,7 +107,7 @@ python -m so101_studio.perception.ultrasonic.benchmark --scenario demo --seeds 2
 9. 펌웨어 규약(`ultrasonic-spec.md` 7절): `sync`의 `pc`는 64비트 ns라 문자열 그대로 돌려준다. 측정 줄의 `us`는 트리거 시각이다(메아리 왕복 절반은 보정하지 않는다). stream이 켜지면 레이더 회전은 멈춘다. `gap`·`done`·`k:"ra"`·`driver`가 정식 규약이다. 외부 라이브러리 없음.
 10. PR 열기: `gh`(설치됨, 새 PC는 `gh auth login --web` 한 번)로 `gh pr create --base main --head <브랜치> --title … --body-file <파일>`. 본문에 큰따옴표가 있으면 PowerShell이 인자를 깨니 파일로 넘긴다. git 작성자가 없는 PC는 `git -c user.name=… -c user.email=…`(기존 작성자 값)로 커밋한다. 질문·승인은 총괄에게 `SendMessage`, 자기 `dev/` 브랜치 커밋·푸시·PR은 묻지 않는다(session-workflow 7절).
 11. 알려진 한계: `follow_path`가 블로킹인 동안 `Link.poll()`이 안 불려 ESP32 끊김은 구간이 끝난 뒤에야 안다. 빠른 모드 T9(조각 호출)는 끈 상태라(`early_stop_cells: 0`) 구간 사이 멈춤 시간은 측정된 적 없다. 배출한 물체가 다음 스캔에 후보로 잡히는 것은 `UltrasonicSource(ignore_zones=...)`로 뺀다(작업 실행이 배출 구역을 넘긴다).
-12. 호버 도달 띠는 그대로 둔다(결정 0042). A1 실측에서 `ik_fail`·성공률을 보고 다시 본다. 벤치마크 옵션 `--reach kin`, `--hover-mm`, `--tool-reach`, `--trim-start`.
+12. 호버 도달 띠는 그대로 둔다(결정 0042). A1 실측에서 `ik_fail`·성공률을 보고 다시 본다. 벤치마크 옵션 `--reach kin`, `--hover-mm`, `--tool-reach`.
 
 ## 실측 절차 (B1~B3, 서보 없음)
 순서 전체는 `measurements.md` "실물 시험 순서". 사용자가 옆에 있어야 한다. 배선은 H2 확인(B4는 OpenRB 포함) 뒤에 안내한다.

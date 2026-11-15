@@ -439,8 +439,8 @@ def test_run_cycle_goes_to_wait_pose_only_first_and_after_failed_pick(tmp_path, 
     assert n >= 2 and (500.0, 150.0) not in moves  # 첫 scan 전 + 집기 실패마다(같은 자리 두 번째 실패면 3), 놓으러 가지 않는다
 
 
-def test_kin_reach_hover_band_and_trim_start():
-    """--reach kin: 첫 점은 호버(z+40mm)까지 풀려야 한다. 반경 250mm 점은 작업 높이로는 닿아도 호버가 안 닿아 거부, --trim-start면 안쪽으로 당겨 간다. 기본(반경 판정)은 그대로 받는다."""
+def test_kin_reach_hover_band_reports_ik_fail():
+    """--reach kin: 첫 점은 호버(z+40mm)까지 풀려야 한다. 반경 250mm 점은 작업 높이로는 닿아도 호버가 안 닿아 ik_fail로 거부된다. 기본(반경 판정)은 그대로 받는다."""
     from so101_studio.perception.ultrasonic.benchmark import FakeArm, kin_reach
     from so101_studio.perception.ultrasonic.fake_esp32 import SimClock
     from so101_studio.perception.ultrasonic.model import load_config
@@ -454,12 +454,56 @@ def test_kin_reach_hover_band_and_trim_start():
         arm = FakeArm(SimClock(), cfg, (300, 50), **kw)
         return arm, arm.follow_path(path, 55, 100)
 
-    _, poses = run()
-    assert poses  # 반경 판정(50~265)은 받는다
+    arm, poses = run()
+    assert poses and arm.last_status == "ok"  # 반경 판정(50~265)은 받는다
     arm, poses = run(kin=k)
-    assert poses == [] and arm.last_path["reason"] == "unreachable"
-    arm, poses = run(kin=k, trim_start=True)
-    assert poses and math.hypot(poses[0].tool_mm[0] - 300, poses[0].tool_mm[1] - 50) < 250
+    assert poses == [] and arm.last_path["reason"] == "unreachable" and arm.last_status == "ik_fail"
+
+
+def _pull_probe(tmp_path, **check):
+    cfg, clk, esp, arm = build([Box(300, 235, 0)], **check)
+    src = make_source(cfg, clk, esp, arm, tmp_path)
+    return src.start_check(src.scan().objects[0])
+
+
+def test_first_point_pull_on_ik_fail(tmp_path):
+    """U16: ik_fail이면 같은 단계를 첫 점만 첫 구간을 따라 2mm 당겨 다시 낸다. 다시 부른 경로는 끝 점이 같고 첫 구간만 짧아진다."""
+    probe = _pull_probe(tmp_path)
+    seg = probe.next_segment()
+    first = seg.points_mm
+    probe.feed([], "ik_fail")
+    again = probe.next_segment()
+    assert again is not seg and again.points_mm[1:] == first[1:]
+    assert math.dist(first[0], again.points_mm[0]) == pytest.approx(2.0, abs=1e-6)
+    assert math.dist(first[0], first[1]) - math.dist(again.points_mm[0], first[1]) == pytest.approx(2.0, abs=1e-6)
+    assert "unreachable" not in probe.info
+
+
+def test_first_point_pull_stops_at_max_and_other_statuses(tmp_path):
+    """계속 ik_fail이면 합 20mm(단계마다 10번)까지만 당기고 그 단계를 unreachable로 한다. out_of_bounds 등은 다시 부르지 않는다."""
+    probe = _pull_probe(tmp_path)
+    probe.next_segment()
+    name, calls = probe._cur[0], 0
+    while probe.next_segment() is not None and probe._cur[0] == name and calls < 30:
+        calls += 1
+        probe.feed([], "ik_fail")
+    assert calls == 11 and probe.info["unreachable"][0] == name  # 처음 1번 + 당긴 10번
+    assert probe.info["pulled"][0] == {"stage": name, "mm": pytest.approx(2.0)}
+    assert len(probe.info["pulled"]) == 10 and probe.info["pulled"][-1]["mm"] == pytest.approx(20.0)
+
+    probe = _pull_probe(tmp_path)
+    probe.next_segment()
+    name = probe._cur[0]
+    probe.feed([], "out_of_bounds")
+    assert probe.info["unreachable"] == [name] and "pulled" not in probe.info
+
+
+def test_first_point_pull_off(tmp_path):
+    probe = _pull_probe(tmp_path, retry_pull_max_mm=0)
+    probe.next_segment()
+    name = probe._cur[0]
+    probe.feed([], "ik_fail")
+    assert probe.info["unreachable"] == [name] and "pulled" not in probe.info
 
 
 def test_dxl_servo_reports_actual_angle_and_source_uses_it():
@@ -502,7 +546,7 @@ def test_benchmark_seed_timeout_marks_seed_failed():
     """--seed-timeout: 제한 시간을 넘는 칸은 자식 프로세스를 끝내고 실패(timeout)로 적는다."""
     from so101_studio.perception.ultrasonic.benchmark import run_scenario
 
-    (row,) = run_scenario("spread120", "optimistic", 1, kin_spec=(None, "parallel", True), seed_timeout=1)
+    (row,) = run_scenario("spread120", "optimistic", 1, kin_spec=(None, "parallel"), seed_timeout=1)
     assert row["timeout"] and row["ok"] == 0 and row["recog_s"] == 1.0
 
 

@@ -75,6 +75,7 @@ class Probe:
         self._cur = None
         self._started = False
         self._pos = None  # 마지막으로 보낸 경로 끝(센서 좌표)
+        self._retry, self._pull_mm = None, 0.0  # 첫 점 당기기: feed가 만든 다시 낼 경로, 이 조각에서 당긴 거리
         self._res: DetectedObject | None = None
         self.status = "running"  # ok | empty(물체 없음, 후보 삭제) | unreachable(팔이 못 가서 못 재었다, 후보는 지우지 않는다)
         self._t0 = src.clock.now_ns()
@@ -86,12 +87,15 @@ class Probe:
             self._step(None)
         return self._seg
 
-    def feed(self, poses) -> None:
+    def feed(self, poses, status: str = "ok") -> None:
         """구간이 끝난 뒤 부른다. poses가 빈 목록이면 follow_path가 그 경로를 못 간 것(움직이지 않고 [] 반환, REQ-023)이라
-        데이터 없음으로 보고 다음 경로로 간다. 정지·E-STOP으로 빈 목록이 오는 경우는 작업 실행이 먼저 끊는다는 가정이다."""
+        데이터 없음으로 보고 다음 경로로 간다. 정지·E-STOP으로 빈 목록이 오는 경우는 작업 실행이 먼저 끊는다는 가정이다.
+        status = follow_path 결과 상태(last_path.status). "ik_fail"이면 첫 점을 안쪽으로 당겨 같은 단계를 다시 낸다(6절 첫 점 당기기, U16)."""
         name, seg, sensor_pts = self._cur
         if not poses:
-            self.info.setdefault("unreachable", []).append(name)
+            self._retry = self._pulled(sensor_pts) if status == "ik_fail" else None
+            if self._retry is None:
+                self.info.setdefault("unreachable", []).append(name)
             self._publish_path(name, seg, [], phase="end", unreachable=True)
             self._step(UNREACHABLE)
             return
@@ -164,12 +168,27 @@ class Probe:
             return UNREACHABLE
         got, ok = [], False
         for pc in self._pieces:
+            self._pull_mm = 0.0
             pts = yield self._seg_of(name, pc)
+            while pts is UNREACHABLE and self._retry:  # ik_fail: feed가 첫 점을 당겨 둔 경로로 다시
+                self._retry, retry = None, self._retry
+                self.info.setdefault("pulled", []).append({"stage": name, "mm": self._pull_mm})
+                pts = yield self._seg_of(name, retry)
             self._pos = pc[-1]  # 다음 선은 지금 위치에서 가까운 끝에서 시작한다
             if pts is not UNREACHABLE:
                 ok = True
                 got += pts
         return got if ok else UNREACHABLE
+
+    def _pulled(self, pts):
+        """첫 점을 첫 구간을 따라 retry_pull_mm만큼 당긴 경로. 합이 retry_pull_max_mm를 넘거나 첫 구간이 5mm 아래가 되면 None. 끝 점은 그대로."""
+        c = self.cfg.check
+        step, first = c.get("retry_pull_mm", 2), math.dist(pts[0], pts[1])
+        if self._pull_mm + step > c.get("retry_pull_max_mm", 0) + 1e-9 or first - step < 5:
+            return None
+        self._pull_mm += step
+        k = step / first
+        return [(pts[0][0] + (pts[1][0] - pts[0][0]) * k, pts[0][1] + (pts[1][1] - pts[0][1]) * k), *pts[1:]]
 
     def _order(self, pts):
         """다음 선의 시작점은 지금 위치에서 가까운 끝으로 고른다."""
