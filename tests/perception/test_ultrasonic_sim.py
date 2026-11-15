@@ -232,7 +232,7 @@ def test_origin_comes_from_workspace_config(tmp_path):
 
 def test_unreachable_twice_is_dropped_until_next_cycle(tmp_path):
     """못 가서 못 잰 후보는 두 번째에 뺀다(6절). 사이클 시작(begin_cycle)에 다시 나온다."""
-    cfg, clk, esp, arm = build([Box(300, 320, 0)], reach=STRICT_REACH)  # 레이더 가까이: 팔이 못 간다
+    cfg, clk, esp, arm = build([Box(300, 320, 0)], reach=STRICT_REACH, yaw_pivot_mm=0)  # 레이더 가까이: 팔이 못 간다(yaw 고정, 반경별 yaw는 도달을 넓혀 이 가정을 깬다)
     src = make_source(cfg, clk, esp, arm, tmp_path)
     for n in (1, 2):
         cands = src.scan().objects
@@ -284,7 +284,7 @@ def _all_segments(src, arm, cand):
 
 def test_clip_to_reach_splits_and_limits_paths(tmp_path):
     """PR #71: 손끝이 tool_reach_mm 밖인 점은 건너뛰고, 끊기면 조각마다 따로 보낸다."""
-    cfg, clk, esp, arm = build([Box(300, 170, 0)])
+    cfg, clk, esp, arm = build([Box(300, 170, 0)], yaw_pivot_mm=0)  # yaw 고정 90
     src = make_source(cfg, clk, esp, arm, tmp_path)
     probe = src.start_check(src.scan().objects[0])
     # yaw 90이라 손끝 = 센서 + (66.5, -0.6). 센서 x 250이면 손끝 x 316.5라 원점(300,50) 반경 60 안(손끝 y -7.7~107.7)은 건너뛴다
