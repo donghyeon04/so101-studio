@@ -2,7 +2,7 @@
 성능 숫자는 이 도구로만 낸다. 새 아이디어(확인선 길이, 모드, 속도 등)는 옵션으로 붙인다.
 
 python -m so101_studio.perception.ultrasonic.benchmark [--scenario spread90|spread120|demo|single|all] [--seeds N] [--approach-line]
-                                                       [--model optimistic|pessimistic|both] [--reach radius|kin] [--hover-mm N] [--tool-reach MIN,MAX] [--trim-start] [--line-mm N] [--speed N] [--rescan-home on|off] [--max-fail N] [--empty-extra N] [--no-note-failure]
+                                                       [--model optimistic|pessimistic|both] [--reach radius|kin] [--hover-mm N] [--tool-reach MIN,MAX] [--line-mm N] [--speed N] [--rescan-home on|off] [--max-fail N] [--empty-extra N] [--no-note-failure]
 """
 import argparse
 import itertools
@@ -117,11 +117,11 @@ class FakeArm:
     시간 모델(8.5절, #77): 호출마다 정지에서 출발·정지로 끝, 가속·감속 accel, 호출 사이 gap_s, 한 호출 안에서는 서지 않되
     꺾임·원에서 가속 한도를 넘지 않게 속도를 줄인다(팔 코드의 fillet_path·LookaheadShape를 그대로 쓴다, #73. 원은 v²/r <= accel/√2). 못 가는 경로는 움직이지 않고 []."""
 
-    def __init__(self, clk, cfg, base, travel_mm_s=400.0, reach=REACH, accel=120.0, gap_s=0.25, motion_scale=1.0, wait_pose=None, kin=None, trim_start=False):
+    def __init__(self, clk, cfg, base, travel_mm_s=400.0, reach=REACH, accel=120.0, gap_s=0.25, motion_scale=1.0, wait_pose=None, kin=None):
         self.clk, self.base, self.reach = clk, base, reach
         self.travel, self.accel, self.gap_s, self.motion_scale = travel_mm_s, accel, gap_s, motion_scale
         self.wait_pose = wait_pose or radar_clear_pose() or (base, 150.0)  # 대기 자세 손끝. 설정에 radar_clear가 없으면 팔 원점 위 150mm
-        self.kin, self.trim_start = kin, trim_start  # kin: KinReach면 반경 대신 기구학으로 도달 판정. trim_start: 첫 점이 안 닿으면 경로 안쪽으로 당긴다
+        self.kin = kin  # kin: KinReach면 반경 대신 기구학으로 도달 판정(못 가면 ik_fail, 첫 점 당기기는 Probe가 한다)
         self._hover_needed = True  # 직전 동작이 follow_path가 아니면 접근에 호버가 든다(follow_path끼리 이어 부르면 합쳐진 직선 접근)
         self.off0 = (cfg.arm_sensor_offset_mm.x, cfg.arm_sensor_offset_mm.y, cfg.arm_sensor_offset_mm.z)
         self.yaw = 90.0  # 평소 손목 자세
@@ -129,6 +129,7 @@ class FakeArm:
         self.z = 150.0
         self.hist = [(0, base, self.z)]  # (t_ns, 손끝 xy, 손끝 z)
         self.last_path = None
+        self.last_status = "ok"  # 마지막 follow_path 결과 상태(arm.last_path.status): ok | unreachable(반경 모델) | ik_fail(기구학 모델)
         self.calls = []  # (경로 길이 mm, 걸린 초)
 
     def _sensor(self, xy, z):
@@ -185,16 +186,6 @@ class FakeArm:
             out.append(self._tick((float(np.interp(d, s, path[:, 0])), float(np.interp(d, s, path[:, 1]))), z))
         return out
 
-    def _trim(self, pts, start_ok):
-        """(다) 첫 점이 안 닿으면 첫 구간 위를 1mm씩 안쪽으로 가며 닿는 첫 점을 찾는다. 구간 안에 없으면 None(경로 거부)."""
-        a, b = pts[0], pts[1]
-        n = max(1, math.ceil(math.dist(a, b)))
-        for k in range(1, n):
-            p = (a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n)
-            if start_ok(p):
-                return p
-        return None
-
     def follow_path(self, pts, z, speed, yaw=None):
         need_hover, pts = self._hover_needed, list(pts)
         if self.kin is None:
@@ -202,12 +193,12 @@ class FakeArm:
         else:  # 기구학 판정: 호버가 필요한 호출은 첫 점에 호버까지, 나머지 점은 작업 높이에서
             yw = self.yaw if yaw is None else yaw
             start_ok = (lambda p: self.kin.start_ok(p, z, yw)) if need_hover else (lambda p: self.kin.ok(p, z, yw))
-            if self.trim_start and not start_ok(pts[0]):
-                pts[0] = self._trim(pts, start_ok)
-            bad = [p for p in pts[1:] if not self.kin.ok(p, z, yw)] + ([] if pts[0] is not None and start_ok(pts[0]) else [pts[0]])
+            bad = [p for p in pts[1:] if not self.kin.ok(p, z, yw)] + ([] if start_ok(pts[0]) else [pts[0]])
         if bad:
             self.last_path = {"reason": "unreachable", "points": bad}
+            self.last_status = "unreachable" if self.kin is None else "ik_fail"
             return []
+        self.last_status = "ok"
         if yaw is not None:
             self.yaw = yaw
         speed = min(speed, TOOL_V_MAX)
@@ -250,7 +241,7 @@ def do_check(src, arm, cand):
     probe = src.start_check(cand)
     t0 = arm.clk.now_ns()
     while (seg := probe.next_segment()) is not None:
-        probe.feed(arm.follow_path(seg.points_mm, seg.tool_z_mm, seg.speed_mm_s, seg.yaw_deg))
+        probe.feed(arm.follow_path(seg.points_mm, seg.tool_z_mm, seg.speed_mm_s, seg.yaw_deg), arm.last_status)
     return probe.result(), probe, (arm.clk.now_ns() - t0) / 1e9
 
 
@@ -409,12 +400,12 @@ def _cell(name, model, radius, seed, rescan_home, report_failures, arm_kw, pair_
 
 
 def _kin_arm_kw(kin_spec):
-    hover, gripper, trim = kin_spec
-    return {"kin": kin_reach(hover, gripper), "trim_start": trim}
+    hover, gripper = kin_spec
+    return {"kin": kin_reach(hover, gripper)}
 
 
 def _worker(conn, kin_spec):
-    """시드를 하나씩 받아 돌리는 자식 프로세스(--seed-timeout). placo가 네이티브에서 멈추면 부모가 이 프로세스를 끝낸다."""
+    """시드를 하나씩 받아 돌리는 자식 프로세스(--seed-timeout). 한 칸이 멈추거나(예: 팔 궤적 계산이 끝나지 않을 때) 너무 오래 걸리면 부모가 이 프로세스를 끝낸다."""
     arm_kw = _kin_arm_kw(kin_spec)
     while True:
         job = conn.recv()
@@ -456,7 +447,7 @@ class _Guard:
 
 def run_scenario(name, model, seeds, rescan_home=None, report_failures=True, arm_kw=None, pair_gap=None, kin_spec=None, seed_timeout=None, **opts):
     """시나리오 하나: 씨앗값 0..seeds-1마다 배치를 만들어 사이클을 돈다. single은 반경 구간(SINGLE_RADII)마다 seeds번.
-    kin_spec=(호버, 그리퍼, trim_start)와 seed_timeout(초)을 주면 칸마다 자식 프로세스에서 돌려 제한 시간을 넘는 칸은 실패로 적는다."""
+    kin_spec=(호버, 그리퍼)와 seed_timeout(초)을 주면 칸마다 자식 프로세스에서 돌려 제한 시간을 넘는 칸은 실패로 적는다."""
     cells = [(r, s) for r in SINGLE_RADII for s in range(seeds)] if name == "single" else [(None, s) for s in range(seeds)]
     n = {"single": 1, "pair": 2}.get(name, SCENARIOS[name][0])
     guard = _Guard(kin_spec, seed_timeout) if kin_spec and seed_timeout else None
@@ -539,10 +530,9 @@ def main(argv=None):
     ap.add_argument("--reach", choices=["radius", "kin"], default="radius", help="가상 팔 도달 판정: 반경(기본, REACH) | 실제 기구학 IK(첫 점은 호버 포함)")
     ap.add_argument("--hover-mm", type=float, help="--reach kin의 접근 호버 높이(기본 robot.yaml approach_height_mm). (가)안")
     ap.add_argument("--tool-reach", help="MIN,MAX: check.tool_reach_mm를 이번만 바꾼다(기본 설정값 60,255). (나)안")
-    ap.add_argument("--trim-start", action="store_true", help="--reach kin에서 첫 점이 안 닿으면 경로 안쪽으로 당긴다. (다)안")
     ap.add_argument("--servo", choices=["pwm", "dxl"], default="pwm", help=f"가상 레이더 서보: pwm(기본, 지연 ±3°) | dxl(XL330: 지연 {DXL_LAG_DEG}° + 읽은 각도 ang 사용, 가정값이라 B4로 고친다)")
     ap.add_argument("--gripper", choices=["single_jaw", "parallel"], help="--reach kin의 그리퍼 종류(기본: 설정 파일 그대로 = 단동식). 병렬은 robot.yaml 위에 grippers/parallel.yaml(URDF 포함)을 겹친다")
-    ap.add_argument("--seed-timeout", type=float, default=300.0, help="--reach kin에서 씨앗 하나의 제한 시간(초, 기본 300, 0이면 끔). 넘으면 그 씨앗을 실패로 적고 다음으로 간다(placo가 네이티브에서 멈추는 경우를 위해 자식 프로세스에서 돌린다)")
+    ap.add_argument("--seed-timeout", type=float, default=300.0, help="--reach kin에서 씨앗 하나의 제한 시간(초, 기본 300, 0이면 끔). 넘으면 그 씨앗을 실패로 적고 다음으로 간다(멈춘 칸을 끊기 위해 자식 프로세스에서 돌린다)")
     ap.add_argument("--pair-gap", type=float, default=40.0, help="--scenario pair의 두 물체 모서리 간격 mm(기본 40)")
     ap.add_argument("--set", action="append", default=[], metavar="KEY=VAL", help="check.<KEY>를 이번만 바꾼다(여러 번 가능, 예: --set yaw_deg=45 --set ring_r_mm=50 --set clearance_mm=40)")
     ap.add_argument("--out", default="runs/bench")
@@ -558,7 +548,7 @@ def main(argv=None):
     if a.tool_reach:
         lo, hi = (float(v) for v in a.tool_reach.split(","))
         opts["tool_reach_mm"] = {"min": lo, "max": hi}
-    kin_spec = (a.hover_mm, a.gripper, a.trim_start) if a.reach == "kin" else None
+    kin_spec = (a.hover_mm, a.gripper) if a.reach == "kin" else None
     seed_timeout = a.seed_timeout if kin_spec and a.seed_timeout > 0 else None
     arm_kw = _kin_arm_kw(kin_spec) if kin_spec and not seed_timeout else None
     if a.servo == "dxl":
@@ -570,7 +560,7 @@ def main(argv=None):
     cmd = "python -m so101_studio.perception.ultrasonic.benchmark " + " ".join(argv if argv is not None else __import__("sys").argv[1:])
     for name, model in itertools.product(names, models):
         rows = run_scenario(name, model, a.seeds, rescan_home=rescan, report_failures=not a.no_note_failure, arm_kw=arm_kw, pair_gap=a.pair_gap, kin_spec=kin_spec, seed_timeout=seed_timeout, **opts)
-        results.append({"commit": sha, "command": cmd, "scenario": name, "model": model, "options": {**opts, "reach": a.reach, "hover_mm": a.hover_mm, "trim_start": a.trim_start, "rescan_home": rescan, "note_failure": not a.no_note_failure}, "summary": summarize(rows),
+        results.append({"commit": sha, "command": cmd, "scenario": name, "model": model, "options": {**opts, "reach": a.reach, "hover_mm": a.hover_mm, "rescan_home": rescan, "note_failure": not a.no_note_failure}, "summary": summarize(rows),
                         "rows": [{k: v for k, v in r.items() if k != "log"} for r in rows]})
         print(f"  {name} {model}: 성공 {results[-1]['summary']['success_mean']:.2f}/{results[-1]['summary']['objects']}", flush=True)
     out = Path(a.out)
