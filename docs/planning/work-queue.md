@@ -36,7 +36,7 @@
 | U15 병렬 손 미끄러짐 기준·조임 힘(11-15) | ☐ MuJoCo 병렬 손 58mm 상자의 들고 가기 미끄러짐이 0.8mm 근처(절반)와 2~10mm로 갈린다(30·45mm는 0.7~1.4mm, `measurements.md`). 기준(임시 4.0mm, `measure` 시험)과 kp·forcerange 잠정값을 언제 정할지. 추천: 실물 2-10 실측 뒤. 지터인지 물리 편차인지는 시계 주입(M5b) 뒤에 갈린다 | M5 판정 기준 |
 | U13 실물 팔 첫 연결(11-15) | ☐ 보드가 오는 날 정하기. 순서: 캘리브레이션 파일을 LeRobot 캐시에 복사 → `doctor` → `status` → `--speed 20 home` | 실물 시험 전부 |
 - 11-15 밤 보고와 기획 요청 원문: `planning-inbox` `inbox/2026-11-15-night-report.md`. 참고: 병렬 손 blocker 30% fault는 막힘 감지 문제가 아니라 시나리오 벽이 home→radar_clear 경로에 걸린 것이었다(MuJoCo #370, 병렬용 시나리오 추가).
-- 알려진 실패(main): `tests/test_task_check.py::test_sim_three_objects_end_to_end`(U11 뒤 풀림). 흔들림: `tests/gui/test_watchdog_link.py::test_refused_run_folder_turns_the_watchdog_off`(부하 때 1회, 단독 통과).
+- 알려진 실패(main): `tests/test_task_check.py::test_sim_three_objects_end_to_end`. U11(#378, 벤치마크 single 95/88%·demo 98/83%, 총괄 재실행 값은 `planning-inbox` `inbox/2026-11-15-check-yaw-benchmark.md`)로는 풀리지 않았다. 원인은 시험 배치의 모서리 간격 14·35mm와 확인 전 레이더 후보의 도달 거르기이고 REQ-065(팔)로 고친다. 흔들림: `tests/gui/test_watchdog_link.py::test_refused_run_folder_turns_the_watchdog_off`(부하 때 1회, 단독 통과).
 - 11-15 사용자 승인: U11 CHECK yaw를 후보 반경별로 켠다(결정 0065. 켜는 PR에서 총괄이 벤치마크 고정 시나리오를 다시 돌려 남긴다), U12 nicegui·viser·playwright 계열을 `environment.yml`에 `==`로 고정(팔 세션 PR, `tooling-setup.md` C-4), U14 13.7 (a) topedge는 단동식 비교 옵션 전용(`mujoco-spec.md` 13.7, 병렬의 대응 실패는 M5에서).
 - U10(시험 계획)은 결정 0064로 승인했다(11-14).
 - U7(브래킷 출력 방향: 손목 쪽 평면 +z 바닥, 6.4mm 걸림은 손목 카메라 팔 때문이었고 #357로 0), U8(시연 속도 30~40%), U9(NOTICE 이름 빼기, #347)는 11-14에 사용자가 승인했다. U6은 닫았다.
