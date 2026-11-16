@@ -291,3 +291,17 @@ def test_cameras_and_render(drv):
     drv.disconnect()
     with pytest.raises(RuntimeError):
         drv.render("top")
+
+
+def test_render_from_two_threads_at_once():
+    """REQ-071: GUI(스레드 풀, 매번 다른 스레드)와 PolicyRunner가 동시에 render를 불러도 된다(그리기는 드라이버의 렌더 전용 스레드 하나가 한다)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    d = make(realtime=True)
+    try:
+        with ThreadPoolExecutor(4) as ex:  # 풀 스레드 넷 = 부르는 스레드가 매번 다르다
+            futs = [ex.submit(d.render, cam, *size) for _ in range(20) for cam, size in (("top", (320, 240)), ("wrist", (160, 120)))]
+            shapes = {f.result().shape for f in futs}
+        assert shapes == {(240, 320, 3), (120, 160, 3)}
+    finally:
+        d.disconnect()
