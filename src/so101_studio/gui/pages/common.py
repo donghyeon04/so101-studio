@@ -2,6 +2,7 @@
 
 import asyncio
 import inspect
+import time
 
 from nicegui import background_tasks, run, ui
 
@@ -270,6 +271,47 @@ def scene_frame(backend, classes: str = "scene3d") -> None:
         ui.element("iframe").props(f'src={backend.scene.url_for(_request_host()) if getattr(backend, "share", False) else backend.scene.url} title="3D 보기"').classes(classes).mark("scene3d")
         view_cube(backend.scene)
         _layer_menu(backend.scene)
+
+
+def jpeg_url(frame) -> str:
+    """render가 준 RGB 배열을 브라우저에 그릴 JPEG data URL로."""
+    import base64
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.fromarray(frame).save(buf, "JPEG", quality=80)
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def camera_tile(driver, camera: str, title: str):
+    """카메라 칸 하나(제목, 그림, 갱신 시각). 돌려준 코루틴 함수를 부를 때마다 driver.render를 한 번 불러 다시 그린다 (gui-spec 12.10)."""
+    with ui.row().classes("w-full items-center"):
+        ui.label(title).classes("card-title")
+        ui.space()
+        stamp = ui.label("").classes("stat-label").mark(f"camera-time-{camera}")
+    image = ui.image().classes("w-full").mark(f"camera-{camera}")
+
+    async def update() -> None:
+        try:
+            url = await run.io_bound(lambda: jpeg_url(driver.render(camera)))
+        except Exception as e:  # noqa: BLE001 그리기 실패는 그 칸에만 보인다
+            stamp.text = f"그리기 실패: {e!r}"[:80]
+            return
+        image.set_source(url)
+        stamp.text = time.strftime("%H:%M:%S")
+
+    return update
+
+
+def watch_visibility():
+    """브라우저 탭이 숨겨졌는지 알려 준다. 숨겨진 동안 카메라를 그리지 않으려고 쓴다(12.10 ①). 돌려준 함수가 True면 보이는 중."""
+    shown = [True]
+    ui.on("so101_visible", lambda e: shown.__setitem__(0, bool(e.args)))
+    ui.run_javascript("if (!window.__so101Vis) { window.__so101Vis = true; "
+                      "document.addEventListener('visibilitychange', () => emitEvent('so101_visible', !document.hidden)); }")
+    return lambda: shown[0]
 
 
 def offer_free_edge(backend, retry) -> None:
