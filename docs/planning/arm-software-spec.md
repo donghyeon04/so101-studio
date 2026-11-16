@@ -1,6 +1,6 @@
 # 로봇팔 소프트웨어 설계서
 
-상태: 확정 · 갱신 2026-11-02 · 2026-11-14 13절을 mujoco-spec.md로 옮김 · 11.3 놓기 동작 모양 2026-11-07, 대칭 V자 개정 2026-11-10, 상승 최소·상자 폭·높이 모름 집기 2026-11-11, 13 MuJoCo 2026-11-11 · 2026-11-13 drift-report(main ec9fd73) 반영, 막힘 감지 문턱 속도별(결정 0061, 11-14), MuJoCo 시험장 계획(13.10 초안, 11-14), 집기 기울기 기본값 equal_tips(결정 0060), 막힘 감지(결정 0059, 6.5), M4 GUI는 `gui-spec.md` 12.8(13절 M4 부분은 초안, gui-spec 12.8과 함께 확정) · 2026-11-16 6.10 정책 실행(결정 0066, 초안)
+상태: 확정 · 갱신 2026-11-02 · 2026-11-14 13절을 mujoco-spec.md로 옮김 · 11.3 놓기 동작 모양 2026-11-07, 대칭 V자 개정 2026-11-10, 상승 최소·상자 폭·높이 모름 집기 2026-11-11, 13 MuJoCo 2026-11-11 · 2026-11-13 drift-report(main ec9fd73) 반영, 막힘 감지 문턱 속도별(결정 0061, 11-14), MuJoCo 시험장 계획(13.10 초안, 11-14), 집기 기울기 기본값 equal_tips(결정 0060), 막힘 감지(결정 0059, 6.5), M4 GUI는 `gui-spec.md` 12.8(13절 M4 부분은 초안, gui-spec 12.8과 함께 확정) · 2026-11-16 6.10 정책 실행(결정 0066, 초안) · 2026-11-16 밤 6.10 Stage 9 (나) 반영
 
 로컬 개발 세션이 이 문서만 보고 팔 모듈을 구현할 수 있도록, 구조·인터페이스·출력값·작업 순서를 정한다. 범위는 개발 0~2단계(구동 점검, 동작 라이브러리, 작업 공간 확정)다. 인식 모듈과 GUI는 팔 모듈과 맞닿는 인터페이스만 정한다.
 
@@ -315,16 +315,31 @@ GUI·CLI가 부르는 공개 메서드 목록이다(2026-11-13 코드 대조). �
 
 GUI에서 점 찍기는 `point_pose` → `preview_tool` → `move_tool` 순서로 부른다.
 
-### 6.10 정책 실행: 관절 목표 흘려 넣기 (결정 0066 L4, 2026-11-16 초안, EGM Stage 9 전)
-학습한 정책(ACT)은 주기마다 절대 관절 목표를 낸다. 이것을 조그와 같은 급의 입구 하나로 받는다. **12/4 전에는 시뮬레이션(`simulated` 드라이버)에서만 허용한다**(실제 팔이면 거부, 결정 0066-4).
-- `MotionController.servo(goal: JointState) -> bool`, `ArmService.servo_joints(goal) -> bool`: 최신 목표 하나만 기억한다. 틱마다 지금 명령에서 그 목표 쪽으로 간다. 한 틱에 가는 양은 관절 속도 한계 × 속도 %와 한 주기 이동량 한계(`max_step_deg`) 가운데 작은 쪽이다.
-- 안전 검사는 조그와 같다: 관절 한계, 작업 영역·바닥, 장면·알려진 물체 충돌, 막힘·부하·과열 감시. 검사에 걸리는 목표는 버리고 지금 자리에 선 뒤 `False`와 WARN `ARM-SERVO-REJECT`(이유)를 남긴다. 자르기(한계까지만 가기)는 하지 않는다.
-- 새 목표가 0.5초 동안 없으면 지금 자리에서 선다(정책 프로세스가 죽었을 때). `stop`·`estop`·fault는 조그와 같이 듣는다.
-- 그리퍼 값도 목표에 들어 있다. 닫는 쪽으로 갈 때는 집기 밖 닫기의 접촉 판단(6.5 `blocked_grip_units`)이 그대로 걸려 "지금 위치 + 예압"으로 멈춘다.
-- `service/policy_runner.py`(새 파일): `PolicyRunner(svc, driver, checkpoint_dir, fps=25)`, `start()`, `pause()`, `stop()`. 스레드 하나가 주기마다 관측(상태의 실제 관절값, `driver.render("top")`·`("wrist")`)을 모아 정책에 넣고 나온 목표를 `servo_joints`로 보낸다. ACT가 한 번에 여러 스텝을 내면 그 묶음을 끝까지 쓰고 다음 추론을 한다. 정책 불러오기는 lerobot 0.6.1의 것을 쓰고, torch·lerobot을 못 불러오면 안내문으로 끝낸다(앱의 다른 기능은 그대로 돈다).
-- 이벤트: `ARM-POLICY-START`(체크포인트, fps), `ARM-POLICY-STOP`(이유), 추론 시간 평균·최대(CPU torch로 25Hz를 지키는지 `measurements.md`에 남긴다. 못 지키면 총괄을 거쳐 앱 환경의 torch를 바꿀지 사용자에게 묻는다).
-- 키보드·게임패드 조작 수집(L2)은 지금 `jog`를 그대로 쓴다. 기록기(`mujoco-spec.md` 13.10.4)가 상태의 명령값을 읽으므로 팔 쪽에 기록용 훅은 더하지 않는다. 게임패드 입력 어댑터(6.7의 "나중")는 `teleop.py`에 더한다.
-- 시험: 범위 밖 목표는 거부되고 선다, 0.5초 끊기면 선다, 실제 팔 드라이버면 거부, 기록한 에피소드의 `action`을 `servo_joints`로 다시 틀면 같은 끝 자세(1° 안)가 된다.
+### 6.10 정책 실행: 관절 목표 흘려 넣기 (결정 0066의 L4, 2026-11-16, EGM Stage 9 (나) 꼭 고칠 것 반영)
+학습한 정책(ACT)은 주기마다 절대 관절 목표를 낸다. 이것을 입구 하나로 받는다. **12/4 전에는 MuJoCo 엔진에서만 쓴다**: 드라이버가 `simulated`가 아니면(실제 팔) `servo_joints`가 거부하고, `PolicyRunner`는 드라이버에 `render`가 없으면(실제 팔, 기구학 엔진) 시작하지 않는다(결정 0066의 4항).
+
+**`MotionController.servo(goal: JointState) -> bool`, `ArmService.servo_joints(goal) -> bool`**
+- 최신 목표 하나만 기억한다. 틱마다 지금 명령에서 그 목표 쪽으로 간다. 한 틱 이동 상한 = min(`joint_v_max_deg_s` × 속도 %/100 × dt, `max_step_deg`).
+- 서보 중 상태는 조그와 같은 `"teleop"`이다. 궤적 동작이 도는 중이면 `False`(이유 `busy`)다. `stop()`은 서보 목표도 비운다.
+- 검사는 `safety.check_goal(goal, ref=마지막 명령)`이다(관절 한계·작업 영역·바닥·장면 부품. **알려진 물체는 보지 않는다**: 보면 집으러 다가가는 목표가 모두 거부된다). 걸리면 조그와 달리 자르지 않고 목표를 버리고 제자리에 선 뒤 `False`를 돌려주고, WARN `ARM-SERVO-REJECT`(kind `servo_reject`, `{reason, count}`)를 같은 이유당 1초에 한 번 남긴다. 한 틱 보간 뒤의 `check_step`에 걸리면 조그와 같이 fault다.
+- 새 목표가 0.5초 동안 없으면 지금 자리에서 선다(정책 스레드가 죽었을 때). `estop`·fault·부하·과열 감시는 그대로 듣는다.
+- 그리퍼: 목표의 그리퍼 값이 직전 명령보다 닫히는 쪽이면 집기 밖 닫기와 같은 접촉 판단을 켠다(`_closes_gripper`, 6.5의 `blocked_grip_units`·예압 계산 그대로). 접촉이면 "지금 위치 + 예압"에서 멈춘다. 팔 다섯 관절의 막힘 판단은 서보에서 하지 않는다(조그와 같다. 막힘 판단은 궤적 동작에서만 돈다).
+
+**`ArmStatus.cmd`**: `ArmStatus`에 `cmd: JointState`(지금 명령 관절값, 동작이 없으면 마지막 명령)를 더하고 `status()`가 채운다. 에피소드 기록기(`mujoco-spec.md` 13.10.4)가 `action`으로 읽는다. 기록용 훅은 따로 두지 않는다.
+
+**`service/policy_runner.py`**(새 파일): `PolicyRunner(svc, driver, checkpoint_dir=None, fps=25, policy=None, max_s=20)`, `start()`, `stop()`.
+- `policy`를 주면 그대로 쓴다(시험용. `select_action(obs) -> 6값`과 `reset()`만 있으면 된다). 없으면 lerobot 0.6.1의 ACT 정책을 `checkpoint_dir`에서 CPU로 열고 같은 폴더의 전후 처리기를 쓴다(설치본의 불러오기 함수 이름은 PR에 적는다). 체크포인트 폴더는 `runs/train/<이름>/checkpoints/<스텝>/pretrained_model`이다.
+- 스레드 하나가 `fps`마다 관측(`driver.read_joints()`, `driver.render("top")`, `driver.render("wrist")`)을 모아 정책에 넣고 나온 목표를 `servo_joints`로 보낸다. 여러 스텝을 한 번에 내는 묶음은 정책의 `select_action` 큐에 맡긴다.
+- 끝: `max_s`가 지나거나 `stop()`이면 끝난다. `servo_joints`가 `False`를 돌려주면(정지·E-STOP·fault·거부가 이어짐) 러너도 끝난다. 끝나고 1.0초 뒤 배치가 주어져 있으면 `judge`(13.10.4)를 불러 결과를 싣는다.
+- 이벤트: `ARM-POLICY-START`(kind `policy_start`, 체크포인트·fps), `ARM-POLICY-STOP`(kind `policy_stop`, `{reason, outcome}`), 추론 시간 평균·최대. CPU 추론이 한 주기(40ms)를 넘으면 그 주기는 건너뛰고 건너뛴 수를 `ARM-POLICY-STOP`에 적는다. 25Hz를 지키는지 `measurements.md`에 남기고, 못 지키면 총괄을 거쳐 앱 환경의 torch를 바꿀지 사용자에게 묻는다.
+- torch·lerobot을 못 불러오면 안내문으로 끝낸다(앱의 다른 기능은 그대로 돈다).
+- 2차(자르기를 올린 것, 지금은 만들지 않는다): `pause()`(추론을 멈추고 서보 목표를 지금 명령값으로, `ARM-POLICY-PAUSE`)와 `resume()`(`policy.reset()` 뒤 새 관측으로), `ArmService.connect(fresh=True)`(다시 연결할 때 `Skills` 기억을 넘기지 않음, 세계 다시 짓기용), 게임패드 입력 어댑터(6.7의 "나중", `teleop.py`).
+
+**시험**(팔, `tests/test_servo.py`·`tests/test_policy_runner.py`, `SimDriver`로)
+- 범위 밖 목표는 거부되고 제자리에 선다. 0.5초 끊기면 선다. 궤적 동작 중이면 `busy`다. 실제 팔 드라이버(가짜)면 거부한다.
+- 코드로 만든 25Hz 관절 목표 열을 `servo_joints`로 틀면 끝 자세가 목표와 1° 안이다(데이터셋을 다시 트는 시험은 MuJoCo 쪽 13.10.4에 있다).
+- 닫히는 그리퍼 목표에서 접촉 판단이 켜진다.
+- 가짜 정책(늘 홈 자세)으로 `PolicyRunner`를 `start()` → `stop()` 하면 이벤트 둘이 남는다. `render`가 없는 드라이버면 시작하지 않는다.
 
 ## 7. 설정 파일 (주요 값, 실제 값은 `config/*.yaml`이 기준)
 | 항목 | 값 | 근거 |
