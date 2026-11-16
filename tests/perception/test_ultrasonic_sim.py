@@ -481,7 +481,7 @@ def test_first_point_pull_on_ik_fail(tmp_path):
 
 def test_first_point_pull_stops_at_max_and_other_statuses(tmp_path):
     """계속 ik_fail이면 합 20mm(단계마다 10번)까지만 당기고 그 단계를 unreachable로 한다. out_of_bounds 등은 다시 부르지 않는다."""
-    probe = _pull_probe(tmp_path)
+    probe = _pull_probe(tmp_path, retry_pull_max_mm=20)
     probe.next_segment()
     name, calls = probe._cur[0], 0
     while probe.next_segment() is not None and probe._cur[0] == name and calls < 30:
