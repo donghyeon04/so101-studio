@@ -614,13 +614,18 @@ class MotionController:
         if why or q == last:  # 작업 영역·한계 밖이면 움직이지 않는다
             self.jog_block = why or self.jog_block
             return
-        if self.safety.check_step(last, q):
-            self._fault("step", self.safety.step_detail(last, q))
-            return
-        self.jog_block = None
+        if self._send(q):
+            self.jog_block = None
+
+    def _send(self, q: JointState) -> bool:
+        """조그·서보 한 틱을 보낸다. 한 주기 이동량을 넘으면 fault로 들어가고 False."""
+        if self.safety.check_step(self._last, q):
+            self._fault("step", self.safety.step_detail(self._last, q))
+            return False
         self._last = q
         self.driver.write_joints(q)
         self.health.comm_ok(time.perf_counter(), "write")
+        return True
 
     def _tick_servo(self) -> None:
         goal, t_in, v_max = self._servo
@@ -634,12 +639,11 @@ class MotionController:
         q = JointState(*(cur + np.clip(np.array(astuple(goal), float) - cur, -cap, cap)).tolist())
         if q == self._last:
             return
-        if self.safety.check_step(self._last, q):
-            self._fault("step", self.safety.step_detail(self._last, q))
+        if (why := self.safety.check_goal(q, self._last)):  # 목표는 괜찮아도 관절별로 자른 중간 자세가 바닥·장면 부품을 지날 수 있다
+            self._servo, self.state = None, "idle"
+            self._note_servo_reject(why)
             return
-        self._last = q
-        self.driver.write_joints(q)
-        self.health.comm_ok(time.perf_counter(), "write")
+        self._send(q)
 
     def close(self) -> None:
         self._quit.set()
