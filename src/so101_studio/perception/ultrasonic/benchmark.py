@@ -347,6 +347,8 @@ def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, resc
         rescanned = False  # 후보가 나왔으니 다음에 또 없으면 다시 RESCAN할 수 있다(연달아 두 번만 안 함)
         obj, probe, dt = do_check(src, arm, cand)
         recog += dt
+        pulled = [p["stage"] for p in probe.info.get("pulled", [])]
+        log.append({"result": "pulls", "per_stage": [pulled.count(n) for n in probe.info.get("stage_names", [])]})  # 첫 점 당기기: 단계마다 다시 부른 횟수
         if obj is None:
             log.append({"result": probe.status, "cand": (cand.x_mm, cand.y_mm)})
             continue
@@ -396,7 +398,8 @@ def _cell(name, model, radius, seed, rescan_home, report_failures, arm_kw, pair_
             "radar_errs": [x["err"] for x in log if x["result"] == "radar"],
             "check_errs": [x["err"] for x in log if x["result"] in ("ok", "bad")],
             "angles": [x["angle"] for x in log if x["result"] in ("ok", "bad") and x["angle"] is not None],
-            "h_errs": [x["h_err"] for x in log if x["result"] in ("ok", "bad")]}
+            "h_errs": [x["h_err"] for x in log if x["result"] in ("ok", "bad")],
+            "pulls": [n for x in log if x["result"] == "pulls" for n in x["per_stage"]]}
 
 
 def _kin_arm_kw(kin_spec):
@@ -438,7 +441,7 @@ class _Guard:
         self.proc = None
         print(f"  시간 초과: {name} {model} 반경 {radius} 씨앗 {seed} ({self.timeout_s:.0f}초) -> 실패로 적고 다음으로", flush=True)
         return {"radius": radius, "seed": seed, "n": n, "ok": 0, "recog_s": float(self.timeout_s), "left": n, "log": [],
-                "radar_errs": [], "check_errs": [], "angles": [], "h_errs": [], "timeout": True}
+                "radar_errs": [], "check_errs": [], "angles": [], "h_errs": [], "pulls": [], "timeout": True}
 
     def close(self):
         if self.proc is not None:
@@ -483,6 +486,9 @@ def summarize(rows) -> dict:
         out["angle_pct"] = 100 * sum(angles) / len(angles)
     if heights:
         out.update(h_err_median_mm=statistics.median(heights), h_err_p90_mm=heights[math.ceil(0.9 * len(heights)) - 1])
+    pulls = [n for r in rows for n in r.get("pulls", [])]
+    if pulls:
+        out.update(pull_mean=statistics.mean(pulls), pull_max=max(pulls), pull_stages=len(pulls))
     if rows[0]["radius"] is not None:
         out["by_radius_pct"] = {r: 100 * statistics.mean(x["ok"] for x in rows if x["radius"] == r) for r in SINGLE_RADII}
     return out
@@ -512,6 +518,10 @@ def format_table(results: list[dict]) -> str:
                      f"{s.get('check_err_median_mm', float('nan')):.1f}·{s.get('check_err_p90_mm', float('nan')):.1f} (n={s['check_n']}) | "
                      f"{s.get('angle_pct', float('nan')):.0f} (n={s['angle_n']}) | "
                      f"{s.get('h_err_median_mm', float('nan')):.1f}·{s.get('h_err_p90_mm', float('nan')):.1f} |")
+    lines += ["", "| 시나리오 | 모델 | 단계당 다시 부른 횟수 평균 | 최대 | 단계 수 |", "|---|---|---|---|---|"]
+    for r in results:
+        s = r["summary"]
+        lines.append(f"| {r['scenario']} | {r['model']} | {s.get('pull_mean', 0):.3f} | {s.get('pull_max', 0)} | {s.get('pull_stages', 0)} |")
     return "\n".join(lines)
 
 

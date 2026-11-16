@@ -163,6 +163,7 @@ class Probe:
         """경로를 도달 범위로 자른 조각마다 구간 하나씩 내고, 받은 점을 모두 돌려준다. 하나도 못 가면 UNREACHABLE.
         self._pieces에 마지막으로 보낸 조각들을 남긴다."""
         self._pieces = self._clip(sensor_pts)
+        self.info.setdefault("stage_names", []).append(name)  # 벤치마크가 단계당 다시 부른 횟수를 셀 때 쓴다
         if not self._pieces:
             self.info.setdefault("unreachable", []).append(name)  # 전부 도달 밖이라 호출 자체를 안 한다
             return UNREACHABLE
