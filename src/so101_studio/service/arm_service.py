@@ -802,11 +802,25 @@ class ArmService:
     def jog(self, mode: str, velocity) -> bool:
         """조그 한 걸음. 토크가 꺼져 있으면 먼저 켠다. 이미 켠 뒤에는 버스를 읽지 않으므로 10Hz로 불러도 된다 (REQ-012).
         밖에서 토크가 꺼진 경우(전원 끊김 등)는 알 수 없다: 그때는 connect를 다시 하거나 move_*를 한 번 부른다."""
+        self._torque_once()
+        return self.ctl.jog(mode, velocity)
+
+    def _torque_once(self) -> None:
         if not self._torque_on and not self.ctl.locked_reason:
             if not self.driver.torque_enabled():
                 self.enable_torque()
             self._torque_on = True
-        return self.ctl.jog(mode, velocity)
+
+    def servo_joints(self, goal: JointState) -> bool:
+        """정책이 낸 절대 관절 목표 하나 (arm-software-spec 6.10). 25Hz로 불러도 버스를 읽지 않는다. False면 이유는 ctl.servo_reason.
+        12/4 전에는 시뮬레이션에서만 쓴다: 실제 팔 드라이버면 거부한다(결정 0066의 4항)."""
+        if not getattr(self.driver, "simulated", False):
+            self.ctl.servo_reason = "real_arm"
+            return False
+        if (hold := self.ctl.grip_hold) is not None and goal.gripper > hold + 1.0:  # 여는 목표: 예압 고정을 푼다(set_gripper와 같다)
+            self.skills.release_grip_hold()
+        self._torque_once()
+        return self.ctl.servo(goal, self.cfg.joint_v_max_deg_s * self.speed / 100)
 
     def record_start(self, hz: int | None = None, max_s: float | None = None) -> None:
         """hz: 기록 주기, max_s: 최대 기록 시간. 안 주면 설정값(record_hz, record_max_s)."""
