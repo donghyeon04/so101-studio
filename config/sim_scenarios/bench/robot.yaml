@@ -1,0 +1,2 @@
+# M5 시험장 덮어쓰기(mujoco-spec 13.10.1): PC의 config/local.yaml 대신 읽는다. U5 뒤 팔 파일 기본값이 parallel이 되면 빈 파일이 된다
+gripper: parallel
