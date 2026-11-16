@@ -1,6 +1,6 @@
 # 세션 간 요청 대장
 
-상태: 초안 · 갱신 2026-11-16
+상태: 초안 · 갱신 2026-11-17
 
 절차와 양식은 `docs/guides/session-workflow.md`에 있다. GUI 세션(총괄)이 번호를 매기고 행과 상태를 관리한다(`decisions/0036`). 자세한 내용은 요청 메시지와 PR에 두고, 여기에는 한 줄만 남긴다.
 
@@ -77,3 +77,8 @@
 | REQ-067 | U16 안 A 첫 점 당기기(`ultrasonic-spec.md` 6절·8.2·8.3): `Probe.feed(poses, status="ok")`, `ik_fail`이고 샘플이 비면 그 단계 첫 점을 첫 구간을 따라 `check.retry_pull_mm`(2)씩 당겨 다시 낸다(합 `retry_pull_max_mm` 20, 단계마다 최대 10번, 첫 구간 5mm 아래면 그만, 끝 점은 당기지 않음). `ik_fail`만 다시 부른다. 벤치마크 `--trim-start`는 없애고 kin 가상 팔이 `ik_fail`을 돌려주게 | 총괄 → 초음파(2026-11-16) | 기존 동작 변경(CHECK 한정, 사용자 승인 U16 안 A 11-15, #408) | 요청 | - | REQ-068과 같은 날 합친다. 합친 뒤 총괄이 병렬 kin `single`·`demo`·`demo80`(75~250, 씨앗 20)을 다시 돌려 1절 병렬 표를 한 열로 |
 | REQ-068 | U16 연동: 작업 실행(CHECK 단계)이 `probe.feed(poses, arm.last_path.status)`로 `follow_path` 결과 상태를 넘긴다(`ultrasonic-spec.md` 8.2 310행) | 총괄 → 팔(2026-11-16) | 추가(인자 하나, #408) | 요청 | - | REQ-067의 `status` 인자가 기본값 "ok"라 어느 쪽이 먼저 합쳐져도 깨지지 않는다 |
 | REQ-069 | 장면 부품 선택 키 `gripper: parallel|single_jaw`(`mujoco-spec.md` 13.10.1 "장면을 하나로"): 지금 cfg 그리퍼와 다르면 `load_scene`을 쓰는 쪽(GUI 3D·충돌 검사·드라이버)이 모두 건너뜀. `config/scene.yaml`의 손목 부품 둘(`wrist_hcsr04`, `wrist_bracket`) 주석을 풀고 `gripper: parallel` | 총괄 → 팔(2026-11-16) | 추가(선택 키, #408. 13.10.1 Stage 9 전이지만 작고 독립이라 먼저) | 요청 | - | 걸러 읽는 자리와 `Scene`에 그리퍼를 넘기는 방법은 팔이 정하고 PR에 적는다. 13.10.1 시험 4번(드라이버 장면 = `svc.scene`)이 확인 기준. 단동식 기본에서 GUI 3D·충돌이 바뀌지 않음을 시험으로 |
+| REQ-070 | M5 집기 시험장(`mujoco-spec.md` 13.10.1, Stage 9 (가) 8건 반영본): `mujoco_bench`, 배치 `layout`·판정 `judge`, 고정 묶음 표. 실시간(시계 주입 없음), 지금 장면(작업대 없음)으로 시작하고 H-3 뒤 장면만 바꾼다 | 총괄 → MuJoCo(2026-11-17) | 추가(#414) | 요청 | - | 13.10.1 완료 기준. 팔 쪽 추가 수정 없음(REQ-069 그대로). 그다음 U15용 힘 한계 10·24·36N `pick_grid` 민감도 표 |
+| REQ-071 | 학습 플랫폼 1차 L1: 모델 카메라(`top`·`wrist`, 13.10.4 표 값)와 화면 밖 `render` | 총괄 → MuJoCo(2026-11-17) | 추가(#414, 1차) | 요청 | - | REQ-070 뒤. GUI ① 시점 화면(총괄)이 이 PR을 기다린다 |
+| REQ-072 | 학습 플랫폼 1차 L2·L3: 에피소드 기록기(LeRobot 데이터셋), 스크립트 전문가 300 에피소드(명령줄), `so101-train`에서 ACT 학습과 명령줄 평가 50개 | 총괄 → MuJoCo(2026-11-17) | 추가(#414, 1차) | 요청 | - | REQ-071·REQ-073 ①(`ArmStatus.cmd`) 뒤. 2차(수집 화면, 세계 다시 짓기, 이어 쓰기, connect(fresh), L5)는 내지 않는다 |
+| REQ-073 | 학습 플랫폼 1차 L4(`arm-software-spec.md` 6.10): ① `ArmStatus.cmd`(기록기 `action`용 명령 관절값) → ② `servo_joints` → ③ `PolicyRunner`(시작·정지, 일시 정지는 2차) | 총괄 → 팔(2026-11-17) | 추가(#414, 1차) | 요청 | - | ①이 REQ-072를 막으니 먼저 PR. runner `probe.feed(poses, st)` 한 줄 줄이기도 같이 |
+| REQ-074 | U16 당기기 상한 측정(`ultrasonic-spec.md` 6절 "상한 측정 계획"): 병렬 kin 75~250, 씨앗 20, `single`·`demo`·`demo80` × (가) `retry_pull_max_mm=40` (나) 60 (다) 85 (라) 40 + `retry_pull_mm=1`. 설정마다 성공률(낙관·비관), 인식 평균·90%·최대, 단계당 다시 부른 횟수 평균·최대 | 총괄 → 초음파(2026-11-17) | 측정(#414) | 요청 | - | 6절 규칙으로 고른 설정을 총괄이 다시 돌려 inbox → 기획이 숫자·1절 표 확정. 측정만, 설정 파일 기본값은 바꾸지 않는다 |
