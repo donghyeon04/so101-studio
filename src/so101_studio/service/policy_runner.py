@@ -10,6 +10,9 @@ from ..core.types import JointState
 
 CAMERAS = ("top", "wrist")  # 관측 키 observation.images.<이름> (mujoco-spec 13.10.4 기록기와 같다)
 JUDGE_DELAY_S = 1.0  # 끝나고 물체가 가라앉은 뒤 판정한다
+HARD_STOP = ("stopped", "fault", "locked", "busy", "real_arm")  # servo_joints가 이 이유로 거부하면 바로 끝낸다
+REJECT_S = 0.5  # 안전 거부(관절 한계·작업 영역·장면 부품)는 이만큼 이어질 때만 끝낸다 (spec 6.10 "거부가 이어짐")
+SLOW_S = 1.0  # 이만큼 아무 목표도 보내지 못하면(추론이 늘 한 주기를 넘김) too_slow로 끝낸다
 
 
 def load_act(checkpoint_dir):
@@ -82,11 +85,14 @@ class PolicyRunner:
 
     def _run(self) -> None:
         period = 1.0 / self.fps
-        t0 = nxt = time.perf_counter()
-        infer, skipped, reason = [], 0, "max_s"
-        while time.perf_counter() - t0 < self.max_s:
+        t0 = nxt = sent = time.perf_counter()
+        infer, skipped, reason, rejected = [], 0, "max_s", None  # rejected: 안전 거부가 시작된 시각
+        while (now := time.perf_counter()) - t0 < self.max_s:
             if self._quit.is_set():
                 reason = "stop"
+                break
+            if now - sent > SLOW_S:
+                reason = "too_slow"
                 break
             try:
                 obs = self._observe()
@@ -98,9 +104,15 @@ class PolicyRunner:
             infer.append(time.perf_counter() - a0)
             if infer[-1] > period:  # 한 주기를 넘긴 추론: 낡은 목표라 보내지 않는다
                 skipped += 1
-            elif not self.svc.servo_joints(JointState(*map(float, act))):  # 정지·E-STOP·fault·안전 거부
-                reason = f"servo:{self.svc.ctl.servo_reason}"
-                break
+            elif self.svc.servo_joints(JointState(*map(float, act))):
+                sent, rejected = time.perf_counter(), None
+            else:
+                why = self.svc.ctl.servo_reason
+                rejected = rejected or time.perf_counter()
+                if why in HARD_STOP or time.perf_counter() - rejected >= REJECT_S:
+                    reason = f"servo:{why}"
+                    break
+                sent = time.perf_counter()  # 거부는 REJECT_S가 따로 센다: too_slow로 세지 않는다
             nxt = max(nxt + period, time.perf_counter() - period)  # 밀렸으면 몰아서 따라잡지 않는다
             self._quit.wait(max(0.0, nxt - time.perf_counter()))
         self.svc.stop()  # 서보 목표를 비워 0.5초를 기다리지 않고 지금 자리에서 선다

@@ -58,7 +58,21 @@ def test_stops_where_it_is_when_goals_stop_coming(svc):
     p1 = svc.driver.read_joints().shoulder_pan
     time.sleep(0.3)
     assert svc.driver.read_joints().shoulder_pan == p1 and svc.ctl.state == "idle"
-    assert 20 < p1 - HOME.shoulder_pan < 70
+    assert 5 < p1 - HOME.shoulder_pan < 79  # 움직였고 목표 전에 섰다(부하로 틱이 밀리면 덜 간다)
+
+
+def test_a_path_point_that_fails_the_check_stops_the_arm_there(svc, monkeypatch):
+    check = svc.safety.check_goal
+
+    def wall(q, ref=None):  # 목표(+30°)는 통과하고 +10~20° 사이만 막는 가짜 장면 부품
+        return "scene:wall" if 10 < q.shoulder_pan - HOME.shoulder_pan < 20 else check(q, ref)
+
+    monkeypatch.setattr(svc.safety, "check_goal", wall)
+    assert svc.servo_joints(replace(HOME, shoulder_pan=HOME.shoulder_pan + 30))
+    time.sleep(0.5)
+    assert svc.driver.read_joints().shoulder_pan - HOME.shoulder_pan <= 10 and svc.ctl.state == "idle"
+    rej = [e["data"] for e in read_events(svc.logger.dir) if e["code"] == "ARM-SERVO-REJECT"]
+    assert rej == [{"reason": "scene:wall", "count": 1}]
 
 
 def test_busy_while_a_trajectory_runs(svc):
@@ -94,6 +108,13 @@ def test_closing_gripper_goal_turns_on_contact_and_holds_at_contact_plus_preload
         stream(s, lambda t: replace(start, gripper=lo), 3.0)
         assert s.ctl.grip_hold == pytest.approx(30.0 - CFG.grip_preload_units)
         assert any(e["code"] == "ARM-BLOCKED" and e["data"]["joint"] == "gripper" for e in read_events(s.logger.dir))
-        assert s.servo_joints(replace(start, gripper=60.0)) and s.ctl.grip_hold is None  # 여는 목표는 고정을 푼다
+        hold = s.ctl.grip_hold
+        for g in (hold + 2, hold - 2, hold + 4, hold + 2):  # 정책 출력의 흔들림(접촉 위치 ±2): 고정을 풀지 않는다
+            s.servo_joints(replace(start, gripper=g))
+        assert s.ctl.grip_hold == hold
+        for _ in range(2):  # 여는 목표도 한두 번은 흔들림으로 본다
+            s.servo_joints(replace(start, gripper=60.0))
+        assert s.ctl.grip_hold == hold
+        assert s.servo_joints(replace(start, gripper=60.0)) and s.ctl.grip_hold is None  # 세 번 이어지면 푼다
     finally:
         s.disconnect()

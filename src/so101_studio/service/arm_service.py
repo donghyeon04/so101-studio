@@ -59,6 +59,10 @@ def plan_goto(kin, cfg, q0: JointState, goal: ToolPose, speed_pct: float):
     return None
 
 
+SERVO_OPEN_UNITS = 3.0  # servo_joints: 접촉 위치보다 이만큼(그리퍼 눈금) 넘게 열어야 여는 목표로 본다
+SERVO_OPEN_N = 3  # 여는 목표가 이만큼 이어져야(25Hz로 0.12초) 예압 고정을 푼다
+
+
 class _SimBlocked:
     """막힘 판정이 읽는 설정: sim_blocked에 있는 키는 그 값, 나머지는 살아 있는 cfg 값."""
 
@@ -159,6 +163,7 @@ class ArmService:
         self.ctl.locked_reason = self._hard_lock or self._zero_lock  # 움직이는 명령을 막고 읽기만 허용한다
         if self.ctl.locked_reason:
             self._log("locked", {"reason": self.ctl.locked_reason})
+        self._servo_open_n = 0  # servo_joints가 여는 목표를 이어 받은 수
         self._torque_on = False  # jog가 토크를 켠 뒤 true. 교시로 토크를 끄면 다시 false (REQ-012)
         self._stop_status.clear()
         self._log("connect", {"port": "sim" if getattr(self.driver, "simulated", False) else port or self.cfg.port, **getattr(self.driver, "connect_info", {})})  # 시뮬레이션이면 실제 포트처럼 보이지 않게
@@ -817,7 +822,12 @@ class ArmService:
         if not getattr(self.driver, "simulated", False):
             self.ctl.servo_reason = "real_arm"
             return False
-        if (hold := self.ctl.grip_hold) is not None and goal.gripper > hold + 1.0:  # 여는 목표: 예압 고정을 푼다(set_gripper와 같다)
+        hold = self.ctl.grip_hold
+        # 정책 출력은 주기마다 1~2 흔들린다: 접촉 위치(고정 + 예압)보다 SERVO_OPEN_UNITS 넘게 여는 목표가 SERVO_OPEN_N번 이어질 때만 예압 고정을 푼다(set_gripper와 같은 풀기)
+        opening = hold is not None and goal.gripper > hold + self.cfg.grip_preload_units + SERVO_OPEN_UNITS
+        self._servo_open_n = self._servo_open_n + 1 if opening else 0
+        if self._servo_open_n >= SERVO_OPEN_N:
+            self._servo_open_n = 0
             self.skills.release_grip_hold()
         self._torque_once()
         return self.ctl.servo(goal, self.cfg.joint_v_max_deg_s * self.speed / 100)
