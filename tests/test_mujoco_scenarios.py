@@ -1,7 +1,6 @@
 """REQ-063 (arm-software-spec 13.7 (a)(b), M3): MuJoCo 시나리오 시험. ArmService 위에서 실시간 모드로 돈다. mujoco가 없으면 건너뛴다."""
 import json
 import tempfile
-import threading
 import time
 from pathlib import Path
 
@@ -10,6 +9,7 @@ import pytest
 
 mujoco = pytest.importorskip("mujoco")
 
+from so101_studio.arm.mujoco_bench import Sampler, slip_series
 from so101_studio.arm.sim_driver import make_sim_driver
 from so101_studio.core.config import load_robot, load_workspace
 from so101_studio.core.types import DetectedObject
@@ -25,28 +25,6 @@ def single_jaw_cfg():
 
 CFG = single_jaw_cfg()
 JAWS = {"jaw_fixed", "jaw_moving"}
-
-
-class Sampler:
-    """sim_state()를 50Hz로 읽어 모은다."""
-
-    def __init__(self, drv):
-        self.drv, self.samples, self.max_load, self._stop = drv, [], 0.0, threading.Event()
-        self._t = threading.Thread(target=self._run, daemon=True)
-
-    def _run(self):
-        while not self._stop.is_set():
-            self.samples.append(self.drv.sim_state())
-            self.max_load = max(self.max_load, *self.drv.read_health()["load_pct"].values())
-            time.sleep(0.02)
-
-    def __enter__(self):
-        self._t.start()
-        return self
-
-    def __exit__(self, *a):
-        self._stop.set()
-        self._t.join()
 
 
 def start(scenario, tmp_path):
@@ -101,15 +79,9 @@ def test_carry_does_not_slip_and_lands_on_target(tmp_path, size):
             assert r.status == "ok", r
         time.sleep(1.0)
         end = drv.sim_state()
-        first, worst_slip = None, 0.0
-        for st in s.samples:
-            o = st["objects"]["box"]
-            if st["held"] == "box" and o["z_mm"] > 5:
-                R = np.array(st["tool"]["rot"])
-                rel = R.T @ (np.array([o["x_mm"], o["y_mm"], o["z_mm"]]) - np.array(st["tool"]["pos_mm"]))
-                first = rel if first is None else first
-                worst_slip = max(worst_slip, float(np.linalg.norm(rel - first)))
-        assert first is not None, "들어 올린 표본이 없다"
+        series = slip_series(s.samples, "box")  # 13.7 (b) 정의는 시험장 한 곳(mujoco-spec 13.10.1)
+        worst_slip = max((d for _, _, d in series), default=0.0)
+        assert series, "들어 올린 표본이 없다"
         o = end["objects"]["box"]
         miss = float(np.hypot(o["x_mm"] - 420, o["y_mm"] - 170))
         ev = events(svc)
