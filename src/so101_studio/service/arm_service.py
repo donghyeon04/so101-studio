@@ -224,7 +224,7 @@ class ArmService:
             t=time.time(), joints=q, tool=self.kin.fk(q),
             temperature_c=self._health["temperature_c"], load_pct=self._health["load_pct"], voltage_v=self._health["voltage_v"], current_ma=self._health.get("current_ma", 0.0),
             torque_enabled=self.driver.torque_enabled(),
-            state="teach" if self.teach.recording else self.ctl.state, fault=self.ctl.fault, fault_text=self.ctl.fault_text,
+            state="teach" if self.teach.recording else self.ctl.state, fault=self.ctl.fault, fault_text=self.ctl.fault_text, cmd=self.ctl._last,
         )
 
     def status_stream(self, callback) -> None:

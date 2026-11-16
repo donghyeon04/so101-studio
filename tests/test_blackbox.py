@@ -500,3 +500,13 @@ def test_load_probe_reads_status_immediately_on_high_load_and_on_loop_error(tmp_
         assert all(b["t"] - a["t"] >= 0.9e9 for a, b in itertools.pairwise(probes))  # 1초에 한 번
     finally:
         s.disconnect()
+
+
+def test_status_cmd_is_last_command(tmp_path):
+    """ArmStatus.cmd = 지금 명령 관절값(6.10). 동작이 없으면 마지막 명령."""
+    s = make_svc(tmp_path)
+    home = s.status().cmd
+    assert home is not None and home == s.ctl._last
+    assert s.move_joints(JointState(10, -80, 90, 0, 0, 3)).status == "ok"
+    st = s.status()
+    assert st.cmd.shoulder_pan == pytest.approx(10, abs=0.5) and st.cmd != home
