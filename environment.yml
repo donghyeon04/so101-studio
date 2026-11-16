@@ -10,10 +10,18 @@ dependencies:
   - "libblas=*=*mkl"
   - placo=0.9.25
   - pyyaml
+  - ffmpeg=7.1.1  # torchcodec(lerobot dataset)이 libtorchcodec을 불러오는 데 필요하다 (C-8)
   - trimesh  # 장면 부품 메쉬(core/scene.py). 충돌 검사의 coal은 placo와 함께 설치된다
   - pip
   - pip:
-      - "lerobot[feetech]==0.6.1"
+      - "lerobot[feetech,dataset]==0.6.1"
+      # lerobot dataset extra로 들어오는 것(C-8, 2026-11-17 설치 확인)
+      - av==15.1.0
+      - datasets==4.8.5
+      - pyarrow==26.0.1
+      - pandas==2.3.3
+      - torchcodec==0.11.1
+      - pillow==12.3.0  # 12.3.0과 13.0.0이 섞이면 torchvision 뒤 PIL 불러올 때 DLL 오류
       # GUI·시험 도구는 == 로 고정한다(U12, tooling-setup.md C-4: 새 PC에서 전체 시험이 통과한 pip freeze 2026-11-15). 올릴 때는 tests/gui·tests/gui_visual을 돌린 PR로
       - nicegui==3.18.0
       - viser==1.1.1

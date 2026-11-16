@@ -1,0 +1,17 @@
+# 학습·강화학습 환경(tooling-setup C-8). conda env create -f environment-train.yml
+# so101 환경과 따로 둔다: torch가 크고 numpy 2.2.6만 맞춘다.
+name: so101-train
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - numpy=2.2.6
+  - ffmpeg=7.1.1
+  - pip
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cu128
+      - torch==2.11.0+cu128
+      - torchvision==0.26.0+cu128
+      - "lerobot[dataset,training]==0.6.1"
+      - mujoco==4.0.0
+      - so101-nexus-mujoco==0.3.12  # teleop extra 없이
