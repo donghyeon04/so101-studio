@@ -88,7 +88,32 @@ def _mat_quat(R: np.ndarray) -> np.ndarray:
     return q
 
 
-def load_model(scene=None, objects=(), *, base: frames.Pose2D, table_z_mm: float, joint_limits: dict | None = None, parallel_hand: bool = False, hand: str = "single_jaw", gripper_width_mm=None):
+TOP_CAM_H_MM = 550.0  # 판 면 위(결정 0058의 50~60cm)
+WRIST_CAMS = {  # 손 -> (pos m, quat 또는 None(바라보는 점으로 계산), 바라보는 점 m, fovy). gripper body 좌표(mujoco-spec 13.10.4)
+    "parallel": ((0.0, 0.055, -0.075), None, (0.0, 0.0, -0.140), 75.0),
+    "single_jaw": ((-0.00296, 0.05436, -0.05310), (0.958280, -0.285792, -0.001556, 0.004547), None, 61.0),  # 원본 so101.xml wrist_cam 그대로
+}
+
+
+def _add_cameras(spec, gripper, hand: str, base, table_z_mm: float, table_mm: dict | None) -> None:
+    """시점 카메라(13.10.4): `wrist`(gripper body, 화면 가로 = 벌림 축 x)와 `top`(판 중심 위 550mm, 아래를 보고 영상 위쪽 = 작업대 +y). 물리 영향 없음.
+    table_mm({x, y})가 없으면 top은 넣지 않는다(드라이버는 늘 workspace의 table_mm을 넘긴다)."""
+    pos, quat, look, fovy = WRIST_CAMS.get(hand, WRIST_CAMS["single_jaw"])
+    if quat is None:
+        z = np.subtract(pos, look)
+        z /= np.linalg.norm(z)  # 카메라는 -z를 본다
+        x = np.array([1.0, 0.0, 0.0])
+        quat = _mat_quat(np.column_stack([x, np.cross(z, x), z]))
+    gripper.add_camera(name="wrist", pos=list(pos), quat=list(quat), fovy=fovy)
+    if table_mm:
+        tx, ty = float(table_mm["x"]), float(table_mm["y"])
+        p = np.array(table_to_model_mm(tx / 2, ty / 2, TOP_CAM_H_MM, base, table_z_mm)) / 1000.0
+        half = max(ty / 2, tx / 2 * 240 / 320) * 1.05  # 320×240(4:3)에 판 전체 + 5% 여유
+        spec.worldbody.add_camera(name="top", pos=p.tolist(), quat=list(_mat_quat(_rotz(-base.yaw_deg))), fovy=2 * math.degrees(math.atan(half / TOP_CAM_H_MM)))
+
+
+def load_model(scene=None, objects=(), *, base: frames.Pose2D, table_z_mm: float, joint_limits: dict | None = None, parallel_hand: bool = False, hand: str = "single_jaw", gripper_width_mm=None,
+               table_mm: dict | None = None):
     """(MjModel, warnings)를 만든다. joint_limits(팔 파일의 physical_limits_deg)가 있으면 관절 range와 액추에이터 ctrlrange를 그 값으로 넓힌다(13.4). 없으면 원본 range를 쓰고 warnings에 ("SIM-JOINT-RANGE-DEFAULT", {})를 담는다. warnings 항목은 (코드, 데이터)이고 높이 0 물체마다 ("SIM-OBJECT-HEIGHT-DEFAULT", {"object", "height_mm"})도 담긴다.
     모델: 원본 so101.xml + 받침 상자 + gripper_frame site + 작업대 평면 + 장면 부품 + 물체, 턱 충돌 geom 접촉값(condim 4, 마찰), 전역 옵션(타원 원뿔, impratio 10, implicitfast, timestep 2ms).
     scene는 core.scene.Scene 또는 None, objects는 SimObject 목록(이름이 서로 달라야 한다). `mujoco`가 없으면 ImportError.
@@ -108,8 +133,9 @@ def load_model(scene=None, objects=(), *, base: frames.Pose2D, table_z_mm: float
         warnings.append(("SIM-JOINT-RANGE-DEFAULT", {}))
 
     parallel_hand = parallel_hand or hand == "parallel"
-    spec.delete(spec.body("camera_mount"))  # 손목 카메라는 쓰지 않는다(결정 0035, 카메라는 탑뷰 하나): 원본 so101.xml은 그대로 두고 시각·충돌·질량·wrist_cam을 MjSpec에서 지운다
+    spec.delete(spec.body("camera_mount"))  # 원본 손목 카메라 마운트(질량·형상)는 지운다. 시점 카메라는 아래 _add_cameras가 `wrist`로 다시 더한다(결정 0066)
     gripper = spec.body("gripper")
+    _add_cameras(spec, gripper, hand, base, table_z_mm, table_mm)
     if hand == "parallel":
         from . import mujoco_hand
 

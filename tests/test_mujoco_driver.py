@@ -267,3 +267,27 @@ def test_realtime_60s():
         assert d.dropped_count == drops0 and d.step_ms_avg < 1.0
     finally:
         svc.disconnect()
+
+
+def test_cameras_and_render(drv):
+    """REQ-071 (mujoco-spec 13.10.4): 카메라 top·wrist, render 모양, 다른 스레드에서 불러도 되고, 모르는 이름·연결 전은 오류. top은 판 중심 위 550mm."""
+    import threading
+
+    from so101_studio.arm.mujoco_model import TOP_CAM_H_MM, table_to_model_mm
+
+    m = drv.model
+    top = np.array(m.cam("top").pos) * 1000
+    exp = table_to_model_mm(WS.table_mm["x"] / 2, WS.table_mm["y"] / 2, TOP_CAM_H_MM, WS.base, CFG.table_z_mm)
+    assert np.allclose(top, exp, atol=0.01) and m.cam("wrist").bodyid[0] == m.body("gripper").id
+    a = drv.render("top")
+    assert a.shape == (240, 320, 3) and a.dtype == np.uint8 and a.std() > 0
+    out = {}
+    t = threading.Thread(target=lambda: out.setdefault("img", drv.render("wrist", 160, 120)))
+    t.start()
+    t.join()
+    assert out["img"].shape == (120, 160, 3)
+    with pytest.raises(ValueError):
+        drv.render("nope")
+    drv.disconnect()
+    with pytest.raises(RuntimeError):
+        drv.render("top")
