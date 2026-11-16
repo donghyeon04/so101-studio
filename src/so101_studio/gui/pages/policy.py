@@ -44,21 +44,31 @@ def build(backend, client_id: str, actions) -> None:
     controls = Controls(backend, client_id)
     started_ns = [0]
 
+    def running() -> bool:
+        runner = backend.policy
+        return backend.policy_loading or (runner is not None and runner._thread is not None and runner._thread.is_alive())
+
     async def start() -> None:
         path = (choice.value or "").strip()
         if not path:
             ui.notify("체크포인트를 고르거나 경로를 넣으세요", type="warning")
             return
-        runner = backend.policy
-        if runner is not None and runner._thread is not None and runner._thread.is_alive():
+        if running():  # 불러오는 동안 다시 눌러도 러너를 하나 더 만들지 않는다
             return
         backend.policy = runner = PolicyRunner(svc, svc.driver, checkpoint_dir=Path(path))
+        backend.policy_loading, backend.policy_cancel = True, False
         started_ns[0] = time.time_ns()
-        why = await run.io_bound(runner.start)  # torch·lerobot을 처음 불러오면 몇 초 걸린다
+        try:
+            why = await run.io_bound(runner.start)  # torch·lerobot을 처음 불러오면 몇 초 걸린다
+        finally:
+            backend.policy_loading = False
         if why:
             ui.notify(why, type="warning")
+        elif backend.policy_cancel:  # 불러오는 중에 [정지]를 눌렀다: start()가 _quit을 지우므로 여기서 다시 멈춘다
+            await run.io_bound(runner.stop)
 
     async def stop() -> None:
+        backend.policy_cancel = True
         if backend.policy is not None:
             await run.io_bound(backend.policy.stop)
 
@@ -86,19 +96,19 @@ def build(backend, client_id: str, actions) -> None:
         summary = ui.column().classes("gap-0").mark("policy-result")
     shown: list = [None]
 
-    def tick() -> None:
+    async def tick() -> None:
         controls.refresh()
-        runner = backend.policy
-        running = runner is not None and runner._thread is not None and runner._thread.is_alive()
-        status.text = "실행 중" if running else "멈춤"
-        start_button.enabled = controls.allowed and not running
-        stop_button.enabled = controls.mine and running
-        result = None if runner is None else runner.result
+        busy = running()
+        status.text = "불러오는 중" if backend.policy_loading else "실행 중" if busy else "멈춤"
+        start_button.enabled = controls.allowed and not busy
+        stop_button.enabled = controls.mine and busy
+        result = None if backend.policy is None else backend.policy.result
         if result is not shown[0]:
             shown[0] = result
+            rejects = await run.io_bound(count_rejects, svc, started_ns[0]) if result else None  # 기록 파일이 커도 화면을 멈추지 않게
             summary.clear()
             with summary:
-                for line in result_lines(result, count_rejects(svc, started_ns[0]) if result else None):
+                for line in result_lines(result, rejects):
                     ui.label(line).classes("page-body")
 
     async def draw() -> None:

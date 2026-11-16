@@ -307,10 +307,12 @@ def camera_tile(driver, camera: str, title: str):
 
 def watch_visibility():
     """브라우저 탭이 숨겨졌는지 알려 준다. 숨겨진 동안 카메라를 그리지 않으려고 쓴다(12.10 ①). 돌려준 함수가 True면 보이는 중."""
-    shown = [True]
-    ui.on("so101_visible", lambda e: shown.__setitem__(0, bool(e.args)))
-    ui.run_javascript("if (!window.__so101Vis) { window.__so101Vis = true; "
-                      "document.addEventListener('visibilitychange', () => emitEvent('so101_visible', !document.hidden)); }")
+    client = ui.context.client
+    shown = getattr(client, "so101_visible", None)
+    if shown is None:  # 처리기는 브라우저 하나에 한 번만 단다(페이지를 다시 열 때마다 쌓이지 않게)
+        client.so101_visible = shown = [True]
+        ui.on("so101_visible", lambda e: shown.__setitem__(0, bool(e.args)))
+        ui.run_javascript("document.addEventListener('visibilitychange', () => emitEvent('so101_visible', !document.hidden));")
     return lambda: shown[0]
 
 

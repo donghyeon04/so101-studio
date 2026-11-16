@@ -87,3 +87,42 @@ def test_checkpoint_list_is_newest_first(tmp_path):
         p.mkdir(parents=True)
         os.utime(p, (t, t))
     assert [Path(s).parts[-4] for s in policy_page.checkpoints(tmp_path)] == ["b", "a"]
+
+
+def test_stop_while_loading_cancels_and_second_click_makes_no_second_runner(backend, monkeypatch, tmp_path):
+    import time
+
+    monkeypatch.setattr(backend.sim.driver, "render", lambda camera, width=320, height=240: np.zeros((height, width, 3), np.uint8), raising=False)
+    made = []
+
+    def slow_load(path):
+        made.append(path)
+        time.sleep(0.6)
+        return HomePolicy(backend.sim.cfg.poses["home"])
+
+    monkeypatch.setattr(policy_runner, "load_act", slow_load)
+    (tmp_path / "run1" / "checkpoints" / "last" / "pretrained_model").mkdir(parents=True)
+    monkeypatch.setattr(policy_page, "TRAIN_ROOT", tmp_path)
+    backend.policy = None
+
+    async def check(user):
+        await user.should_see(marker="camera-top")
+        user.find(marker="policy-start").click()
+        await asyncio.sleep(0.1)
+        user.find(marker="policy-start").click()  # 불러오는 중 두 번째 누름
+        await user.should_see("불러오는 중")
+        user.find(marker="policy-stop").click()
+        for _ in range(40):
+            if not backend.policy_loading:
+                break
+            await asyncio.sleep(0.05)
+        await asyncio.sleep(0.3)
+        assert len(made) == 1
+        assert backend.policy._thread is None or not backend.policy._thread.is_alive()
+
+    try:
+        open_policy(backend, check)
+    finally:
+        if backend.policy is not None:
+            backend.policy.stop()
+        backend.policy = None
