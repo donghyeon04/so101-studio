@@ -170,6 +170,8 @@ class Backend:
         self._object_undo_t = 0.0
         self._listener = None
         self.owner: str | None = None  # 조작권을 가진 브라우저. NiceGUI 이벤트 루프에서만 바꾼다
+        self.policy = None  # 정책 실행 페이지의 PolicyRunner. 페이지를 옮겨도 계속 돈다 (gui-spec 12.10 ③)
+        self.policy_loading = self.policy_cancel = False  # 정책을 불러오는 중인가, 그 사이 [정지]를 눌렀는가
         ws = load_workspace()
         # 실행 기록은 주 팔 하나만 남긴다. 같은 초에 만들면 폴더 이름이 겹친다
         self.real = ArmService(real_driver, cfg, ws, speed, log_root, proc="gui") if real_driver else None
@@ -1266,6 +1268,8 @@ class Backend:
         if self._listener:
             self._listener.close()
         self.record_finish()
+        if self.policy is not None:
+            self.policy.stop()
         self.stop_task()  # 제어 루프를 먼저 끄면 동작을 기다리던 스레드가 풀리지 않아 프로세스가 안 꺼진다
         for arm in self._arms():
             arm.ctl.wait_idle()
