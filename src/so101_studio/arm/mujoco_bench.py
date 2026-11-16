@@ -237,8 +237,8 @@ def judge(result, samples: list, end: dict, truth: dict, target_xy, events: list
             "other_pushed_mm": 0.0 if not others else None, "events": counts, "target_xy": target_xy, "failed_reason": failed}
 
 
-def run_episode(ep: Episode, cfg, log_dir: Path, env: BenchEnv | None = None) -> dict:
-    """실행기 A: reset → pick_and_place(그동안 표본) → 1.0초 뒤 판정 → disconnect. 결과 한 줄(dict)."""
+def run_episode(ep: Episode, cfg, log_dir: Path, env: BenchEnv | None = None, samples_out: list | None = None) -> dict:
+    """실행기 A: reset → pick_and_place(그동안 표본) → 1.0초 뒤 판정 → disconnect. 결과 한 줄(dict). samples_out에 표본을 붙인다(시험용)."""
     env = env or BenchEnv(cfg)
     t0 = time.perf_counter()
     obs, info = env.reset(options={"episode": ep, "log_dir": log_dir})
@@ -254,6 +254,8 @@ def run_episode(ep: Episode, cfg, log_dir: Path, env: BenchEnv | None = None) ->
                 failed = str(e)
             time.sleep(SETTLE_S)
         failed = failed or drv.failed_reason
+        if samples_out is not None:
+            samples_out.extend(s.samples)
         end = None if failed else drv.sim_state()
         target = svc.skills.last_place_xy
         row = judge(result, s.samples, end, ep.truth, list(target) if target else None, read_events(svc), failed)
@@ -275,11 +277,17 @@ def _commit() -> str:
 
 
 def _worker(job):
-    ep, override, out = job
+    ep, override, out, grip_force = job
     import os
 
+    from . import mujoco_hand
+
     os.chdir(REPO_ROOT)  # ArmService는 config/ 를 현재 폴더 기준으로 읽는다
-    return run_episode(ep, load_cfg(override), Path(out) / "episodes" / ep.id)
+    if grip_force is not None:  # U15 민감도: 병렬 손 액추에이터 힘 한계(forcerange)만 바꾼다. kp·Torque_Limit 배율은 그대로
+        mujoco_hand.GRIP_FORCE_N = float(grip_force)
+    row = run_episode(ep, load_cfg(override), Path(out) / "episodes" / ep.id)
+    row["grip_force_n"] = mujoco_hand.GRIP_FORCE_N
+    return row
 
 
 def summarize(rows: list[dict]) -> tuple[dict, str]:
@@ -320,17 +328,19 @@ def summarize(rows: list[dict]) -> tuple[dict, str]:
     return summary, "\n".join(lines) + "\n"
 
 
-def run(suite: str, seeds: int = 1, gripper: str | None = None, jobs: int = 1, only: str | None = None, out_root: Path | None = None) -> Path:
+def run(suite: str, seeds: int = 1, gripper: str | None = None, jobs: int = 1, only: str | None = None, out_root: Path | None = None,
+        grip_force: float | None = None) -> Path:
     """묶음을 돌려 결과 폴더를 돌려준다: results.jsonl·summary.json·summary.md·episodes/<id>/(events·status)."""
     s = load_suite(suite)
     eps = [e for e in layout(s, seeds) if only is None or e.id == only]
     if not eps:
         raise ValueError(f"돌릴 에피소드가 없다(--only {only})")
     commit = _commit()
-    out = (out_root or REPO_ROOT / "runs" / "bench-mujoco") / f"{datetime.now():%Y%m%d-%H%M%S}-{commit}"
+    tag = f"-f{grip_force:g}" if grip_force is not None else ""
+    out = (out_root or REPO_ROOT / "runs" / "bench-mujoco") / f"{datetime.now():%Y%m%d-%H%M%S}-{commit}{tag}"
     out.mkdir(parents=True, exist_ok=True)
     override = gripper_override(gripper, out) if gripper else OVERRIDE
-    jobs_list = [(e, str(override), str(out)) for e in eps]
+    jobs_list = [(e, str(override), str(out), grip_force) for e in eps]
     rows = []
     with (out / "results.jsonl").open("w", encoding="utf-8") as f:
         def keep(row):
@@ -348,9 +358,9 @@ def run(suite: str, seeds: int = 1, gripper: str | None = None, jobs: int = 1, o
             for j in jobs_list:
                 keep(_worker(j))
     summary, md = summarize(rows)
-    summary.update({"suite": s["name"], "commit": commit, "gripper": rows[0]["gripper"], "scene_parts": rows[0]["scene_parts"], "seeds": seeds})
+    summary.update({"suite": s["name"], "commit": commit, "gripper": rows[0]["gripper"], "scene_parts": rows[0]["scene_parts"], "seeds": seeds, "grip_force_n": rows[0]["grip_force_n"]})
     (out / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
-    (out / "summary.md").write_text(f"# {s['name']} (커밋 {commit}, 그리퍼 {summary['gripper']}, 부품 {', '.join(summary['scene_parts']) or '-'})\n\n" + md, encoding="utf-8")
+    (out / "summary.md").write_text(f"# {s['name']} (커밋 {commit}, 그리퍼 {summary['gripper']}, 힘 한계 {summary['grip_force_n']:g}N, 부품 {', '.join(summary['scene_parts']) or '-'})\n\n" + md, encoding="utf-8")
     return out
 
 
@@ -361,8 +371,9 @@ def main(argv=None):
     ap.add_argument("--gripper", choices=["parallel", "single_jaw"])
     ap.add_argument("--jobs", type=int, default=1)
     ap.add_argument("--only")
+    ap.add_argument("--grip-force", type=float, help="병렬 손 힘 한계 N(U15 민감도, 기본 mujoco_hand.GRIP_FORCE_N)")
     a = ap.parse_args(argv)
-    out = run(a.suite, a.seeds, a.gripper, a.jobs, a.only)
+    out = run(a.suite, a.seeds, a.gripper, a.jobs, a.only, grip_force=a.grip_force)
     print((out / "summary.md").read_text(encoding="utf-8"))
     print(f"결과: {out}")
 
