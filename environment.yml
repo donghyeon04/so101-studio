@@ -28,6 +28,8 @@ dependencies:
       - playwright==1.65.2
       - pytest-playwright==0.10.0
       - pytest-playwright-visual-snapshot==0.5.1
+      - pytest-xdist==3.8.0  # -n auto (결정 0064)
+      - pytest-testmon==2.3.0  # PR 시험 --testmon (결정 0064)
       - -e .[gui,test]
       # MuJoCo 물리 시뮬레이션은 기본에 넣지 않는다(결정 0053, arm-software-spec 13.8). 쓰려면: pip install --no-deps "mujoco>=4.0,<5" mujoco-core mujoco-studio glfw pyopengl
       # (pip가 conda의 numpy 2.2.6을 바꾸지 않게 --no-deps로 설치하고, 빠진 의존성만 따로). 설치 뒤 numpy 버전이 2.2.6인지 확인한다.

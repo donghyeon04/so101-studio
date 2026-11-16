@@ -23,10 +23,10 @@ def in_app(backend, check) -> None:
     asyncio.run(go())
 
 
-def test_fifteen_pages_in_six_groups():
-    assert len(gui_app.PAGES) == 6  # 맨 위 "안내"(시작 화면) + 다섯 그룹 (gui-spec 11절)
-    assert len(ALL_PAGES) == 15  # 카메라는 장치를 달 때까지 메뉴에 없고, 프로그램·캘리브레이션이 더해졌다 (결정 0044)
-    assert len({path for path, _, _ in ALL_PAGES}) == 15
+def test_sixteen_pages_in_seven_groups():
+    assert len(gui_app.PAGES) == 7  # 맨 위 "안내"(시작 화면) + 다섯 그룹 + 학습 (gui-spec 11절, 12.10)
+    assert len(ALL_PAGES) == 16  # 카메라는 장치를 달 때까지 메뉴에 없고, 프로그램·캘리브레이션·정책 실행이 더해졌다 (결정 0044·0066)
+    assert len({path for path, _, _ in ALL_PAGES}) == 16
 
 
 def test_menu_click_changes_page_and_frame_stays(backend):

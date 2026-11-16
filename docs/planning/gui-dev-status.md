@@ -1,8 +1,19 @@
 # GUI 개발 현황
 
-상태: 초안 · 2026-11-16 (로컬 총괄, 새 PC 이틀 인수인계 절 추가. 지난 단계별 기록은 git 기록에 있다)
+상태: 초안 · 2026-11-17 (로컬 총괄, 다른 PC 인수인계 절 추가) · 2026-11-16 (새 PC 이틀 인수인계 절 추가. 지난 단계별 기록은 git 기록에 있다)
 
 GUI 세션(총괄)의 인수인계 문서다. 기준 설계는 `planning/gui-spec.md`, 세션 절차는 `guides/session-workflow.md`, 할 일은 `planning/work-queue.md`.
+
+## 인수인계 (2026-11-17, 다른 PC로 넘길 때, main 706bbf0 이후)
+- 읽는 순서: `work-queue.md`의 "11-16 밤~11-17"과 "세션별 다음 일" → 이 절 → 아래 11-16 절.
+- **11-16~17 합친 것**: #408(기획), #409, #410~412(REQ-067~069), #413(C-8 환경 파일), #414(기획 Stage 9 반영, 1차/2차), #415(REQ-070~074). 하루 마감 전체 시험(1011f60) 1261 passed.
+- **11-17 뒤에 더 합친 것**: #417(REQ-074 당기기 상한 측정, 고른 설정 (다) 85, 총괄 재실행 값이 같아 `planning-inbox` `inbox/2026-11-17-u16-pull-cap.md`에 올림, 기본값 20은 기획 확정 뒤), #418(REQ-073 ① `ArmStatus.cmd`, 빠른 묶음 1033 passed). MuJoCo REQ-070은 `dev/mujoco-bench-m5` 8bc87fe에 WIP(시험 1~5 통과, 측정은 멈춤). 다음 PC에서 MuJoCo가 이어 할 것: ① `mujoco_bench --suite pick_grid --jobs 4 --grip-force N`을 10·24·36·120으로(한 번 약 32분, 표에 한계값과 실제 닫기·들기 힘 ×0.3·×0.2 두 열) ② inject_grid, 거짓 성공(untouched인데 `ok`, 58mm 정면 180mm 18mm 어긋남)을 [기획 요청]으로 ③ measurements.md와 PR(shm.dll 우회 적기) ④ REQ-071 → 072. 멈추기 전 10N 3개(반경 120·방위 −40°)는 모두 `blocked: wrist_flex` 추종 오차 5.7~5.9 > 4.0으로 `stopped`였다. 묶음 전체에서 가까운 자리가 많이 막히면 함께 보고한다. 팔 다음은 `dev/servo-joints`(② `servo_joints` → ③ `PolicyRunner`).
+- **보낸 REQ(열림)**: MuJoCo REQ-070 M5 → 071 카메라·`render` → 072 기록기·전문가 300·ACT. 팔 REQ-073 `ArmStatus.cmd`(먼저 PR) → `servo_joints` → `PolicyRunner`. 초음파 REQ-074 당기기 상한 네 설정 측정. PR이 오면 늘 하던 대로 `tmp/review-NNN`에서 시험·ruff 뒤 합친다. REQ-074 결과는 고른 설정을 총괄이 다시 돌려(병렬 kin 75~250, 씨앗 20, `--set`) `planning-inbox`에 올린다.
+- **총괄 몫**: H-0(하드웨어 파일이 오면 `hardware.md` 맨 아래 "파일로 확인할 것 다섯"), GUI ① 시점 화면(REQ-071 PR 뒤), GUI ③ 줄인 판(REQ-073 `PolicyRunner` 뒤). gui-spec 12.10 1차.
+- **사용자 답 대기**: learning-platform 3a 범위 자르기 승인(답이 오면 기획에 전해 결정 0066 상태 줄), pytest-xdist·testmon 설치(지금 이 PC `so101`에 없어 `-n auto`·`--testmon`이 안 돈다. 순서대로 돌리면 된다), 하드웨어 담당 질문 다섯(사용자가 전함).
+- **환경(C-8 끝)**: `so101`에 `lerobot[dataset]`·conda ffmpeg 7.1.1·pillow 12.3.0 하나(섞여 있던 13.0.0 지움). `so101-train`은 `environment-train.yml`(#413). 다른 PC에서는 두 env 파일로 만들고 `from lerobot.datasets.lerobot_dataset import LeRobotDataset`와 `torch.cuda.is_available()`를 확인한다(`environment-train.yml`로 처음부터 만든 적은 아직 없다).
+- **확인 못 한 것**: 병렬 설정에서 손목 부품이 GUI 3D에 보이는지(내장 브라우저가 viser 로봇을 그리지 못함, 코드 경로로만 확인). 환경을 바꾼 뒤 빠른 묶음은 #418 검토 때 1033 passed(그 전 회차의 2 실패는 돌던 중 폴더 커밋을 바꾼 탓, 따로 돌리면 통과). 다른 PC에서도 첫 일로 빠른 묶음을 한 번 돌린다.
+- **이 PC 폴더에 남긴 것**: GUI 폴더의 추적 안 한 `.claude/launch.json`(미리보기 설정), `config/sequences/1234.json`·`test.json`(사용자 교시 기록, 커밋·삭제하지 않음).
 
 ## 인수인계 (2026-11-16, 새 PC 이틀 뒤, main 583ab31 이후)
 - 새 총괄 세션은 `project-status.md` → `work-queue.md` → 이 절 → 아래 11-14 절 순서로 읽는다.

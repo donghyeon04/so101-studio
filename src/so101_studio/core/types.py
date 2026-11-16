@@ -34,6 +34,7 @@ class ArmStatus:  # 10Hz 상태 스트림
     fault: str | None = None
     current_ma: float = 0.0  # 서보 전류 합(mA, 추정)
     fault_text: str | None = None  # fault 상태일 때 사람이 읽을 문장(원인과 해결법)
+    cmd: JointState | None = None  # 지금 명령 관절값(동작이 없으면 마지막 명령). 에피소드 기록기의 action (arm-software-spec 6.10)
 
 
 @dataclass

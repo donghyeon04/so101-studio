@@ -110,9 +110,7 @@ class TaskRunner:
                 if self.arm.last_path.status not in ("ok", "ik_fail", "out_of_bounds"):  # stopped·fault·locked 등: ESP32에 stop을 보내고 끊는다
                     probe.abort()
                     return None, "aborted"
-                st = self.arm.last_path.status
-                # 빈 목록 = 그 구간은 못 감(ik_fail·out_of_bounds). ok면 인자를 빼서 status 인자가 없는 Probe도 받는다
-                probe.feed(poses) if st == "ok" else probe.feed(poses, st)
+                probe.feed(poses, self.arm.last_path.status)  # 빈 목록 = 그 구간은 못 감(ik_fail·out_of_bounds)
         except BaseException:
             with contextlib.suppress(Exception):
                 probe.abort()

@@ -24,6 +24,7 @@ BLOCKED_N = 2  # 연속으로 문턱을 넘는 상태 읽기 횟수(10Hz로 약 
 STEP_MARGIN = 0.95  # 따라잡기로 진행할 때 한 주기 이동량 한도의 이 비율을 넘지 않는다
 MAX_TICK_ADVANCE = 2.0  # 한 틱에 궤적 시간이 최대 이만큼(틱 주기의 배수) 진행. 틱이 크게 늦어도 위치가 한 번에 건너뛰어 'step' fault가 나지 않고, 늦은 시간만큼 동작이 늦어진다
 JOG_ACCEL_JOINT = 400.0  # °/s². 조그 속도를 이 가속도로 올리고 내려 시작·정지 충격(속도 계단)을 없앤다
+SERVO_TIMEOUT_S = 0.5  # 서보 목표가 이만큼 끊기면 지금 자리에서 선다(정책 스레드가 죽었을 때, spec 6.10)
 JOG_ACCEL_TOOL = 600.0  # mm/s², 회전은 같은 값을 °/s²로  # 원격 조종 입력이 이만큼 끊기면 정지 (spec 6.5)
 
 
@@ -68,6 +69,9 @@ class MotionController:
         self.state = "idle"  # "idle" | "moving" | "teleop" | "stopped" | "fault"
         self.jog_joint_max, self.jog_tool_max = 40.0, 60.0  # 원격 조종 최대 속도 (deg/s, mm/s)
         self._jog = None  # (mode, 속도 벡터, 마지막 입력 시각)
+        self._servo = None  # (목표 JointState, 받은 시각, 관절 속도 상한 °/s): 정책이 흘려 넣는 최신 목표 하나 (spec 6.10)
+        self.servo_reason: str | None = None  # 마지막 servo()가 False였던 이유(busy, locked, stopped, fault, 안전 검사 이유)
+        self._servo_rej: dict[str, tuple[float, int]] = {}  # 거부 이유 -> (마지막으로 남긴 시각, 그 뒤 거부 수): 같은 이유는 1초에 한 번만 남긴다
         self.fault_text: str | None = None  # 마지막 fault의 사람이 읽을 문장(원인과 해결법)
         self.fault_detail: dict = {}  # 마지막 fault의 상세(관절, 값, 한도)
         self._jog_v = np.zeros(6)  # 가속도 제한을 거친 지금 조그 속도
@@ -133,7 +137,7 @@ class MotionController:
                 self._emit("out_of_bounds", "WARN", "ARM-OUT-OF-BOUNDS", {"reason": why, "text": describe(why)})  # 사람이 읽을 문장도 같이 남긴다
                 handle._finish(replace(self._result("out_of_bounds", now), reason=why))
             else:
-                self._jog = None
+                self._jog = self._servo = None
                 self._last = traj.sample(0)  # 새 궤적은 실제 위치에서 시작한다. 서보가 뒤처져 있어도 'step' fault로 오인하지 않게 기준을 옮긴다
                 if self.grip_hold is not None:  # 쥔 채면 매 틱 그리퍼는 hold 값으로 덮이므로 기준도 hold 값이다(쥔 압력으로 hold가 실제보다 8~9단위 낮아 첫 틱이 13° 한 주기로 잡히던 것, 11-12 실물)
                     self._last = replace(self._last, gripper=self.grip_hold)
@@ -153,6 +157,7 @@ class MotionController:
         with self._lock:
             if self.locked_reason or self.state in ("stopped", "fault") or self._job is not None:
                 return False
+            self._servo = None
             if self._jog is None:
                 self._jog_v = np.zeros(6)
                 self._jog_t = time.perf_counter() - self.dt
@@ -164,6 +169,36 @@ class MotionController:
         with self._lock:
             if self._jog is not None:  # 속도를 0으로 내려 부드럽게 멈춘다(바로 끊지 않는다)
                 self._jog = (self._jog[0], np.zeros_like(self._jog[1]), time.perf_counter())
+
+    def servo(self, goal: JointState, v_max_deg_s: float = 90.0) -> bool:
+        """정책이 낸 절대 관절 목표 하나를 받는다 (spec 6.10). 최신 목표만 기억하고 틱마다 한 틱 상한 min(v_max × dt, max_step_deg)만큼 다가간다.
+        안전 검사(check_goal, ref = 마지막 명령)에 걸리면 자르지 않고 목표를 버리고 제자리에 선다. False면 이유는 servo_reason."""
+        with self._lock:
+            why = "locked" if self.locked_reason else self.state if self.state in ("stopped", "fault") else "busy" if self._job is not None else None
+            if why is None and (why := self.safety.check_goal(goal, self._last)):
+                self._servo = None
+                if self.state == "teleop" and self._jog is None:
+                    self.state = "idle"
+                self._note_servo_reject(why)
+            self.servo_reason = why
+            if why:
+                return False
+            if goal.gripper < self._last.gripper - 1.0:  # 닫는 목표: 집기 밖 닫기와 같은 접촉 판단(check_blocked)을 켠다
+                self._closes_gripper, self._blocked_until = True, time.perf_counter() + BLOCKED_AFTER_S
+            elif goal.gripper > self._last.gripper + 1.0:
+                self._closes_gripper = False
+            self._jog = None
+            self._servo, self.state = (goal, time.perf_counter(), v_max_deg_s), "teleop"
+            return True
+
+    def _note_servo_reject(self, why: str) -> None:
+        now = time.perf_counter()
+        t, n = self._servo_rej.get(why, (-math.inf, 0))
+        if now - t >= 1.0:
+            self._emit("servo_reject", "WARN", "ARM-SERVO-REJECT", {"reason": why, "count": n + 1})
+            self._servo_rej[why] = (now, 0)
+        else:
+            self._servo_rej[why] = (t, n + 1)
 
     def retarget(self, goal: JointState, v_max: float, a_max: float, j_max: float) -> MotionHandle:
         """진행 중인 동작을 지금 위치·속도에서 새 목표로 매끄럽게 교체한다 (T11). 이전 동작의 결과는 preempted."""
@@ -187,7 +222,7 @@ class MotionController:
                 return handle
             if old is not None:
                 old[1]._finish(self._result("preempted", old[2]))
-            self._jog = None
+            self._jog = self._servo = None
             self._job, self.state = (new, handle, now, "move"), "moving"
         return handle
 
@@ -196,7 +231,7 @@ class MotionController:
         from .trajectory import StopTrajectory
 
         with self._lock:
-            self._jog = None
+            self._jog = self._servo = None
             if self.state == "teleop":
                 self.state = "idle"
             if self._job is None:
@@ -225,7 +260,7 @@ class MotionController:
                 except Exception:  # noqa: BLE001 버스를 못 읽어도(포트 빠짐) 동작은 끝낸다
                     res = MotionResult("stopped", time.perf_counter() - self._job[2], ToolPose(0, 0, 0, 0))
                 self._job[1]._finish(res)
-            self._job = None
+            self._job = self._servo = None
             if not (self.state == "fault" and self.fault == "comm_lost"):  # 통신 끊김 fault는 stopped로 덮지 않는다: 다시 연결해야만 풀린다 (결정 0031)
                 self.state = "stopped"
             try:
@@ -252,7 +287,7 @@ class MotionController:
     @property
     def busy(self) -> bool:
         """동작이나 조그가 진행 중인가(작업대 설정을 다시 읽어도 되는지 볼 때)."""
-        return self._job is not None or self._jog is not None
+        return self._job is not None or self._jog is not None or self._servo is not None
 
     def note_comm(self, ok: bool) -> None:
         """제어 틱 밖(10Hz 상태 루프)에서 본 읽기 성공·실패를 건강 감시에 알린다. 정지 중에도, 움직이는 중에도 읽기 시계를 따로 센다."""
@@ -289,6 +324,8 @@ class MotionController:
                         self._tick()
                     elif self._jog is not None:
                         self._tick_jog()
+                    elif self._servo is not None:
+                        self._tick_servo()
                 except Exception as e:  # noqa: BLE001
                     err = repr(e)[:120]
                     if is_bus_error(e):  # 통신·서보 하드웨어 오류: 0.5초 넘게 이어지면 comm_lost fault(원인 문장은 서보가 알린 오류를 담는다)
@@ -314,7 +351,7 @@ class MotionController:
         if job is not None:
             job[1]._finish(MotionResult("fault", time.perf_counter() - job[2], ToolPose(0, 0, 0, 0), reason=text))
         self.fault, self.fault_text, self.fault_detail = reason, text, detail or {}
-        self._jog = None  # 조그 중이던 입력이 fault 뒤에도 명령을 보내지 않게
+        self._jog = self._servo = None  # 조그·서보 중이던 입력이 fault 뒤에도 명령을 보내지 않게
         self._emit("fault", "ERROR", "ARM-FAULT", {"reason": reason, "job": job is not None, "detail": detail or {}, "text": text})
         if reason == "comm_lost":  # 통신이 끊겼다: 다시 연결하기 전까지 아무 명령도 보내지 않는다 (decisions/0031)
             self._emit("comm_lost", "ERROR", "ARM-COMM-LOST", {"job": job is not None})
@@ -577,13 +614,36 @@ class MotionController:
         if why or q == last:  # 작업 영역·한계 밖이면 움직이지 않는다
             self.jog_block = why or self.jog_block
             return
-        if self.safety.check_step(last, q):
-            self._fault("step", self.safety.step_detail(last, q))
-            return
-        self.jog_block = None
+        if self._send(q):
+            self.jog_block = None
+
+    def _send(self, q: JointState) -> bool:
+        """조그·서보 한 틱을 보낸다. 한 주기 이동량을 넘으면 fault로 들어가고 False."""
+        if self.safety.check_step(self._last, q):
+            self._fault("step", self.safety.step_detail(self._last, q))
+            return False
         self._last = q
         self.driver.write_joints(q)
         self.health.comm_ok(time.perf_counter(), "write")
+        return True
+
+    def _tick_servo(self) -> None:
+        goal, t_in, v_max = self._servo
+        if time.perf_counter() - t_in > SERVO_TIMEOUT_S:  # 새 목표가 끊겼다: 지금 자리에서 선다
+            self._servo, self.state = None, "idle"
+            return
+        if self.grip_hold is not None:  # 접촉으로 고정한 그리퍼는 목표가 더 닫아도 그대로 둔다
+            goal = replace(goal, gripper=self.grip_hold)
+        cap = min(v_max * self.dt, self.safety.max_step_deg)
+        cur = np.array(astuple(self._last), float)
+        q = JointState(*(cur + np.clip(np.array(astuple(goal), float) - cur, -cap, cap)).tolist())
+        if q == self._last:
+            return
+        if (why := self.safety.check_goal(q, self._last)):  # 목표는 괜찮아도 관절별로 자른 중간 자세가 바닥·장면 부품을 지날 수 있다
+            self._servo, self.state = None, "idle"
+            self._note_servo_reject(why)
+            return
+        self._send(q)
 
     def close(self) -> None:
         self._quit.set()
