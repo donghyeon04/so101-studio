@@ -54,7 +54,7 @@ class MuJoCoDriver:
         self._failed: str | None = None
         self._torque = False
         self._target = np.zeros(6)  # 우리 관절 순서, MuJoCo 각도(rad)
-        self._rdata = self._renderer = None  # render(): 물리 데이터 복사본과 화면 밖 렌더러. connect·disconnect에서 버린다(모델이 새로 만들어진다)
+        self._rdata, self._renderers = None, {}  # render(): 물리 데이터 복사본과 크기별 화면 밖 렌더러. connect·disconnect에서 버린다(모델이 새로 만들어진다)
         self._rpool: ThreadPoolExecutor | None = None  # 렌더 전용 스레드(처음 render 때 만든다)
         self._from, self._t_write = np.zeros(6), 0.0  # 목표가 바뀐 시각(시뮬레이션 시간): 액추에이터 목표를 다음 쓰기 간격(1/control_hz) 동안 선형으로 옮긴다(13.2)
 
@@ -120,8 +120,8 @@ class MuJoCoDriver:
             self._rpool.submit(self._drop_in_render_thread).result()
 
     def _drop_in_render_thread(self) -> None:
-        r, self._renderer, self._rdata = self._renderer, None, None
-        if r is not None:
+        rs, self._renderers, self._rdata = self._renderers, {}, None
+        for r in rs.values():
             r.close()
 
     def render(self, camera: str, width: int = 320, height: int = 240) -> np.ndarray:
@@ -143,11 +143,9 @@ class MuJoCoDriver:
             if self._rdata is None:
                 self._rdata = self._mj.MjData(m)
             self._mj.mj_copyData(self._rdata, m, self.data)
-        r = self._renderer
-        if r is None or (r.width, r.height) != (width, height):
-            if r is not None:
-                r.close()
-            r = self._renderer = self._mj.Renderer(m, height, width)
+        r = self._renderers.get((width, height))
+        if r is None:  # 크기마다 하나(GUI 화면과 기록기가 다른 크기를 번갈아 불러도 다시 만들지 않게)
+            r = self._renderers[(width, height)] = self._mj.Renderer(m, height, width)
         r.update_scene(self._rdata, camera=camera)
         return r.render()
 
