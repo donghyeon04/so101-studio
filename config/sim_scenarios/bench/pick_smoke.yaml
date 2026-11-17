@@ -1,0 +1,10 @@
+# 시험용 12 에피소드(mujoco-spec 13.10.1, tests/test_mujoco_bench.py)
+name: pick_smoke
+objects:
+  size_mm: [[30, 30, 40], [58, 58, 39]]
+  radius_mm: [150, 210]
+  bearing_deg: [0]
+  angle_deg: [0, 45, 90]
+place: {zone: right}
+given: {}
+spread: {xy_mm: 0, angle_deg: 0}

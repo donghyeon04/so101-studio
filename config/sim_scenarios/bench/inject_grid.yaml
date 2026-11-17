@@ -1,0 +1,11 @@
+# 고정 묶음(mujoco-spec 13.10.1 실패 주입, U14): 58 상자 × 자리 셋 × 벌림 축 어긋남 × 높이 오차. 어긋남은 [벌림 축, 그 수직] mm로 참값 자리에 더한다
+name: inject_grid
+objects:
+  size_mm: [[58, 58, 39]]
+  positions: [[150, 0], [225, 0], [180, 40]]   # [반경, 방위]
+  angle_deg: [0]
+place: {zone: right}
+given:
+  pos_offset_mm: [[0, 0], [5, 0], [10, 0], [15, 0], [20, 0]]
+  height_error_mm: [-20, 0, 20]
+spread: {xy_mm: 0, angle_deg: 0}
