@@ -5,6 +5,7 @@
 import math
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
@@ -53,6 +54,8 @@ class MuJoCoDriver:
         self._failed: str | None = None
         self._torque = False
         self._target = np.zeros(6)  # 우리 관절 순서, MuJoCo 각도(rad)
+        self._rdata, self._renderers = None, {}  # render(): 물리 데이터 복사본과 크기별 화면 밖 렌더러. connect·disconnect에서 버린다(모델이 새로 만들어진다)
+        self._rpool: ThreadPoolExecutor | None = None  # 렌더 전용 스레드(처음 render 때 만든다)
         self._from, self._t_write = np.zeros(6), 0.0  # 목표가 바뀐 시각(시뮬레이션 시간): 액추에이터 목표를 다음 쓰기 간격(1/control_hz) 동안 선형으로 옮긴다(13.2)
 
     # -- 연결 --
@@ -62,7 +65,7 @@ class MuJoCoDriver:
         self.disconnect()  # 잠금 밖에서: 물리 스레드가 잠금을 기다리며 join과 맞물리지 않게
         with self._lock:
             self.model, warnings = load_model(self.scene, self.objects, base=self.ws.base, table_z_mm=self.cfg.table_z_mm, joint_limits=self.cfg.physical_limits_deg or None,
-                                              hand=self.cfg.gripper, gripper_width_mm=self.cfg.gripper_width_mm)
+                                              hand=self.cfg.gripper, gripper_width_mm=self.cfg.gripper_width_mm, table_mm=self.ws.table_mm)
             self.data = mujoco.MjData(self.model)
             self._mj = mujoco
             self._qadr = [self.model.joint(JOINT_MAP[j][0]).qposadr[0] for j in JOINTS]
@@ -110,6 +113,41 @@ class MuJoCoDriver:
             h.close()
         self.connected = False
         self.acceleration = 10
+        self._drop_renderer()
+
+    def _drop_renderer(self) -> None:
+        if self._rpool is not None:
+            self._rpool.submit(self._drop_in_render_thread).result()
+
+    def _drop_in_render_thread(self) -> None:
+        rs, self._renderers, self._rdata = self._renderers, {}, None
+        for r in rs.values():
+            r.close()
+
+    def render(self, camera: str, width: int = 320, height: int = 240) -> np.ndarray:
+        """카메라 `camera`(top·wrist)의 화면 밖 그림 (높이, 폭, 3) uint8(13.10.4). 연결 전이면 RuntimeError, 모르는 카메라면 ValueError. 화면 밖 버퍼는 640×480까지.
+        GL 문맥은 만든 스레드에서만 쓸 수 있어(Windows: 다른 스레드에서 부르면 WGL "리소스 사용 중") 그리기는 드라이버의 렌더 전용 스레드 하나가 한다. 어느 스레드에서 불러도 된다."""
+        if self._rpool is None:
+            with self._lock:
+                if self._rpool is None:
+                    self._rpool = ThreadPoolExecutor(1, thread_name_prefix="mujoco-render")
+        return self._rpool.submit(self._render_in_thread, camera, width, height).result()
+
+    def _render_in_thread(self, camera: str, width: int, height: int) -> np.ndarray:
+        with self._lock:  # 잠금 안에서는 복사만: 그리기가 물리 스레드를 막지 않게
+            if not self.connected or self.model is None:
+                raise RuntimeError("연결 전에는 render할 수 없다")
+            m = self.model
+            if self._mj.mj_name2id(m, self._mj.mjtObj.mjOBJ_CAMERA, camera) < 0:
+                raise ValueError(f"모르는 카메라: {camera!r}")
+            if self._rdata is None:
+                self._rdata = self._mj.MjData(m)
+            self._mj.mj_copyData(self._rdata, m, self.data)
+        r = self._renderers.get((width, height))
+        if r is None:  # 크기마다 하나(GUI 화면과 기록기가 다른 크기를 번갈아 불러도 다시 만들지 않게)
+            r = self._renderers[(width, height)] = self._mj.Renderer(m, height, width)
+        r.update_scene(self._rdata, camera=camera)
+        return r.render()
 
     @property
     def failed_reason(self) -> str | None:

@@ -267,3 +267,41 @@ def test_realtime_60s():
         assert d.dropped_count == drops0 and d.step_ms_avg < 1.0
     finally:
         svc.disconnect()
+
+
+def test_cameras_and_render(drv):
+    """REQ-071 (mujoco-spec 13.10.4): 카메라 top·wrist, render 모양, 다른 스레드에서 불러도 되고, 모르는 이름·연결 전은 오류. top은 판 중심 위 550mm."""
+    import threading
+
+    from so101_studio.arm.mujoco_model import TOP_CAM_H_MM, table_to_model_mm
+
+    m = drv.model
+    top = np.array(m.cam("top").pos) * 1000
+    exp = table_to_model_mm(WS.table_mm["x"] / 2, WS.table_mm["y"] / 2, TOP_CAM_H_MM, WS.base, CFG.table_z_mm)
+    assert np.allclose(top, exp, atol=0.01) and m.cam("wrist").bodyid[0] == m.body("gripper").id
+    a = drv.render("top")
+    assert a.shape == (240, 320, 3) and a.dtype == np.uint8 and a.std() > 0
+    out = {}
+    t = threading.Thread(target=lambda: out.setdefault("img", drv.render("wrist", 160, 120)))
+    t.start()
+    t.join()
+    assert out["img"].shape == (120, 160, 3)
+    with pytest.raises(ValueError):
+        drv.render("nope")
+    drv.disconnect()
+    with pytest.raises(RuntimeError):
+        drv.render("top")
+
+
+def test_render_from_two_threads_at_once():
+    """REQ-071: GUI(스레드 풀, 매번 다른 스레드)와 PolicyRunner가 동시에 render를 불러도 된다(그리기는 드라이버의 렌더 전용 스레드 하나가 한다)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    d = make(realtime=True)
+    try:
+        with ThreadPoolExecutor(4) as ex:  # 풀 스레드 넷 = 부르는 스레드가 매번 다르다
+            futs = [ex.submit(d.render, cam, *size) for _ in range(20) for cam, size in (("top", (320, 240)), ("wrist", (160, 120)))]
+            shapes = {f.result().shape for f in futs}
+        assert shapes == {(240, 320, 3), (120, 160, 3)}
+    finally:
+        d.disconnect()
