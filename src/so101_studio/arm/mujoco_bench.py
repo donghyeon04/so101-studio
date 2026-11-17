@@ -237,11 +237,11 @@ def gripper_override(gripper: str, folder: Path) -> Path:
 class BenchEnv:
     """Gymnasium 꼴 겉모양(reset만, step은 실행기 B 몫). reset마다 드라이버·ArmService를 새로 짓는다."""
 
-    def __init__(self, cfg, ws=None, realtime: bool = True):
+    def __init__(self, cfg, ws=None, realtime: bool = True, viewer: bool = False):
         from ..core.config import load_workspace
         from ..core.scene import load_scene
 
-        self.cfg, self.realtime = cfg, realtime
+        self.cfg, self.realtime, self.viewer = cfg, realtime, viewer
         self.ws = ws or load_workspace(REPO_ROOT / "config" / "workspace.yaml")
         self.scene = load_scene(REPO_ROOT / "config" / "scene.yaml").for_gripper(cfg.gripper)
         self.drv = self.svc = None
@@ -257,7 +257,7 @@ class BenchEnv:
         objs = [SimObject(**ep.truth)]
         _check_overlap(objs, Path(f"{ep.id}.yaml"))
         # shortcut: 실시간만. 시계 주입(13.10.2) 뒤에는 여기 한 곳에서 realtime=False + StepClock으로 바꾼다
-        self.drv = MuJoCoDriver(self.cfg, self.ws, scene=self.scene, objects=objs, realtime=self.realtime, scenario=ep.id.rsplit("-", 2)[0])
+        self.drv = MuJoCoDriver(self.cfg, self.ws, scene=self.scene, objects=objs, realtime=self.realtime, viewer=self.viewer, scenario=ep.id.rsplit("-", 2)[0])
         self.svc = ArmService(self.drv, self.cfg, self.ws, log_root=str(options["log_dir"]))
         self.svc.incident_after_s = 0  # 실패 주입이 사고 묶음·60초 후속 스레드를 띄우지 않게
         ok, msg = self.svc.connect()
@@ -310,10 +310,10 @@ def judge_episode(result, samples: list, end: dict, truth: dict, target_xy, even
             "other_pushed_mm": 0.0 if not others else None, "events": counts, "target_xy": target_xy, "failed_reason": failed}
 
 
-def run_episode(ep: Episode, cfg, log_dir: Path, env: BenchEnv | None = None, samples_out: list | None = None, recorder=None) -> dict:
+def run_episode(ep: Episode, cfg, log_dir: Path, env: BenchEnv | None = None, samples_out: list | None = None, recorder=None, viewer: bool = False) -> dict:
     """실행기 A: reset → pick_and_place(그동안 표본) → 1.0초 뒤 판정 → disconnect. 결과 한 줄(dict). samples_out에 표본을 붙인다(시험용).
     recorder(EpisodeRecorder)가 있으면 pick_and_place 직전부터 판정까지 기록하고 outcome이 placed_ok일 때만 저장한다(스크립트 전문가, 13.10.4)."""
-    env = env or BenchEnv(cfg)
+    env = env or BenchEnv(cfg, viewer=viewer)
     t0 = time.perf_counter()
     obs, info = env.reset(options={"episode": ep, "log_dir": log_dir})
     drv, svc = env.drv, env.svc
@@ -352,13 +352,13 @@ def run_episode(ep: Episode, cfg, log_dir: Path, env: BenchEnv | None = None, sa
 POLICY_MAX_S = 45.0  # 정책 한 에피소드 상한(전문가 시연이 약 31초라 PolicyRunner 기본 20초로는 모자란다)
 
 
-def run_policy_episode(ep: Episode, suite: dict, cfg, log_dir: Path, policy, max_s: float = POLICY_MAX_S) -> dict:
+def run_policy_episode(ep: Episode, suite: dict, cfg, log_dir: Path, policy, max_s: float = POLICY_MAX_S, viewer: bool = False) -> dict:
     """정책 평가 한 에피소드(13.10.4 학습과 평가): reset → PolicyRunner(GUI 없이) → 끝나고 judge(driver, layout). 한 줄(dict)."""
     from functools import partial
 
     from ..service.policy_runner import PolicyRunner
 
-    env = BenchEnv(cfg)
+    env = BenchEnv(cfg, viewer=viewer)
     t0 = time.perf_counter()
     env.reset(options={"episode": ep, "log_dir": log_dir})
     try:
@@ -383,7 +383,7 @@ def _commit() -> str:
 
 
 def _worker(job, recorder=None):
-    ep, override, out, grip_force = job
+    ep, override, out, grip_force, viewer = job
     import os
 
     from . import mujoco_hand
@@ -394,7 +394,7 @@ def _worker(job, recorder=None):
         mujoco_hand.GRIP_FORCE_N = float(grip_force)
     try:
         cfg = load_cfg(override)
-        row = run_episode(ep, cfg, Path(out) / "episodes" / ep.id, recorder=recorder)
+        row = run_episode(ep, cfg, Path(out) / "episodes" / ep.id, recorder=recorder, viewer=viewer)
     except Exception as e:  # noqa: BLE001 한 에피소드가 깨져도 묶음은 계속 돈다: sim_fail 한 줄로 남긴다
         row = {"episode": ep.id, "seed": ep.seed, "gripper": None, "scene_parts": [], "truth": ep.truth, "given": None, "inject": ep.inject, "place": ep.place,
                "reported": {"status": None, "reason": None}, "picked": False, "placed": False, "outcome": "sim_fail", "agree": "match", "slip_mm": None,
@@ -444,7 +444,7 @@ def summarize(rows: list[dict]) -> tuple[dict, str]:
 
 
 def run(suite: str, seeds: int = 1, gripper: str | None = None, jobs: int = 1, only: str | None = None, out_root: Path | None = None,
-        grip_force: float | None = None, seed_start: int = 0, record: str | None = None) -> Path:
+        grip_force: float | None = None, seed_start: int = 0, record: str | None = None, viewer: bool = False) -> Path:
     """묶음을 돌려 결과 폴더를 돌려준다: results.jsonl·summary.json·summary.md·episodes/<id>/(events·status).
     record(데이터셋 이름)를 주면 runs/datasets/<이름>/에 placed_ok 에피소드만 LeRobot 데이터셋으로 남긴다(한 프로세스만, --jobs 1)."""
     s = load_suite(suite)
@@ -463,7 +463,7 @@ def run(suite: str, seeds: int = 1, gripper: str | None = None, jobs: int = 1, o
     out = (out_root or REPO_ROOT / "runs" / "bench-mujoco") / f"{datetime.now():%Y%m%d-%H%M%S}-{commit}{tag}"
     out.mkdir(parents=True, exist_ok=True)
     override = gripper_override(gripper, out) if gripper else OVERRIDE
-    jobs_list = [(e, str(override), str(out), grip_force) for e in eps]
+    jobs_list = [(e, str(override), str(out), grip_force, viewer) for e in eps]
     rows = []
     with (out / "results.jsonl").open("w", encoding="utf-8") as f:
         def keep(row):
@@ -492,7 +492,8 @@ def run(suite: str, seeds: int = 1, gripper: str | None = None, jobs: int = 1, o
     return out
 
 
-def run_policy(suite: str, checkpoint: str, seeds: int = 50, seed_start: int = 10000, out_root: Path | None = None, max_s: float = POLICY_MAX_S) -> Path:
+def run_policy(suite: str, checkpoint: str, seeds: int = 50, seed_start: int = 10000, out_root: Path | None = None, max_s: float = POLICY_MAX_S,
+               viewer: bool = False) -> Path:
     """학습한 정책을 씨앗 seed_start부터 seeds개 배치에서 평가한다(한 프로세스, 실시간). 체크포인트는 이 placed_ok 비율로 고른다."""
     import os
     from collections import Counter
@@ -507,7 +508,7 @@ def run_policy(suite: str, checkpoint: str, seeds: int = 50, seed_start: int = 1
     rows, cfg = [], load_cfg()
     with (out / "results.jsonl").open("w", encoding="utf-8") as f:
         for ep in episodes(s, seeds, seed_start=seed_start):
-            row = run_policy_episode(ep, s, cfg, out / "episodes" / ep.id, policy, max_s)
+            row = run_policy_episode(ep, s, cfg, out / "episodes" / ep.id, policy, max_s, viewer)
             row.update({"suite": s["name"], "checkpoint": str(checkpoint)})
             rows.append(row)
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -535,15 +536,16 @@ def main(argv=None):
     ap.add_argument("--grip-force", type=float, help="병렬 손 힘 한계 N(U15 민감도, 기본 mujoco_hand.GRIP_FORCE_N)")
     ap.add_argument("--seed-start", type=int, default=0, help="첫 씨앗(전문가 수집 0~9999, 평가 10000~, 13.10.4)")
     ap.add_argument("--policy", help="학습한 ACT 체크포인트 폴더(pretrained_model): 수집 대신 정책을 평가한다(PolicyRunner, --jobs 1)")
+    ap.add_argument("--viewer", action="store_true", help="MuJoCo 뷰어 창을 띄워 보며 돌린다(실시간, 에피소드마다 창이 새로 열린다. --jobs N이면 창 N개)")
     ap.add_argument("--record", help="데이터셋 이름: placed_ok 에피소드를 runs/datasets/<이름>/에 LeRobot 데이터셋으로(--jobs 1)")
     a = ap.parse_args(argv)
     try:
         if a.policy:
-            out = run_policy(a.suite, a.policy, a.seeds, a.seed_start)
+            out = run_policy(a.suite, a.policy, a.seeds, a.seed_start, viewer=a.viewer)
             print((out / "summary.md").read_text(encoding="utf-8"))
             print(f"결과: {out}")
             return
-        out = run(a.suite, a.seeds, a.gripper, a.jobs, a.only, grip_force=a.grip_force, seed_start=a.seed_start, record=a.record)
+        out = run(a.suite, a.seeds, a.gripper, a.jobs, a.only, grip_force=a.grip_force, seed_start=a.seed_start, record=a.record, viewer=a.viewer)
     except (RuntimeError, ValueError) as e:  # lerobot 없음·데이터셋 폴더 있음·이름 규칙 등: 사람이 읽을 한 줄로 끝낸다
         raise SystemExit(str(e)) from e
     print((out / "summary.md").read_text(encoding="utf-8"))

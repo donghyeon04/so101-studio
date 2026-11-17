@@ -135,7 +135,7 @@ def test_worker_keeps_going_on_error_and_restores_grip_force(tmp_path, monkeypat
 
     force0 = mujoco_hand.GRIP_FORCE_N
     monkeypatch.setattr(bench, "run_episode", boom)
-    row = bench._worker((bench.episodes(bench.load_suite("pick_smoke"))[0], str(bench.OVERRIDE), str(tmp_path), force0 + 23))
+    row = bench._worker((bench.episodes(bench.load_suite("pick_smoke"))[0], str(bench.OVERRIDE), str(tmp_path), force0 + 23, False))
     assert row["outcome"] == "sim_fail" and "깨짐" in row["failed_reason"] and row["grip_force_n"] == force0 + 23
     assert mujoco_hand.GRIP_FORCE_N == force0
     assert bench.summarize([row])[0]["outcomes"] == {"sim_fail": 1}
