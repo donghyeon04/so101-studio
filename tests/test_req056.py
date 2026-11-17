@@ -152,12 +152,13 @@ def test_normal_place_rises_at_least_object_height_plus_10(tmp_path):
 # ---- 4. ② 상자 폭은 물체 폭 우선, 5. 집기 기억 넘김
 @pytest.mark.slow
 def test_box_width_uses_the_object_width_so_a_tall_vertical_grip_can_be_placed_by_route_2(tmp_path):
-    # 폭 30mm 물체를 틈 50mm에서 쥐고 있다(실물처럼 쥔 틈이 물체보다 넓다): 상자를 물체 폭으로 보면 높이 40mm도 ②로 놓인다
-    s, ev = make(tmp_path, 50)
+    # 폭 30mm 물체를 틈 45mm에서 쥐고 있다(실물처럼 쥔 틈이 물체보다 넓다): 상자를 물체 폭으로 보면 높이 40mm도 ②로 놓인다
+    # 벌린 폭이 50mm라 50mm에서 막히면 쥠 확인(6.6, REQ-076)이 윗면에 얹힌 것으로 본다: 5mm 넘게 닫히게 45mm
+    s, ev = make(tmp_path, 45)
     try:
         sk = s.skills
         assert sk.pick(DetectedObject("o", 300.0, 150.0, 60.0, 30, 30, 1.0, "manual", 40.0)).status == "ok"
-        assert sk.grip["obj_w"] == 30.0 and sk.grip["held_gap"] == pytest.approx(50.0, abs=3.0)
+        assert sk.grip["obj_w"] == 30.0 and sk.grip["held_gap"] == pytest.approx(45.0, abs=3.0)
         assert sk.place_at(*POINT).status == "ok"
     finally:
         s.disconnect()
