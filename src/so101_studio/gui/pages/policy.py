@@ -13,6 +13,7 @@ from .common import Controls, camera_tile, scene_frame, watch_visibility
 TRAIN_ROOT = Path("runs/train")
 NO_RENDER_TEXT = "학습한 정책 실행은 MuJoCo 시뮬레이션에서만 합니다"
 CAMERA_TITLES = {"top": "탑뷰 (top)", "wrist": "손목 (wrist)"}
+MAX_S = 45  # 전문가 시연(집어서 놓기)이 약 31초라 PolicyRunner 기본 20초면 놓기 전에 끊긴다. 명령줄 평가(--policy)와 같은 값
 
 
 def checkpoints(root: Path) -> list[str]:
@@ -55,7 +56,7 @@ def build(backend, client_id: str, actions) -> None:
             return
         if running():  # 불러오는 동안 다시 눌러도 러너를 하나 더 만들지 않는다
             return
-        backend.policy = runner = PolicyRunner(svc, svc.driver, checkpoint_dir=Path(path))
+        backend.policy = runner = PolicyRunner(svc, svc.driver, checkpoint_dir=Path(path), max_s=MAX_S)
         backend.policy_loading, backend.policy_cancel = True, False
         started_ns[0] = time.time_ns()
         try:

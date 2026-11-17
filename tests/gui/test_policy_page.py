@@ -71,6 +71,7 @@ def test_start_then_stop_with_a_fake_policy(backend, monkeypatch, tmp_path):
                 break
             await asyncio.sleep(0.05)
         await user.should_see("끝난 이유: stop")
+        assert backend.policy.max_s == policy_page.MAX_S
 
     try:
         open_policy(backend, check)
