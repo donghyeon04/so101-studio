@@ -25,6 +25,7 @@ replay_a_max_deg_s2: 600  # 교시 재생 변환본(fitted)이 맞추는 관절 
 gripper_speed_pct: 100    # 그리퍼만 움직이는 동작의 속도 배율(1~100, 100 = 지금 속도). GUI 파라미터에서 바로 바꾼다
 grasp_max_open_mm: 90      # [근거는 symmetric 기준, equal_tips에서도 같은 벌림·높이로 실물 58x58x39 10/10(11-13)]  최대로 벌릴 틈(mm). 시험값 70→90 (REQ-033, 위 grasp_height_mm 근거): H=39에서 t20·G90이면 W<=61까지 지난다(G70은 49). 단 G90은 대칭에 필요한 기울기 33°가 손목 한계(grasp_tilt_deg 35) 안이라 거의 대칭이지만, G100은 40°가 필요해 35°에서 잘려 V자가 한쪽으로 보인다(G90도 보일 수 있음). 70은 기울기 24°라 대칭
 contact_lag_units: 4       # 닫는 중 실제 그리퍼 값이 명령보다 이만큼 앞서 멈춰 있으면 물체에 닿은 것으로 본다
+grip_min_close_mm: 5       # 쥠 확인(6.6): 접촉 뒤 턱 끝 벌림이 벌린 폭 - 이 값보다 넓으면 쥐지 못한 것(윗면에 얹힘)으로 보고 no_object. M5 pick_grid·inject_grid로 거짓 성공·거짓 실패 0을 확인해 고정
 gripper_squeeze_torque: 300  # 닫을 때 조임 힘 한계(0~1000, RAM Torque_Limit). 얇은 물체가 미끄러져 빠지지 않게 낮춤
 gripper_hold_torque: 200     # 들고 옮기는 동안 조임 힘 한계. 그리퍼 Overload_Torque 25% 아래로 둔다(300이면 몇 초 뒤 과부하 보호에 걸린다). 놓은 뒤 원래 값으로 되돌린다
 grip_preload_units: 2        # 접촉 뒤 그리퍼 목표 = 지금 위치에서 이만큼 더 닫힌 쪽. 명령값이 실제보다 많이 닫혀 계속 미는 것을 없앤다

@@ -54,6 +54,7 @@ class RobotConfig:
     replay_a_max_deg_s2: float = 600  # 변환 재생(mode=fitted)이 맞추는 관절 가속 한도(°/s²). 손으로 움직인 기록은 계획 이동(a_max_deg_s2)보다 훨씬 거칠어 따로 둔다
     gripper_speed_pct: float = 100  # 그리퍼만 움직이는 동작(열기·닫기·놓으며 열기)의 속도 배율 1~100. 바로 적용된다
     contact_lag_units: float = 4.0
+    grip_min_close_mm: float = 5.0  # 쥠 확인(6.6): 접촉 뒤 턱 끝 벌림이 벌린 폭 - 이 값보다 넓으면 쥐지 못한 것(윗면에 얹힘)으로 보고 no_object
     gripper_squeeze_torque: int = 300
     gripper_hold_torque: int = 200  # 들고 옮기는 동안의 조임 한계(RAM Torque_Limit). 그리퍼 Overload_Torque 25% 아래로 둔다 (결정 0033)
     grip_preload_units: float = 2  # 접촉하면 그리퍼 목표를 지금 위치에서 이만큼 더 닫힌 쪽으로 둔다(명령이 실제보다 많이 닫혀 계속 미는 것을 없앤다)
