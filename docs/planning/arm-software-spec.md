@@ -1,6 +1,6 @@
 # 로봇팔 소프트웨어 설계서
 
-상태: 확정 · 갱신 2026-11-02 · 2026-11-14 13절을 mujoco-spec.md로 옮김 · 11.3 놓기 동작 모양 2026-11-07, 대칭 V자 개정 2026-11-10, 상승 최소·상자 폭·높이 모름 집기 2026-11-11, 13 MuJoCo 2026-11-11 · 2026-11-13 drift-report(main ec9fd73) 반영, 막힘 감지 문턱 속도별(결정 0061, 11-14), MuJoCo 시험장 계획(13.10 초안, 11-14), 집기 기울기 기본값 equal_tips(결정 0060), 막힘 감지(결정 0059, 6.5), M4 GUI는 `gui-spec.md` 12.8(13절 M4 부분은 초안, gui-spec 12.8과 함께 확정) · 2026-11-16 6.10 정책 실행(결정 0066, 초안) · 2026-11-16 밤 6.10 Stage 9 (나) 반영
+상태: 확정 · 갱신 2026-11-02 · 2026-11-14 13절을 mujoco-spec.md로 옮김 · 11.3 놓기 동작 모양 2026-11-07, 대칭 V자 개정 2026-11-10, 상승 최소·상자 폭·높이 모름 집기 2026-11-11, 13 MuJoCo 2026-11-11 · 2026-11-13 drift-report(main ec9fd73) 반영, 막힘 감지 문턱 속도별(결정 0061, 11-14), MuJoCo 시험장 계획(13.10 초안, 11-14), 집기 기울기 기본값 equal_tips(결정 0060), 막힘 감지(결정 0059, 6.5), M4 GUI는 `gui-spec.md` 12.8(13절 M4 부분은 초안, gui-spec 12.8과 함께 확정) · 2026-11-16 6.10 정책 실행(결정 0066, 초안) · 2026-11-16 밤 6.10 Stage 9 (나) 반영 · 2026-11-17 6.6 쥠 확인(닫힌 폭이 벌린 폭 − `grip_min_close_mm`보다 넓으면 `no_object`, M5 거짓 성공)
 
 로컬 개발 세션이 이 문서만 보고 팔 모듈을 구현할 수 있도록, 구조·인터페이스·출력값·작업 순서를 정한다. 범위는 개발 0~2단계(구동 점검, 동작 라이브러리, 작업 공간 확정)다. 인식 모듈과 GUI는 팔 모듈과 맞닿는 인터페이스만 정한다.
 
@@ -218,6 +218,11 @@ class MotionResult:
     - **정사각형 물체**(폭 = 길이): 두 변 중 턱 축이 반경에 가까운 쪽을 고른다(2026-11-14 사용자 결정 B, 팔 PR). 그래서 물체 각도 75~90°(90° 정사각형은 0°와 같음)에서도 기울이기가 살아난다. 15~75°는 수직 집기다.
     - **45° 정사각형은 한계로 인정한다**(결정 A): 턱 축 후보 45°·135°가 둘 다 반경에서 45° 벗어나므로 수직으로 집는다. 높이를 모르면 결정 0052대로 `height_required`다.
   - 접촉 판정: 실제 그리퍼 값이 명령보다 4값 넘게 앞서 멈춤(`contact_lag_units`).
+  - **쥠 확인**(2026-11-17, M5 거짓 성공): 접촉으로 멈췄어도(늦은 접촉 `ARM-PICK-LATE-CONTACT` 포함) 닫힌 뒤 턱 끝 벌림(폭 표로 바꾼 값)이 벌린 폭 − `grip_min_close_mm`(5mm)보다 넓으면 쥐지 못한 것으로 본다. 턱이 물체 윗면에 얹혀 거의 닫히지 못한 경우다(M5 `inject_grid` 병렬 58mm 상자, 높이 오차 0·+20mm, 벌림 축 어긋남 20mm: 벌린 폭 78mm, 닫힌 폭 약 81mm, 보고 `ok`·물리 `untouched` 4건).
+    - 기준은 알려 준 물체 폭 W가 아니라 **벌린 폭**이다. 초음파 작업 실행의 W는 CHECK 추정값(구간 길이 − 빔 반경 가정)이라 10~20mm 틀릴 수 있어 W 기준이면 제대로 쥔 것도 실패로 본다. 벌린 폭은 W를 알면 W + 20mm 이상(`grasp_open_policy`)이라 제대로 쥐면 턱이 20mm 가까이 움직이고, W를 모르면 최대로 벌리므로 같은 규칙을 쓴다(W ≤ 벌린 폭 − 4mm인 물체만 집으므로 걸리지 않는 폭은 벌린 폭 − 5~4mm 사이뿐이다).
+    - 결과: 접촉이 없을 때와 같이 처리한다. 조임 한계를 되돌리고 `known_objects`는 그대로 두고 `grip`(11.3.2 기억)은 비우고, 접근 높이까지 올라온 뒤 열고 `no_object`를 돌려준다. 새 상태 이름을 만들지 않는 것은 작업 실행(수직 집기 `no_object` 뒤 다시 CHECK, 결정 0052)·GUI 문구·sim 허용(`accept_no_object`)이 이미 `no_object`를 실패로 다루기 때문이다. WARN `ARM-PICK-NO-GRIP`(벌린 폭·닫힌 폭 mm)을 남기고 `last_pick_info`에 `no_grip: true`와 두 폭을 적는다.
+    - 단동식·병렬 모두 같다(폭 표가 그리퍼별). 시작값 5mm는 M5 `pick_grid`·`inject_grid`를 다시 돌려 거짓 성공 0과 거짓 실패 0을 함께 확인한 값으로 고정한다. 거짓 실패가 나오면 값을 고치지 말고 그 에피소드를 보고한다. 실물은 runbook 2-10(로보나인 폭 표) 뒤 다시 본다.
+    - 막힘 문턱(6.5)은 바꾸지 않는다. 반경 120mm ±40°의 `blocked` 24건과 맞물려 있어서다(총괄 안 (나)는 고르지 않음).
   - 조임 (`decisions/0033`): 접촉하면 목표를 지금 위치에서 **닫는 쪽으로**(그리퍼 값이 작아지는 쪽, 0 = 닫힘) `grip_preload_units`(2)만큼 더 간 값으로 고정한다(결정 0033의 "지금 위치 + 예압"은 이 뜻이다). 그리퍼를 여는 명령(`set_gripper`, `place`의 열기, `no_object` 열기)이 오면 고정을 풀고 조임 한계를 원래 값으로 되돌린다. 정지·E-STOP에서는 물체를 놓치지 않게 고정과 200을 유지한다. 조임 한계는 RAM `Torque_Limit`(48번)으로 바꾸고 EEPROM(`Max_Torque_Limit`)에는 쓰지 않는다. 닫는 동안 `gripper_squeeze_torque` 300, 들고 옮기는 동안 `gripper_hold_torque` 200(연결 때 쓰는 그리퍼 `Overload_Torque` 25% 아래), 놓은 뒤 원래 값.
   - 그리퍼 부하 감시: `gripper_load_warn_pct`를 `gripper_load_s` 넘게 넘으면 먼저 목표를 지금 위치로 맞추고 WARN, 그래도 이어지면 열고 fault. 시작값은 정상 집기 5회 부하 최대값의 1.3배, 1초.
 - 접근 높이를 80mm에서 40mm로 낮췄다. 수직 하강으로 닿는 최대 높이가 약 80mm이기 때문이다. 따라서 **집을 수 있는 물체 높이에 제약이 있다**(시험 물체 선정 때 확인).
@@ -352,7 +357,7 @@ GUI에서 점 찍기는 `point_pose` → `preview_tool` → `move_tool` 순서�
 | 속도 | 기본 30%, 관절 최대 90°/s, 직교 최대 100mm/s, 조그 30°/s·80mm/s | |
 | 궤적 | `trajectory_profile: quintic` (선택 `ruckig`) | measurements.md |
 | 높이 | `table_z_mm` −15(팔 파일, 2026-11-07 실측), `tip_floor_mm` 5, `approach_height_mm` 40, `grasp_height_mm` 20(REQ-033), `place_height_mm` 30(옛 방식 놓기의 손 기준점 높이, 11.3.3) | `measurements.md` |
-| 집기 | `grasp_open_policy: max`(6.6), `grasp_max_open_mm` 90(REQ-033), `gripper_margin_mm` 20, `grasp_tilt_mode: equal_tips`(옵션 `symmetric`), `grasp_tilt_deg` 35, `contact_lag_units` 4, `gripper_squeeze_torque` 300 | `decisions/0010·0011·0060` |
+| 집기 | `grasp_open_policy: max`(6.6), `grasp_max_open_mm` 90(REQ-033), `gripper_margin_mm` 20, `grasp_tilt_mode: equal_tips`(옵션 `symmetric`), `grasp_tilt_deg` 35, `contact_lag_units` 4, `grip_min_close_mm` 5(6.6 쥠 확인), `gripper_squeeze_torque` 300 | `decisions/0010·0011·0060` |
 | 교시 | `record_hz` 20, `record_max_s` 90, 구간 기준 3·40°/s, 최소 0.5초 | `decisions/0019` |
 | 놓기 | `place_drop_mm` 3, `place_release_mm` 6, `place_clearance_mm` 30, `place_open_s` 1.0 | 11.3 |
 | 작업대 (`workspace.yaml`) | 600×400mm(임시), 로봇 원점 (300, 50) 90°(긴 변 가운데, 임시), 배출 구역 `right: {x_mm: 480, y_mm: 150, w_mm: 100, h_mm: 80, slot_mm: 75}`(칸 격자, 11.3.5), `drop_zone_ignore_radius_mm` 75(점 구역을 초음파가 무시하는 반경, 11.3.5), 도달 반경 90~250mm | 배치 미정 |
