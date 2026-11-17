@@ -116,8 +116,12 @@ class MuJoCoDriver:
         self._drop_renderer()
 
     def _drop_renderer(self) -> None:
-        if self._rpool is not None:
-            self._rpool.submit(self._drop_in_render_thread).result()
+        """렌더러·복사본을 렌더 스레드에서 닫고 그 스레드도 끝낸다(에피소드마다 드라이버를 새로 만들 때 스레드가 쌓이지 않게). 다음 render가 다시 만든다."""
+        with self._lock:
+            pool, self._rpool = self._rpool, None
+        if pool is not None:
+            pool.submit(self._drop_in_render_thread).result()
+            pool.shutdown(wait=True)
 
     def _drop_in_render_thread(self) -> None:
         rs, self._renderers, self._rdata = self._renderers, {}, None

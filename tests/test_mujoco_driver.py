@@ -305,3 +305,18 @@ def test_render_from_two_threads_at_once():
         assert shapes == {(240, 320, 3), (120, 160, 3)}
     finally:
         d.disconnect()
+
+
+def test_render_thread_ends_on_disconnect():
+    """code-review: 에피소드마다 드라이버를 새로 연결해도 렌더 스레드가 쌓이지 않는다(disconnect가 끝내고, 다음 render가 다시 만든다)."""
+    import threading
+
+    d = make()
+    try:
+        for _ in range(3):
+            d.connect()
+            assert d.render("top").shape == (240, 320, 3)
+            d.disconnect()
+            assert d._rpool is None and not [t for t in threading.enumerate() if t.name.startswith("mujoco-render")]
+    finally:
+        d.disconnect()

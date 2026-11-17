@@ -74,6 +74,7 @@ def slip_series(samples, name: str) -> list[tuple[float, float, float]]:
 
 
 def read_events(svc) -> list[dict]:
+    svc.logger.flush()  # 이벤트는 쓰기 스레드의 큐를 거친다: 끝 이벤트(ARM-BLOCKED 등)까지 파일에 쓴 뒤 읽는다
     return [json.loads(x) for x in (svc.logger.dir / "events.jsonl").read_text(encoding="utf-8").splitlines()]
 
 
@@ -388,10 +389,19 @@ def _worker(job, recorder=None):
     from . import mujoco_hand
 
     os.chdir(REPO_ROOT)  # ArmService는 config/ 를 현재 폴더 기준으로 읽는다
+    force0 = mujoco_hand.GRIP_FORCE_N
     if grip_force is not None:  # U15 민감도: 병렬 손 액추에이터 힘 한계(forcerange)만 바꾼다. kp·Torque_Limit 배율은 그대로
         mujoco_hand.GRIP_FORCE_N = float(grip_force)
-    row = run_episode(ep, load_cfg(override), Path(out) / "episodes" / ep.id, recorder=recorder)
-    row["grip_force_n"] = mujoco_hand.GRIP_FORCE_N
+    try:
+        cfg = load_cfg(override)
+        row = run_episode(ep, cfg, Path(out) / "episodes" / ep.id, recorder=recorder)
+    except Exception as e:  # noqa: BLE001 한 에피소드가 깨져도 묶음은 계속 돈다: sim_fail 한 줄로 남긴다
+        row = {"episode": ep.id, "seed": ep.seed, "gripper": None, "scene_parts": [], "truth": ep.truth, "given": None, "inject": ep.inject, "place": ep.place,
+               "reported": {"status": None, "reason": None}, "picked": False, "placed": False, "outcome": "sim_fail", "agree": "match", "slip_mm": None,
+               "failed_reason": f"{type(e).__name__}: {e}"[:300], "wall_s": None, "realtime_lag": False}
+    finally:
+        row_force, mujoco_hand.GRIP_FORCE_N = mujoco_hand.GRIP_FORCE_N, force0  # --jobs 1이면 같은 프로세스에서 다음 묶음이 돈다
+    row["grip_force_n"] = row_force
     return row
 
 
@@ -475,7 +485,8 @@ def run(suite: str, seeds: int = 1, gripper: str | None = None, jobs: int = 1, o
                 if rec is not None:
                     rec.close()
     summary, md = summarize(rows)
-    summary.update({"suite": s["name"], "commit": commit, "seed_start": seed_start, "record": record, "recorded": sum(1 for r in rows if r.get("recorded_frames")), "gripper": rows[0]["gripper"], "scene_parts": rows[0]["scene_parts"], "seeds": seeds, "grip_force_n": rows[0]["grip_force_n"]})
+    first = next((r for r in rows if r["gripper"]), rows[0])
+    summary.update({"suite": s["name"], "commit": commit, "seed_start": seed_start, "record": record, "recorded": sum(1 for r in rows if r.get("recorded_frames")), "gripper": first["gripper"], "scene_parts": first["scene_parts"], "seeds": seeds, "grip_force_n": rows[0]["grip_force_n"]})
     (out / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
     (out / "summary.md").write_text(f"# {s['name']} (커밋 {commit}, 그리퍼 {summary['gripper']}, 힘 한계 {summary['grip_force_n']:g}N, 부품 {', '.join(summary['scene_parts']) or '-'})\n\n" + md, encoding="utf-8")
     return out

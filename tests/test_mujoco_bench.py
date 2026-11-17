@@ -124,3 +124,18 @@ def test_policy_episode_runs_the_runner_and_judges(tmp_path):
     s = bench.load_suite("collect_pick")
     row = bench.run_policy_episode(bench.episodes(s, 1, seed_start=10000)[0], s, bench.load_cfg(), tmp_path, Hold(), max_s=1.0)
     assert row["outcome"] == "untouched" and row["policy"]["reason"] == "max_s" and row["policy"]["steps"] > 10
+
+
+def test_worker_keeps_going_on_error_and_restores_grip_force(tmp_path, monkeypatch):
+    """code-review: 에피소드 하나가 예외를 내면 sim_fail 한 줄로 남기고(묶음은 계속), --grip-force로 바꾼 힘 한계는 원래 값으로 돌아온다."""
+    from so101_studio.arm import mujoco_hand
+
+    def boom(*a, **k):
+        raise RuntimeError("깨짐")
+
+    force0 = mujoco_hand.GRIP_FORCE_N
+    monkeypatch.setattr(bench, "run_episode", boom)
+    row = bench._worker((bench.episodes(bench.load_suite("pick_smoke"))[0], str(bench.OVERRIDE), str(tmp_path), force0 + 23))
+    assert row["outcome"] == "sim_fail" and "깨짐" in row["failed_reason"] and row["grip_force_n"] == force0 + 23
+    assert mujoco_hand.GRIP_FORCE_N == force0
+    assert bench.summarize([row])[0]["outcomes"] == {"sim_fail": 1}
