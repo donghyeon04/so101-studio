@@ -167,18 +167,21 @@ def task_text(suite: dict) -> str:
 
 def layout(suite: str, seed: int) -> Layout:
     """묶음 이름과 씨앗 하나 → 배치. sample 묶음은 씨앗으로 뽑고, 격자 묶음은 씨앗을 격자 순번으로 본다(칸 수로 나눈 나머지)."""
+    s = load_suite(suite)
+    eps = episodes(s, 1, seed_start=seed) if "sample" in s else episodes(s)
+    return _layout_of(eps[0] if "sample" in s else eps[seed % len(eps)], s)
+
+
+def _layout_of(ep: Episode, suite: dict) -> Layout:
     from ..core.config import load_workspace
     from .mujoco_model import SimObject
 
-    s = load_suite(suite)
-    eps = episodes(s, 1, seed_start=seed) if "sample" in s else episodes(s)
-    ep = eps[0] if "sample" in s else eps[seed % len(eps)]
     if "zone" in ep.place:
         z = load_workspace(REPO_ROOT / "config" / "workspace.yaml").drop_zones[ep.place["zone"]]
         xy = (float(z["x_mm"]), float(z["y_mm"]))
     else:
         xy = tuple(float(v) for v in ep.place["at"])
-    return Layout([SimObject(**ep.truth)], ep.place, xy, task_text(s))
+    return Layout([SimObject(**ep.truth)], ep.place, xy, task_text(suite))
 
 
 def judge(driver, layout: Layout) -> dict:
@@ -345,6 +348,31 @@ def run_episode(ep: Episode, cfg, log_dir: Path, env: BenchEnv | None = None, sa
         env.close()
 
 
+POLICY_MAX_S = 45.0  # 정책 한 에피소드 상한(전문가 시연이 약 31초라 PolicyRunner 기본 20초로는 모자란다)
+
+
+def run_policy_episode(ep: Episode, suite: dict, cfg, log_dir: Path, policy, max_s: float = POLICY_MAX_S) -> dict:
+    """정책 평가 한 에피소드(13.10.4 학습과 평가): reset → PolicyRunner(GUI 없이) → 끝나고 judge(driver, layout). 한 줄(dict)."""
+    from functools import partial
+
+    from ..service.policy_runner import PolicyRunner
+
+    env = BenchEnv(cfg)
+    t0 = time.perf_counter()
+    env.reset(options={"episode": ep, "log_dir": log_dir})
+    try:
+        runner = PolicyRunner(env.svc, env.drv, policy=policy, max_s=max_s, judge=partial(judge, layout=_layout_of(ep, suite)))
+        why = runner.start()
+        if why:
+            raise RuntimeError(why)
+        while runner.result is None:  # 러너가 판정까지 마치면 result를 채운다
+            time.sleep(0.2)
+        r = runner.result
+        return {"episode": ep.id, "seed": ep.seed, "truth": ep.truth, "outcome": r["outcome"], "policy": r, "wall_s": round(time.perf_counter() - t0, 2)}
+    finally:
+        env.close()
+
+
 # -- 실행과 기록 --
 def _commit() -> str:
     try:
@@ -453,6 +481,39 @@ def run(suite: str, seeds: int = 1, gripper: str | None = None, jobs: int = 1, o
     return out
 
 
+def run_policy(suite: str, checkpoint: str, seeds: int = 50, seed_start: int = 10000, out_root: Path | None = None, max_s: float = POLICY_MAX_S) -> Path:
+    """학습한 정책을 씨앗 seed_start부터 seeds개 배치에서 평가한다(한 프로세스, 실시간). 체크포인트는 이 placed_ok 비율로 고른다."""
+    import os
+    from collections import Counter
+
+    from ..service.policy_runner import load_act
+
+    os.chdir(REPO_ROOT)
+    s = load_suite(suite)
+    policy = load_act(checkpoint)  # 한 번만 연다(에피소드마다 PolicyRunner.start가 reset)
+    out = (out_root or REPO_ROOT / "runs" / "bench-mujoco") / f"{datetime.now():%Y%m%d-%H%M%S}-{_commit()}-policy"
+    out.mkdir(parents=True, exist_ok=True)
+    rows, cfg = [], load_cfg()
+    with (out / "results.jsonl").open("w", encoding="utf-8") as f:
+        for ep in episodes(s, seeds, seed_start=seed_start):
+            row = run_policy_episode(ep, s, cfg, out / "episodes" / ep.id, policy, max_s)
+            row.update({"suite": s["name"], "checkpoint": str(checkpoint)})
+            rows.append(row)
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+            f.flush()
+            print(f"{row['episode']}: {row['outcome']} ({row['policy']['reason']}) {row['wall_s']}s", flush=True)
+    ok = sum(1 for r in rows if r["outcome"] == "placed_ok")
+    ms = [r["policy"]["infer_ms_mean"] for r in rows if r["policy"]["infer_ms_mean"] is not None]
+    summary = {"suite": s["name"], "checkpoint": str(checkpoint), "seed_start": seed_start, "episodes": len(rows), "placed_ok": ok,
+               "outcomes": dict(Counter(r["outcome"] for r in rows)), "reasons": dict(Counter(r["policy"]["reason"] for r in rows)),
+               "infer_ms_mean": round(sum(ms) / len(ms), 2) if ms else None, "max_s": max_s}
+    (out / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
+    (out / "summary.md").write_text(f"# {s['name']} 정책 평가 ({checkpoint}, 씨앗 {seed_start}~{seed_start + seeds - 1})\n\n"
+                                    f"placed_ok {ok}/{len(rows)}\noutcome: {summary['outcomes']}\n끝난 이유: {summary['reasons']}\n"
+                                    f"추론 평균 {summary['infer_ms_mean']}ms\n", encoding="utf-8")
+    return out
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="python -m so101_studio.arm.mujoco_bench", description="M5 집기 시험장(mujoco-spec 13.10.1)")
     ap.add_argument("--suite", required=True)
@@ -462,9 +523,15 @@ def main(argv=None):
     ap.add_argument("--only")
     ap.add_argument("--grip-force", type=float, help="병렬 손 힘 한계 N(U15 민감도, 기본 mujoco_hand.GRIP_FORCE_N)")
     ap.add_argument("--seed-start", type=int, default=0, help="첫 씨앗(전문가 수집 0~9999, 평가 10000~, 13.10.4)")
+    ap.add_argument("--policy", help="학습한 ACT 체크포인트 폴더(pretrained_model): 수집 대신 정책을 평가한다(PolicyRunner, --jobs 1)")
     ap.add_argument("--record", help="데이터셋 이름: placed_ok 에피소드를 runs/datasets/<이름>/에 LeRobot 데이터셋으로(--jobs 1)")
     a = ap.parse_args(argv)
     try:
+        if a.policy:
+            out = run_policy(a.suite, a.policy, a.seeds, a.seed_start)
+            print((out / "summary.md").read_text(encoding="utf-8"))
+            print(f"결과: {out}")
+            return
         out = run(a.suite, a.seeds, a.gripper, a.jobs, a.only, grip_force=a.grip_force, seed_start=a.seed_start, record=a.record)
     except (RuntimeError, ValueError) as e:  # lerobot 없음·데이터셋 폴더 있음·이름 규칙 등: 사람이 읽을 한 줄로 끝낸다
         raise SystemExit(str(e)) from e

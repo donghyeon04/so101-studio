@@ -108,3 +108,19 @@ def test_public_layout_and_judge_contract():
         assert bench.judge(drv, a)["outcome"] == "untouched"
     finally:
         drv.disconnect()
+
+
+@pytest.mark.slow
+def test_policy_episode_runs_the_runner_and_judges(tmp_path):
+    """--policy 평가 한 에피소드: PolicyRunner가 정책을 max_s 동안 돌리고 judge(driver, layout)로 판정한다. 제자리 정책은 untouched."""
+
+    class Hold:  # 지금 관절을 그대로 목표로 낸다
+        def reset(self):
+            pass
+
+        def select_action(self, obs):
+            return obs["observation.state"].tolist()
+
+    s = bench.load_suite("collect_pick")
+    row = bench.run_policy_episode(bench.episodes(s, 1, seed_start=10000)[0], s, bench.load_cfg(), tmp_path, Hold(), max_s=1.0)
+    assert row["outcome"] == "untouched" and row["policy"]["reason"] == "max_s" and row["policy"]["steps"] > 10
