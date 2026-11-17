@@ -1,0 +1,10 @@
+# 수집용 묶음(mujoco-spec 13.10.4, 결정 0066 L2): 58×58×39 상자 하나를 씨앗마다 고르게 뽑은 자리·각도에 두고 배출 구역 right에 놓는다.
+# 씨앗: 전문가 수집 0~9999, 평가 10000~10049. 실행: mujoco_bench --suite collect_pick --record <이름> --seed-start 0 --seeds 300
+name: collect_pick
+sample:
+  size_mm: [58, 58, 39]
+  radius_mm: [120, 220]      # 팔 원점에서
+  bearing_deg: [-45, 45]     # 팔 정면 기준
+  angle_deg: [0, 180]
+place: {zone: right}
+task: pick the box and place it in the right zone

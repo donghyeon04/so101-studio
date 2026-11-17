@@ -35,18 +35,18 @@ def test_same_suite_and_seed_give_the_same_world_and_given():
     cfg = bench.load_cfg()
     skills = kin_skills(cfg)
     s = bench.load_suite("inject_grid")
-    a, b = bench.layout(s), bench.layout(s)
+    a, b = bench.episodes(s), bench.episodes(s)
     assert [e.truth for e in a] == [e.truth for e in b] and [e.id for e in a] == [e.id for e in b]
     assert [bench.make_given(e.truth, e.inject, skills) for e in a] == [bench.make_given(e.truth, e.inject, skills) for e in b]
-    sp = bench.layout({**bench.load_suite("pick_smoke"), "spread": {"xy_mm": 5, "angle_deg": 3}}, seeds=2)
-    assert len(sp) == 24 and sp[0].truth != sp[1].truth and sp[0].truth == bench.layout({**bench.load_suite("pick_smoke"), "spread": {"xy_mm": 5, "angle_deg": 3}}, seeds=2)[0].truth
+    sp = bench.episodes({**bench.load_suite("pick_smoke"), "spread": {"xy_mm": 5, "angle_deg": 3}}, seeds=2)
+    assert len(sp) == 24 and sp[0].truth != sp[1].truth and sp[0].truth == bench.episodes({**bench.load_suite("pick_smoke"), "spread": {"xy_mm": 5, "angle_deg": 3}}, seeds=2)[0].truth
 
 
 @pytest.mark.slow
 def test_an_episode_does_not_leak_into_the_next(tmp_path):
     cfg = bench.load_cfg()
     env = bench.BenchEnv(cfg)
-    e1, e2 = bench.layout(bench.load_suite("pick_smoke"))[:2]
+    e1, e2 = bench.episodes(bench.load_suite("pick_smoke"))[:2]
     row = bench.run_episode(e1, cfg, tmp_path / "e1", env)
     assert row["outcome"] == "placed_ok", row
     first = env.svc
@@ -62,7 +62,7 @@ def test_driver_and_service_see_the_same_scene_parts(tmp_path, gripper):
     cfg = bench.load_cfg(bench.gripper_override(gripper, tmp_path))
     env = bench.BenchEnv(cfg, realtime=False)
     try:
-        env.reset(options={"episode": bench.layout(bench.load_suite("pick_smoke"))[0], "log_dir": tmp_path / "log"})
+        env.reset(options={"episode": bench.episodes(bench.load_suite("pick_smoke"))[0], "log_dir": tmp_path / "log"})
         drv_parts, svc_parts = {p.name for p in env.drv.scene.parts}, {p.name for p in env.svc.scene.parts}
         assert drv_parts == svc_parts
         if gripper == "parallel":
@@ -76,7 +76,7 @@ def test_driver_and_service_see_the_same_scene_parts(tmp_path, gripper):
 @pytest.mark.slow
 def test_offset_beyond_half_the_spare_gap_lands_a_clamp_on_the_top(tmp_path):
     cfg = bench.load_cfg()
-    ep = bench.layout(bench.load_suite("inject_grid"))[0]
+    ep = bench.episodes(bench.load_suite("inject_grid"))[0]
     ep = replace(ep, truth={**ep.truth, "x_mm": 300.0, "y_mm": 230.0})  # 정면 180mm(팔 원점 300,50)
     _, gap, _ = bench.make_given(ep.truth, {}, kin_skills(cfg))
     off = (gap - ep.truth["width_mm"]) / 2 + 8
@@ -87,3 +87,24 @@ def test_offset_beyond_half_the_spare_gap_lands_a_clamp_on_the_top(tmp_path):
     top = [c for st in samples for c in st["contacts"] if {c["a"], c["b"]} & {"clamp_right", "clamp_left"} and "obj:box" in (c["a"], c["b"]) and abs(c["pos_mm"][2] - h) <= 5]
     print(f"G {gap:.1f}mm, 어긋남 {off:.1f}mm: outcome {row['outcome']}, reported {row['reported']}, 윗면 접촉 {len(top)}개")
     assert top and row["outcome"] != "placed_ok", row
+
+
+def test_public_layout_and_judge_contract():
+    """13.10.4 공개 규약: layout(suite, seed)는 씨앗으로 정해지고(수집 묶음은 범위 안), judge(driver, layout)는 sim_state만으로 판정한다."""
+    import math
+
+    from so101_studio.arm.mujoco_driver import MuJoCoDriver
+
+    a, b = bench.layout("collect_pick", 7), bench.layout("collect_pick", 7)
+    assert a == b and a != bench.layout("collect_pick", 8) and a.place == {"zone": "right"} and a.place_xy_mm == (480.0, 150.0) and a.task
+    o = a.objects[0]
+    base = bench._base()
+    assert 120 <= math.hypot(o.x_mm - base.x_mm, o.y_mm - base.y_mm) <= 220 and 0 <= o.angle_deg <= 180
+    assert bench.layout("pick_smoke", 12).objects == bench.layout("pick_smoke", 0).objects  # 격자 묶음은 씨앗 % 칸 수
+    drv = MuJoCoDriver(bench.load_cfg(), bench.BenchEnv(bench.load_cfg()).ws, objects=a.objects, realtime=False)
+    drv.connect()
+    try:
+        drv.advance(0.5)
+        assert bench.judge(drv, a)["outcome"] == "untouched"
+    finally:
+        drv.disconnect()

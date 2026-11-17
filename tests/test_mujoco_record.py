@@ -1,5 +1,6 @@
 """REQ-072 (mujoco-spec 13.10.4): 에피소드 기록기. LeRobot 데이터셋으로 저장·버림·다시 읽기. lerobot·mujoco가 없으면 건너뛴다."""
 import time
+from pathlib import Path
 
 import pytest
 
@@ -46,3 +47,55 @@ def test_records_saves_discards_and_reads_back(tmp_path):
     row = ds[0]
     assert row["observation.images.top"].shape == (3, 240, 320) and row["observation.images.wrist"].shape == (3, 240, 320)
     assert row["observation.state"].shape == (6,) and row["task"] == "hold still"
+
+
+def replay(dataset_root, episode_index: int, seed: int, log_dir) -> dict:
+    """저장한 에피소드의 action을 같은 씨앗 배치에서 servo_joints로 25Hz 다시 틀고 judge(13.10.4 끝난 기준). 실시간."""
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+    from so101_studio.arm import mujoco_bench as bench
+    from so101_studio.core.types import JointState
+
+    root = Path(dataset_root)
+    ds = LeRobotDataset(f"local/{root.name}", root=root, episodes=[episode_index])
+    actions = [ds.hf_dataset[i]["action"] for i in range(len(ds.hf_dataset))]
+    suite = bench.load_suite("collect_pick")
+    env = bench.BenchEnv(bench.load_cfg())
+    env.reset(options={"episode": bench.episodes(suite, 1, seed_start=seed)[0], "log_dir": Path(log_dir)})
+    try:
+        t_next = time.perf_counter()
+        for a in actions:
+            env.svc.servo_joints(JointState(*[float(v) for v in a]))
+            t_next += 1.0 / ds.fps
+            time.sleep(max(0.0, t_next - time.perf_counter()))
+        time.sleep(1.0)
+        return bench.judge(env.drv, bench.layout("collect_pick", seed))
+    finally:
+        env.close()
+
+
+def _record_one(tmp_path):
+    import json
+
+    from so101_studio.arm import mujoco_bench as bench
+
+    out = bench.run("collect_pick", seeds=1, out_root=tmp_path, record="one")
+    return json.loads((out / "results.jsonl").read_text(encoding="utf-8")), tmp_path / "runs" / "datasets" / "one"
+
+
+@pytest.mark.slow
+def test_expert_records_placed_ok_episode(tmp_path):
+    """스크립트 전문가 한 씨앗(0): placed_ok라 저장되고 데이터셋에 그 에피소드 하나가 있다."""
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+    row, root = _record_one(tmp_path)
+    assert row["outcome"] == "placed_ok" and row["recorded_frames"] > 100
+    assert LeRobotDataset("local/one", root=root).num_frames == row["recorded_frames"]
+
+
+@pytest.mark.slow
+@pytest.mark.measure
+def test_expert_replay_places(tmp_path):
+    """저장한 action을 다시 틀면 judge가 placed_ok(13.10.4 끝난 기준). 열린 고리 + 실시간이라 흔들려 measure로 둔다(11-18 측정: 7번 중 4번)."""
+    row, root = _record_one(tmp_path)
+    assert replay(root, 0, row["seed"], tmp_path / "replay")["outcome"] == "placed_ok"
