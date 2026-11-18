@@ -8,7 +8,7 @@ from so101_studio.core.types import DetectedObject
 from so101_studio.service.arm_service import ArmService
 
 CFG = load_robot("config/robot.yaml")
-WS = load_workspace("config/workspace.yaml")
+WS = load_workspace("tests/workspace_600x400.yaml")
 TABLE = sorted((mm, v) for v, mm in CFG.gripper_width_mm)
 ZONE = {"x_mm": 500.0, "y_mm": 150.0}  # 칸으로 나누기 전 기본 점(11.3.5 이전)
 

@@ -13,7 +13,7 @@ from so101_studio.core.config import load_robot, load_workspace
 from so101_studio.service.arm_service import ArmService
 
 CFG = load_robot("config/robot.yaml")
-WS = load_workspace("config/workspace.yaml")
+WS = load_workspace("tests/workspace_600x400.yaml")
 Z = 55.0
 OFF = {"x": 0.0, "y": 30.0, "z": 55.0}  # 호출하는 쪽(초음파 설정)이 넘기는 값
 
@@ -172,9 +172,9 @@ def test_90_degree_corner_slows_but_does_not_stop_and_respects_limits(svc):
 
 
 def test_135_degree_corner_and_l3_l4_shape_respect_limits(svc):
-    c = (300.0, 210.0)
-    for pts in ([(c[0] - 90, c[1]), (c[0] + 90, c[1]), (c[0], c[1] - 90)],  # 135° 꺾임
-                [(c[0] - 90, c[1]), (c[0] + 90, c[1]), (c[0], c[1] - 90), (c[0], c[1] + 90)]):  # L3 + 건너가기 + L4 (한 호출)
+    c, d = (300.0, 215.0), 80.0  # 끝점 반경 85~245mm(table_z -2.9에서는 옛 c (300, 210)·90mm의 반경 70·250 끝점이 손목 한계·도달 밖)
+    for pts in ([(c[0] - d, c[1]), (c[0] + d, c[1]), (c[0], c[1] - d)],  # 135° 꺾임
+                [(c[0] - d, c[1]), (c[0] + d, c[1]), (c[0], c[1] - d), (c[0], c[1] + d)]):  # L3 + 건너가기 + L4 (한 호출)
         _goto(svc, *pts[0])
         m = _limits(svc, pts)
         assert m["amax"] <= CFG.tool_a_max_mm_s2 and m["vmax"] <= CFG.tool_v_max_mm_s * 1.001

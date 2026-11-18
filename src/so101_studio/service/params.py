@@ -21,7 +21,7 @@ LIMITS = {
     "servo_acceleration": (1, 254), "gripper_acceleration": (1, 254), "control_hz": (10, 100),
     "table_z_mm": (-100, 50), "tip_floor_mm": (0, 50), "approach_height_mm": (10, 150), "grasp_height_mm": (0, 100),
     "place_height_mm": (0, 150), "gripper_margin_mm": (0, 60), "gripper_open": (10, 100),
-    "place_drop_mm": (0, 20), "place_release_mm": (0, 30), "place_clearance_mm": (10, 100), "place_open_s": (0.2, 5),
+    "place_drop_mm": (0, 20), "bin_drop_clear_mm": (0, 50), "place_release_mm": (0, 30), "place_clearance_mm": (10, 100), "place_open_s": (0.2, 5),
     "blocked_empty_accel_deg": (0.5, 90), "blocked_empty_cruise_deg": (0.5, 90), "blocked_held_accel_deg": (0.5, 90), "blocked_held_cruise_deg": (0.5, 90),
     "blocked_grip_units": (1, 100),
     "gripper_squeeze_torque": (50, 1000), "gripper_hold_torque": (50, 1000), "grip_preload_units": (0, 20),

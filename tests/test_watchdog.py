@@ -21,7 +21,7 @@ from so101_studio.watchdog.hotkey import vk
 from so101_studio.watchdog.server import make_server
 
 CFG = load_robot("config/robot.yaml")
-WS = load_workspace("config/workspace.yaml")
+WS = load_workspace("tests/workspace_600x400.yaml")
 
 
 class Clock:

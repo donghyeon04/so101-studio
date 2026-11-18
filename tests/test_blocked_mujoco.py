@@ -6,6 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from test_skills import LEGACY_TABLE_Z_MM
 
 pytest.importorskip("mujoco")
 
@@ -19,11 +20,11 @@ def single_jaw_cfg():
     """13.7 (a)(b)·막힘 시험은 단동식 비교 기준이다. 팔 파일 기본값이 바뀌어도(U5) 그대로 돌게 그리퍼를 명시하고, PC의 local.yaml은 읽지 않는다."""
     p = Path(tempfile.mkdtemp()) / "local.yaml"
     p.write_text("gripper: single_jaw" + chr(10), encoding="utf-8")
-    return load_robot("config/robot.yaml", local_path=str(p))
+    return replace(load_robot("config/robot.yaml", local_path=str(p)), table_z_mm=LEGACY_TABLE_Z_MM)
 
 
 CFG = single_jaw_cfg()
-WS = load_workspace("config/workspace.yaml")
+WS = load_workspace("tests/workspace_600x400.yaml")
 RADAR = JointState(*CFG.poses["radar_clear"])
 
 
@@ -91,7 +92,7 @@ def test_parallel_hand_move_into_a_tall_box_is_stopped_and_held(tmp_path, speed)
     """병렬 손(시험장 기준 설정: gripper parallel, local.yaml 안 읽음)은 blocker_parallel 벽에서 stopped·ARM-BLOCKED 1건·fault 0건이고, radar_clear 이동은 막히지 않는다."""
     lp = tmp_path / "local.yaml"
     lp.write_text("gripper: parallel" + chr(10), encoding="utf-8")
-    cfg = load_robot("config/robot.yaml", local_path=str(lp))
+    cfg = replace(load_robot("config/robot.yaml", local_path=str(lp)), table_z_mm=LEGACY_TABLE_Z_MM)
     svc = ArmService(make_sim_driver(cfg, WS, None, scenario="blocker_parallel"), cfg, WS, speed_pct=speed, log_root=str(tmp_path))
     ok, msg = svc.connect()
     assert ok, msg

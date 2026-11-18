@@ -15,7 +15,7 @@ from so101_studio.core.config import load_robot, load_workspace
 from so101_studio.core.types import JointState
 
 CFG = load_robot("config/robot.yaml")
-WS = load_workspace("config/workspace.yaml")
+WS = load_workspace("tests/workspace_600x400.yaml")
 HOME = JointState(*CFG.poses["home"])
 LIMITS = CFG.joint_limits_deg
 

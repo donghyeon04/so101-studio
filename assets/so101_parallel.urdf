@@ -35,16 +35,16 @@
     </collision>
     <!-- Part base_so101_v2 -->
     <visual>
-      <origin xyz="-0.00636471 -8.97657e-09 -0.0024" rpy="1.5708 -2.78073e-29 1.5708"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="assets/base_so101_v2.stl"/>
+        <mesh filename="assets/base_mount_h0.stl"/><!-- 결정 0067(H-2): 하드웨어 담당 CAD "로봇팔 몸통 브라켓 결합부"의 J1 받침(base_link 좌표, J1 모터 밑면 z 24mm 아래만). 옛 base_so101_v2 대신 -->
       </geometry>
       <material name="3d_printed"/>
     </visual>
     <collision>
-      <origin xyz="-0.00636471 -8.97657e-09 -0.0024" rpy="1.5708 -2.78073e-29 1.5708"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="assets/base_so101_v2.stl"/>
+        <mesh filename="assets/base_mount_h0.stl"/><!-- 결정 0067(H-2): 하드웨어 담당 CAD "로봇팔 몸통 브라켓 결합부"의 J1 받침(base_link 좌표, J1 모터 밑면 z 24mm 아래만). 옛 base_so101_v2 대신 -->
       </geometry>
     </collision>
     <!-- Part sts3215_03a_v1 -->

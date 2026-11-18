@@ -1,11 +1,12 @@
 # 장면 부품 목록 (REQ-040, 결정 0043-4). 팔 밖의 물체를 적으면 GUI가 3D로 그리고, collide: true인 작업대 부품은 팔과의 충돌 거리를 검사한다.
+# 배출 통(workspace.yaml drop_zones의 type: bin)의 벽은 여기 적지 않는다: load_scene(ws=...)가 통 값으로 만든다(bin_<구역>_s·n·w·e, 결정 0067).
 margin_mm: 10            # 이보다 가까워지면 거부(scene:<이름>)
 parts:
   # 예시: 초음파 레이더 스테이션. 자리는 config/ultrasonic.yaml의 radar.station_mm. 크기는 실물을 재서 바꾼다.
   - name: radar_station
     box_mm: [60, 40, 20]     # [w, d, h], 가운데 아래면이 원점. STL이면 file: assets/scene/<이름>.stl (mm 단위)
     attach: table            # table 또는 URDF 링크 이름
-    xyz_mm: [300, 400, 0]    # table이면 작업대 좌표(z = 작업대 면 위), 링크면 그 링크 프레임 기준 mm
+    xyz_mm: [207.3, 405.5, 0]  # 결정 0067 레이더 서보 축(판 밖 앞 프로파일 위). table이면 작업대 좌표(z = 작업대 면 위), 링크면 그 링크 프레임 기준 mm
     rpy_deg: [0, 0, 0]
     collide: true
     color: "#8a8f98"

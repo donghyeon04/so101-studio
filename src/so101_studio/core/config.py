@@ -42,6 +42,7 @@ class RobotConfig:
     place_height_mm: float = 30
     place_clearance_mm: float = 30  # 놓을 때 벌림 끝 = 쥔 틈 + 양쪽 이만큼(최대 벌림을 넘으면 최대까지). 부딪히면 줄여 다시 계산한다(최소 10mm) (arm-software-spec 11.3)
     place_open_s: float = 1.0  # 놓을 때 벌림과 손 이동을 끝내는 시간(초). 그리퍼 속도 막대는 놓기 벌림에 쓰지 않는다 (11.3)
+    bin_drop_clear_mm: float = 10  # 통 구역(결정 0067, 11.3.5): 쥔 물체 바닥이 통 벽 위 이만큼에서 그리퍼를 연다
     place_drop_mm: float = 3  # 놓을 때 낮은 턱 끝을 집을 때 높이보다 이만큼 위에 둔다: 물체 바닥이 작업 면 위 이 높이에서 놓인다 (11.3.3)
     place_release_mm: float = 6  # released_then_tilted의 A 구간: 기울이기 전에 수직으로 먼저 벌리는 틈(양쪽 합) (11.3.3)
     grasp_bias_mm: float = 0.0
@@ -114,22 +115,23 @@ class WorkspaceConfig:
 
     def ignore_zones(self) -> list[tuple[float, float, float]]:
         """모든 배출 구역의 (x, y, 반경 mm). 놓은 물체가 다음 스캔에서 다시 후보가 되어 집히지 않게 인식 소스(ignore_zones)에 넘긴다.
-        사각형 구역은 사각형 전체를 덮는 반경(반 대각선) + safety_margin_mm (11.3.5), 점 구역은 drop_zone_ignore_radius_mm."""
+        사각형 구역은 사각형 전체를 덮는 반경(반 대각선) + safety_margin_mm (11.3.5), 통은 여기에 벽 높이(wall_mm)를 더한다(레이더가 벽을 물체로 볼 수 있다), 점 구역은 drop_zone_ignore_radius_mm."""
         return [(float(z["x_mm"]), float(z["y_mm"]),
-                 math.hypot(z["w_mm"] / 2.0, z["h_mm"] / 2.0) + float(self.safety_margin_mm) if "w_mm" in z and "h_mm" in z else float(self.drop_zone_ignore_radius_mm))
+                 math.hypot(z["w_mm"] / 2.0, z["h_mm"] / 2.0) + float(z.get("wall_mm", 0.0)) + float(self.safety_margin_mm) if "w_mm" in z and "h_mm" in z else float(self.drop_zone_ignore_radius_mm))
                 for z in self.drop_zones.values()]
 
     def zone_slots(self, name: str, step_mm: float | None = None) -> list[tuple[float, float]] | None:
         """사각형 배출 구역(`{x_mm, y_mm, w_mm, h_mm, slot_mm}`)의 칸 가운데, 로봇 원점에 가까운 순서 (arm-software-spec 11.3.5). 칸은 사각형 가운데를 중심으로 slot_mm 간격 격자이고
-        집기 범위(reach_mm) 밖의 칸은 뺀다. 옛 점 형식(x_mm·y_mm만)이면 None. step_mm를 주면 칸 간격 대신 그 간격의 촘촘한 후보(칸이 물체보다 좁을 때)."""
+        집기 범위(reach_mm)와 판(table_mm) 밖의 칸은 뺀다. 옛 점 형식(x_mm·y_mm만)과 통(type: bin, 결정 0067)이면 None. step_mm를 주면 칸 간격 대신 그 간격의 촘촘한 후보(칸이 물체보다 좁을 때)."""
         z = self.drop_zones[name]
-        if not all(k in z for k in ("w_mm", "h_mm", "slot_mm")):
+        if z.get("type") == "bin" or not all(k in z for k in ("w_mm", "h_mm", "slot_mm")):
             return None
         s = float(step_mm or z["slot_mm"])
         nx, ny = int(z["w_mm"] // s) + 1, int(z["h_mm"] // s) + 1
         b = self.base
         pts = [(float(z["x_mm"]) + (i - (nx - 1) / 2) * s, float(z["y_mm"]) + (j - (ny - 1) / 2) * s) for i in range(nx) for j in range(ny)]
-        pts = [p for p in pts if self.reach_mm["min"] <= math.hypot(p[0] - b.x_mm, p[1] - b.y_mm) <= self.reach_mm["max"]]
+        pts = [p for p in pts if self.reach_mm["min"] <= math.hypot(p[0] - b.x_mm, p[1] - b.y_mm) <= self.reach_mm["max"]
+               and 0.0 <= p[0] <= float(self.table_mm["x"]) and 0.0 <= p[1] <= float(self.table_mm["y"])]  # 판 밖 칸은 뺀다(11.3.5, 결정 0067)
         return sorted(pts, key=lambda p: math.hypot(p[0] - b.x_mm, p[1] - b.y_mm))
 
     @property

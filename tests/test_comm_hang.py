@@ -13,7 +13,7 @@ from so101_studio.core.types import DetectedObject, JointState
 from so101_studio.service.arm_service import ArmService
 
 CFG = load_robot("config/robot.yaml")
-WS = load_workspace("config/workspace.yaml")
+WS = load_workspace("tests/workspace_600x400.yaml")
 LIMIT_S = 8.0  # 이 안에 돌아오지 않으면 멈춘 것으로 본다
 
 

@@ -9,7 +9,7 @@ from so101_studio.core.types import JointState
 from so101_studio.service.arm_service import ArmService
 
 CFG = load_robot("config/robot.yaml")
-WS = load_workspace("config/workspace.yaml")
+WS = load_workspace("tests/workspace_600x400.yaml")
 HOME = JointState(*CFG.poses["home"])
 RESTING = JointState(0, -89, 96.4, 0, 0, 3)  # 쉬는 자세: 팔꿈치 96.4° > 소프트 한계 95° (2026-11-07 실물 powertest의 시작 자세)
 

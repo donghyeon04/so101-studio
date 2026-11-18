@@ -1,15 +1,17 @@
 """low_lift로 멈춘 뒤 home이 방금 놓은 상자를 쓸지 않게 (실물 2-2 11-13)."""
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
+from test_skills import LEGACY_TABLE_Z_MM
 
 from so101_studio.arm.sim_driver import SimDriver
 from so101_studio.core.config import load_robot, load_workspace
 from so101_studio.core.types import JointState
 from so101_studio.service.arm_service import ArmService
 
-CFG = load_robot("config/robot.yaml", arm="so101_follower_01")
-WS = load_workspace("config/workspace.yaml")
+CFG = replace(load_robot("config/robot.yaml", arm="so101_follower_01"), table_z_mm=LEGACY_TABLE_Z_MM)
+WS = load_workspace("tests/workspace_600x400.yaml")
 
 
 def make(tmp_path):

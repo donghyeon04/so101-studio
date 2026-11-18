@@ -9,7 +9,7 @@ from so101_studio.core.types import DetectedObject
 from so101_studio.service.arm_service import ArmService
 
 CFG = load_robot("config/robot.yaml", arm="so101_follower_01") if __import__("pathlib").Path("config/arms/so101_follower_01.yaml").exists() else load_robot("config/robot.yaml")
-WS = load_workspace("config/workspace.yaml")
+WS = load_workspace("tests/workspace_600x400.yaml")
 OBJ = DetectedObject("b", 300, 200, 0, 58, 58, 1.0, "manual", 39)
 
 

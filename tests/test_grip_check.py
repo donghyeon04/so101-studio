@@ -8,7 +8,7 @@ from so101_studio.core.types import DetectedObject
 from so101_studio.service.arm_service import ArmService
 
 CFG = load_robot("config/robot.yaml")
-WS = load_workspace("config/workspace.yaml")
+WS = load_workspace("tests/workspace_600x400.yaml")
 OBJ = DetectedObject("b", 300, 200, 0, 0, 0, 1.0, "manual", 39)  # 폭을 모름: 최대로 벌린다
 
 

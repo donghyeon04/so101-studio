@@ -142,6 +142,9 @@ class Skills:
         tr = self._line(self._rolled(q_from, -d), goal)
         if tr is not None and d:
             tr.pts[:, 4] += d
+            lo, hi = self.cfg.joint_limits_deg["wrist_roll"]
+            if not (lo <= tr.pts[:, 4].min() and tr.pts[:, 4].max() <= hi):  # 끝점뿐 아니라 지나는 점도 wrist_roll 한계 안이어야 한다
+                return None
         return tr
 
     def _az(self, x_mm: float, y_mm: float) -> float:
@@ -226,7 +229,18 @@ class Skills:
         plans.sort(key=lambda p: (math.floor(abs(p.ap["gamma"]) / 5.0), abs(p.ap["beta"] - cfg.grasp_approach_tilt_pref_deg), p.ap["beta"],
                                   abs(p.q_grasp.wrist_roll - cur), p.ap["face"] != "width"))
         tip = lambda t: max(t + cfg.place_drop_mm, cfg.tip_floor_mm + RELEASE_SAG_MARGIN_MM)  # _place_at과 같은 놓는 높이
-        return next((p for p in plans if any(self._tilted_place_plan(x, y, p.ap, obj.height_mm, tip(p.t), p.gap_c) is not None for x, y in place_targets)), None)
+
+        def reachable(p, x, y) -> bool:  # 통이면 통에서 여는 자세(_bin_plan), 아니면 놓기(_tilted_place_plan)
+            if (b := self._bin_at(x, y)) is not None:
+                g = {"approach": p.ap, "obj_h": obj.height_mm, "tip_h": p.t, "tilted": False}
+                return self._bin_plan(x, y, self._bin_tip_h(float(b["wall_mm"]), g), g, self.gripper_for_width(p.gap_c)) is not None
+            return self._tilted_place_plan(x, y, p.ap, obj.height_mm, tip(p.t), p.gap_c) is not None
+
+        saved = (self.descent_blocked_by, self.hover_need_mm)  # 놓기 검사의 _descent가 진단 값을 덮어쓰지 않게
+        try:
+            return next((p for p in plans if any(reachable(p, x, y) for x, y in place_targets)), None)
+        finally:
+            self.descent_blocked_by, self.hover_need_mm = saved
 
     def _tilted_pick_plan(self, obj: DetectedObject, face: str, D: float, n: float, beta: float):
         """한 후보(면 쌍, β)의 집기 계획: 높이·벌림, 물기·접근점·들기 끝 자세(FK 검사), 하강·들기 경로의 안전·이웃 물체 검사. SimpleNamespace 또는 None."""
@@ -717,6 +731,8 @@ class Skills:
         """배출 구역에 놓는다. 사각형 구역(`w_mm·h_mm·slot_mm`)이면 비어 있는 칸 가운데 로봇 원점에 가까운 칸부터, 내려가는 계획이 풀리는 첫 칸에 놓고(11.3.5),
         빈 칸이 없으면 움직이지 않고 stopped(drop_zone_full)로 멈춘다. 옛 점 형식(x_mm·y_mm만)은 그 한 점에 놓는다(이미 있으면 ARM-PLACE-SAME-SPOT 경고)."""
         z = self.ws.drop_zones[zone]
+        if z.get("type") == "bin":
+            return self._place_bin(float(z["x_mm"]), float(z["y_mm"]), float(z["wall_mm"]))
         slots = self.ws.zone_slots(zone)
         if slots is None:
             return self.place_at(z["x_mm"], z["y_mm"])
@@ -739,6 +755,51 @@ class Skills:
             if r.status == "ok" or released or not (r.status == "ik_fail" or (r.status == "stopped" and (r.reason or "").startswith("low_hover"))):
                 return r
         return r
+
+    def _bin_at(self, x_mm: float, y_mm: float) -> dict | None:
+        """(x, y)가 통 구역(type: bin)의 가운데면 그 구역."""
+        return next((z for z in self.ws.drop_zones.values() if z.get("type") == "bin" and math.hypot(float(z["x_mm"]) - x_mm, float(z["y_mm"]) - y_mm) < 1e-6), None)
+
+    def _bin_tip_h(self, wall_mm: float, grip: dict | None) -> float:
+        """통에서 열 때 낮은 턱 끝의 작업대 위 높이: 쥔 물체 바닥(= 낮은 턱 끝 - 집을 때 높이 t_g)이 벽 위 bin_drop_clear_mm."""
+        return wall_mm + self.cfg.bin_drop_clear_mm + (grip["tip_h"] if grip else 0.0)
+
+    def _bin_plan(self, x_mm: float, y_mm: float, tip_h: float, grip: dict | None, v: float):
+        """통 가운데 위의 여는 자세까지 하강 계획 (호버 관절, 하강 궤적, 호버 높이, droll, 손 방향) 또는 None. 손 자세는 쥔 그대로(기울여 쥐었으면 같은 β·φ, 6.6.1)."""
+        ap = (grip or {}).get("approach")
+        if ap and ap["beta"] > 0:
+            tp = self._tilted_place_plan(x_mm, y_mm, ap, grip["obj_h"], tip_h, self._gap_mm(v))
+            return None if tp is None else tp[:5]
+        yaw = self._place_yaw(x_mm, y_mm)
+        tilted = bool(grip and grip["tilted"]) and self.gripper.tilt_allowed(x_mm, y_mm, yaw)
+        plan = self._descent(self._hand_pose(x_mm, y_mm, yaw, v, tilted, self.cfg.table_z_mm + tip_h), self._gap_mm(v) / 2.0)
+        return None if plan is None else (*plan, 0.0, yaw)
+
+    def _place_bin(self, x_mm: float, y_mm: float, wall_mm: float) -> MotionResult:
+        """통 구역(11.3.5, 결정 0067): 칸을 고르지 않고 통 가운데 위에서 쥔 물체 바닥이 벽 위 bin_drop_clear_mm에 오는 높이에서 연다(떨어뜨림).
+        연 뒤 접근 높이로 수직 상승. 통 안 물체는 placed에 넣지 않는다. 하강 높이·도달이 안 되면 ik_fail(bin_unreachable), 집기 기억은 남는다."""
+        self.last_place_yaw_deg = self.last_place_angle_deg = self.last_place_xy = None
+        grip, v = self.grip, self._q().gripper
+        plan = self._bin_plan(x_mm, y_mm, self._bin_tip_h(wall_mm, grip), grip, v)
+        if plan is None:
+            return MotionResult("ik_fail", 0.0, ToolPose(0, 0, 0, 0), reason="bin_unreachable: 통 가운데 위의 여는 자세가 풀리지 않는다")
+        q_hover, down, _h, d, yaw = plan
+        r = self._run([self._joint_move(q_hover), down])
+        if r.status != "ok":
+            return r
+        try:
+            self._restore_grip_torque()
+            self.grip = None  # 벌림을 시작한다 (11.3.2)
+            self.last_place_yaw_deg, self.last_place_xy, self.last_place_correction_mm = yaw, (x_mm, y_mm), None
+            r = self._run([self._gripper(self.cfg.gripper_open)])
+            if r.status != "ok":
+                return r
+            q = self._q()
+            p = self.kin.fk(self._rolled(q, -d))
+            up = next((u for h in self._heights() if (u := self._line_rolled(q, replace(p, z_mm=p.z_mm + h), d)) is not None), None)
+            return self._low_lift(0.0, self.cfg.approach_height_mm) if up is None else self._run([up])
+        finally:
+            self._restore_grip_torque()
 
     def _fits(self, p: tuple[float, float]) -> bool:
         """쥔 물체를 p에 놓았을 때(놓을 각도 기준 사각형) 이미 놓인 물체와 RECT_MARGIN_MM 안으로 겹치지 않는가. 쥔 물체 크기를 모르면 True(예전과 같다)."""
@@ -813,6 +874,8 @@ class Skills:
             q_hover = self._ik(hp) if droll is None else (sol[0] if (sol := self._tilt_solve(hp, d=droll)) else None)
             if q_hover is None or (down := self._line_rolled(q_hover, release, droll or 0.0)) is None:
                 continue
+            if droll is not None and any(self.ctl.safety.check_goal(JointState(*b), JointState(*a)) for a, b in itertools.pairwise(down.pts)):
+                continue  # 기운 자세는 직선을 φ = 90°로 풀어 돌렸으므로 지나는 점을 다시 본다
             move = [JointState(*(q0 + (np.array(astuple(q_hover), float) - q0) * k)) for k in np.linspace(0.0, 1.0, 9)]
             self.descent_blocked_by = self._hits_objects([*move, *(JointState(*pt) for pt in down.pts)], held_r)
             if self.descent_blocked_by is None:
