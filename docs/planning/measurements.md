@@ -644,3 +644,29 @@ p99 증가는 -0.04ms(기준 2ms 이하), time_lost_s 증가 0%(기준 1% 미만
 
 - 30k의 거부 원인: 시작 자세의 elbow_flex가 93°이고 관절 한계는 95.0°다. 정책의 첫 출력은 98°였다(같은 시작 자세의 데이터셋 프레임에서도 97.2°). 거부가 `REJECT_S` 0.5초 이어져 끝났다. PolicyRunner는 arm-software-spec 6.10대로 자르지 않는다(총괄 판단). 100k에서는 이 거부가 나지 않았다.
 - 100k의 모양: 약 9초 안에 물체 쪽으로 팔을 뻗어 높이 약 48mm에서 그리퍼를 벌린다(92). 그 뒤 내려가지 않고 45초까지 머문다. 물체 위치가 달라도 손 끝은 비슷한 곳(x 165~195, y 225~245mm)으로 간다. 예를 들어 씨앗 10000은 상자가 (320,220)인데 손은 (166,226)에 갔다. 영상을 덜 쓰고 관절 상태 쪽으로 평균한 실패로 보인다(미확인).
+- 고침(같은 날 50 씨앗 분석): 위 "손 끝은 비슷한 곳"은 표본 2개로 잘못 본 것이다. 50개에서 12초 시점 손 x와 상자 x의 상관은 0.92이고, 손 끝 표준편차는 x 78mm·y 24mm다. 정책은 물체 쪽으로 가지만 상자 앞 약 94mm·높이 38mm에서 멈춘다. 첫 프레임의 손목 카메라에는 상자가 없다(29개 모두 0px).
+
+## MuJoCo ACT 학습 설정 실험 A·B (2026-11-18, REQ-072 뒤속, pick58_v1 그대로, 실시간, 뷰어 켬)
+- 진단: action과 state 차이 중앙값 0.29°, 프레임당 action 변화 중앙값 0.40°, 정지 프레임 16%라 정책이 지금 자세를 베낀다(copycat)고 보고 학습 쪽만 두 가지를 바꿨다. 수집·PolicyRunner는 그대로다.
+- 공통: lerobot 0.6.1 ACT, chunk_size 100, batch 8, 100k스텝, `save_freq` 20000. 평가는 `n_action_steps`를 100(덩어리 전체)으로 고친 체크포인트 사본으로 했다. 20k마다 씨앗 10000~10019(20개)로 고르고, 가장 나은 하나만 50개로 정식 평가했다.
+- A(영상만): 학습할 때 `lerobot.policies.factory.dataset_to_policy_features`가 `observation.state`를 빼게 바꿨다(레포 밖 스크립트). 체크포인트 입력은 `top`·`wrist` 둘이고, PolicyRunner가 주는 state는 쓰이지 않는다.
+- B(정지 프레임 제외, state 그대로): action 변화 0.05° 미만이 5프레임 넘게 이어지는 구간은 첫 프레임만 남겼다. `EpisodeAwareSampler`를 바꿔 276,825프레임 중 235,765프레임으로 학습했다.
+- 기준: 같은 조건의 기준 100k(state 입력)를 `n_action_steps` 100으로 돌리면 0/20, 상자까지 74.5mm, 최저 32.5mm다(25로 돌리면 98mm·45mm).
+- "상자까지"는 에피소드에서 손이 가장 낮았을 때 손과 상자 사이 수평 거리의 중앙값이다. "최저"는 그 최저 손 높이(작업대 위)의 평균이다.
+
+| 체크포인트(20 씨앗) | placed_ok | 끝난 이유 | outcome | 상자까지 | 최저 |
+|---|---|---|---|---|---|
+| A 20k | 0/20 | joint_limit:elbow_flex 20 | untouched 20 | 91.3mm | 133.2mm |
+| A 40k | 0/20 | max_s 18, joint_limit:elbow_flex 1, joint_limit:gripper 1 | untouched | 129.5mm | 21.8mm |
+| A 60k | 0/20 | max_s 19, fault 1 | moved 7 | 78.9mm | 15.7mm |
+| **A 80k** | 0/20 | max_s 15, joint_limit:gripper 4, fault 1 | moved 8, toppled 1 | **38.5mm** | **16.8mm** |
+| A 100k | 0/20 | max_s 20 | moved 3 | 83.4mm | 17.0mm |
+| B 20k | 0/20 | joint_limit:elbow_flex 20 | untouched 20 | 91.3mm | 133.2mm |
+| B 40k | 0/20 | joint_limit:elbow_flex 20 | untouched 20 | 91.3mm | 133.2mm |
+| B 60k | 0/20 | max_s 11, joint_limit:elbow_flex 9 | moved 1 | 91.3mm | 73.1mm |
+| B 80k | 0/20 | max_s 11, joint_limit:elbow_flex 5, joint_limit:gripper 4 | moved 2 | 92.7mm | 72.3mm |
+| B 100k | 0/20 | max_s 20 | moved 1 | 55.7mm | 26.7mm |
+
+- 20k 줄 셋(A·B 20k, B 40k)은 시작하자마자 elbow_flex 한계 거부로 끝나 같은 숫자다.
+- 정식 평가 A 80k(씨앗 10000~10049, `runs/bench-mujoco/20261118-181236-b9bf0d8-policy`): **placed_ok 4/50**(씨앗 10027·10041·10046·10048). outcome은 moved 16, untouched 30이다. 끝난 이유는 max_s 43, joint_limit:gripper 5, fault 2이고, 상자까지 36.8mm, 최저 16.4mm, 추론 평균 1.6ms다. 성공 4개 중 3개는 놓은 뒤 그리퍼가 한계 밖으로 벌리려다 joint_limit로 끝났지만 판정은 placed_ok였다.
+- 읽기: state를 빼면(A) 손이 상자 가까이 내려간다. 정지 프레임만 빼면(B) 거의 나아지지 않는다. A도 100k가 80k보다 나빠, 오래 학습할수록 rollout이 나빠진다는 레퍼런스(aviadarn/so101-lerobot)와 같다. 남은 원인(느린 시연, 상태와 거의 같은 action)은 결정 0068 수집 다시 짜기에서 다룬다.
