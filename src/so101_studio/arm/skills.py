@@ -791,10 +791,18 @@ class Skills:
             self._restore_grip_torque()
             self.grip = None  # 벌림을 시작한다 (11.3.2)
             self.last_place_yaw_deg, self.last_place_xy, self.last_place_correction_mm = yaw, (x_mm, y_mm), None
-            r = self._run([self._gripper(self.cfg.gripper_open)])
+            held = self._gap_mm(self._q().gripper)
+            cap = self._gap_mm(self.cfg.joint_limits_deg["gripper"][1])
+            # 다른 놓기와 같은 벌림: 쥔 틈 + 양쪽 place_clearance_mm(최대 벌림까지). gripper_open(60)은 병렬 손에서 틈 약 50mm라 58mm 상자를 못 놓았다(REQ-085)
+            r = self._run([self._gripper(max(self.cfg.gripper_open, self.gripper_for_width(min(held + 2.0 * self.cfg.place_clearance_mm, cap))))])
             if r.status != "ok":
                 return r
             q = self._q()
+            opened = self._gap_mm(q.gripper)
+            if held < cap - 1.0 and opened <= held + 1.0:  # 쥔 것이 있었는데 틈이 넓어지지 않았다: 놓지 못했다(거짓 성공 막기, 6.6 쥠 확인과 같은 생각)
+                self.grip = grip  # 아직 쥐고 있다: 사람이 정하거나 다시 놓는다
+                self.ctl._emit("place_not_released", "ERROR", "ARM-PLACE-NOT-RELEASED", {"held_mm": round(held, 1), "gap_mm": round(opened, 1)})
+                return MotionResult("stopped", 0.0, ToolPose(0, 0, 0, 0), reason=f"bin_not_released: 통 위에서 열었는데 틈이 {held:.0f}mm에서 {opened:.0f}mm로 넓어지지 않았다(물체를 쥔 채일 수 있다)")
             p = self.kin.fk(self._rolled(q, -d))
             up = next((u for h in self._heights() if (u := self._line_rolled(q, replace(p, z_mm=p.z_mm + h), d)) is not None), None)
             return self._low_lift(0.0, self.cfg.approach_height_mm) if up is None else self._run([up])
