@@ -43,6 +43,9 @@ JAW_CONDIM = 4
 JAW_FRICTION = (1.0, 0.02, 0.001)
 DEFAULT_OBJECT_HEIGHT_MM = 40.0
 TABLE_FRICTION = (1.0, 0.005, 0.0001)
+PLATE_T_MM = 2.0  # 결정 0067 판 두께(윗면이 작업 면, table_z_mm)
+PROFILES_Y_MM = {"arm": (-40.0, 40.0), "radar": (335.0, 415.0)}  # 40×80 프로파일 둘(작업대 y, 판 x 전체 길이)
+PROFILE_Z_MM = (-42.0, -2.0)  # 판 바로 아래. 그 아래 책상 평면
 
 
 @dataclass
@@ -157,7 +160,10 @@ def load_model(scene=None, objects=(), *, base: frames.Pose2D, table_z_mm: float
 
     world = spec.worldbody
     table_z = table_z_mm / 1000.0
-    world.add_geom(name="table", type=mujoco.mjtGeom.mjGEOM_PLANE, pos=[0, 0, table_z], size=[2.0, 2.0, 0.01], friction=list(TABLE_FRICTION), rgba=[0.8, 0.8, 0.8, 1.0])
+    if table_mm:
+        _add_table(world, base, table_z_mm, float(table_mm["x"]), float(table_mm["y"]))
+    else:  # 작업대 크기를 모르면 옛날처럼 끝없는 평면 하나
+        world.add_geom(name="table", type=mujoco.mjtGeom.mjGEOM_PLANE, pos=[0, 0, table_z], size=[2.0, 2.0, 0.01], friction=list(TABLE_FRICTION), rgba=[0.8, 0.8, 0.8, 1.0])
 
     if scene is not None:
         warnings += _add_scene(spec, scene, base, table_z_mm, parallel_hand)
@@ -170,6 +176,24 @@ def load_model(scene=None, objects=(), *, base: frames.Pose2D, table_z_mm: float
             warnings.append(("SIM-OBJECT-HEIGHT-DEFAULT", {"object": o.name, "height_mm": DEFAULT_OBJECT_HEIGHT_MM}))
         _add_object(spec, o, base, table_z_mm)
     return spec.compile(), warnings
+
+
+def _add_table(world, base, table_z_mm: float, tx: float, ty: float) -> None:
+    """결정 0067 작업대(H-3): 판 tx×ty(두께 PLATE_T_MM, 윗면 = 작업 면) + 40×80 프로파일 둘(판 아래) + 그 아래 책상 평면(바닥).
+    판은 작업대 좌표 (0,0)~(tx,ty). 판 밖으로 떨어진 물체는 책상 평면에 놓인다."""
+    import mujoco
+
+    def box(name, x0, x1, y0, y1, z0, z1, rgba):
+        c = np.array(table_to_model_mm((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, base, table_z_mm)) / 1000.0
+        half = [abs(x1 - x0) / 2000.0, abs(y1 - y0) / 2000.0, abs(z1 - z0) / 2000.0]
+        quat = list(_mat_quat(_rotz(-base.yaw_deg)))  # 작업대 축 → 모델(base_link) 축
+        world.add_geom(name=name, type=mujoco.mjtGeom.mjGEOM_BOX, pos=c.tolist(), quat=quat, size=half, friction=list(TABLE_FRICTION), rgba=rgba)
+
+    box("table", 0, tx, 0, ty, -PLATE_T_MM, 0, [0.8, 0.8, 0.8, 1.0])
+    for name, (y0, y1) in PROFILES_Y_MM.items():
+        box(f"table_profile_{name}", 0, tx, y0, y1, PROFILE_Z_MM[0], PROFILE_Z_MM[1], [0.55, 0.57, 0.6, 1.0])
+    world.add_geom(name="floor", type=mujoco.mjtGeom.mjGEOM_PLANE, pos=[0, 0, (table_z_mm + PROFILE_Z_MM[0]) / 1000.0], size=[2.0, 2.0, 0.01],
+                   friction=list(TABLE_FRICTION), rgba=[0.45, 0.42, 0.4, 1.0])
 
 
 def _widen_ranges(spec, limits: dict) -> None:

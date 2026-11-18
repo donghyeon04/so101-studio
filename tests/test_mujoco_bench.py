@@ -9,6 +9,7 @@ pytest.importorskip("mujoco")
 
 from so101_studio.arm import mujoco_bench as bench
 from so101_studio.arm.sim_driver import SimDriver
+from so101_studio.core.frames import robot_to_table
 from so101_studio.service.arm_service import ArmService
 
 KEYS = {"reported", "picked", "placed", "outcome", "agree", "slip_mm", "place_err_mm", "tilt_end_deg", "other_pushed_mm", "events", "sim_s", "wall_s",
@@ -78,7 +79,7 @@ def test_driver_and_service_see_the_same_scene_parts(tmp_path, gripper):
 def test_offset_beyond_half_the_spare_gap_lands_a_clamp_on_the_top(tmp_path):
     cfg = bench.load_cfg()
     ep = bench.episodes(bench.load_suite("inject_grid"))[0]
-    ep = replace(ep, truth={**ep.truth, "x_mm": 300.0, "y_mm": 230.0})  # 정면 180mm(팔 원점 300,50)
+    ep = replace(ep, truth={**ep.truth, "x_mm": robot_to_table(180, 0, bench._base())[0], "y_mm": robot_to_table(180, 0, bench._base())[1]})  # 정면 180mm
     _, gap, _ = bench.make_given(ep.truth, {}, kin_skills(cfg))
     off = (gap - ep.truth["width_mm"]) / 2 + 8
     ep = replace(ep, id="inject-one", inject={"pos_offset_mm": [off, 0], "height_error_mm": 0})
@@ -97,7 +98,7 @@ def test_public_layout_and_judge_contract():
     from so101_studio.arm.mujoco_driver import MuJoCoDriver
 
     a, b = bench.layout("collect_pick", 7), bench.layout("collect_pick", 7)
-    assert a == b and a != bench.layout("collect_pick", 8) and a.place == {"zone": "right"} and a.place_xy_mm == (480.0, 150.0) and a.task
+    assert a == b and a != bench.layout("collect_pick", 8) and a.place == {"zone": "right"} and a.place_xy_mm == (355.0, 80.0) and a.task
     o = a.objects[0]
     base = bench._base()
     assert 120 <= math.hypot(o.x_mm - base.x_mm, o.y_mm - base.y_mm) <= 220 and 0 <= o.angle_deg <= 180
@@ -157,3 +158,15 @@ def test_collect_pick1_box_face_follows_bearing_and_uses_fast_preset(tmp_path):
     assert cfg.speed_pct_default == 100 and cfg.gripper == "parallel"
     assert bench.suite_override(s, "single_jaw", tmp_path).name == "robot_override.yaml"  # --gripper가 먼저
     assert bench.suite_override(bench.load_suite("collect_pick"), None, tmp_path) == bench.OVERRIDE
+
+
+def test_sampled_layouts_stay_off_the_bin_and_bin_judge():
+    """결정 0067: 뽑는 묶음(collect_pick·collect_pick1)은 배출 통(벽 포함)에 걸리는 자리를 다시 뽑는다. 통 판정은 안쪽 사각형 안·바닥 위만 본다."""
+    bins = bench._bin_rects()
+    assert bins
+    for name in ("collect_pick", "collect_pick1"):
+        assert not any(bench._hits_bin(e.truth, bins) for e in bench.episodes(bench.load_suite(name), 200))
+    zone = {"x_mm": 355, "y_mm": 80, "w_mm": 110, "h_mm": 110, "wall_mm": 25}
+    assert bench.in_bin({"x_mm": 400, "y_mm": 30, "z_mm": -0.1}, zone)
+    assert not bench.in_bin({"x_mm": 355, "y_mm": 140, "z_mm": -0.1}, zone)  # 벽 밖
+    assert not bench.in_bin({"x_mm": 355, "y_mm": 80, "z_mm": 25.0}, zone)  # 벽 위에 얹힘(z_mm는 바닥 높이)
