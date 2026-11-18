@@ -117,7 +117,8 @@ def _base():
 def episodes(suite: dict, seeds: int = 1, base=None, seed_start: int = 0) -> list[Episode]:
     """묶음 → 에피소드 목록(씨앗 고정). 격자 순번은 objects 키(YAML 순서, size_mm이 바깥) × given 키(YAML 순서)의 곱집합.
     objects는 radius_mm·bearing_deg(팔 원점에서 반경, 팔 정면 기준 방위) 대신 positions: [[반경, 방위], …]를 받을 수 있다.
-    objects 대신 sample: {size_mm, radius_mm: [하한, 상한], bearing_deg: [..], angle_deg: [..]}이면 씨앗마다 고르게 뽑는다(수집용, 13.10.4)."""
+    objects 대신 sample: {size_mm, radius_mm: [하한, 상한], bearing_deg: [..], angle_deg: [..]}이면 씨앗마다 고르게 뽑는다(수집용, 13.10.4).
+    angle_deg: along이면 상자 한 면이 그 자리 방위(팔에서 상자로 가는 방향)와 나란하다(1차 묶음, 결정 0068)."""
     base = base or _base()
     place = suite.get("place") or {"zone": "right"}
     if "sample" in suite:
@@ -125,7 +126,8 @@ def episodes(suite: dict, seeds: int = 1, base=None, seed_start: int = 0) -> lis
         eps = []
         for s in range(seed_start, seed_start + seeds):
             rng = np.random.default_rng(s)
-            r, b, a = (rng.uniform(*sm[k]) for k in ("radius_mm", "bearing_deg", "angle_deg"))
+            r, b = rng.uniform(*sm["radius_mm"]), rng.uniform(*sm["bearing_deg"])
+            a = b + base.yaw_deg if sm["angle_deg"] == "along" else rng.uniform(*sm["angle_deg"])
             eps.append(Episode(f"{suite['name']}-0000-s{s}", s, _truth(r, b, a, sm["size_mm"], base), {}, place))
         return eps
     objs, given = dict(suite["objects"]), dict(suite.get("given") or {})
@@ -310,9 +312,11 @@ def judge_episode(result, samples: list, end: dict, truth: dict, target_xy, even
             "other_pushed_mm": 0.0 if not others else None, "events": counts, "target_xy": target_xy, "failed_reason": failed}
 
 
-def run_episode(ep: Episode, cfg, log_dir: Path, env: BenchEnv | None = None, samples_out: list | None = None, recorder=None, viewer: bool = False) -> dict:
-    """실행기 A: reset → pick_and_place(그동안 표본) → 1.0초 뒤 판정 → disconnect. 결과 한 줄(dict). samples_out에 표본을 붙인다(시험용).
-    recorder(EpisodeRecorder)가 있으면 pick_and_place 직전부터 판정까지 기록하고 outcome이 placed_ok일 때만 저장한다(스크립트 전문가, 13.10.4)."""
+def run_episode(ep: Episode, cfg, log_dir: Path, env: BenchEnv | None = None, samples_out: list | None = None, recorder=None, viewer: bool = False,
+                settle_s: float = SETTLE_S) -> dict:
+    """실행기 A: reset → pick_and_place(그동안 표본) → settle_s 뒤 판정 → disconnect. 결과 한 줄(dict). samples_out에 표본을 붙인다(시험용).
+    recorder(EpisodeRecorder)가 있으면 pick_and_place 직전부터 판정까지 기록하고, outcome이 placed_ok이고 realtime_lag가 없을 때만 저장한다(13.10.4, 결정 0068).
+    settle_s: 수집 묶음은 suite의 settle_s(0.3초, 결정 0068)를 쓴다."""
     env = env or BenchEnv(cfg, viewer=viewer)
     t0 = time.perf_counter()
     obs, info = env.reset(options={"episode": ep, "log_dir": log_dir})
@@ -320,27 +324,32 @@ def run_episode(ep: Episode, cfg, log_dir: Path, env: BenchEnv | None = None, sa
     given = DetectedObject(**obs["given"])
     zone, at = ep.place.get("zone"), ep.place.get("at")
     result, failed = None, None
+    drops0 = info["drops_at_connect"]
     try:
         if recorder is not None:
             recorder.svc, recorder.driver = svc, drv  # 에피소드마다 새 드라이버·ArmService
             recorder.start()
+            t_first = time.perf_counter()
+            while recorder.frames < 2 and time.perf_counter() - t_first < 5.0:  # 첫 렌더(렌더러 만들기)가 물리를 한 번 밀 수 있다: 팔이 서 있을 때 끝내고 거기서부터 lag를 센다
+                time.sleep(0.01)
+            drops0 = drv.dropped_count
         with Sampler(drv) as s:
             try:
                 result = svc.pick_and_place(given, zone=zone, place_at=tuple(at) if at else None)
             except RuntimeError as e:  # 물리 실패(MuJoCoDriver._check)
                 failed = str(e)
-            time.sleep(SETTLE_S)
+            time.sleep(settle_s)
         failed = failed or drv.failed_reason
         if samples_out is not None:
             samples_out.extend(s.samples)
         end = None if failed else drv.sim_state()
         target = svc.skills.last_place_xy
         row = judge_episode(result, s.samples, end, ep.truth, list(target) if target else None, read_events(svc), failed)
-        drops = drv.dropped_count - info["drops_at_connect"]
+        drops = drv.dropped_count - drops0
         row.update({"sim_s": round(end["t_s"], 2) if end else None, "wall_s": round(time.perf_counter() - t0, 2), "dropped_count": drops,
                     "realtime_lag": drv.realtime and drops > 0, "gap0_mm": info["gap0_mm"], "jaw_yaw_deg": info["jaw_yaw_deg"], "max_load_pct": round(s.max_load, 1)})
         if recorder is not None:
-            row["recorded_frames"] = recorder.stop(save=row["outcome"] == "placed_ok")
+            row["recorded_frames"] = recorder.stop(save=row["outcome"] == "placed_ok" and not row["realtime_lag"])
         return {"episode": ep.id, "seed": ep.seed, "gripper": cfg.gripper, "scene_parts": [p.name for p in env.scene.parts],
                 "truth": ep.truth, "given": obs["given"], "inject": ep.inject, "place": ep.place, **row}
     finally:
@@ -383,7 +392,7 @@ def _commit() -> str:
 
 
 def _worker(job, recorder=None):
-    ep, override, out, grip_force, viewer = job
+    ep, override, out, grip_force, viewer, settle_s = job
     import os
 
     from . import mujoco_hand
@@ -394,7 +403,7 @@ def _worker(job, recorder=None):
         mujoco_hand.GRIP_FORCE_N = float(grip_force)
     try:
         cfg = load_cfg(override)
-        row = run_episode(ep, cfg, Path(out) / "episodes" / ep.id, recorder=recorder, viewer=viewer)
+        row = run_episode(ep, cfg, Path(out) / "episodes" / ep.id, recorder=recorder, viewer=viewer, settle_s=settle_s)
     except Exception as e:  # noqa: BLE001 한 에피소드가 깨져도 묶음은 계속 돈다: sim_fail 한 줄로 남긴다
         row = {"episode": ep.id, "seed": ep.seed, "gripper": None, "scene_parts": [], "truth": ep.truth, "given": None, "inject": ep.inject, "place": ep.place,
                "reported": {"status": None, "reason": None}, "picked": False, "placed": False, "outcome": "sim_fail", "agree": "match", "slip_mm": None,
@@ -443,18 +452,52 @@ def summarize(rows: list[dict]) -> tuple[dict, str]:
     return summary, "\n".join(lines) + "\n"
 
 
+def suite_override(s: dict, gripper: str | None, out: Path) -> Path:
+    """덮어쓰기 파일: --gripper > 묶음의 robot(수집 프리셋, config/sim_scenarios/bench/<파일>) > 기본 robot.yaml."""
+    if gripper:
+        return gripper_override(gripper, out)
+    return BENCH_DIR / s["robot"] if s.get("robot") else OVERRIDE
+
+
+def _record_part(args) -> list[dict]:
+    """--record --jobs N의 일꾼 하나: 자기 몫 에피소드를 자기 조각 데이터셋(part-NN)에 쓴다."""
+    jobs_part, part_dir, task = args
+    from .mujoco_record import EpisodeRecorder
+
+    rec = EpisodeRecorder(None, None, part_dir, task=task)  # svc·driver는 에피소드마다 run_episode가 넣는다
+    rows = []
+    try:
+        for j in jobs_part:
+            rows.append(_worker(j, rec))
+            r = rows[-1]
+            print(f"{r['episode']}: {r['outcome']} lag={r['realtime_lag']} {r['wall_s']}s", flush=True)
+    finally:
+        rec.close()
+    return rows
+
+
+def _write_collect_info(root: Path, s: dict, override: Path, cfg, settle_s: float, commit: str, seed_start: int, seeds: int) -> None:
+    """데이터셋 meta/collect.json: 어느 묶음·프리셋·집기 규칙으로 모았는지(결정 0068·0069)."""
+    preset = yaml.safe_load(override.read_text(encoding="utf-8")) or {}
+    info = {"suite": s["name"], "preset": override.name, "preset_values": preset, "settle_s": settle_s, "commit": commit,
+            "seed_start": seed_start, "seeds": seeds, "grasp_approach": getattr(cfg, "grasp_approach", "vertical")}
+    (root / "meta" / "collect.json").write_text(json.dumps(info, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
 def run(suite: str, seeds: int = 1, gripper: str | None = None, jobs: int = 1, only: str | None = None, out_root: Path | None = None,
         grip_force: float | None = None, seed_start: int = 0, record: str | None = None, viewer: bool = False) -> Path:
     """묶음을 돌려 결과 폴더를 돌려준다: results.jsonl·summary.json·summary.md·episodes/<id>/(events·status).
-    record(데이터셋 이름)를 주면 runs/datasets/<이름>/에 placed_ok 에피소드만 LeRobot 데이터셋으로 남긴다(한 프로세스만, --jobs 1)."""
+    record(데이터셋 이름)를 주면 runs/datasets/<이름>/에 placed_ok이고 realtime_lag 없는 에피소드만 LeRobot 데이터셋으로 남긴다.
+    --jobs N이면 일꾼마다 <이름>/part-NN/에 쓰고 끝에 lerobot aggregate_datasets로 하나로 합친다(결정 0068)."""
     s = load_suite(suite)
-    rec = None
+    settle_s = float(s.get("settle_s", SETTLE_S))
+    ds_root = None
     if record:
-        if jobs > 1:
-            raise ValueError("--record는 데이터셋 쓰는 쪽이 하나라 --jobs 1에서만")
-        from .mujoco_record import EpisodeRecorder, dataset_dir
+        from .mujoco_record import dataset_dir
 
-        rec = EpisodeRecorder(None, None, dataset_dir(record, out_root or REPO_ROOT), task=task_text(s))  # svc·driver는 에피소드마다 run_episode가 넣는다
+        ds_root = dataset_dir(record, out_root or REPO_ROOT)
+        if ds_root.exists():
+            raise ValueError(f"데이터셋 폴더가 이미 있다(이어 쓰기는 2차): {ds_root}")
     eps = [e for e in episodes(s, seeds, seed_start=seed_start) if only is None or e.id == only]
     if not eps:
         raise ValueError(f"돌릴 에피소드가 없다(--only {only})")
@@ -462,8 +505,9 @@ def run(suite: str, seeds: int = 1, gripper: str | None = None, jobs: int = 1, o
     tag = f"-f{grip_force:g}" if grip_force is not None else ""
     out = (out_root or REPO_ROOT / "runs" / "bench-mujoco") / f"{datetime.now():%Y%m%d-%H%M%S}-{commit}{tag}"
     out.mkdir(parents=True, exist_ok=True)
-    override = gripper_override(gripper, out) if gripper else OVERRIDE
-    jobs_list = [(e, str(override), str(out), grip_force, viewer) for e in eps]
+    override = suite_override(s, gripper, out)
+    jobs_list = [(e, str(override), str(out), grip_force, viewer, settle_s) for e in eps]
+    parted = bool(record) and jobs > 1
     rows = []
     with (out / "results.jsonl").open("w", encoding="utf-8") as f:
         def keep(row):
@@ -471,54 +515,95 @@ def run(suite: str, seeds: int = 1, gripper: str | None = None, jobs: int = 1, o
             rows.append(row)
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
             f.flush()
-            print(f"{row['episode']}: {row['outcome']} ({row['reported']['status']}) {row['wall_s']}s", flush=True)
+            if not parted:  # 조각 일꾼은 자기가 찍는다
+                print(f"{row['episode']}: {row['outcome']} ({row['reported']['status']}) {row['wall_s']}s", flush=True)
 
-        if jobs > 1:
+        if parted:
+            from .mujoco_record import merge_parts
+
+            parts = [(jobs_list[i::jobs], ds_root / f"part-{i:02d}", task_text(s)) for i in range(jobs)]
             with ProcessPoolExecutor(jobs) as ex:
-                for row in ex.map(_worker, jobs_list):
-                    keep(row)
-        else:
+                for part_rows in ex.map(_record_part, parts):
+                    for row in part_rows:
+                        keep(row)
+            merge_parts(ds_root)
+        elif record:
+            from .mujoco_record import EpisodeRecorder
+
+            rec = EpisodeRecorder(None, None, ds_root, task=task_text(s))  # svc·driver는 에피소드마다 run_episode가 넣는다
             try:
                 for j in jobs_list:
                     keep(_worker(j, rec))
             finally:
-                if rec is not None:
-                    rec.close()
+                rec.close()
+        elif jobs > 1:
+            with ProcessPoolExecutor(jobs) as ex:
+                for row in ex.map(_worker, jobs_list):
+                    keep(row)
+        else:
+            for j in jobs_list:
+                keep(_worker(j))
+    if ds_root is not None:
+        _write_collect_info(ds_root, s, override, load_cfg(override), settle_s, commit, seed_start, seeds)
     summary, md = summarize(rows)
     first = next((r for r in rows if r["gripper"]), rows[0])
-    summary.update({"suite": s["name"], "commit": commit, "seed_start": seed_start, "record": record, "recorded": sum(1 for r in rows if r.get("recorded_frames")), "gripper": first["gripper"], "scene_parts": first["scene_parts"], "seeds": seeds, "grip_force_n": rows[0]["grip_force_n"]})
+    walls = [r["wall_s"] for r in rows if r.get("wall_s")]
+    summary.update({"suite": s["name"], "commit": commit, "seed_start": seed_start, "record": record, "recorded": sum(1 for r in rows if r.get("recorded_frames")),
+                    "recorded_frames": sum(r.get("recorded_frames") or 0 for r in rows), "jobs": jobs, "preset": override.name, "settle_s": settle_s,
+                    "wall_s_median": round(float(np.median(walls)), 2) if walls else None,
+                    "gripper": first["gripper"], "scene_parts": first["scene_parts"], "seeds": seeds, "grip_force_n": rows[0]["grip_force_n"]})
     (out / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
     (out / "summary.md").write_text(f"# {s['name']} (커밋 {commit}, 그리퍼 {summary['gripper']}, 힘 한계 {summary['grip_force_n']:g}N, 부품 {', '.join(summary['scene_parts']) or '-'})\n\n" + md, encoding="utf-8")
     return out
 
 
-def run_policy(suite: str, checkpoint: str, seeds: int = 50, seed_start: int = 10000, out_root: Path | None = None, max_s: float = POLICY_MAX_S,
-               viewer: bool = False) -> Path:
-    """학습한 정책을 씨앗 seed_start부터 seeds개 배치에서 평가한다(한 프로세스, 실시간). 체크포인트는 이 placed_ok 비율로 고른다."""
+def _policy_part(args) -> list[dict]:
+    """정책 평가 일꾼 하나: 체크포인트를 한 번 열고 자기 몫 에피소드를 돈다. 줄마다 results-part-NN.jsonl에 바로 적는다."""
     import os
-    from collections import Counter
 
     from ..service.policy_runner import load_act
 
+    i, eps, suite, checkpoint, out, max_s, viewer = args
     os.chdir(REPO_ROOT)
     s = load_suite(suite)
     policy = load_act(checkpoint)  # 한 번만 연다(에피소드마다 PolicyRunner.start가 reset)
-    out = (out_root or REPO_ROOT / "runs" / "bench-mujoco") / f"{datetime.now():%Y%m%d-%H%M%S}-{_commit()}-policy"
-    out.mkdir(parents=True, exist_ok=True)
-    rows, cfg = [], load_cfg()
-    with (out / "results.jsonl").open("w", encoding="utf-8") as f:
-        for ep in episodes(s, seeds, seed_start=seed_start):
-            row = run_policy_episode(ep, s, cfg, out / "episodes" / ep.id, policy, max_s, viewer)
+    cfg = load_cfg(suite_override(s, None, Path(out)))
+    rows = []
+    with (Path(out) / f"results-part-{i:02d}.jsonl").open("w", encoding="utf-8") as f:
+        for ep in eps:
+            row = run_policy_episode(ep, s, cfg, Path(out) / "episodes" / ep.id, policy, max_s, viewer)
             row.update({"suite": s["name"], "checkpoint": str(checkpoint)})
             rows.append(row)
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
             f.flush()
             print(f"{row['episode']}: {row['outcome']} ({row['policy']['reason']}) {row['wall_s']}s", flush=True)
+    return rows
+
+
+def run_policy(suite: str, checkpoint: str, seeds: int = 50, seed_start: int = 10000, out_root: Path | None = None, max_s: float = POLICY_MAX_S,
+               viewer: bool = False, jobs: int = 1) -> Path:
+    """학습한 정책을 씨앗 seed_start부터 seeds개 배치에서 평가한다(실시간, --jobs N이면 일꾼 N개). 체크포인트는 이 placed_ok 비율로 고른다.
+    묶음에 robot(수집 프리셋)이 있으면 같은 cfg로 평가한다."""
+    from collections import Counter
+
+    s = load_suite(suite)
+    out = (out_root or REPO_ROOT / "runs" / "bench-mujoco") / f"{datetime.now():%Y%m%d-%H%M%S}-{_commit()}-policy"
+    out.mkdir(parents=True, exist_ok=True)
+    eps = episodes(s, seeds, seed_start=seed_start)
+    parts = [(i, eps[i::jobs], suite, str(checkpoint), str(out), max_s, viewer) for i in range(jobs)]
+    if jobs > 1:
+        with ProcessPoolExecutor(jobs) as ex:
+            rows = [r for part in ex.map(_policy_part, parts) for r in part]
+    else:
+        rows = _policy_part(parts[0])
+    rows.sort(key=lambda r: r["seed"])
+    with (out / "results.jsonl").open("w", encoding="utf-8") as f:
+        f.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
     ok = sum(1 for r in rows if r["outcome"] == "placed_ok")
     ms = [r["policy"]["infer_ms_mean"] for r in rows if r["policy"]["infer_ms_mean"] is not None]
     summary = {"suite": s["name"], "checkpoint": str(checkpoint), "seed_start": seed_start, "episodes": len(rows), "placed_ok": ok,
                "outcomes": dict(Counter(r["outcome"] for r in rows)), "reasons": dict(Counter(r["policy"]["reason"] for r in rows)),
-               "infer_ms_mean": round(sum(ms) / len(ms), 2) if ms else None, "max_s": max_s}
+               "infer_ms_mean": round(sum(ms) / len(ms), 2) if ms else None, "max_s": max_s, "jobs": jobs}
     (out / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
     (out / "summary.md").write_text(f"# {s['name']} 정책 평가 ({checkpoint}, 씨앗 {seed_start}~{seed_start + seeds - 1})\n\n"
                                     f"placed_ok {ok}/{len(rows)}\noutcome: {summary['outcomes']}\n끝난 이유: {summary['reasons']}\n"
@@ -535,13 +620,13 @@ def main(argv=None):
     ap.add_argument("--only")
     ap.add_argument("--grip-force", type=float, help="병렬 손 힘 한계 N(U15 민감도, 기본 mujoco_hand.GRIP_FORCE_N)")
     ap.add_argument("--seed-start", type=int, default=0, help="첫 씨앗(전문가 수집 0~9999, 평가 10000~, 13.10.4)")
-    ap.add_argument("--policy", help="학습한 ACT 체크포인트 폴더(pretrained_model): 수집 대신 정책을 평가한다(PolicyRunner, --jobs 1)")
+    ap.add_argument("--policy", help="학습한 ACT 체크포인트 폴더(pretrained_model): 수집 대신 정책을 평가한다(PolicyRunner, --jobs N이면 일꾼마다 체크포인트를 연다)")
     ap.add_argument("--viewer", action="store_true", help="MuJoCo 뷰어 창을 띄워 보며 돌린다(실시간, 에피소드마다 창이 새로 열린다. --jobs N이면 창 N개)")
-    ap.add_argument("--record", help="데이터셋 이름: placed_ok 에피소드를 runs/datasets/<이름>/에 LeRobot 데이터셋으로(--jobs 1)")
+    ap.add_argument("--record", help="데이터셋 이름: placed_ok 에피소드를 runs/datasets/<이름>/에 LeRobot 데이터셋으로(realtime_lag 에피소드는 빼고, --jobs N이면 part-NN 조각을 쓰고 끝에 합친다)")
     a = ap.parse_args(argv)
     try:
         if a.policy:
-            out = run_policy(a.suite, a.policy, a.seeds, a.seed_start, viewer=a.viewer)
+            out = run_policy(a.suite, a.policy, a.seeds, a.seed_start, viewer=a.viewer, jobs=a.jobs)
             print((out / "summary.md").read_text(encoding="utf-8"))
             print(f"결과: {out}")
             return

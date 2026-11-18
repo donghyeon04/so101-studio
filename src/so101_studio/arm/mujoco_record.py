@@ -3,7 +3,10 @@
 한 줄 = `observation.state`(실제 관절 6개) + `action`(`svc.status().cmd`, 명령 관절 6개) + 카메라마다 `observation.images.<이름>`(render).
 단위는 관절 1~5가 °, 그리퍼가 0~100(0 닫힘)이고 이름은 `shoulder_pan.pos … gripper.pos`다(LeRobot so101_follower와 같은 키·차원, 영점은 보장 안 함).
 시계는 time.perf_counter로 fps를 맞춘다(실시간 수집, 13.10.2 뒤 ArmService 시계로)."""
+import gc
+import json
 import re
+import shutil
 import threading
 import time
 from dataclasses import astuple
@@ -39,7 +42,8 @@ class EpisodeRecorder:
         features = {"observation.state": vec, "action": dict(vec)}
         for c in self.cameras:
             features[f"observation.images.{c}"] = {"dtype": "video", "shape": (height, width, 3), "names": ["height", "width", "channels"]}
-        self.ds = LeRobotDataset.create(repo_id=f"local/{root.name}", root=root, fps=fps, robot_type="so101_follower", features=features, use_videos=True)
+        self.ds = LeRobotDataset.create(repo_id=f"local/{root.name}", root=root, fps=fps, robot_type="so101_follower", features=features, use_videos=True,
+                                         encoder_threads=1)  # 병렬 수집에서 다른 일꾼의 영상 인코딩이 CPU를 다 쓰면 물리가 밀린다(realtime_lag, 결정 0068)
         self.frames = 0  # 지금 에피소드의 줄 수
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -77,6 +81,8 @@ class EpisodeRecorder:
             self.task = task
         self.frames, self._error = 0, None
         self._stop.clear()
+        gc.collect()
+        gc.disable()  # 기록 중 GC 2세대 수집이 GIL을 0.1초 넘게 잡아 물리가 밀렸다(realtime_lag, 결정 0068). stop()에서 다시 켠다
         self._thread = threading.Thread(target=self._run, name="episode-recorder", daemon=True)
         self._thread.start()
 
@@ -87,6 +93,7 @@ class EpisodeRecorder:
             return 0
         self._stop.set()
         t.join()
+        gc.enable()
         if self._error is not None or not (save and self.frames):
             self.ds.clear_episode_buffer()
             if self._error is not None:
@@ -99,3 +106,99 @@ class EpisodeRecorder:
         if self._thread is not None:
             self.stop(save=False)
         self.ds.finalize()
+
+
+def merge_parts(root: Path) -> int:
+    """`root/part-NN/` 조각들을 lerobot 0.6.1 `aggregate_datasets`로 하나로 합쳐 `root`에 둔다(결정 0068). 합친 에피소드 수.
+    빈 조각은 뺀다. 옆 폴더 `<이름>.merging`에 합친 뒤 `<이름>`(조각) → `<이름>.parts`, `.merging` → `<이름>` 순으로 바꿔 달고, 그다음에만 조각을 지운다."""
+    from lerobot.datasets.aggregate import aggregate_datasets
+
+    root = Path(root)
+    parts = sorted(p for p in root.glob("part-*") if json.loads((p / "meta" / "info.json").read_text(encoding="utf-8"))["total_episodes"] > 0)
+    if not parts:
+        raise RuntimeError(f"저장한 에피소드가 없다: {root}")
+    tmp, old = root.with_name(root.name + ".merging"), root.with_name(root.name + ".parts")
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    aggregate_datasets([f"local/{p.name}" for p in parts], f"local/{root.name}", roots=parts, aggr_root=tmp)
+    _rename(root, old)
+    _rename(tmp, root)
+    shutil.rmtree(old, ignore_errors=True)
+    return json.loads((root / "meta" / "info.json").read_text(encoding="utf-8"))["total_episodes"]
+
+
+def _rename(a: Path, b: Path, tries: int = 20) -> None:
+    """Windows에서 막 쓴 폴더는 잠깐 잠겨 rename이 PermissionError를 낸다(11-18 --jobs 4 수집에서 한 번): 0.5초씩 다시 한다."""
+    for i in range(tries):
+        try:
+            a.rename(b)
+            return
+        except PermissionError:
+            if i == tries - 1:
+                raise
+            time.sleep(0.5)
+
+
+def shift_actions(src: Path, k: int) -> Path:
+    """`action[t] = cmd[t+k]`(에피소드 안에서, 끝 k프레임은 마지막 명령)인 사본 `<이름>-k<k>`를 만든다(결정 0068). 기록기는 그대로다.
+    영상은 하드링크(안 되면 복사), meta/stats.json의 action 통계는 다시 계산한다.
+    shortcut: meta/episodes의 에피소드별 action 통계는 원본 그대로다(끝 k프레임만 달라 학습 정규화는 stats.json을 쓴다). 에피소드별 통계를 쓰는 도구가 생기면 다시 계산한다."""
+    import os
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    src = Path(src)
+    dst = src.with_name(f"{src.name}-k{k}")
+    if dst.exists():
+        raise ValueError(f"사본 폴더가 이미 있다: {dst}")
+    if k < 1:
+        raise ValueError("k는 1 이상")
+
+    def link(a, b):
+        try:
+            os.link(a, b)
+        except OSError:
+            shutil.copy2(a, b)
+
+    shutil.copytree(src / "meta", dst / "meta")
+    if (src / "videos").exists():
+        shutil.copytree(src / "videos", dst / "videos", copy_function=link)
+    actions = []
+    for f in sorted((src / "data").rglob("*.parquet")):
+        t = pq.read_table(f)
+        act, ep = np.stack(t.column("action").to_numpy(zero_copy_only=False)), t.column("episode_index").to_numpy()
+        out = act.copy()
+        for e in np.unique(ep):
+            idx = np.flatnonzero(ep == e)  # 한 파일 안 에피소드 줄은 frame_index 순서로 이어져 있다
+            out[idx] = act[np.minimum(idx + k, idx[-1])]
+        actions.append(out)
+        col = pa.array(out.tolist(), type=t.schema.field("action").type)  # 합친 데이터셋은 고정 길이가 아닌 list일 수 있다: 원래 열 형식 그대로
+        t = t.set_column(t.schema.get_field_index("action"), t.schema.field("action"), col)
+        (dst / f.relative_to(src)).parent.mkdir(parents=True, exist_ok=True)
+        pq.write_table(t, dst / f.relative_to(src))
+    a = np.concatenate(actions).astype(np.float64)
+    stats_path = dst / "meta" / "stats.json"
+    stats = json.loads(stats_path.read_text(encoding="utf-8"))
+    q = {f"q{p:02d}": np.quantile(a, p / 100, axis=0).tolist() for p in (1, 10, 50, 90, 99)}
+    stats["action"] = {"min": a.min(0).tolist(), "max": a.max(0).tolist(), "mean": a.mean(0).tolist(), "std": a.std(0).tolist(), "count": [len(a)],
+                       **{key: v for key, v in q.items() if key in stats["action"]}}
+    stats_path.write_text(json.dumps(stats, indent=4), encoding="utf-8")
+    return dst
+
+
+def main(argv=None):
+    import argparse
+
+    ap = argparse.ArgumentParser(prog="python -m so101_studio.arm.mujoco_record", description="데이터셋 도구(mujoco-spec 13.10.4, 결정 0068)")
+    ap.add_argument("--shift", metavar="데이터셋", help="action을 k프레임 앞당긴 사본 <이름>-k<k>를 만든다(runs/datasets/<이름> 또는 폴더 경로)")
+    ap.add_argument("--k", type=int, default=5)
+    a = ap.parse_args(argv)
+    if not a.shift:
+        ap.error("--shift가 필요하다")
+    src = Path(a.shift) if Path(a.shift).exists() else dataset_dir(a.shift, Path(__file__).resolve().parents[3])
+    print(f"사본: {shift_actions(src, a.k)}")
+
+
+if __name__ == "__main__":
+    main()

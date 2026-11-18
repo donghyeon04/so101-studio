@@ -99,3 +99,63 @@ def test_expert_replay_places(tmp_path):
     """저장한 action을 다시 틀면 judge가 placed_ok(13.10.4 끝난 기준). 열린 고리 + 실시간이라 흔들려 measure로 둔다(11-18 측정: 7번 중 4번)."""
     row, root = _record_one(tmp_path)
     assert replay(root, 0, row["seed"], tmp_path / "replay")["outcome"] == "placed_ok"
+
+
+def _tiny(root, episodes):
+    """영상 없는 작은 데이터셋: 에피소드마다 action[t] = (에피소드*100 + t)를 여섯 칸에."""
+    import numpy as np
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+    vec = {"dtype": "float32", "shape": (6,), "names": NAMES}
+    ds = LeRobotDataset.create(repo_id=f"local/{root.name}", root=root, fps=25, robot_type="so101_follower",
+                               features={"observation.state": vec, "action": dict(vec)}, use_videos=False)
+    for e, n in episodes:
+        for t in range(n):
+            v = np.full(6, e * 100 + t, np.float32)
+            ds.add_frame({"observation.state": v, "action": v, "task": "t"})
+        ds.save_episode()
+    ds.finalize()
+    return root
+
+
+def _actions(root):
+    import numpy as np
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    t = pa.concat_tables([pq.read_table(f) for f in sorted((root / "data").rglob("*.parquet"))])
+    return t.column("episode_index").to_numpy(), np.stack(t.column("action").to_numpy(zero_copy_only=False))[:, 0]
+
+
+def test_shift_actions_moves_each_episode_k_frames_ahead(tmp_path):
+    """결정 0068: 사본 <이름>-k2의 action[t] = cmd[t+2], 에피소드 끝 2프레임은 마지막 명령. 원본은 그대로, 통계는 새 action으로."""
+    import json
+
+    from so101_studio.arm.mujoco_record import shift_actions
+
+    src = _tiny(tmp_path / "d", [(0, 5), (1, 4)])
+    dst = shift_actions(src, 2)
+    assert dst.name == "d-k2"
+    ep, a = _actions(dst)
+    assert a[ep == 0].tolist() == [2, 3, 4, 4, 4] and a[ep == 1].tolist() == [102, 103, 103, 103]
+    assert _actions(src)[1][:5].tolist() == [0, 1, 2, 3, 4]
+    st = json.loads((dst / "meta" / "stats.json").read_text(encoding="utf-8"))["action"]
+    assert st["min"][0] == 2 and st["max"][0] == 103
+    with pytest.raises(ValueError):
+        shift_actions(src, 2)  # 사본이 이미 있다
+
+
+def test_merge_parts_joins_pieces_and_skips_empty(tmp_path):
+    """결정 0068 --jobs N 수집: part-NN 조각을 aggregate_datasets로 합치고 빈 조각은 뺀다. 조각 폴더는 합친 뒤 없다."""
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+    from so101_studio.arm.mujoco_record import merge_parts
+
+    root = tmp_path / "m"
+    _tiny(root / "part-00", [(0, 3)])
+    _tiny(root / "part-01", [(5, 4), (6, 2)])
+    _tiny(root / "part-02", [])
+    assert merge_parts(root) == 3
+    assert not list(root.glob("part-*"))
+    ds = LeRobotDataset("local/m", root=root)
+    assert ds.num_episodes == 3 and ds.num_frames == 9

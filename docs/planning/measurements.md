@@ -670,3 +670,21 @@ p99 증가는 -0.04ms(기준 2ms 이하), time_lost_s 증가 0%(기준 1% 미만
 - 20k 줄 셋(A·B 20k, B 40k)은 시작하자마자 elbow_flex 한계 거부로 끝나 같은 숫자다.
 - 정식 평가 A 80k(씨앗 10000~10049, `runs/bench-mujoco/20261118-181236-b9bf0d8-policy`): **placed_ok 4/50**(씨앗 10027·10041·10046·10048). outcome은 moved 16, untouched 30이다. 끝난 이유는 max_s 43, joint_limit:gripper 5, fault 2이고, 상자까지 36.8mm, 최저 16.4mm, 추론 평균 1.6ms다. 성공 4개 중 3개는 놓은 뒤 그리퍼가 한계 밖으로 벌리려다 joint_limit로 끝났지만 판정은 placed_ok였다.
 - 읽기: state를 빼면(A) 손이 상자 가까이 내려간다. 정지 프레임만 빼면(B) 거의 나아지지 않는다. A도 100k가 80k보다 나빠, 오래 학습할수록 rollout이 나빠진다는 레퍼런스(aviadarn/so101-lerobot)와 같다. 남은 원인(느린 시연, 상태와 거의 같은 action)은 결정 0068 수집 다시 짜기에서 다룬다.
+
+## MuJoCo 수집 다시 짜기: 1차 묶음·빠른 프리셋·병렬 수집 (2026-11-18, REQ-077, 결정 0068, 병렬 손, 실시간, 뷰어 켬)
+- 묶음 `collect_pick1`: 58×58×39 상자, 반경 150~200mm, 방위 ±30°, `angle_deg: along`(상자 한 면이 팔→상자 방향과 나란함), 배출 구역 `right`, 판정 대기 `settle_s: 0.3`. 묶음의 `robot: collect_fast.yaml`이 시험장 덮어쓰기 층을 바꾼다(MuJoCo 시험장에서만 읽힌다). 같은 cfg로 정책도 평가한다. 정책 평가의 판정 대기는 PolicyRunner의 1.0초 그대로다.
+- 프리셋 `config/sim_scenarios/bench/collect_fast.yaml`: `speed_pct_default` 100, `joint_v_max_deg_s` 150, `a_max_deg_s2` 400, `joint_jerk_max_deg_s3` 2000, `tool_v_max_mm_s` 200, `tool_a_max_mm_s2` 500, `tool_jerk_max_mm_s3` 3000, `servo_acceleration` 50, `place_open_s` 0.5. 안전 검사(관절 한계·작업 영역·바닥·막힘)는 그대로다. arm 영역 키는 더하지 않았다.
+- 단계별 시간(연결부터 각 동작 끝(`ARM-TRACKING`)까지의 간격, 초). 구간은 순서대로 집기 접근·하강·닫기·들기, 놓기 옮기기·내리기·벌리기·물러나기다.
+
+| 설정 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 동작 합 |
+|---|---|---|---|---|---|---|---|---|---|
+| 기존(`collect_pick`, 속도 30%, pick58_v1 씨앗 0) | 6.44 | 6.26 | 2.52 | 4.12 | 3.62 | 2.58 | 1.02 | 3.08 | 29.6 |
+| 속도 100%만 | 2.1 | 2.08 | 1.4 | 3.0 | 1.6~2.1 | 1.4 | 1.02 | 1.54 | 14.2~14.7 |
+| `collect_fast`(씨앗 0~5, 6/6 placed_ok, 거짓 성공·실패 0) | 1.16~1.22 | 1.14 | 0.68~0.70 | 2.30~2.34 | 0.86~1.18 | 0.68~0.70 | 0.52~0.54 | 0.76 | 8.1~8.4 |
+
+- 에피소드 길이: `--jobs 6` 수집 23개는 4,988프레임이었다. 중앙 약 217프레임, 8.7초(25fps)로 10초 이하다.
+- realtime_lag: 녹화하는 에피소드에서만 났다(같은 씨앗 104~110, 1개 일꾼, 녹화 없음 0/7, 녹화 1/7). 끼어드는 0.1초 넘는 멈춤은 집기·놓기 중간(6.5~7.4초)에 났고 씨앗마다 거의 같은 자리였다. 녹화 스레드가 프레임을 쌓는 동안 Python GC 2세대 수집이 GIL을 잡는 것으로 보고, 녹화 중에는 GC를 껐다(`EpisodeRecorder.start`에서 끄고 `stop`에서 켬). 그 뒤 `--jobs 2` 씨앗 100~111에서 2/12가 0/12가 됐다. 연결 직후 첫 렌더(렌더러 만들기)의 멈춤은 팔이 서 있을 때라, 첫 프레임 둘을 기록한 뒤부터 lag를 센다.
+- `--jobs N`(GC 끈 뒤, `--record`, 씨앗 24개 묶음): N=2 0/12, N=4 0/48, **N=6 2/48(4.2%)**, N=8 2/24(8.3%). 5% 아래 가장 큰 값인 **N=6**을 쓴다. 에피소드 벽시계 중앙값은 N=4·6 11.7초, N=8 12.2초다(이 PC, 논리 코어 16).
+- 합치기: lerobot 0.6.1 `lerobot.datasets.aggregate.aggregate_datasets(repo_ids, aggr_repo_id, roots, aggr_root)`가 있어 그대로 쓴다. 일꾼마다 `<이름>/part-NN/`에 쓰고, 끝에 `<이름>.merging`으로 합친 뒤 바꿔 단다. 빈 조각은 뺀다. 한 번은 Windows가 막 쓴 폴더를 잠가 rename이 PermissionError를 냈다. 그래서 0.5초씩 다시 하고, 조각은 바꿔 단 뒤에만 지운다. 데이터셋 `meta/collect.json`에는 묶음·프리셋 값·판정 대기·커밋·`grasp_approach: vertical`을 적는다.
+- action 앞당김: `python -m so101_studio.arm.mujoco_record --shift <이름> --k 5`가 `<이름>-k5`를 만든다. 영상은 하드링크로 두고 data parquet의 action만 에피소드 안에서 5프레임 당긴다(끝 5프레임은 마지막 명령). `meta/stats.json`의 action 통계는 다시 계산한다. 23개 데이터셋에서 사본의 0번 줄 action = 원본 5번 줄 action, state·영상은 같다.
+- 데이터 특성(빠른 시연 23개): action과 state 차이 중앙 0.97°(전 0.29°), 프레임당 action 변화 중앙 1.26°(전 0.40°), 변화 0.05° 미만 프레임 10.6%(전 16%).

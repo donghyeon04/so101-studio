@@ -1,0 +1,12 @@
+# sim 수집 전용 프리셋(결정 0068, arm-software-spec 6.9.1 파라미터 이름 그대로): 시험장 덮어쓰기 층이라 MuJoCo 시험장(--sim)에서만 읽힌다.
+# 실물 속도·안전 검사(관절 한계·작업 영역·바닥·막힘)는 바꾸지 않는다. 값과 단계별 시간은 measurements.md.
+gripper: parallel
+speed_pct_default: 100
+joint_v_max_deg_s: 150
+a_max_deg_s2: 400
+joint_jerk_max_deg_s3: 2000
+tool_v_max_mm_s: 200
+tool_a_max_mm_s2: 500
+tool_jerk_max_mm_s3: 3000
+servo_acceleration: 50
+place_open_s: 0.5
