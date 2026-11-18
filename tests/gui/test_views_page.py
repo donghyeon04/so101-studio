@@ -68,12 +68,17 @@ def test_cameras_draw_and_tile_click_enlarges(backend, monkeypatch):
         await user.should_see(marker="view-wrist")
         for c in ("top", "ultrasonic", "scene"):
             await user.should_not_see(marker=f"view-{c}")
+        await asyncio.sleep(0.3)  # 누르기 전에 시작한 그리기가 끝나게
         calls.clear()
         await asyncio.sleep(0.4)
         assert calls and set(calls) == {"wrist"}  # 숨긴 칸은 그리지 않는다
         user.find(marker="view-wrist").click()
         for c in CARDS:
             await user.should_see(marker=f"view-{c}")
+        user.find(marker="view-scene").click()  # 3D 칸은 안을 눌러도(view cube 등) 그대로, 제목을 눌러야 크게 본다
+        await user.should_see(marker="view-top")
+        user.find(marker="view-title-3D").click()
+        await user.should_not_see(marker="view-top")
 
     open_views(backend, check)
 

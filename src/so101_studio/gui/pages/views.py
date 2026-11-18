@@ -5,8 +5,7 @@ from nicegui import ui
 
 from ...service.policy_runner import CAMERAS
 from .. import sensors
-from .common import camera_tile, scene_frame, watch_visibility
-from .policy import CAMERA_TITLES
+from .common import CAMERA_TITLES, camera_tile, scene_frame, watch_visibility
 
 NO_RENDER_TEXT = "MuJoCo 시뮬레이션에서만 보입니다"
 
@@ -28,26 +27,31 @@ def build(backend, client_id: str, actions) -> None:
         else:
             card.classes(remove="col-span-2")
 
-    def tile(name: str):
-        card = ui.card().classes("min-w-0 gap-1 cursor-pointer").mark(f"view-{name}")
-        card.on("click", lambda: toggle(card))
+    def tile(name: str, whole: bool = True):
+        """whole이 False면(초음파·3D) 칸 안의 조작(view cube, 레이어 메뉴, 그림 누르기)이 크게 보기를 바꾸지 않게 제목만 누른다."""
+        card = ui.card().classes("min-w-0 gap-1").mark(f"view-{name}")
+        if whole:
+            card.classes("cursor-pointer").on("click", lambda: toggle(card))
         cards.append(card)
         return card
+
+    def title(card, text: str) -> None:
+        ui.label(text).classes("card-title cursor-pointer").mark(f"view-title-{text}").on("click", lambda: toggle(card))
 
     with grid:
         for cam in CAMERAS:
             with tile(cam) as card:
                 if can_render:
-                    tiles.append((card, camera_tile(driver, cam, CAMERA_TITLES[cam])))
+                    tiles.append((card, camera_tile(driver, cam, CAMERA_TITLES[cam])))  # shortcut: 크게 봐도 320×240을 늘린다, 흐리다는 말이 나오면 크게 볼 때 큰 크기로 render
                 else:
                     ui.label(CAMERA_TITLES[cam]).classes("card-title")
                     ui.label(NO_RENDER_TEXT).classes("page-body").mark(f"camera-unavailable-{cam}")
-        with tile("ultrasonic"):
+        with tile("ultrasonic", whole=False) as card:
             for view in sensors.mini_views():
-                ui.label(view.title).classes("card-title")
+                title(card, view.title)
                 view.mini_view_fn(backend)
-        with tile("scene"):
-            ui.label("3D").classes("card-title")  # 3D 안을 누르면 iframe이 받으므로 크게 보기는 제목 줄을 누른다
+        with tile("scene", whole=False) as card:
+            title(card, "3D")
             scene_frame(backend, "scene3d scene3d-short")
 
     async def draw() -> None:
