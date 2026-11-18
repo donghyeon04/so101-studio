@@ -3,6 +3,7 @@
 실행: `python -m so101_studio.arm.mujoco_bench --suite <이름> [--seeds N] [--gripper parallel|single_jaw] [--jobs N] [--only <에피소드 id>]`.
 한 시도 = 한 에피소드이고 에피소드마다 드라이버와 ArmService를 새로 만든다. 지금은 실시간(벽시계) 모드다(시계 주입 13.10.2 전)."""
 import argparse
+import contextlib
 import itertools
 import json
 import math
@@ -22,6 +23,7 @@ from ..core.types import DetectedObject
 
 # 모듈 맨 위에서: 장면 STL(load_scene)을 읽은 뒤 torch(lerobot)를 처음 부르면 shm.dll을 못 읽는다(Windows)
 from ..service.arm_service import ArmService
+from . import mujoco_grid
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 BENCH_DIR = REPO_ROOT / "config" / "sim_scenarios" / "bench"
@@ -321,6 +323,7 @@ def run_episode(ep: Episode, cfg, log_dir: Path, env: BenchEnv | None = None, sa
     t0 = time.perf_counter()
     obs, info = env.reset(options={"episode": ep, "log_dir": log_dir})
     drv, svc = env.drv, env.svc
+    feeder = _feeder(drv, ep.id)
     given = DetectedObject(**obs["given"])
     zone, at = ep.place.get("zone"), ep.place.get("at")
     result, failed = None, None
@@ -348,6 +351,8 @@ def run_episode(ep: Episode, cfg, log_dir: Path, env: BenchEnv | None = None, sa
         drops = drv.dropped_count - drops0
         row.update({"sim_s": round(end["t_s"], 2) if end else None, "wall_s": round(time.perf_counter() - t0, 2), "dropped_count": drops,
                     "realtime_lag": drv.realtime and drops > 0, "gap0_mm": info["gap0_mm"], "jaw_yaw_deg": info["jaw_yaw_deg"], "max_load_pct": round(s.max_load, 1)})
+        if feeder is not None:
+            feeder.note(f"{ep.id}: {row['outcome']}")
         if recorder is not None:
             row["recorded_frames"] = recorder.stop(save=row["outcome"] == "placed_ok" and not row["realtime_lag"])
         return {"episode": ep.id, "seed": ep.seed, "gripper": cfg.gripper, "scene_parts": [p.name for p in env.scene.parts],
@@ -355,7 +360,17 @@ def run_episode(ep: Episode, cfg, log_dir: Path, env: BenchEnv | None = None, sa
     finally:
         if recorder is not None:
             recorder.stop(save=False)  # 판정 전에 끝났으면 버린다(이미 멈췄으면 아무 일도 안 한다)
+        if feeder is not None:
+            feeder.__exit__()
         env.close()
+
+
+def _feeder(drv, label: str):
+    """--viewer grid면 이 에피소드의 위 카메라를 격자 창으로 보낸다(mujoco_grid). 아니면 None."""
+    from . import mujoco_grid
+
+    q = mujoco_grid.current()
+    return mujoco_grid.Feeder(q, drv, label).__enter__() if q is not None else None
 
 
 POLICY_MAX_S = 45.0  # 정책 한 에피소드 상한(전문가 시연이 약 31초라 PolicyRunner 기본 20초로는 모자란다)
@@ -370,6 +385,7 @@ def run_policy_episode(ep: Episode, suite: dict, cfg, log_dir: Path, policy, max
     env = BenchEnv(cfg, viewer=viewer)
     t0 = time.perf_counter()
     env.reset(options={"episode": ep, "log_dir": log_dir})
+    feeder = _feeder(env.drv, ep.id)
     try:
         runner = PolicyRunner(env.svc, env.drv, policy=policy, max_s=max_s, judge=partial(judge, layout=_layout_of(ep, suite)))
         why = runner.start()
@@ -378,8 +394,12 @@ def run_policy_episode(ep: Episode, suite: dict, cfg, log_dir: Path, policy, max
         while runner.result is None:  # 러너가 판정까지 마치면 result를 채운다
             time.sleep(0.2)
         r = runner.result
+        if feeder is not None:
+            feeder.note(f"{ep.id}: {r['outcome']}")
         return {"episode": ep.id, "seed": ep.seed, "truth": ep.truth, "outcome": r["outcome"], "policy": r, "wall_s": round(time.perf_counter() - t0, 2)}
     finally:
+        if feeder is not None:
+            feeder.__exit__()
         env.close()
 
 
@@ -452,6 +472,11 @@ def summarize(rows: list[dict]) -> tuple[dict, str]:
     return summary, "\n".join(lines) + "\n"
 
 
+def _grid(on: bool, n: int, title: str):
+    """--viewer grid: 창 하나에 일꾼 n개의 위 카메라를 격자로(mujoco_grid.Grid). 아니면 큐 None."""
+    return mujoco_grid.Grid(n, title) if on else contextlib.nullcontext(None)
+
+
 def suite_override(s: dict, gripper: str | None, out: Path) -> Path:
     """덮어쓰기 파일: --gripper > 묶음의 robot(수집 프리셋, config/sim_scenarios/bench/<파일>) > 기본 robot.yaml."""
     if gripper:
@@ -460,16 +485,19 @@ def suite_override(s: dict, gripper: str | None, out: Path) -> Path:
 
 
 def _record_part(args) -> list[dict]:
-    """--record --jobs N의 일꾼 하나: 자기 몫 에피소드를 자기 조각 데이터셋(part-NN)에 쓴다."""
+    """--record --jobs N의 일꾼 하나: 자기 몫 에피소드를 자기 조각 데이터셋(part-NN)에 쓰고, 결과 줄은 results-part-NN.jsonl에 바로 적는다(일꾼이 죽어도 남게)."""
     jobs_part, part_dir, task = args
     from .mujoco_record import EpisodeRecorder
 
     rec = EpisodeRecorder(None, None, part_dir, task=task)  # svc·driver는 에피소드마다 run_episode가 넣는다
     rows = []
+    out = Path(jobs_part[0][2]) if jobs_part else None
     try:
         for j in jobs_part:
             rows.append(_worker(j, rec))
             r = rows[-1]
+            with (out / f"results-{Path(part_dir).name}.jsonl").open("a", encoding="utf-8") as f:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
             print(f"{r['episode']}: {r['outcome']} lag={r['realtime_lag']} {r['wall_s']}s", flush=True)
     finally:
         rec.close()
@@ -485,7 +513,7 @@ def _write_collect_info(root: Path, s: dict, override: Path, cfg, settle_s: floa
 
 
 def run(suite: str, seeds: int = 1, gripper: str | None = None, jobs: int = 1, only: str | None = None, out_root: Path | None = None,
-        grip_force: float | None = None, seed_start: int = 0, record: str | None = None, viewer: bool = False) -> Path:
+        grip_force: float | None = None, seed_start: int = 0, record: str | None = None, viewer: bool = False, grid: bool = False) -> Path:
     """묶음을 돌려 결과 폴더를 돌려준다: results.jsonl·summary.json·summary.md·episodes/<id>/(events·status).
     record(데이터셋 이름)를 주면 runs/datasets/<이름>/에 placed_ok이고 realtime_lag 없는 에피소드만 LeRobot 데이터셋으로 남긴다.
     --jobs N이면 일꾼마다 <이름>/part-NN/에 쓰고 끝에 lerobot aggregate_datasets로 하나로 합친다(결정 0068)."""
@@ -509,7 +537,7 @@ def run(suite: str, seeds: int = 1, gripper: str | None = None, jobs: int = 1, o
     jobs_list = [(e, str(override), str(out), grip_force, viewer, settle_s) for e in eps]
     parted = bool(record) and jobs > 1
     rows = []
-    with (out / "results.jsonl").open("w", encoding="utf-8") as f:
+    with _grid(grid, jobs, s["name"]) as gq, (out / "results.jsonl").open("w", encoding="utf-8") as f:
         def keep(row):
             row["suite"], row["commit"] = s["name"], commit
             rows.append(row)
@@ -522,7 +550,7 @@ def run(suite: str, seeds: int = 1, gripper: str | None = None, jobs: int = 1, o
             from .mujoco_record import merge_parts
 
             parts = [(jobs_list[i::jobs], ds_root / f"part-{i:02d}", task_text(s)) for i in range(jobs)]
-            with ProcessPoolExecutor(jobs) as ex:
+            with ProcessPoolExecutor(jobs, initializer=mujoco_grid.set_queue, initargs=(gq,)) as ex:
                 for part_rows in ex.map(_record_part, parts):
                     for row in part_rows:
                         keep(row)
@@ -537,7 +565,7 @@ def run(suite: str, seeds: int = 1, gripper: str | None = None, jobs: int = 1, o
             finally:
                 rec.close()
         elif jobs > 1:
-            with ProcessPoolExecutor(jobs) as ex:
+            with ProcessPoolExecutor(jobs, initializer=mujoco_grid.set_queue, initargs=(gq,)) as ex:
                 for row in ex.map(_worker, jobs_list):
                     keep(row)
         else:
@@ -567,6 +595,7 @@ def _policy_part(args) -> list[dict]:
     os.chdir(REPO_ROOT)
     s = load_suite(suite)
     policy = load_act(checkpoint)  # 한 번만 연다(에피소드마다 PolicyRunner.start가 reset)
+    _warm_up(policy)
     cfg = load_cfg(suite_override(s, None, Path(out)))
     rows = []
     with (Path(out) / f"results-part-{i:02d}.jsonl").open("w", encoding="utf-8") as f:
@@ -580,8 +609,18 @@ def _policy_part(args) -> list[dict]:
     return rows
 
 
+def _warm_up(policy) -> None:
+    """첫 추론(CUDA 커널 준비)이 100~270ms라 일꾼마다 첫 에피소드가 too_slow로 끝났다(11-19, --jobs 6 평가마다 5~6개): 빈 관측으로 한 번 미리 돈다."""
+    import numpy as np
+
+    obs = {"observation.state": np.zeros(6, np.float32), **{f"observation.images.{c}": np.zeros((240, 320, 3), np.uint8) for c in ("top", "wrist")}}
+    policy.reset()
+    policy.select_action(obs)
+    policy.reset()
+
+
 def run_policy(suite: str, checkpoint: str, seeds: int = 50, seed_start: int = 10000, out_root: Path | None = None, max_s: float = POLICY_MAX_S,
-               viewer: bool = False, jobs: int = 1) -> Path:
+               viewer: bool = False, jobs: int = 1, grid: bool = False) -> Path:
     """학습한 정책을 씨앗 seed_start부터 seeds개 배치에서 평가한다(실시간, --jobs N이면 일꾼 N개). 체크포인트는 이 placed_ok 비율로 고른다.
     묶음에 robot(수집 프리셋)이 있으면 같은 cfg로 평가한다."""
     from collections import Counter
@@ -591,11 +630,12 @@ def run_policy(suite: str, checkpoint: str, seeds: int = 50, seed_start: int = 1
     out.mkdir(parents=True, exist_ok=True)
     eps = episodes(s, seeds, seed_start=seed_start)
     parts = [(i, eps[i::jobs], suite, str(checkpoint), str(out), max_s, viewer) for i in range(jobs)]
-    if jobs > 1:
-        with ProcessPoolExecutor(jobs) as ex:
-            rows = [r for part in ex.map(_policy_part, parts) for r in part]
-    else:
-        rows = _policy_part(parts[0])
+    with _grid(grid, jobs, f"{s['name']} 정책") as gq:
+        if jobs > 1:
+            with ProcessPoolExecutor(jobs, initializer=mujoco_grid.set_queue, initargs=(gq,)) as ex:
+                rows = [r for part in ex.map(_policy_part, parts) for r in part]
+        else:
+            rows = _policy_part(parts[0])
     rows.sort(key=lambda r: r["seed"])
     with (out / "results.jsonl").open("w", encoding="utf-8") as f:
         f.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
@@ -621,16 +661,18 @@ def main(argv=None):
     ap.add_argument("--grip-force", type=float, help="병렬 손 힘 한계 N(U15 민감도, 기본 mujoco_hand.GRIP_FORCE_N)")
     ap.add_argument("--seed-start", type=int, default=0, help="첫 씨앗(전문가 수집 0~9999, 평가 10000~, 13.10.4)")
     ap.add_argument("--policy", help="학습한 ACT 체크포인트 폴더(pretrained_model): 수집 대신 정책을 평가한다(PolicyRunner, --jobs N이면 일꾼마다 체크포인트를 연다)")
-    ap.add_argument("--viewer", action="store_true", help="MuJoCo 뷰어 창을 띄워 보며 돌린다(실시간, 에피소드마다 창이 새로 열린다. --jobs N이면 창 N개)")
+    ap.add_argument("--viewer", nargs="?", const="window", choices=["window", "grid"],
+                    help="보며 돌린다(실시간). --viewer: MuJoCo 뷰어 창(에피소드마다 새로, --jobs N이면 창 N개). --viewer grid: 창 하나에 일꾼마다 위 카메라 칸")
     ap.add_argument("--record", help="데이터셋 이름: placed_ok 에피소드를 runs/datasets/<이름>/에 LeRobot 데이터셋으로(realtime_lag 에피소드는 빼고, --jobs N이면 part-NN 조각을 쓰고 끝에 합친다)")
     a = ap.parse_args(argv)
     try:
         if a.policy:
-            out = run_policy(a.suite, a.policy, a.seeds, a.seed_start, viewer=a.viewer, jobs=a.jobs)
+            out = run_policy(a.suite, a.policy, a.seeds, a.seed_start, viewer=a.viewer == "window", jobs=a.jobs, grid=a.viewer == "grid")
             print((out / "summary.md").read_text(encoding="utf-8"))
             print(f"결과: {out}")
             return
-        out = run(a.suite, a.seeds, a.gripper, a.jobs, a.only, grip_force=a.grip_force, seed_start=a.seed_start, record=a.record, viewer=a.viewer)
+        out = run(a.suite, a.seeds, a.gripper, a.jobs, a.only, grip_force=a.grip_force, seed_start=a.seed_start, record=a.record,
+                  viewer=a.viewer == "window", grid=a.viewer == "grid")
     except (RuntimeError, ValueError) as e:  # lerobot 없음·데이터셋 폴더 있음·이름 규칙 등: 사람이 읽을 한 줄로 끝낸다
         raise SystemExit(str(e)) from e
     print((out / "summary.md").read_text(encoding="utf-8"))

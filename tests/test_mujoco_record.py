@@ -159,3 +159,21 @@ def test_merge_parts_joins_pieces_and_skips_empty(tmp_path):
     assert not list(root.glob("part-*"))
     ds = LeRobotDataset("local/m", root=root)
     assert ds.num_episodes == 3 and ds.num_frames == 9
+
+
+def test_clip_actions_keeps_every_joint_inside_limits_minus_margin(tmp_path):
+    """REQ-077 (c): 사본 <이름>-clip은 관절별 [lo+margin, hi−margin]으로 자르고, 자른 프레임 수와 순서(derived)를 남긴다."""
+    import json
+
+    from so101_studio.arm.driver import JOINTS
+    from so101_studio.arm.mujoco_record import clip_actions, shift_actions
+
+    src = _tiny(tmp_path / "d", [(0, 5), (1, 4)])  # action 0~4, 100~103
+    limits = {j: [1.0, 103.0] for j in JOINTS}
+    dst, clipped = clip_actions(shift_actions(src, 1), limits, margin=1.0)
+    assert dst.name == "d-k1-clip"
+    ep, a = _actions(dst)
+    assert a[ep == 0].tolist() == [2, 2, 3, 4, 4] and a[ep == 1].tolist() == [101, 102, 102, 102]
+    assert clipped[JOINTS[0]] == {"frames": 3, "pct": 33.33}  # 시프트 뒤 1(2 미만) 1개 + 103(102 초과) 2개, 9프레임 중
+    info = json.loads((dst / "meta" / "collect.json").read_text(encoding="utf-8"))
+    assert [d["op"] for d in info["derived"]] == ["shift", "clip"]

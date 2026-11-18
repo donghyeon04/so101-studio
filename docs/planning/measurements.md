@@ -688,3 +688,35 @@ p99 증가는 -0.04ms(기준 2ms 이하), time_lost_s 증가 0%(기준 1% 미만
 - 합치기: lerobot 0.6.1 `lerobot.datasets.aggregate.aggregate_datasets(repo_ids, aggr_repo_id, roots, aggr_root)`가 있어 그대로 쓴다. 일꾼마다 `<이름>/part-NN/`에 쓰고, 끝에 `<이름>.merging`으로 합친 뒤 바꿔 단다. 빈 조각은 뺀다. 한 번은 Windows가 막 쓴 폴더를 잠가 rename이 PermissionError를 냈다. 그래서 0.5초씩 다시 하고, 조각은 바꿔 단 뒤에만 지운다. 데이터셋 `meta/collect.json`에는 묶음·프리셋 값·판정 대기·커밋·`grasp_approach: vertical`을 적는다.
 - action 앞당김: `python -m so101_studio.arm.mujoco_record --shift <이름> --k 5`가 `<이름>-k5`를 만든다. 영상은 하드링크로 두고 data parquet의 action만 에피소드 안에서 5프레임 당긴다(끝 5프레임은 마지막 명령). `meta/stats.json`의 action 통계는 다시 계산한다. 23개 데이터셋에서 사본의 0번 줄 action = 원본 5번 줄 action, state·영상은 같다.
 - 데이터 특성(빠른 시연 23개): action과 state 차이 중앙 0.97°(전 0.29°), 프레임당 action 변화 중앙 1.26°(전 0.40°), 변화 0.05° 미만 프레임 10.6%(전 16%).
+
+## MuJoCo ACT 1차 묶음 학습·평가 k0·k5와 clip (2026-11-18~19, REQ-077 PR②, 결정 0068, 실시간)
+- 수집: `python -m so101_studio.arm.mujoco_bench --suite collect_pick1 --record pick1_v1 --seed-start 0 --seeds 320 --jobs 6 --viewer`(커밋 b2e76ab, 결과 `runs/bench-mujoco/20261118-193913-b2e76ab`). placed_ok 320/320, 거짓 성공·실패 0, realtime_lag 1건이라 **319 에피소드, 68,976프레임**(중앙 약 216프레임, 8.6초)을 저장했다. 미끄러짐은 중앙 2.23mm, 90% 4.11mm, 최대 8.16mm다. 데이터셋 `meta/collect.json`에 `grasp_approach: vertical`을 적었다.
+- 사본: `--shift pick1_v1 --k 5` → `pick1_v1-k5`. `--clip`은 시험장 cfg의 관절 한계 안쪽 1°로 자른다. `pick1_v1-clip`은 그리퍼 9,255프레임(13.42%)을 잘랐고, `pick1_v1-k5-clip`(원본→shift→clip, `collect.json`의 derived)은 그리퍼 10,850프레임(15.73%)을 잘랐다. 나머지 관절은 0이다. 전문가 그리퍼 명령의 최대는 99.04였다(한계 1~99).
+- 학습(`so101-train`, lerobot 0.6.1 ACT 기본 + `--policy.n_action_steps=100 --batch_size=8 --steps=60000 --save_freq=10000`, state 입력 있음): k0 1:02:33(loss 0.021), k5 1:12:51(0.022), k0-clip 1:00:30, k5-clip 57:46.
+- 평가: `mujoco_bench --suite collect_pick1 --policy <ckpt> --seed-start 10000 --seeds 50 --jobs 6 --viewer grid`(프리셋 cfg 그대로, PolicyRunner 그대로, 상한 45초). 학습과 동시에 돈 첫 평가는 추론이 115~3,455ms라 쓰지 않고, 학습이 없을 때 다시 쟀다. 끝난 이유는 gripper = `servo:joint_limit:gripper`, slow = `too_slow`다.
+
+| 체크포인트 | placed_ok | gripper | slow | 그 밖 | 추론 평균 |
+|---|---|---|---|---|---|
+| k0 10k | 0/50 | 48 | 2 | | 17.0ms |
+| k0 20k | 0/50 | 44 | 6 | | 107ms |
+| k0 30k | 0/50 | 47 | 3 | | 15.3ms |
+| k0 40k | 0/50 | 44 | 6 | | 42.6ms |
+| k0 50k | 0/50 | 45 | 5 | | 31.5ms |
+| k0 60k | **4/50** | 33 | 1 | max_s 16 | 6.0ms |
+| k5 10k | 0/50 | 50 | 0 | | 8.4ms |
+| k5 20k | 0/50 | 50 | 0 | | 7.0ms |
+| k5 30k | 0/50 | 47 | 3 | | 20.8ms |
+| k5 40k | 0/50 | 48 | 2 | | 14.2ms |
+| k5 50k | 0/50 | 48 | 2 | | 14.8ms |
+| k5 60k | 0/50 | 42 | 5 | fault 2, max_s 1 | 29.5ms |
+| k0-clip 20k | 0/50 | 44 | 6 | | 37.6ms |
+| k0-clip 40k | 0/50 | 44 | 6 | | 37.6ms |
+| k0-clip 60k | **4/50** | 10 | 6 | max_s 30, fault 4 | 30.1ms |
+| k5-clip 20k | 0/50 | 44 | 6 | | 27.9ms |
+| k5-clip 40k | 0/50 | 44 | 6 | | 34.9ms |
+| k5-clip 60k | 0/50 | 44 | 5 | max_s 1 | 26.0ms |
+
+- 기준(50개 중 15개)을 넘은 체크포인트는 없다. k0와 k0-clip 60k가 4/50(씨앗 10008·10012·10014·10036 등)이다. k5(action 0.2초 앞당김)는 clip 전후 모두 0이다.
+- clip 효과: 60k의 gripper 거부가 33에서 10으로 줄었다. 20k·40k는 clip 전후 모두 44다. 원인은 데이터 범위가 아니라 정책의 예측 오차다. k0-clip 20k에 씨앗 10000 시작 관측을 넣으면 첫 출력은 elbow_flex 98.8°(한계 95.0°, 데이터 93°)이고, 그리퍼는 −0.8~−2.1(한계 1, 데이터 3)이 16스텝쯤까지 이어진다. 시작 자세의 그리퍼(3)와 팔꿈치(93°)가 한계 가까이 있어, 4~5단위의 예측 오차가 한계를 넘고 REJECT_S 0.5초 뒤 끝난다.
+- slow 5~6개는 일꾼마다 첫 에피소드의 첫 추론(CUDA 준비, 100~270ms)이 늦어서 났다. 일꾼이 에피소드 전에 빈 관측으로 한 번 돌게 고쳤다(`mujoco_bench._warm_up`). 고친 뒤 k0-clip 60k를 다시 쟀을 때는 0/50이었고 slow 34, 추론 평균 119ms였다. 그때 다른 세션의 초음파 벤치마크 둘과 GUI 시험이 함께 돌고 있었다. 실시간 평가는 PC의 다른 일에 따라 흔들린다. 시계 주입(13.10.2)에서는 추론 지연이 시뮬레이션 시간으로 0이라 slow가 없어진다.
+- 읽기: 빠른 시연(8.6초)으로 정책이 시작은 따라 하지만, 시작 자세가 관절 한계 가까이 있어 첫 출력이 거부된다. 다음 선택지는 (a) PolicyRunner가 한계 밖 출력을 한계로 자르기(설계서 6.10 변경, 기획 승인 필요), 또는 수집 시작 자세를 한계에서 떨어진 곳으로 바꾸기다(결정 0068 4항 다시 보기).
