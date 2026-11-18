@@ -1,7 +1,7 @@
 """MuJoCo 물리 드라이버 (arm-software-spec 13.2·13.3, 결정 0053, M2).
 
 `SimDriver`와 같은 메서드로 하드웨어 자리에 끼운다. 물리는 백그라운드 스레드가 벽시계에 맞춰 돌린다(제어 주기와 무관).
-`realtime=False`면 스레드가 없고 `advance(seconds)`만 시간을 흘린다(시험용)."""
+`realtime=False`면 스레드가 없고 `advance(seconds)`만 시간을 흘린다(시험용, 시험장은 StepClock이 부른다: mujoco_clock.py, 13.10.2)."""
 import math
 import threading
 import time

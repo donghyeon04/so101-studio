@@ -94,6 +94,7 @@
 - 그래서 제어 주기(`control_hz`, `--hz`)와 상관이 없다. 쉬는 중, 토크를 끈 교시, 놓은 뒤, `estop`·fault·`hold_gripper` 같은 틱 밖 호출에도 물리가 흐른다.
 - 읽기·쓰기는 스레드와 잠금 하나로 맞춘다.
 - 시험용 `MuJoCoDriver(..., realtime=False)`: 스레드가 없고 `advance(seconds)`만 시간을 흘린다. `write_joints`는 목표만 바꾼다. `ArmService` 위 시험((a)(b))은 실시간 모드를 쓴다.
+- `realtime=False`는 `advance`로만 시간이 흐른다. `StepClock`(`arm/mujoco_clock.py`, 13.10.2)이 그 `advance`를 부르는 시험·시험장 전용 경로다(`mujoco_bench --clock step`).
 
 ### 13.4 모델과 좌표
 - **월드 좌표 = URDF `base_link` 프레임**(m). 우리 기구학 모델 좌표와 같다.

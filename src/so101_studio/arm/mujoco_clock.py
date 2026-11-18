@@ -14,7 +14,16 @@ import time
 
 STEP_S = 0.002  # mujoco_model.load_model의 timestep(2ms)
 STALL_S = 5.0
+HIDDEN_WAIT_S = 30.0  # 틱이 이만큼(벽시계) 못 돌면 깨어 있는 참여 스레드를 WARN(시계 밖 기다림 time.sleep·Event.wait·join 찾기)
 POLL_S = 0.002  # 이벤트 기다림을 다시 보는 벽시계 간격(Event.set은 이 시계의 조건 변수를 깨우지 않는다)
+
+
+def _alive(ident: int) -> bool:
+    return any(t.ident == ident and t.is_alive() for t in threading.enumerate())
+
+
+def _name(ident: int) -> str:
+    return next((t.name for t in threading.enumerate() if t.ident == ident), str(ident))
 
 
 class StepClock:
@@ -34,6 +43,8 @@ class StepClock:
         self._idle_since: float | None = None  # 참여 스레드가 모두 기다리기 시작한 벽시계
         self._every: list[list] = []  # [주기, fn, 다음 시각]
         self._closed = False
+        self._tick_thread: threading.Thread | None = None
+        self._tick_busy = False  # 틱 스레드가 advance 뒤 자기 본문(제어 틱·every)을 도는 중: 이동안 참여 스레드는 깨어나지 않는다(누가 먼저 상태를 읽을지가 OS 스케줄에 달리지 않게)
 
     # -- 시각 --
     def now(self) -> float:
@@ -94,6 +105,10 @@ class StepClock:
                     p[1].pop()
                     self._update_idle()
 
+    def _held(self) -> bool:
+        """틱 스레드가 본문을 도는 중이라 참여 스레드를 잡아 두는가(틱 스레드가 끝났으면 잡지 않는다: MotionController.close 뒤)."""
+        return self._tick_busy and self._tick_thread is not None and self._tick_thread.is_alive()
+
     def _check(self) -> None:
         """기다리는 동안 부른다(_cv를 쥔 채). 물리 멈춤·틱 멈춤이면 RuntimeError."""
         why = getattr(self.driver, "failed_reason", None)
@@ -109,7 +124,7 @@ class StepClock:
             return
         target = self.now() + seconds
         with self._waiting(target, None), self._cv:
-            while self.now() < target - 1e-12 and not self._closed:
+            while (self.now() < target - 1e-12 or self._held()) and not self._closed:
                 self._check()
                 self._cv.wait(0.05)
 
@@ -118,29 +133,42 @@ class StepClock:
             return True
         target = None if timeout is None else self.now() + timeout
         with self._waiting(target, event), self._cv:
-            while not event.is_set():
-                if self._closed or (target is not None and self.now() >= target - 1e-12):
+            while True:
+                if self._closed:
                     return event.is_set()
+                if not self._held():  # 틱 스레드가 다음 tick_sleep에 들어온 뒤에만 깨어난다
+                    if event.is_set():
+                        return True
+                    if target is not None and self.now() >= target - 1e-12:
+                        return False
                 self._check()
                 self._cv.wait(POLL_S)
-        return True
 
     # -- 틱 스레드 --
     def tick_sleep(self, seconds: float) -> None:
         """틱 스레드만: 참여 스레드가 모두 기다릴 때까지 기다린 뒤 seconds만큼(2ms 정수배, 남은 몫은 쌓아 둠) advance하고 every를 부른다."""
         me = threading.get_ident()
         with self._cv:
-            if self._tick_ident is None:
-                self._tick_ident = me
+            if self._tick_ident is None or (self._tick_ident != me and not _alive(self._tick_ident)):
+                self._tick_ident, self._tick_thread = me, threading.current_thread()  # 첫 틱 스레드, 또는 옛 틱 스레드가 끝났으면 넘겨받는다(다시 연결한 MotionController)
             elif self._tick_ident != me:
                 raise RuntimeError("tick_sleep은 틱 스레드만 부른다")
             self._tick_wall = time.monotonic()
+            self._tick_busy = False  # 본문을 마쳤다: 조건이 찬 참여 스레드가 이제 진행한다
+            self._cv.notify_all()
             self._carry += seconds
             n = int(self._carry / STEP_S + 1e-9)
             self._carry -= n * STEP_S
+            t_block, warned = time.monotonic(), False
             while not self._closed and not self._all_waiting():
                 self._cv.wait(0.05)
                 self._tick_wall = time.monotonic()
+                if not warned and self._tick_wall - t_block > HIDDEN_WAIT_S:
+                    warned = True
+                    awake = [_name(i) for i, (_, conds) in self._parts.items() if not conds]
+                    emit = getattr(self.driver, "_emit", None)
+                    if emit is not None:
+                        emit("sim", "WARN", "SIM-CLOCK-HIDDEN-WAIT", {"awake_threads": awake, "wall_s": HIDDEN_WAIT_S})
             if self._closed:
                 return
             if n:
@@ -152,7 +180,7 @@ class StepClock:
                     due.append(e[1])
                     e[2] += e[0]
             self._tick_wall = time.monotonic()
-            self._cv.notify_all()
+            self._tick_busy = True
         for fn in due:  # 틱 락 밖에서(fn이 sleep하지 않는다는 전제: 상태 한 바퀴·기록 한 줄·정책 한 걸음)
             try:
                 fn()
@@ -171,5 +199,5 @@ class StepClock:
     def close(self) -> None:
         """기다리는 쪽과 틱 스레드를 모두 풀어 준다(틱 스레드는 advance하지 않고 돌아가 자기 _quit을 본다)."""
         with self._cv:
-            self._closed = True
+            self._closed, self._tick_busy = True, False
             self._cv.notify_all()

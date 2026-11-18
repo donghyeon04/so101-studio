@@ -74,7 +74,18 @@ class EpisodeRecorder:
         except BaseException as e:  # noqa: BLE001 - stop()에서 다시 올린다
             self._error = e
 
-    def start(self, task: str | None = None) -> None:
+    def _on_tick(self) -> None:
+        """StepClock의 every(1/fps)에서 한 줄(틱 스레드, 시뮬레이션 시간 25fps)."""
+        if self._stop.is_set() or self._error is not None:
+            return
+        try:
+            self.ds.add_frame(self.frame())
+            self.frames += 1
+        except BaseException as e:  # noqa: BLE001 - stop()에서 다시 올린다
+            self._error = e
+
+    def start(self, task: str | None = None, clock=None) -> None:
+        """clock이 StepClock(drives_status)이면 스레드 대신 시계의 every(1/fps)로 기록한다(13.10.2). 아니면 벽시계 스레드."""
         if self._thread is not None:
             raise RuntimeError("이미 기록 중")
         if task is not None:
@@ -84,8 +95,12 @@ class EpisodeRecorder:
         gc.collect()
         gc.disable()  # 기록 중 GC 2세대 수집이 GIL을 0.1초 넘게 잡아 물리가 밀렸다(realtime_lag, 결정 0068). stop()에서 다시 켠다
         try:
-            self._thread = threading.Thread(target=self._run, name="episode-recorder", daemon=True)
-            self._thread.start()
+            if getattr(clock, "drives_status", False):
+                clock.every(1.0 / self.fps, self._on_tick)
+                self._thread = True  # 시계가 돌리는 중(스레드 없음)
+            else:
+                self._thread = threading.Thread(target=self._run, name="episode-recorder", daemon=True)
+                self._thread.start()
         except BaseException:
             self._thread = None
             gc.enable()
@@ -97,7 +112,8 @@ class EpisodeRecorder:
         if t is None:
             return 0
         self._stop.set()
-        t.join()
+        if isinstance(t, threading.Thread):
+            t.join()
         gc.enable()
         if self._error is not None or not (save and self.frames):
             self.ds.clear_episode_buffer()
