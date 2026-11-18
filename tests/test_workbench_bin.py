@@ -106,3 +106,47 @@ def test_tilted_grips_reach_the_bin(tmp_path):
                 assert plan is not None, (beta, phi)
     finally:
         ctl.close()
+
+
+class StuckGripper(Recorder):
+    """stuck이 정해지면 그리퍼가 그 값보다 열리지 않는다(물체가 턱에 끼었거나 서보가 안 따라옴)."""
+    stuck = None
+
+    def write_joints(self, q):
+        super().write_joints(replace(q, gripper=min(q.gripper, self.stuck)) if self.stuck is not None else q)
+
+
+def parallel_box_in_hand(tmp_path, driver_cls=Recorder):
+    cfg = parallel_cfg(tmp_path)
+    d, ctl, sk = rig(cfg)
+    d.__class__ = driver_cls
+    box = DetectedObject("b", 215.0, 160.0, 0.0, 58.0, 58.0, 1.0, "manual", 39.0)
+    d.grip_block = sk.gripper_for_width(58.0)
+    assert sk.pick(box, sk.place_targets(zone="right")).status == "ok"
+    d.grip_block = None  # 물체는 손에서 놓이면 더는 막지 않는다
+    return d, ctl, sk
+
+
+# REQ-085: 통 놓기가 gripper_open(병렬 틈 약 50mm)까지만 열어 58mm 상자를 놓지 못한 채 ok를 돌려줬다
+@pytest.mark.slow
+def test_parallel_58mm_box_is_released_in_the_bin(tmp_path):
+    d, ctl, sk = parallel_box_in_hand(tmp_path)
+    try:
+        assert sk.place("right").status == "ok"
+        assert sk._gap_mm(d.read_joints().gripper) > 58.0 + 10.0 and sk.grip is None
+    finally:
+        ctl.close()
+
+
+@pytest.mark.slow
+def test_bin_place_that_does_not_open_is_not_ok(tmp_path):
+    d, ctl, sk = parallel_box_in_hand(tmp_path, StuckGripper)
+    events = []
+    ctl.on_event = lambda kind, level, code, data: events.append((code, level))
+    try:
+        d.stuck = sk.ctl.grip_hold  # 예압으로 고정한 값에서 더 열리지 않는다
+        r = sk.place("right")
+        assert r.status == "stopped" and r.reason.startswith("bin_not_released") and sk.grip is not None
+        assert ("ARM-PLACE-NOT-RELEASED", "ERROR") in events
+    finally:
+        ctl.close()
