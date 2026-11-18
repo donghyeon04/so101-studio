@@ -279,6 +279,27 @@ def test_pick_place_moves_object_to_the_place_point(backend):
     assert "집기 점이 집기 범위 밖" in (backend.pick_place((300, 60), 0, 30, 30, None) or "")
 
 
+def test_pick_place_passes_place_target_and_keeps_tilt(backend, monkeypatch):
+    """arm 6.6.1: 집기에 놓을 곳을 같이 넘겨야 병렬 auto가 기울여 집기를 고른다. 고른 기울기는 알림에 쓰도록 남긴다."""
+    from so101_studio.core.types import MotionResult, ToolPose
+
+    calls = []
+
+    def fake(arm):
+        def pick_and_place(obj, zone=None, place_at=None):
+            calls.append((zone, place_at))
+            arm.skills.last_pick_info = {"approach": {"beta": 35.0, "phi": 90.0, "gamma": 0.0, "face": "width"}}
+            return MotionResult("ok", 0.0, ToolPose(0, 0, 0, 0))
+        return pick_and_place
+
+    for arm in backend._targets():
+        monkeypatch.setattr(arm, "pick_and_place", fake(arm))
+    assert backend.pick_place((300, 200), 0, 30, 30, (420, 120), height_mm=39) is None
+    assert calls[-1] == (None, (420, 120)) and backend.last_pick_approach["beta"] == 35.0
+    assert backend.pick_place((300, 200), 0, 30, 30, None, height_mm=39) is None
+    assert calls[-1] == (next(iter(backend.arm.ws.drop_zones)), None)
+
+
 def test_joystick_vector_moves_then_stops(backend):
     """G13: 조이스틱 비율을 이어 보내는 동안 움직이고, 끊기면 0.3초 데드맨으로 선다."""
     assert _wait_for(lambda: backend.arm.ctl.state == "idle")  # 앞 시험의 동작이 끝나기를 기다린다

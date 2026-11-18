@@ -153,6 +153,7 @@ class Backend:
         self._arm_option = arm_name
         self._first_report = first_report  # 팔을 연결하기 전에 포트를 열어 읽은 점검 결과
         self._linkwatching = False
+        self.last_pick_approach: dict | None = None  # 마지막 직접 조작 집기가 고른 기울여 집기(arm 6.6.1 approach: beta·phi·gamma·face), 수직이면 None
         self._calibrating = False  # 캘리브레이션 측정 중(포트를 직접 연다, gui-spec 12.3)
         self._closing = False
         self.state = State()
@@ -566,8 +567,9 @@ class Backend:
 
         def run(arm: ArmService):
             self._tell_known_objects(arm, near=pick_xy)
-            r = arm.pick_and_place(obj)  # 집기만. 기구학 엔진 팔은 쥘 물체가 없어 no_object여도 놓기까지 보인다(작업 실행의 dry-run과 같음)
-            if r.status == "ok" or (self._no_object_ok(arm) and r.status == "no_object"):
+            r = arm.pick_and_place(obj, zone=zone, place_at=place_xy)  # 놓을 곳을 같이 넘겨야 병렬 auto가 기울여 집기를 고른다(arm 6.6.1)
+            self.last_pick_approach = ((getattr(arm.skills, "last_pick_info", None) or {}).get("approach")) if r.status != "out_of_bounds" else None
+            if self._no_object_ok(arm) and r.status == "no_object":  # 기구학 엔진 팔은 쥘 물체가 없어 no_object여도 놓기까지 보인다(작업 실행의 dry-run과 같음)
                 return arm.place(zone=zone, at=place_xy)
             return r
 
