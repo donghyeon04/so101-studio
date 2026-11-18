@@ -8,6 +8,7 @@ from dataclasses import astuple, fields, replace
 import numpy as np
 
 from ..core.blackbox import RingBuffer
+from ..core.clock import WallClock
 from ..core.types import JointState, MotionResult, ToolPose
 from .fault_text import describe
 from .safety import HealthMonitor, Safety
@@ -29,8 +30,9 @@ JOG_ACCEL_TOOL = 600.0  # mm/s², 회전은 같은 값을 °/s²로  # 원격 �
 
 
 class MotionHandle:
-    def __init__(self):
+    def __init__(self, clock=None):
         self._done = threading.Event()
+        self._clock = clock or WallClock()
         self.result: MotionResult | None = None
 
     def _finish(self, result: MotionResult) -> None:
@@ -38,7 +40,7 @@ class MotionHandle:
         self._done.set()
 
     def wait(self, timeout: float | None = None) -> MotionResult | None:
-        self._done.wait(timeout)
+        self._clock.wait(self._done, timeout)
         return self.result
 
 
@@ -61,8 +63,9 @@ def blocked_threshold(cfg, profile: str, zone: bool, speed_ratio: float) -> floa
 
 
 class MotionController:
-    def __init__(self, driver, kin=None, safety: Safety | None = None, hz: int = 50):
+    def __init__(self, driver, kin=None, safety: Safety | None = None, hz: int = 50, clock=None):
         self.driver, self.kin, self.safety, self.dt = driver, kin, safety or Safety({}), 1.0 / hz
+        self.clock = clock or WallClock()  # 제어 시간(동작·판정·기다림). 기록 시각(ring)은 벽시계 (mujoco-spec 13.10.2)
         self.health = HealthMonitor()
         self.last_bus_error: str | None = None  # 마지막 버스·서보 오류 메시지(comm_lost 원인 문장에 쓴다)
         self._next_health = 0.0
@@ -93,13 +96,14 @@ class MotionController:
         self.locked_reason: str | None = None  # 이 이유가 있으면 움직이는 명령을 모두 거부한다(status "locked"). ArmService.connect가 정한다 (decisions/0027)
         self.ring = RingBuffer()  # 50Hz 틱의 최근 10초(명령, 실제, 틱 간격, 버스 오류). 사고 묶음이 쓴다 (decisions/0030)
         self.on_event = None  # on_event(kind, level, code, data): fault·E-STOP 같은 이벤트를 기록하는 쪽(ArmService)이 연결한다
-        self.trace = None  # 틱마다 trace(perf_counter_ns, 보낸 관절값)을 받는 함수. 버스를 읽지 않는다(작업 실행이 팔 링크 위치 기록을 남길 때)
-        self.tap = None  # 틱마다 tap(읽은 시각 perf_counter_ns, 실제 관절값, 읽는 데 걸린 ns)를 받는 함수(경로 따라가기가 센서 궤적을 모을 때). 설정했을 때만 틱에서 버스를 읽는다
+        self.trace = None  # 틱마다 trace(clock.now_ns, 보낸 관절값)을 받는 함수. 버스를 읽지 않는다(작업 실행이 팔 링크 위치 기록을 남길 때)
+        self.tap = None  # 틱마다 tap(읽은 시각 clock.now_ns, 실제 관절값, 읽는 데 걸린 벽시계 ns)를 받는 함수(경로 따라가기가 센서 궤적을 모을 때). 설정했을 때만 틱에서 버스를 읽는다
         self.actual_hint = None  # 가장 최근에 읽은 실제 관절값(10Hz 상태 루프가 채운다). 틱 안에서는 버스를 읽지 않는다
         self._tick_ref = None  # (handle, 직전 틱의 궤적 시간)
         self.time_lost_s = 0.0  # 틱 지연 때문에 늦춘 동작 시간의 누적(진단용: 크면 제어 주기가 밀리고 있다)
         self._lock = threading.Lock()
         self._quit = threading.Event()
+        self._loop_done = threading.Event()  # _loop가 끝나면 선다(close가 시계로 기다린다)
         self._last = driver.read_joints()  # 마지막으로 명령한 위치
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
@@ -117,15 +121,15 @@ class MotionController:
         try:
             tool, err = self._final_tool()
         except Exception as e:  # noqa: BLE001 포트 빠짐·응답 없음 등 어떤 읽기 실패든
-            self.health.comm_failed(time.perf_counter())
+            self.health.comm_failed(self.clock.now())
             self._emit("final_read_failed", "WARN", "ARM-FINAL-READ-FAILED", {"status": status, "error": repr(e)[:120]})
             tool, err = ToolPose(0, 0, 0, 0), None
             if needs_read:
                 status = "fault"
-        return MotionResult(status, time.perf_counter() - t0, tool, err)
+        return MotionResult(status, self.clock.now() - t0, tool, err)
 
     def execute(self, traj) -> MotionHandle:
-        handle, now = MotionHandle(), time.perf_counter()
+        handle, now = MotionHandle(self.clock), self.clock.now()
         with self._lock:
             if self.locked_reason:
                 handle._finish(MotionResult("locked", 0.0, ToolPose(0, 0, 0, 0), reason=describe("locked", {"locked_reason": self.locked_reason})))
@@ -160,15 +164,15 @@ class MotionController:
             self._servo = None
             if self._jog is None:
                 self._jog_v = np.zeros(6)
-                self._jog_t = time.perf_counter() - self.dt
-            self._jog, self.state = (mode, np.array(velocity, float), time.perf_counter()), "teleop"
+                self._jog_t = self.clock.now() - self.dt
+            self._jog, self.state = (mode, np.array(velocity, float), self.clock.now()), "teleop"
             return True
 
     def jog_stop(self) -> None:
         """키를 뗐을 때: 조그 속도를 가속도 한계로 0까지 내려 멈추고 그 자리를 유지한다."""
         with self._lock:
             if self._jog is not None:  # 속도를 0으로 내려 부드럽게 멈춘다(바로 끊지 않는다)
-                self._jog = (self._jog[0], np.zeros_like(self._jog[1]), time.perf_counter())
+                self._jog = (self._jog[0], np.zeros_like(self._jog[1]), self.clock.now())
 
     def servo(self, goal: JointState, v_max_deg_s: float = 90.0) -> bool:
         """정책이 낸 절대 관절 목표 하나를 받는다 (spec 6.10). 최신 목표만 기억하고 틱마다 한 틱 상한 min(v_max × dt, max_step_deg)만큼 다가간다.
@@ -184,15 +188,15 @@ class MotionController:
             if why:
                 return False
             if goal.gripper < self._last.gripper - 1.0:  # 닫는 목표: 집기 밖 닫기와 같은 접촉 판단(check_blocked)을 켠다
-                self._closes_gripper, self._blocked_until = True, time.perf_counter() + BLOCKED_AFTER_S
+                self._closes_gripper, self._blocked_until = True, self.clock.now() + BLOCKED_AFTER_S
             elif goal.gripper > self._last.gripper + 1.0:
                 self._closes_gripper = False
             self._jog = None
-            self._servo, self.state = (goal, time.perf_counter(), v_max_deg_s), "teleop"
+            self._servo, self.state = (goal, self.clock.now(), v_max_deg_s), "teleop"
             return True
 
     def _note_servo_reject(self, why: str) -> None:
-        now = time.perf_counter()
+        now = self.clock.now()
         t, n = self._servo_rej.get(why, (-math.inf, 0))
         if now - t >= 1.0:
             self._emit("servo_reject", "WARN", "ARM-SERVO-REJECT", {"reason": why, "count": n + 1})
@@ -204,7 +208,7 @@ class MotionController:
         """진행 중인 동작을 지금 위치·속도에서 새 목표로 매끄럽게 교체한다 (T11). 이전 동작의 결과는 preempted."""
         from .trajectory import RuckigTrajectory
 
-        handle, now = MotionHandle(), time.perf_counter()
+        handle, now = MotionHandle(self.clock), self.clock.now()
         with self._lock:
             if self.locked_reason:
                 handle._finish(MotionResult("locked", 0.0, ToolPose(0, 0, 0, 0)))
@@ -239,16 +243,16 @@ class MotionController:
             traj, handle, t0, kind = self._job
             if kind == "stop":
                 return
-            now = time.perf_counter()
+            now = self.clock.now()
             v = traj.velocity(now - t0)
             handle._finish(self._result("stopped", t0))
-            self._job = (StopTrajectory(np.array(astuple(self._last)), v), MotionHandle(), now, "stop")
+            self._job = (StopTrajectory(np.array(astuple(self._last)), v), MotionHandle(self.clock), now, "stop")
 
     def wait_idle(self, timeout: float = 2.0) -> None:
         """감속 정지가 끝날 때까지 기다린다(stop() 직후에는 감속 궤적이 아직 실행 중이다)."""
-        end = time.perf_counter() + timeout
-        while self._job is not None and time.perf_counter() < end:
-            time.sleep(0.01)
+        end = self.clock.now() + timeout
+        while self._job is not None and self.clock.now() < end:
+            self.clock.sleep(0.01)
 
     def estop(self) -> str | None:
         """즉시 현재 위치 고정. 토크는 끄지 않는다(끄면 팔이 떨어짐). 서보에 위치 고정을 쓰지 못했으면 그 이유(문자열), 잘 됐으면 None."""
@@ -258,7 +262,7 @@ class MotionController:
                 try:
                     res = self._result("stopped", self._job[2])
                 except Exception:  # noqa: BLE001 버스를 못 읽어도(포트 빠짐) 동작은 끝낸다
-                    res = MotionResult("stopped", time.perf_counter() - self._job[2], ToolPose(0, 0, 0, 0))
+                    res = MotionResult("stopped", self.clock.now() - self._job[2], ToolPose(0, 0, 0, 0))
                 self._job[1]._finish(res)
             self._job = self._servo = None
             if not (self.state == "fault" and self.fault == "comm_lost"):  # 통신 끊김 fault는 stopped로 덮지 않는다: 다시 연결해야만 풀린다 (결정 0031)
@@ -293,9 +297,9 @@ class MotionController:
         """제어 틱 밖(10Hz 상태 루프)에서 본 읽기 성공·실패를 건강 감시에 알린다. 정지 중에도, 움직이는 중에도 읽기 시계를 따로 센다."""
         with self._lock:
             if ok:
-                self.health.comm_ok(time.perf_counter(), "read")
+                self.health.comm_ok(self.clock.now(), "read")
             elif self.state != "fault":
-                self._fault(self.health.comm_failed(time.perf_counter(), "read"))
+                self._fault(self.health.comm_failed(self.clock.now(), "read"))
 
     def _emit(self, kind: str, level: str, code: str, data: dict) -> None:
         cb = self.on_event
@@ -310,10 +314,16 @@ class MotionController:
         return self.ring.max_dt(1.0)
 
     def _loop(self) -> None:
-        nxt = prev = time.perf_counter()
+        try:
+            self._loop_body()
+        finally:
+            self._loop_done.set()
+
+    def _loop_body(self) -> None:
+        nxt = prev = self.clock.now()
         while not self._quit.is_set():
             nxt += self.dt
-            now = time.perf_counter()
+            now = self.clock.now()
             tick_dt, prev, err = now - prev, now, None
             with self._lock:
                 kind = "read"
@@ -330,14 +340,14 @@ class MotionController:
                     err = repr(e)[:120]
                     if is_bus_error(e):  # 통신·서보 하드웨어 오류: 0.5초 넘게 이어지면 comm_lost fault(원인 문장은 서보가 알린 오류를 담는다)
                         self.last_bus_error = repr(e)[:200]
-                        self._fault(self.health.comm_failed(time.perf_counter(), kind), {"error": self.last_bus_error})
+                        self._fault(self.health.comm_failed(self.clock.now(), kind), {"error": self.last_bus_error})
                     else:  # 통신이 아닌 예외는 코드 문제다: 통신 끊김으로 부르지 않고 traceback과 함께 바로 fault (REQ-043)
                         self._fault("internal_error", {"error": err, "where": kind, "traceback": traceback.format_exc()[-1500:]})
                 else:
                     if self.health._comm_down_since is None:  # 끊김이 풀린 틱: 예전 서보 오류가 나중 끊김의 원인으로 잘못 붙지 않게 지운다(끊김이 이어지는 동안은 시계가 남아 지우지 않는다)
                         self.last_bus_error = None
             self.ring.add(time.time_ns(), self._last, tick_dt, err, self.state, self.actual_hint)
-            time.sleep(max(0.0, nxt - time.perf_counter()))
+            self.clock.tick_sleep(max(0.0, nxt - self.clock.now()))
 
     def _fault(self, reason: str | None, detail: dict | None = None) -> None:
         """fault로 들어간다. detail(관절·값·한도 등)과 사람이 읽을 문장(text, 해결법 포함)을 이벤트·진행 중이던 동작의 MotionResult.reason·fault_text에 담는다 (REQ-034)."""
@@ -349,7 +359,7 @@ class MotionController:
         text = describe(reason, detail)
         job, self._job = self._job, None
         if job is not None:
-            job[1]._finish(MotionResult("fault", time.perf_counter() - job[2], ToolPose(0, 0, 0, 0), reason=text))
+            job[1]._finish(MotionResult("fault", self.clock.now() - job[2], ToolPose(0, 0, 0, 0), reason=text))
         self.fault, self.fault_text, self.fault_detail = reason, text, detail or {}
         self._jog = self._servo = None  # 조그·서보 중이던 입력이 fault 뒤에도 명령을 보내지 않게
         self._emit("fault", "ERROR", "ARM-FAULT", {"reason": reason, "job": job is not None, "detail": detail or {}, "text": text})
@@ -362,7 +372,7 @@ class MotionController:
             self._emit("fault_hold_failed", "WARN", "ARM-FAULT-HOLD-FAILED", {"reason": reason, "error": repr(e)[:120]})
 
     def _check_health(self) -> None:
-        now = time.perf_counter()
+        now = self.clock.now()
         if self.state == "fault":
             return
         if self.health._comm_down_since is not None:  # 상태 루프가 끊김을 알렸다: 0.5초가 차는 틱에서 바로 fault
@@ -374,7 +384,7 @@ class MotionController:
         why = self.health.update_health(h, now)
         self._fault(why, self._health_detail(why, h))
         self._check_grip(h, now)
-        self.health.comm_ok(time.perf_counter(), "read")  # 건강 읽기가 됐다(읽기 시계만 지운다)
+        self.health.comm_ok(self.clock.now(), "read")  # 건강 읽기가 됐다(읽기 시계만 지운다)
 
     def _health_detail(self, reason: str | None, h: dict) -> dict | None:
         """과열·과부하·과전류 fault의 관절, 값, 한도 (사람이 읽을 문장에 쓰인다)."""
@@ -466,7 +476,7 @@ class MotionController:
                 return
             if job is None:  # 동작이 끝난 직후에도 잠깐은 그리퍼 닫기를 본다: 짧은 닫기는 상태 읽기 2번이 차기 전에 끝난다
                 g = actual.gripper - self._last.gripper
-                if speed_ratio > BLOCKED_OFF_RATIO + 1e-9 or self.grasp_closing or not self._closes_gripper or self.grip_hold is not None or time.perf_counter() > self._blocked_until or g <= cfg.blocked_grip_units:
+                if speed_ratio > BLOCKED_OFF_RATIO + 1e-9 or self.grasp_closing or not self._closes_gripper or self.grip_hold is not None or self.clock.now() > self._blocked_until or g <= cfg.blocked_grip_units:
                     self._blocked_n = 0
                     return
                 self._blocked_n += 1
@@ -475,7 +485,7 @@ class MotionController:
                     self._block_hold_gripper(actual, g, cfg)
                 return
             traj, handle, t0, _ = job
-            t = time.perf_counter() - t0
+            t = self.clock.now() - t0
             held = self.grip_hold is not None
             prof = "held" if held else "empty"
             zone = t < BLOCKED_ZONE_S or traj.duration_s - t < BLOCKED_ZONE_S
@@ -520,7 +530,7 @@ class MotionController:
 
     def _tick(self) -> None:
         traj, handle, t0, kind = self._job
-        t = time.perf_counter() - t0
+        t = self.clock.now() - t0
         ref = self._tick_ref
         prev = ref[1] if ref is not None and ref[0] is handle else 0.0
         cap = MAX_TICK_ADVANCE * self.dt
@@ -559,17 +569,17 @@ class MotionController:
         self._last = q  # 쓰기 실패도 시도한 위치로 센다(통신 끊김이 'step' fault로 오인되지 않게)
         self.driver.write_joints(q)
         if self.trace is not None:
-            self.trace(time.perf_counter_ns(), q)
+            self.trace(self.clock.now_ns(), q)
         if self.tap is not None:  # 실제 관절값을 읽어 넘긴다(읽는 데 걸린 시간도 함께, 틱 주기를 지키는지 보려고)
-            r0 = time.perf_counter_ns()
+            c0, r0 = self.clock.now_ns(), time.perf_counter_ns()
             actual = self.driver.read_joints()  # 실패하면 예외: 통신 정상 표시(아래)를 건너뛰어 끊김 시계가 이어지고 0.5초 안에 comm_lost가 된다
-            r1 = time.perf_counter_ns()
-            self.tap((r0 + r1) // 2, actual, r1 - r0)
-            self.health.comm_ok(time.perf_counter(), "read")
-        self.health.comm_ok(time.perf_counter(), "write")
+            r1, c1 = time.perf_counter_ns(), self.clock.now_ns()
+            self.tap((c0 + c1) // 2, actual, r1 - r0)  # 시각은 제어 시계, 걸린 ns는 벽시계
+            self.health.comm_ok(self.clock.now(), "read")
+        self.health.comm_ok(self.clock.now(), "write")
         if t >= traj.duration_s:
             self._job = None
-            self._blocked_until = time.perf_counter() + BLOCKED_AFTER_S
+            self._blocked_until = self.clock.now() + BLOCKED_AFTER_S
             if kind == "move":
                 self._emit_tracking()
             if self.state == "moving":
@@ -578,8 +588,8 @@ class MotionController:
 
     def _tick_jog(self) -> None:
         mode, v, t_in = self._jog
-        target = v if time.perf_counter() - t_in <= DEADMAN_S else np.zeros_like(v)  # 데드맨: 입력이 끊기면 속도를 0으로 내린다
-        now = time.perf_counter()  # 틱 간격이 들쭉날쭉해도(이 기록에서 표준편차 8ms) 속도가 일정하도록 실제 경과 시간으로 적분한다
+        target = v if self.clock.now() - t_in <= DEADMAN_S else np.zeros_like(v)  # 데드맨: 입력이 끊기면 속도를 0으로 내린다
+        now = self.clock.now()  # 틱 간격이 들쭉날쭉해도(이 기록에서 표준편차 8ms) 속도가 일정하도록 실제 경과 시간으로 적분한다
         dt = min(max(now - self._jog_t, 0.0005), 3 * self.dt)
         self._jog_t = now
         step = (JOG_ACCEL_JOINT if mode == "joint" else JOG_ACCEL_TOOL) * dt
@@ -624,12 +634,12 @@ class MotionController:
             return False
         self._last = q
         self.driver.write_joints(q)
-        self.health.comm_ok(time.perf_counter(), "write")
+        self.health.comm_ok(self.clock.now(), "write")
         return True
 
     def _tick_servo(self) -> None:
         goal, t_in, v_max = self._servo
-        if time.perf_counter() - t_in > SERVO_TIMEOUT_S:  # 새 목표가 끊겼다: 지금 자리에서 선다
+        if self.clock.now() - t_in > SERVO_TIMEOUT_S:  # 새 목표가 끊겼다: 지금 자리에서 선다
             self._servo, self.state = None, "idle"
             return
         if self.grip_hold is not None:  # 접촉으로 고정한 그리퍼는 목표가 더 닫아도 그대로 둔다
@@ -647,9 +657,9 @@ class MotionController:
 
     def close(self) -> None:
         self._quit.set()
-        self._thread.join(timeout=1.0)
+        self.clock.wait(self._loop_done, 1.0)
         with self._lock:  # 진행 중인 동작을 끝내 wait() 중인 스레드가 영원히 남지 않게 한다 (REQ-014)
             if self._job is not None:
                 _, handle, t0, _ = self._job
                 self._job = None
-                handle._finish(MotionResult("stopped", time.perf_counter() - t0, ToolPose(0, 0, 0, 0)))
+                handle._finish(MotionResult("stopped", self.clock.now() - t0, ToolPose(0, 0, 0, 0)))

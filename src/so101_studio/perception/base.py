@@ -29,7 +29,7 @@ class PathSegment:  # 작업대 좌표, 손끝은 수직 아래 (ultrasonic-spec
 
 @dataclass
 class PoseSample:  # 팔 50Hz 제어 틱마다 한 개
-    t_ns: int  # PC 단조 시계(time.perf_counter_ns)
+    t_ns: int  # 제어 시계의 ns(MotionController.clock.now_ns, 기본 WallClock = time.perf_counter_ns, mujoco-spec 13.10.2)
     tool_mm: tuple[float, float, float]  # 손끝 위치(작업대 좌표, z는 작업대 면 위 높이)
     sensor_mm: tuple[float, float, float]  # 팔 센서 위치 = 손끝 + yaw로 돌린 arm_sensor_offset_mm (z는 작업대 면 위 높이)
 
