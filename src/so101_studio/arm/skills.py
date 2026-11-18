@@ -1,7 +1,6 @@
 """기능: home, park, pick, place (arm-software-spec.md 6.6). 동작 계획은 MoveJ(관절 보간)와 MoveL(직선)의 조합이다."""
 import itertools
 import math
-import time
 from dataclasses import astuple, replace
 from types import SimpleNamespace
 
@@ -358,7 +357,7 @@ class Skills:
         h, count, contact = self.ctl.execute(traj), 0, False
         self.ctl.grasp_closing = True  # 집기 닫기의 접촉은 아래가 판단한다(막힘 감지가 그리퍼를 먼저 고정하지 않게, 결정 0059)
         while h.result is None:
-            time.sleep(0.04)
+            self.ctl.clock.sleep(0.04)
             lag = self._q().gripper - self.ctl._last.gripper  # 실제 - 명령. 닫는 중에 양수로 커지면 물체가 막고 있다
             count = count + 1 if lag > self.cfg.contact_lag_units and self.ctl._last.gripper > lo + 1 else 0
             if count >= 4:
@@ -369,7 +368,7 @@ class Skills:
         self.ctl.wait_idle()
         self.ctl.grasp_closing, self.ctl._blocked_until = False, 0.0
         if not contact and r.status == "ok" and self.ctl._last.gripper > lo + 1:
-            time.sleep(0.15)  # 서보가 명령에 따라갈 시간을 준 뒤 본다: 물체가 막고 있으면 실제가 명령보다 앞에 남는다
+            self.ctl.clock.sleep(0.15)  # 서보가 명령에 따라갈 시간을 준 뒤 본다: 물체가 막고 있으면 실제가 명령보다 앞에 남는다
             lag = self._q().gripper - self.ctl._last.gripper
             if lag >= 0.5 * self.cfg.contact_lag_units:  # 닫는 동안 4번 연속 문턱(contact_lag_units)에 못 미쳤지만 끝에서도 막혀 있다: 실물 2-2 11-13, 쥔 채(gap 54, 지연 3.9) no_object로 올라가 떨어뜨림
                 contact = True
@@ -1065,10 +1064,10 @@ class Skills:
                 if self.opening_fallback_reason == "clearance":
                     data["blocked_by"] = self.opening_blocked_by
                 self.ctl._emit("opening_path_fallback", "WARN", "ARM-OPENING-PATH-FALLBACK", data)
-            q_a, t0 = self._q(), time.perf_counter()
+            q_a, t0 = self._q(), self.ctl.clock.now()
             r = self._run(trajs or [self._gripper(self.cfg.gripper_open)])
             if trajs is not None and len(trajs[0].pts) > 1:
-                self._emit_opening(trajs, q_a, self._q(), time.perf_counter() - t0)
+                self._emit_opening(trajs, q_a, self._q(), self.ctl.clock.now() - t0)
             if r.status != "ok":
                 return r
             # 열면서 손이 옮겨졌으니 원래 하강 경로를 거꾸로 타면 낮은 높이에서 release 자리로 되돌아가며 물체를 민다: 그 틈과 기울기를 유지한 채 지금 자리에서 수직으로 올린다.

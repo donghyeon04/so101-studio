@@ -137,22 +137,18 @@ def test_close_during_a_move_releases_the_waiting_handle():
     assert r is not None and r.status == "stopped"
 
 
-def test_a_late_tick_slows_the_move_instead_of_faulting_on_step(monkeypatch):
-    import types
+def test_a_late_tick_slows_the_move_instead_of_faulting_on_step():
+    from test_clock import ManualClock
 
-    from so101_studio.arm import motion
-
-    d = SimDriver()
-    c = MotionController(d, safety=Safety(LIMITS))
+    d, clk = SimDriver(), ManualClock()
+    c = MotionController(d, safety=Safety(LIMITS), clock=clk)
     c._quit.set()
     c._thread.join(2)  # 제어 스레드를 끄고 틱을 직접 부른다
-    now = [1000.0]
-    monkeypatch.setattr(motion, "time", types.SimpleNamespace(perf_counter=lambda: now[0], sleep=time.sleep))
     h = c.execute(move_j(A, JointState(60, 0, 0, 0, 0, 0), 200, 1000))
-    now[0] += c.dt
+    clk.t += c.dt
     c._tick()
     before = d.read_joints().shoulder_pan
-    now[0] += 0.5  # 틱이 0.5초 늦었다: 예전에는 위치가 한 번에 수십 도 건너뛰어 'step' fault
+    clk.t += 0.5  # 틱이 0.5초 늦었다: 예전에는 위치가 한 번에 수십 도 건너뛰어 'step' fault
     with c._lock:
         c._tick()
     after = d.read_joints().shoulder_pan
@@ -161,21 +157,17 @@ def test_a_late_tick_slows_the_move_instead_of_faulting_on_step(monkeypatch):
 
 
 
-def test_late_ticks_catch_up_only_within_the_step_limit_on_a_fast_replay(monkeypatch):
+def test_late_ticks_catch_up_only_within_the_step_limit_on_a_fast_replay():
     """213°/s 재생(한 주기 4.3°)을 틱이 23ms 넘게 늦는 가짜 시계로 돌려도 step fault 없이 끝까지 가고, 늦어진 시간이 쌓인다 (REQ-034)."""
-    import types
-
     import numpy as np
+    from test_clock import ManualClock
 
-    from so101_studio.arm import motion
     from so101_studio.arm.trajectory import SequenceTrajectory
 
-    d = SimDriver()
-    c = MotionController(d, safety=Safety(LIMITS))
+    d, clk = SimDriver(), ManualClock()
+    c = MotionController(d, safety=Safety(LIMITS), clock=clk)
     c._quit.set()
     c._thread.join(2)
-    now = [1000.0]
-    monkeypatch.setattr(motion, "time", types.SimpleNamespace(perf_counter=lambda: now[0], sleep=time.sleep))
     t = np.arange(0, 0.5001, 0.05)
     q = np.tile(np.array(astuple(A), float), (len(t), 1))
     q[:, 0] = -50.0 + 213.0 * t  # 관절 한계 안(-50 -> 56.5)
@@ -184,7 +176,7 @@ def test_late_ticks_catch_up_only_within_the_step_limit_on_a_fast_replay(monkeyp
     for i in range(400):
         if h.result is not None:
             break
-        now[0] += delays[i % len(delays)]
+        clk.t += delays[i % len(delays)]
         with c._lock:
             c._tick()
     assert c.state != "fault" and c.fault is None  # 늦어도 step fault가 아니다
