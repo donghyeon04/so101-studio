@@ -2,7 +2,7 @@
 
 단동식(SO-101 기본): 고정 턱 1개 + 가동 턱 1개라 한쪽 턱만 열리고, 두 턱 끝의 중간점이 손 기준점(gripper_frame)에서 멀어서
 집기·놓기에서 손 위치를 보정해야 한다(결정 0009~0012, 0033). 이 보정·기울기·경로·메쉬 지식을 전부 여기 둔다.
-다른 그리퍼(병렬 등)는 같은 이름의 메서드를 가진 클래스를 더하면 된다: 병렬은 needs_centering False, tilt 0, narrowing 0, 닫기·열기 경로가 그리퍼 축만 움직임."""
+다른 그리퍼(병렬 등)는 같은 이름의 메서드를 가진 클래스를 더하면 된다: 병렬은 needs_centering False, 기본 수직(tilt 0, narrowing 0, `grasp_approach: auto`면 6.6.1), 닫기·열기 경로가 그리퍼 축만 움직임."""
 import functools
 import math
 import struct
@@ -229,7 +229,7 @@ def _parallel_meshes(urdf_file: str) -> dict:
 
 class ParallelGripper:
     """병렬 그리퍼(Robonine Parallel Gripper 등): 두 턱이 좌우 대칭으로 열린다 (결정 0043-1).
-    TCP는 두 턱 중앙이라 손 위치 보정이 0, 기울기 0, 턱 간격은 높이에 따라 좁아지지 않는다(W <= G - 4). 닫기·열기는 그리퍼 축만 움직인다.
+    TCP는 두 턱 중앙이라 손 위치 보정이 0, 기본 수직(`grasp_approach: auto`면 기운 접근, arm-software-spec 6.6.1·arm/approach.py), 턱 간격은 높이에 따라 좁아지지 않는다(W <= G - 4). 닫기·열기는 그리퍼 축만 움직인다.
     폭<->서보값 표, 접촉·조임 기준, TCP에서 턱 끝까지 거리(gripper_tip_offset_mm)는 실물에서 재서 config/grippers/parallel.yaml에 채운다."""
     name = "parallel"
     needs_centering = False
@@ -261,6 +261,14 @@ class ParallelGripper:
     def center_offset(self, pitch_deg: float, yaw_table_deg: float, gripper_value: float) -> np.ndarray:
         f, m = self.jaw_tips(pitch_deg, yaw_table_deg, gripper_value)
         return (f + m) / 2
+
+    def tips_at(self, q: JointState) -> tuple[np.ndarray, np.ndarray]:
+        """관절 q에서 두 턱 끝의 절대 위치(작업대 mm): TCP ± (틈/2)·턱 축 + gripper_tip_offset_mm·도구 축. fk의 pitch·yaw로 다시 만들지 않아 wrist_roll을 돌린 자세에서도 맞다 (6.6.1)."""
+        p = self.kin.fk(q)
+        R = self.kin.tool_axes(q) @ self.kin._C  # 링크 프레임(jaw_tips의 Rt와 같은 기준)
+        h, off = self._gap(q.gripper) / 2, self.cfg.gripper_tip_offset_mm if self.cfg else 0.0
+        o = np.array([p.x_mm, p.y_mm, p.z_mm])
+        return o + R @ np.array([h, 0.0, off]), o + R @ np.array([-h, 0.0, off])
 
     def set_joints(self, robot, v: float) -> None:
         """오른쪽 클램프(gripper)는 +간격/2, 왼쪽(gripper_left)은 -간격/2 (m). placo는 mimic을 몰라 둘 다 맞춘다. URDF에 없으면(단동식 URDF) 건너뛴다."""

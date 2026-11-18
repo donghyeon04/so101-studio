@@ -54,7 +54,9 @@ class StubSkills:
     def park(self): self.calls.append("park"); return OK
     def place(self, zone): self.calls.append("place"); return OK
 
-    def pick(self, o):
+    def place_targets(self, zone=None, at=None): return None
+
+    def pick(self, o, place_targets=None):
         self.calls.append(f"pick:{o.id}")
         return OK if self.pick_status == "ok" else MotionResult(self.pick_status, 0.0, ToolPose(0, 0, 0, 0))
 

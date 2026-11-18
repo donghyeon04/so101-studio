@@ -96,8 +96,8 @@ class Safety:
     def _tip_height(self, q: JointState) -> float:
         """낮은 턱 끝의 작업대 면 위 높이(mm). 기준점(고정 턱 면)은 수직일 때 턱 끝보다 약 7mm 위라 기준점으로 재면 느슨하다."""
         p = self.kin.fk(q)
-        f, mt = self.kin.jaw_tip_offsets(p.pitch_deg, p.yaw_deg, q.gripper)
-        h = p.z_mm + min(f[2], mt[2], 0.0) - self.table_z_mm
+        f, mt = self.kin.jaw_tips_at(q)  # 병렬의 기운 자세(wrist_roll을 돌림)에서도 맞는 턱 끝 (6.6.1)
+        h = min(float(f[2]), float(mt[2]), p.z_mm) - self.table_z_mm
         low = getattr(self.kin, "jaw_lowest_z", None)  # 기울기·벌림을 반영한 두 턱 메쉬의 가장 낮은 꼭짓점까지 본다 (REQ-036)
         return h if low is None else min(h, low(q) - self.table_z_mm)
 

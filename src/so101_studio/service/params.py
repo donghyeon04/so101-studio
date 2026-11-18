@@ -10,6 +10,7 @@ CHOICES = {
     "trajectory_profile": ("quintic", "ruckig"),
     "grasp_open_policy": ("max", "fit"),
     "grasp_tilt_mode": ("symmetric", "equal_tips"),
+    "grasp_approach": ("vertical", "auto"),
 }
 # 연결할 때 복사해 가는 값은 reconnect, 나머지는 Skills·궤적이 cfg를 그때그때 읽으므로 next_motion
 RECONNECT_KEYS = {"control_hz", "servo_acceleration", "gripper_acceleration", "table_z_mm", "tip_floor_mm"}
@@ -26,6 +27,7 @@ LIMITS = {
     "gripper_squeeze_torque": (50, 1000), "gripper_hold_torque": (50, 1000), "grip_preload_units": (0, 20),
     "gripper_load_warn_pct": (10, 100), "gripper_load_s": (0.2, 10), "contact_lag_units": (1, 30),
     "grasp_max_open_mm": (20, 100), "grasp_bias_mm": (-20, 20), "grasp_tilt_deg": (0, 60), "grasp_tilt_tol_deg": (0, 45),
+    "grasp_contact_tilt_max_deg": (0, 45), "grasp_approach_tilt_pref_deg": (0, 60),
     "grasp_min_contact_mm": (0, 50), "record_hz": (5, 50), "record_max_s": (5, 600), "seg_pause_deg_s": (0.5, 30),
     "seg_fast_deg_s": (5, 200), "seg_min_s": (0.1, 5), "replay_a_max_deg_s2": (50, 3000),
     "speed_pct": (1, 100), "gripper_speed_pct": (1, 100),
