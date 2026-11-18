@@ -144,21 +144,17 @@ def _rename(a: Path, b: Path, tries: int = 20) -> None:
             time.sleep(0.5)
 
 
-def shift_actions(src: Path, k: int) -> Path:
-    """`action[t] = cmd[t+k]`(에피소드 안에서, 끝 k프레임은 마지막 명령)인 사본 `<이름>-k<k>`를 만든다(결정 0068). 기록기는 그대로다.
-    영상은 하드링크(안 되면 복사), meta/stats.json의 action 통계는 다시 계산한다.
-    shortcut: meta/episodes의 에피소드별 action 통계는 원본 그대로다(끝 k프레임만 달라 학습 정규화는 stats.json을 쓴다). 에피소드별 통계를 쓰는 도구가 생기면 다시 계산한다."""
+def _rewrite_actions(src: Path, dst: Path, fn, step: dict) -> Path:
+    """action만 fn(action 배열, episode_index 배열) → 새 action으로 바꾼 사본을 dst에 만든다(--shift·--clip 공통).
+    영상은 하드링크(안 되면 복사), meta/stats.json의 action 통계는 다시 계산하고, meta/collect.json의 derived에 step을 더한다.
+    shortcut: meta/episodes의 에피소드별 action 통계는 원본 그대로다(학습 정규화는 stats.json을 쓴다). 에피소드별 통계를 쓰는 도구가 생기면 다시 계산한다."""
     import os
 
     import pyarrow as pa
     import pyarrow.parquet as pq
 
-    src = Path(src)
-    dst = src.with_name(f"{src.name}-k{k}")
     if dst.exists():
         raise ValueError(f"사본 폴더가 이미 있다: {dst}")
-    if k < 1:
-        raise ValueError("k는 1 이상")
 
     def link(a, b):
         try:
@@ -172,11 +168,7 @@ def shift_actions(src: Path, k: int) -> Path:
     actions = []
     for f in sorted((src / "data").rglob("*.parquet")):
         t = pq.read_table(f)
-        act, ep = np.stack(t.column("action").to_numpy(zero_copy_only=False)), t.column("episode_index").to_numpy()
-        out = act.copy()
-        for e in np.unique(ep):
-            idx = np.flatnonzero(ep == e)  # 한 파일 안 에피소드 줄은 frame_index 순서로 이어져 있다
-            out[idx] = act[np.minimum(idx + k, idx[-1])]
+        out = fn(np.stack(t.column("action").to_numpy(zero_copy_only=False)), t.column("episode_index").to_numpy())
         actions.append(out)
         col = pa.array(out.tolist(), type=t.schema.field("action").type)  # 합친 데이터셋은 고정 길이가 아닌 list일 수 있다: 원래 열 형식 그대로
         t = t.set_column(t.schema.get_field_index("action"), t.schema.field("action"), col)
@@ -189,7 +181,58 @@ def shift_actions(src: Path, k: int) -> Path:
     stats["action"] = {"min": a.min(0).tolist(), "max": a.max(0).tolist(), "mean": a.mean(0).tolist(), "std": a.std(0).tolist(), "count": [len(a)],
                        **{key: v for key, v in q.items() if key in stats["action"]}}
     stats_path.write_text(json.dumps(stats, indent=4), encoding="utf-8")
+    info_path = dst / "meta" / "collect.json"
+    info = json.loads(info_path.read_text(encoding="utf-8")) if info_path.exists() else {}
+    info["derived"] = [*info.get("derived", []), {"from": src.name, **step}]  # 원본 → shift → clip 순서
+    info_path.write_text(json.dumps(info, ensure_ascii=False, indent=1), encoding="utf-8")
     return dst
+
+
+def shift_actions(src: Path, k: int) -> Path:
+    """`action[t] = cmd[t+k]`(에피소드 안에서, 끝 k프레임은 마지막 명령)인 사본 `<이름>-k<k>`를 만든다(결정 0068). 기록기는 그대로다."""
+    if k < 1:
+        raise ValueError("k는 1 이상")
+
+    def fn(act, ep):
+        out = act.copy()
+        for e in np.unique(ep):
+            idx = np.flatnonzero(ep == e)  # 한 파일 안 에피소드 줄은 frame_index 순서로 이어져 있다
+            out[idx] = act[np.minimum(idx + k, idx[-1])]
+        return out
+
+    src = Path(src)
+    return _rewrite_actions(src, src.with_name(f"{src.name}-k{k}"), fn, {"op": "shift", "k": k})
+
+
+def clip_actions(src: Path, limits: dict, margin: float = 1.0) -> tuple[Path, dict]:
+    """action을 관절별 [lo+margin, hi−margin]로 자른 사본 `<이름>-clip`(REQ-077, 총괄 결정 (c)). 전문가 그리퍼 명령이 한계(99)에 붙어 있어
+    정책이 조금만 넘겨도 PolicyRunner가 거부했다. limits는 {관절: [lo, hi]}(시험장 cfg의 joint_limits_deg). 관절별 자른 프레임 수·비율도 돌려준다."""
+    lo = np.array([limits[j][0] + margin for j in JOINTS])
+    hi = np.array([limits[j][1] - margin for j in JOINTS])
+    count, total = np.zeros(len(JOINTS), int), [0]
+
+    def fn(act, ep):
+        count[:] += ((act < lo) | (act > hi)).sum(0)
+        total[0] += len(act)
+        return np.clip(act, lo, hi)
+
+    src = Path(src)
+    dst = _rewrite_actions(src, src.with_name(f"{src.name}-clip"), fn, {"op": "clip", "margin": margin, "range": {j: [float(lo[i]), float(hi[i])] for i, j in enumerate(JOINTS)}})
+    clipped = {j: {"frames": int(count[i]), "pct": round(100.0 * float(count[i]) / max(total[0], 1), 2)} for i, j in enumerate(JOINTS)}
+    info_path = dst / "meta" / "collect.json"
+    info = json.loads(info_path.read_text(encoding="utf-8"))
+    info["derived"][-1]["clipped"] = clipped
+    info_path.write_text(json.dumps(info, ensure_ascii=False, indent=1), encoding="utf-8")
+    return dst, clipped
+
+
+def _limits_for(src: Path) -> dict:
+    """데이터셋을 모은 시험장 cfg(meta/collect.json의 preset, 없으면 기본 덮어쓰기)의 관절 한계."""
+    from .mujoco_bench import BENCH_DIR, OVERRIDE, load_cfg
+
+    p = Path(src) / "meta" / "collect.json"
+    preset = json.loads(p.read_text(encoding="utf-8")).get("preset") if p.exists() else None
+    return load_cfg(BENCH_DIR / preset if preset else OVERRIDE).joint_limits_deg
 
 
 def main(argv=None):
@@ -198,11 +241,20 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="python -m so101_studio.arm.mujoco_record", description="데이터셋 도구(mujoco-spec 13.10.4, 결정 0068)")
     ap.add_argument("--shift", metavar="데이터셋", help="action을 k프레임 앞당긴 사본 <이름>-k<k>를 만든다(runs/datasets/<이름> 또는 폴더 경로)")
     ap.add_argument("--k", type=int, default=5)
+    ap.add_argument("--clip", metavar="데이터셋", help="action을 관절 한계 안쪽 [lo+margin, hi−margin]으로 자른 사본 <이름>-clip을 만든다")
+    ap.add_argument("--margin", type=float, default=1.0)
     a = ap.parse_args(argv)
-    if not a.shift:
-        ap.error("--shift가 필요하다")
-    src = Path(a.shift) if Path(a.shift).exists() else dataset_dir(a.shift, Path(__file__).resolve().parents[3])
-    print(f"사본: {shift_actions(src, a.k)}")
+    if bool(a.shift) == bool(a.clip):
+        ap.error("--shift와 --clip 중 하나만")
+    name = a.shift or a.clip
+    src = Path(name) if Path(name).exists() else dataset_dir(name, Path(__file__).resolve().parents[3])
+    if a.shift:
+        print(f"사본: {shift_actions(src, a.k)}")
+        return
+    dst, clipped = clip_actions(src, _limits_for(src), a.margin)
+    for j, c in clipped.items():
+        print(f"{j}: {c['frames']}프레임 ({c['pct']}%)")
+    print(f"사본: {dst}")
 
 
 if __name__ == "__main__":
