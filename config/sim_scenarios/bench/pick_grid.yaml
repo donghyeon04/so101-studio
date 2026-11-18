@@ -3,8 +3,11 @@ name: pick_grid
 objects:
   size_mm: [[30, 30, 40], [58, 58, 39], [100, 30, 40], [80, 40, 40], [50, 50, 40]]   # [길이, 폭, 높이]
   radius_mm: [120, 150, 180, 210, 240]     # 팔 원점에서
-  bearing_deg: [-40, 0, 40]                # 팔 정면 기준
+  bearing_deg: [-20, 0, 40]                # 팔 정면 기준. 결정 0067 배출 통(팔에서 방위 −67°·반경 152mm) 때문에 −40°를 −20°로 옮겼다(2026-11-19 사용자 결정, REQ-080)
   angle_deg: [0, 45, 90]
 place: {zone: right}
 given: {}
+skip:   # −20°에서도 통(벽 포함)과 겹치는 칸 둘을 뺀다(225 → 223 에피소드)
+  - {size_mm: [58, 58, 39], radius_mm: 120, bearing_deg: -20, angle_deg: 45}
+  - {size_mm: [100, 30, 40], radius_mm: 120, bearing_deg: -20, angle_deg: 0}
 spread: {xy_mm: 0, angle_deg: 0}

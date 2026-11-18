@@ -170,3 +170,10 @@ def test_sampled_layouts_stay_off_the_bin_and_bin_judge():
     assert bench.in_bin({"x_mm": 400, "y_mm": 30, "z_mm": -0.1}, zone)
     assert not bench.in_bin({"x_mm": 355, "y_mm": 140, "z_mm": -0.1}, zone)  # 벽 밖
     assert not bench.in_bin({"x_mm": 355, "y_mm": 80, "z_mm": 25.0}, zone)  # 벽 위에 얹힘(z_mm는 바닥 높이)
+
+
+def test_pick_grid_moves_the_right_column_off_the_bin_and_skips_two_cells():
+    """REQ-080(사용자 결정 2026-11-19): −40° 열을 −20°로 옮기고 그래도 통과 겹치는 120mm 두 칸을 뺀다. 남은 칸의 에피소드 id는 순번 그대로다."""
+    eps = bench.episodes(bench.load_suite("pick_grid"))
+    ids = {e.id for e in eps}
+    assert len(eps) == 223 and len(ids) == 223 and "pick_grid-0000-s0" in ids and "pick_grid-0224-s0" in ids
