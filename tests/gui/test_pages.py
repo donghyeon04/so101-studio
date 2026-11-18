@@ -263,7 +263,7 @@ def test_top_bar_run_mode_and_doctor(backend):
             await asyncio.sleep(0.3)
             assert backend.mode == "sim"
             user.find(marker="top-doctor").click()
-            await user.should_see(marker="doctor-dialog")
+            await user.should_see(marker="doctor-dialog", retries=30)  # run_doctor가 io_bound로 끝난 뒤 열린다(xdist 부하)
             await user.should_see("점검 (읽기 전용)")
 
     asyncio.run(go())
