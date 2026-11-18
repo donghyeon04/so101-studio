@@ -83,47 +83,59 @@ class PolicyRunner:
             obs[f"observation.images.{cam}"] = self.driver.render(cam)
         return obs
 
+    def step(self, skip_after_s: float | None = None) -> str | None:
+        """한 걸음: 관측 -> 추론 -> servo_joints. 끝내야 하면 이유(servo:<이유> | error: ...), 아니면 None (mujoco-spec 13.10.2).
+        skip_after_s: 추론이 이보다 오래 걸리면 낡은 목표라 보내지 않는다(벽시계 실행만. StepClock에서는 추론 지연이 0이라 None).
+        안전 거부는 REJECT_S(제어 시계) 동안 이어질 때만 끝낸다. infer_ms는 벽시계로 잰다."""
+        try:
+            obs = self._observe()
+            a0 = time.perf_counter()
+            act = self.policy.select_action(obs)
+        except Exception as e:  # noqa: BLE001 관측·추론 실패는 러너만 끝낸다
+            return f"error: {e!r}"[:200]
+        self._infer.append(time.perf_counter() - a0)
+        now = self.svc.clock.now()
+        if skip_after_s is not None and self._infer[-1] > skip_after_s:  # 한 주기를 넘긴 추론
+            self._skipped += 1
+        elif self.svc.servo_joints(JointState(*map(float, act))):
+            self._sent, self._rejected = now, None
+        else:
+            why = self.svc.ctl.servo_reason
+            self._rejected = self._rejected or now
+            if why in HARD_STOP or now - self._rejected >= REJECT_S:
+                return f"servo:{why}"
+            self._sent = now  # 거부는 REJECT_S가 따로 센다: too_slow로 세지 않는다
+        return None
+
     def _run(self) -> None:
-        period = 1.0 / self.fps
-        t0 = nxt = sent = time.perf_counter()
-        infer, skipped, reason, rejected = [], 0, "max_s", None  # rejected: 안전 거부가 시작된 시각
-        while (now := time.perf_counter()) - t0 < self.max_s:
+        """벽시계 스레드(GUI·실시간): fps마다 step()을 부른다."""
+        period, clock = 1.0 / self.fps, self.svc.clock
+        t0 = nxt = self._sent = clock.now()
+        self._infer, self._skipped, self._rejected, reason = [], 0, None, "max_s"
+        while clock.now() - t0 < self.max_s:
             if self._quit.is_set():
                 reason = "stop"
                 break
-            if now - sent > SLOW_S:
+            if clock.now() - self._sent > SLOW_S:
                 reason = "too_slow"
                 break
-            try:
-                obs = self._observe()
-                a0 = time.perf_counter()
-                act = self.policy.select_action(obs)
-            except Exception as e:  # noqa: BLE001 관측·추론 실패는 러너만 끝낸다
-                reason = f"error: {e!r}"[:200]
+            if (why := self.step(skip_after_s=period)) is not None:
+                reason = why
                 break
-            infer.append(time.perf_counter() - a0)
-            if infer[-1] > period:  # 한 주기를 넘긴 추론: 낡은 목표라 보내지 않는다
-                skipped += 1
-            elif self.svc.servo_joints(JointState(*map(float, act))):
-                sent, rejected = time.perf_counter(), None
-            else:
-                why = self.svc.ctl.servo_reason
-                rejected = rejected or time.perf_counter()
-                if why in HARD_STOP or time.perf_counter() - rejected >= REJECT_S:
-                    reason = f"servo:{why}"
-                    break
-                sent = time.perf_counter()  # 거부는 REJECT_S가 따로 센다: too_slow로 세지 않는다
-            nxt = max(nxt + period, time.perf_counter() - period)  # 밀렸으면 몰아서 따라잡지 않는다
-            self._quit.wait(max(0.0, nxt - time.perf_counter()))
+            nxt = max(nxt + period, clock.now() - period)  # 밀렸으면 몰아서 따라잡지 않는다
+            self._quit.wait(max(0.0, nxt - clock.now()))
+        self._finish(reason)
+
+    def _finish(self, reason: str) -> None:
         self.svc.stop()  # 서보 목표를 비워 0.5초를 기다리지 않고 지금 자리에서 선다
         outcome = None
         if self.judge is not None:
-            time.sleep(JUDGE_DELAY_S)
+            self.svc.clock.sleep(JUDGE_DELAY_S)
             try:
                 outcome = self.judge(self.driver).get("outcome")
             except Exception as e:  # noqa: BLE001 판정 실패도 결과로 남긴다
                 outcome = f"judge_error: {e!r}"[:200]
-        ms = [t * 1000 for t in infer]
-        self.result = {"reason": reason, "outcome": outcome, "steps": len(ms), "skipped": skipped,
+        ms = [t * 1000 for t in self._infer]
+        self.result = {"reason": reason, "outcome": outcome, "steps": len(ms), "skipped": self._skipped,
                        "infer_ms_mean": round(sum(ms) / len(ms), 2) if ms else None, "infer_ms_max": round(max(ms), 2) if ms else None}
         self.svc.log_event("policy_stop", self.result, level="WARN" if reason.startswith(("servo", "error")) else "INFO", code="ARM-POLICY-STOP")

@@ -22,6 +22,7 @@ from ..arm.trajectory import cfg_move_j, cfg_move_l, smooth_l
 from ..core import frames
 from ..core.blackbox import install_excepthooks
 from ..core.calibration import zero_check
+from ..core.clock import WallClock
 from ..core.config import GRIPPER_TYPES, RobotConfig, WorkspaceConfig, load_workspace
 from ..core.incident import Incident, create_incident
 from ..core.logging import RunLogger
@@ -75,7 +76,7 @@ class _SimBlocked:
 
 class ArmService:
     def __init__(self, driver, cfg: RobotConfig, ws: WorkspaceConfig | None = None, speed_pct: float | None = None,
-                 log_root: str | None = "runs", proc: str | None = None):
+                 log_root: str | None = "runs", proc: str | None = None, clock=None):
         if bad := [k for k in cfg.sim_blocked if not k.startswith("blocked_") or not hasattr(cfg, k)]:
             raise ValueError(f"sim_blocked에 모르는 키: {bad}")
         self.driver, self.cfg = driver, cfg
@@ -112,6 +113,8 @@ class ArmService:
         self._callbacks: list = []
         self._status_thread: threading.Thread | None = None
         self._stop_status = threading.Event()
+        self._clock = clock or WallClock()  # 제어 시계(mujoco-spec 13.10.2). MotionController·Skills가 쓴다
+        self._status_n = 0  # 상태 한 바퀴 수(2Hz 건강 읽기 셈)
         self._health = {"temperature_c": {}, "load_pct": {}, "voltage_v": 0.0, "current_ma": 0.0}
         self._connected = False
 
@@ -140,7 +143,7 @@ class ArmService:
             self.collision = SceneCollision(self.kin, self.cfg.urdf, self.ws, self.cfg.table_z_mm, self.cfg.tip_floor_mm)
         self.collision.set_scene(self.scene, self.ws)
         self.safety.collision = self.collision
-        self.ctl = MotionController(self.driver, self.kin, self.safety, self.cfg.control_hz)
+        self.ctl = MotionController(self.driver, self.kin, self.safety, self.cfg.control_hz, clock=self._clock)
         old = self.skills
         self.skills = Skills(self.ctl, self.kin, self.cfg, self.ws, self.speed)
         if getattr(self.driver, "physical_objects", False) and self.cfg.sim_blocked:  # MuJoCo는 추종 오차가 작아 판정할 때만 막힘 문턱을 시뮬레이션 값(robot.yaml sim_blocked)으로 본다. cfg·프리셋 저장값은 실제 설정 그대로
@@ -168,9 +171,18 @@ class ArmService:
         self._stop_status.clear()
         self._log("connect", {"port": "sim" if getattr(self.driver, "simulated", False) else port or self.cfg.port, **getattr(self.driver, "connect_info", {})})  # 시뮬레이션이면 실제 포트처럼 보이지 않게
         self._write_status(self.status())  # 연결하자마자 첫 줄: 연결 뒤 상태가 비지 않게
-        self._status_thread = threading.Thread(target=self._status_loop, daemon=True)
-        self._status_thread.start()
+        self._status_n = 0
+        if self._clock.drives_status:  # 시뮬레이션 시계(StepClock)는 상태 한 바퀴를 시뮬레이션 시간 10Hz로 돌린다(스레드 없음)
+            self._clock.every(1.0 / STATUS_HZ, self._status_once)
+        else:
+            self._status_thread = threading.Thread(target=self._status_loop, daemon=True)
+            self._status_thread.start()
         return True, ""
+
+    @property
+    def clock(self):
+        """제어 시계(읽기 전용). 기본 WallClock."""
+        return self._clock
 
     def _lock_reason(self) -> str | None:
         if getattr(self.driver, "simulated", False):
@@ -254,34 +266,40 @@ class ArmService:
             self.logger.status(self._status_data(st))
 
     def _status_loop(self) -> None:
-        nxt, n = time.perf_counter(), 0
+        nxt = time.perf_counter()
         while not self._stop_status.is_set():
             nxt += 1.0 / STATUS_HZ
-            health_tick = n % (STATUS_HZ // HEALTH_HZ) == 0
-            try:  # 통신 오류는 컨트롤러가 fault로 처리한다. 여기서는 조용히 버리지 않고 기록한 뒤 계속 돈다
-                if health_tick:
-                    expect = getattr(self.driver, "expect_torque", None)  # 읽기 전에 정한다: 읽는 사이에 켠 토크를 풀림으로 오해하지 않게
-                    self._health = self.driver.read_health()  # 온도·부하·토크·Status는 2Hz로만 읽는다
-                    self._volt_hist.append((time.monotonic(), self._health.get("voltage_v", 0.0)))
-                    self._check_torque(expect)
-                    if max(self._health.get("load_pct", {}).values(), default=0.0) >= LOAD_PROBE_PCT:
-                        self._probe("high_load")
-                st = self.status()
-                self.ctl.note_comm(True)
-                self._write_status(st)
-                for cb in list(self._callbacks):
-                    try:
-                        cb(st)
-                    except Exception as e:  # noqa: BLE001 GUI 콜백의 코드 오류는 통신 끊김이 아니다: 따로 기록하고(첫 번째는 traceback) 통신 상태는 건드리지 않는다
-                        self._status_error(e, "status_callback_error")
-                if health_tick:  # 오류가 나는 읽기는 2Hz뿐이라, 그 읽기가 다시 성공해야 회복으로 본다
-                    self._status_ok()
-            except Exception as e:  # noqa: BLE001
-                self.ctl.note_comm(False)  # 정지 중에는 50Hz 쓰기가 없어 이 읽기가 끊김을 가장 먼저 본다
-                self._status_error(e)
-                self._probe("status_loop_error")
-            n += 1
+            self._status_once()
             time.sleep(max(0.0, nxt - time.perf_counter()))
+
+    def _status_once(self) -> None:
+        """상태 한 바퀴(10Hz): 2Hz로 건강 읽기, 상태 쓰기·콜백, 통신 성공·실패 알림."""
+        if self._stop_status.is_set():
+            return
+        health_tick = self._status_n % (STATUS_HZ // HEALTH_HZ) == 0
+        self._status_n += 1
+        try:  # 통신 오류는 컨트롤러가 fault로 처리한다. 여기서는 조용히 버리지 않고 기록한 뒤 계속 돈다
+            if health_tick:
+                expect = getattr(self.driver, "expect_torque", None)  # 읽기 전에 정한다: 읽는 사이에 켠 토크를 풀림으로 오해하지 않게
+                self._health = self.driver.read_health()  # 온도·부하·토크·Status는 2Hz로만 읽는다
+                self._volt_hist.append((time.monotonic(), self._health.get("voltage_v", 0.0)))
+                self._check_torque(expect)
+                if max(self._health.get("load_pct", {}).values(), default=0.0) >= LOAD_PROBE_PCT:
+                    self._probe("high_load")
+            st = self.status()
+            self.ctl.note_comm(True)
+            self._write_status(st)
+            for cb in list(self._callbacks):
+                try:
+                    cb(st)
+                except Exception as e:  # noqa: BLE001 GUI 콜백의 코드 오류는 통신 끊김이 아니다: 따로 기록하고(첫 번째는 traceback) 통신 상태는 건드리지 않는다
+                    self._status_error(e, "status_callback_error")
+            if health_tick:  # 오류가 나는 읽기는 2Hz뿐이라, 그 읽기가 다시 성공해야 회복으로 본다
+                self._status_ok()
+        except Exception as e:  # noqa: BLE001
+            self.ctl.note_comm(False)  # 정지 중에는 50Hz 쓰기가 없어 이 읽기가 끊김을 가장 먼저 본다
+            self._status_error(e)
+            self._probe("status_loop_error")
 
     def _probe(self, why: str) -> None:
         """과부하·읽기 오류 순간에 2Hz 주기를 기다리지 않고 토크·상태 비트·부하를 바로 한 번 더 읽어 ARM-LOAD-PROBE로 남긴다.
