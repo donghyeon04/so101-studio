@@ -8,11 +8,10 @@ from nicegui import run, ui
 
 from ...core.logread import read_events
 from ...service.policy_runner import CAMERAS, PolicyRunner
-from .common import Controls, camera_tile, scene_frame, watch_visibility
+from .common import CAMERA_TITLES, Controls, camera_tile, scene_frame, watch_visibility
 
 TRAIN_ROOT = Path("runs/train")
 NO_RENDER_TEXT = "학습한 정책 실행은 MuJoCo 시뮬레이션에서만 합니다"
-CAMERA_TITLES = {"top": "탑뷰 (top)", "wrist": "손목 (wrist)"}
 MAX_S = 45  # 전문가 시연(집어서 놓기)이 약 31초라 PolicyRunner 기본 20초면 놓기 전에 끊긴다. 명령줄 평가(--policy)와 같은 값
 
 

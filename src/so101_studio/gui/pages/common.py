@@ -285,6 +285,9 @@ def jpeg_url(frame) -> str:
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
+CAMERA_TITLES = {"top": "탑뷰 (top)", "wrist": "손목 (wrist)"}  # gui-spec 12.10 화면 제목
+
+
 def camera_tile(driver, camera: str, title: str):
     """카메라 칸 하나(제목, 그림, 갱신 시각). 돌려준 코루틴 함수를 부를 때마다 driver.render를 한 번 불러 다시 그린다 (gui-spec 12.10)."""
     with ui.row().classes("w-full items-center"):
