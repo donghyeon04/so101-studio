@@ -316,6 +316,8 @@ G0~G4가 기본 골자의 핵심이다. G12~G16은 11절의 1차다. 막히는 R
 | `grasp_max_open_mm` | 파라미터 | mm | 20~100 | 1 | — | 설정 |
 | `grasp_bias_mm` | 파라미터 | mm | −20~20 | 0.5 | — | 설정 |
 | `grasp_tilt_deg` | 파라미터 | ° | 0~60 | 1 | — | 설정 |
+| `grasp_contact_tilt_max_deg` | 파라미터 | ° | 0~45 | 1 | — · 병렬 기울여 집기 닫힘 기울기 상한(arm 6.6.1, 결정 0069) | 설정 |
+| `grasp_approach_tilt_pref_deg` | 파라미터 | ° | 0~60 | 1 | — · 병렬 기울여 집기 선호 기울기(arm 6.6.1) | 설정 |
 | `grasp_tilt_tol_deg` | 파라미터 | ° | 0~45 | 1 | — | 설정 |
 | `grasp_min_contact_mm` | 파라미터 | mm | 0~50 | 1 | — | 설정 |
 | `record_hz` | 파라미터 | Hz | 5~50 | 1 | — (결정 0019) | 설정 |
