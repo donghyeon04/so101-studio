@@ -328,7 +328,7 @@ def pair_layout(rng, gap_mm) -> list[Box]:
     raise RuntimeError("배치를 못 만들었다")
 
 
-def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, rescan_home=None, report_failures=True):
+def run_cycle(src, arm, esp, place_s=5.0, drop=(355.0, 80.0), max_iter=12, rescan_home=None, report_failures=True):
     """처음 scan()부터 물체가 다 없어질 때까지(작업 실행 흉내). 인식 시간 = 레이더 + 확인, 집기·놓기는 뺀다.
     판정(8.5절): 확인 결과 자리에 가장 가까운 실제 물체가 30mm 안이면 그 물체를 집은 것. 위치 오차 15mm 이하이고 방향까지 맞으면 성공(정사각형은 위치만).
     rescan_home(RESCAN, 기획 #77): 후보가 없으면 팔을 대기 자세로 옮겨 src.rescan()(4바퀴)을 한 번 하고, 후보가 있으면 계속, 또 없으면 끝낸다.

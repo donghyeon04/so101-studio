@@ -30,7 +30,7 @@ THREE = [Box(140, 190, 0), Box(250, 160, 90), Box(340, 200, 45)]
 def test_radar_single_object_nine_spots(tmp_path):
     """R1 가상: 3x3 자리에서 후보가 정답 90mm 안 (합격 기준 95%)."""
     errs = []
-    for x in (240, 300, 360):
+    for x in (140, 195, 250):
         for y in (140, 180, 220):
             cfg, clk, esp, arm = build([Box(x, y, 0)], seed=int(x + y))
             src = make_source(cfg, clk, esp, arm, tmp_path)
@@ -79,11 +79,11 @@ def test_events(tmp_path):
 
 
 def test_square_object_has_no_angle(tmp_path):
-    cfg, clk, esp, arm = build([Box(300, 170, 0, width=40, length=40)])
+    cfg, clk, esp, arm = build([Box(215, 170, 0, width=40, length=40)])
     src = make_source(cfg, clk, esp, arm, tmp_path)
     obj, _, _ = do_check(src, arm, src.scan().objects[0])
     assert isinstance(obj, DetectedObject) and obj.angle_deg is None
-    assert math.dist((obj.x_mm, obj.y_mm), (300, 170)) < 10
+    assert math.dist((obj.x_mm, obj.y_mm), (215, 170)) < 10
 
 
 def test_unsafe_clearance_rejected(tmp_path):
@@ -150,7 +150,7 @@ def test_arm_links_are_masked(tmp_path):
 
 
 def test_prefetch_makes_next_scan_instant(tmp_path):
-    cfg, clk, esp, arm = build([Box(300, 170, 0)])
+    cfg, clk, esp, arm = build([Box(215, 170, 0)])
     src = make_source(cfg, clk, esp, arm, tmp_path)
     src.prefetch(arm.links_at)
     clk.sleep(6)  # 놓는 동안
@@ -227,7 +227,7 @@ def test_origin_comes_from_workspace_config(tmp_path):
 
     clk, cfg = SimClock(), load_config()
     src = UltrasonicSource(Link(FakeESP32(clk, [], cfg), clk), cfg, baseline_path=tmp_path / "b.json")
-    assert src.arm_origin == (300.0, 50.0)  # config/workspace.yaml robot_base_in_table
+    assert src.arm_origin == (215.2, 21.4)  # config/workspace.yaml robot_base_in_table
 
 
 def test_unreachable_twice_is_dropped_until_next_cycle(tmp_path):
@@ -284,18 +284,18 @@ def _all_segments(src, arm, cand):
 
 def test_clip_to_reach_splits_and_limits_paths(tmp_path):
     """PR #71: 손끝이 tool_reach_mm 밖인 점은 건너뛰고, 끊기면 조각마다 따로 보낸다."""
-    cfg, clk, esp, arm = build([Box(300, 170, 0)], yaw_pivot_mm=0)  # yaw 고정 90
+    cfg, clk, esp, arm = build([Box(215, 170, 0)], yaw_pivot_mm=0)  # yaw 고정 90
     src = make_source(cfg, clk, esp, arm, tmp_path)
     probe = src.start_check(src.scan().objects[0])
-    # yaw 90이라 손끝 = 센서 + (66.5, -0.6). 센서 x 250이면 손끝 x 316.5라 원점(300,50) 반경 60 안(손끝 y -7.7~107.7)은 건너뛴다
-    pieces = probe._clip([(250, -70), (250, 170)])
+    # yaw 90이라 손끝 = 센서 + (66.5, -0.6). 센서 x 165.2면 손끝 x 231.7이라 원점(215.2, 21.4) 반경 60 안(손끝 y -36.3~79.1)은 건너뛴다
+    pieces = probe._clip([(165.2, -100), (165.2, 140)])
     assert len(pieces) == 2
-    assert pieces[0][-1][1] == pytest.approx(-7.7, abs=3) and pieces[1][0][1] == pytest.approx(107.7, abs=3)
+    assert pieces[0][-1][1] == pytest.approx(-36.3, abs=3) and pieces[1][0][1] == pytest.approx(79.1, abs=3)
     reach = cfg.check.tool_reach_mm
     probe, _obj, segs = _all_segments(src, arm, src.scan().objects[0])
     for seg in segs:
         for x, y in seg.points_mm:
-            assert reach.min - 1 <= math.hypot(x - 300, y - 50) <= reach.max + 1
+            assert reach.min - 1 <= math.hypot(x - 215.2, y - 21.4) <= reach.max + 1
 
 
 def test_inside_path_is_sent_whole(tmp_path):
@@ -420,7 +420,7 @@ def test_run_cycle_goes_to_wait_pose_only_first_and_after_failed_pick(tmp_path, 
     wait = ((300.0, 95.0), 320.0)
 
     def waits(rescan_home, fail_pick):
-        cfg, clk, esp, arm = build([Box(300, 170, 0)], arm_kw={"wait_pose": wait})
+        cfg, clk, esp, arm = build([Box(215, 170, 0)], arm_kw={"wait_pose": wait})
         src = make_source(cfg, clk, esp, arm, tmp_path)
         moves, move = [], arm.move
         arm.move = lambda to, z, speed=None: (moves.append(tuple(to)), move(to, z, speed))[1]
@@ -436,7 +436,7 @@ def test_run_cycle_goes_to_wait_pose_only_first_and_after_failed_pick(tmp_path, 
     n, _ = waits(True, False)
     assert n == 2  # 첫 scan 전 + 후보가 없을 때의 RESCAN
     n, moves = waits(False, True)
-    assert n >= 2 and (500.0, 150.0) not in moves  # 첫 scan 전 + 집기 실패마다(같은 자리 두 번째 실패면 3), 놓으러 가지 않는다
+    assert n >= 2 and (355.0, 80.0) not in moves  # 첫 scan 전 + 집기 실패마다(같은 자리 두 번째 실패면 3), 놓으러 가지 않는다
 
 
 def test_kin_reach_hover_band_reports_ik_fail():
@@ -445,13 +445,13 @@ def test_kin_reach_hover_band_reports_ik_fail():
     from so101_studio.perception.ultrasonic.fake_esp32 import SimClock
     from so101_studio.perception.ultrasonic.model import load_config
 
-    far, path = (300, 300), [(300, 300), (300, 150)]  # 팔 원점 (300, 50)에서 반경 250
+    far, path = (215.2, 271.4), [(215.2, 271.4), (215.2, 150)]  # 팔 원점 (215.2, 21.4)에서 반경 250
     k = kin_reach()
     assert k.ok(far, 55) and not k.start_ok(far, 55)
     cfg = load_config()
 
     def run(**kw):
-        arm = FakeArm(SimClock(), cfg, (300, 50), **kw)
+        arm = FakeArm(SimClock(), cfg, (215.2, 21.4), **kw)
         return arm, arm.follow_path(path, 55, 100)
 
     arm, poses = run()
