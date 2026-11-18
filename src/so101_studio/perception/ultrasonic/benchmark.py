@@ -254,10 +254,10 @@ def angle_ok(est, true_deg):
 
 
 def on_plate(b: Box, ws) -> bool:
-    """물체 테두리가 판(workspace table_mm, 원점은 판 모서리) 안이고 배출 구역 무시 원에서 50mm 이상 떨어져 있다(통 벽이 빔을 가리지 않게)."""
+    """물체 테두리가 판(workspace table_mm, 원점은 판 모서리) 안이고 배출 구역 무시 원(반 대각선 + 벽 + safety_margin_mm, 설계서 6절) 밖이다."""
     t = ws.table_mm
     return (all(0 <= x <= t["x"] and 0 <= y <= t["y"] for x, y in _edge_pts(b))
-            and all(math.hypot(b.x - zx, b.y - zy) >= zr + 50 for zx, zy, zr in ws.ignore_zones()))
+            and all(math.hypot(b.x - zx, b.y - zy) >= zr for zx, zy, zr in ws.ignore_zones()))
 
 
 def random_layout(rng, name) -> list[Box]:
