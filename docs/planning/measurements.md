@@ -1,6 +1,6 @@
 # 측정 기록
 
-상태: 초안 · 갱신 2026-11-13
+상태: 초안 · 갱신 2026-11-18
 
 로컬 개발 세션에서 잰 값을 여기에 남긴다. 기획 세션은 이 값으로 배치, IK 방식, 시험 물체 같은 미정 사항을 결정하고 결정 기록을 쓴다. 측정 절차와 완료 기준은 `arm-software-spec.md` 10~11절에 있다.
 
@@ -22,6 +22,19 @@ GUI·팔·초음파 몫을 한 줄로 세운 목록이다(2026-11-07 밤 다시 
 - 끝난 것(11-06~07): 높이(`table_z_mm` −15), 집기·놓기 4/4, 손끝 방향 8점, `radar_clear` 케이블, 빈 그리퍼 부하, doctor·linkwatch. 아래 날짜 절을 본다.
 - 포트를 쓰기 전과 뒤에 총괄이 다른 세션에 사용과 반납을 알린다(`session-workflow.md` 6절). 두 포트를 같이 쓰는 8번은 총괄이 순서를 정한다.
 - 팔을 움직이는 시험은 클램프 고정, 속도 30% 이하로 시작, 사람은 전원 스위치 옆. 편 자세에서는 팔 아래에 손을 받칠 준비를 한다.
+
+## M5 재측정: 쥠 확인 반영 뒤 (2026-11-18, MuJoCo, 커밋 caeb860, 병렬 손, 10N, 실시간 `--jobs 2`, REQ-076)
+`python -m so101_studio.arm.mujoco_bench --suite inject_grid --jobs 2`, 이어서 `--suite pick_grid --jobs 2`. 쥠 확인(arm-software-spec 6.6, `grip_min_close_mm` 5)을 넣은 뒤 아래 11-16 묶음을 다시 돌렸다. 결과 폴더는 `runs/bench-mujoco/20261118-074755-caeb860/`(inject)와 `20261118-075959-caeb860/`(pick)이고, git 밖에 있다. 같은 시간에 MuJoCo 세션의 실시간 수집이 돌았다.
+
+| 묶음 | placed_ok | 나머지 결과 | 거짓 성공 | 거짓 실패 | 미끄러짐 중앙·90%·최대 mm | realtime_lag |
+|---|---|---|---|---|---|---|
+| inject_grid (45) | 33/45 | pushed 1, untouched 11 | **0** (11-16: 4) | 0 | 1.2·1.71·3.15 | 0 |
+| pick_grid (225) | 185/225 | rejected 16, untouched 24 | 0 | 0 | 1.07·2.47·4.57 | 2 |
+
+- 11-16에 거짓 성공이던 4건(inject_grid-0013·0014·0043·0044: 어긋남 20mm, 높이 오차 0·+20)은 이제 `no_object`로 보고한다. 물리도 `untouched`라 판정이 맞다(`match`).
+- 어긋남 15mm, 225mm 자리의 0025·0026도 `no_object`·`match`다. 나머지 실패 6건은 `stopped`(`blocked`)·`match`다.
+- pick_grid는 크기 × 반경 표와 placed_ok 185가 11-16 10N 결과와 같다. 쥠 확인 때문에 성공이 실패로 바뀐 에피소드(거짓 실패)는 없다.
+- 판정 문턱(5mm)은 시뮬레이션에서만 확인했다. 실물에서 폭 표 오차로 생기는 거짓 실패는 runbook 2-10 첫 집기에서 `ARM-PICK-NO-GRIP`로 확인한다.
 
 ## M5 집기 시험장 고정 묶음 (2026-11-16, MuJoCo, 커밋 8bc87fe, 병렬 손, 실시간 `--jobs 4`, REQ-070)
 `python -m so101_studio.arm.mujoco_bench --suite pick_grid --jobs 4 --grip-force N`(묶음 `pick_grid` 225 에피소드, mujoco-spec 13.10.1), 장면 부품 radar_station·wrist_hcsr04·wrist_bracket. 결과 폴더는 `runs/bench-mujoco/20261116-*-8bc87fe-f<N>/`(git 밖). 조임 힘은 잠정값(U15, 실물 runbook 2-10 전).
