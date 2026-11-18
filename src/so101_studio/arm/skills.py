@@ -339,6 +339,13 @@ class Skills:
         if r.status not in ("ok", "stopped"):
             self._restore_grip_torque()
             return r
+        if contact:  # 쥠 확인(6.6): 접촉으로 멈췄어도 턱이 벌린 폭에서 거의 닫히지 못했으면 윗면에 얹힌 것이다. 접촉이 없을 때와 같이 처리한다
+            opened, closed = self._gap_mm(v0), self._gap_mm(self._q().gripper)
+            if closed > opened - self.cfg.grip_min_close_mm:
+                contact = False
+                widths = {"open_mm": round(opened, 1), "closed_mm": round(closed, 1)}
+                self.last_pick_info.update(no_grip=True, **widths)
+                self.ctl._emit("pick_no_grip", "WARN", "ARM-PICK-NO-GRIP", widths)
         if contact:  # 접촉: 목표를 지금 위치에서 예압만큼만 더 닫힌 쪽으로 두고(계속 미는 것을 없앤다), 들고 가는 동안 조임 한계를 낮춘다. 되돌리는 것은 place가 끝난 뒤
             self.grip = {"tilted": bool(tilt_ok), "tip_h": float(t), "obj_h": float(obj.height_mm), "obj_w": float(obj.width_mm), "obj_l": float(obj.length_mm), "held_gap": float(self._gap_mm(self._q().gripper)), "yaw": float(yaw), "angle": float(obj.angle_deg or 0.0)}  # 놓기가 같은 기울기·높이로 내려가도록 기억한다 (11.3.2)
             near = min(self.known_objects, key=lambda o: math.hypot(o[0] - obj.x_mm, o[1] - obj.y_mm), default=None)  # 집었다: 가장 가까운 한 항목만 장애물에서 뺀다(붙어 있는 이웃은 남긴다). GUI 자동 실행은 집는 물체까지 알려 준다. no_object·집기 실패면 그대로 둔다
