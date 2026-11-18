@@ -12,10 +12,13 @@ mujoco = pytest.importorskip("mujoco")
 from so101_studio.arm.mujoco_bench import Sampler, slip_series
 from so101_studio.arm.sim_driver import make_sim_driver
 from so101_studio.core.config import load_robot, load_workspace
+from so101_studio.core.frames import robot_to_table
 from so101_studio.core.types import DetectedObject
 from so101_studio.service.arm_service import ArmService
 
 WS = load_workspace("config/workspace.yaml")
+FRONT150, TOPEDGE = robot_to_table(150, 0, WS.base), robot_to_table(225, 0, WS.base)  # 시나리오 파일(carry*, topedge)과 같은 자리
+PLACE_AT = robot_to_table(120, 120, WS.base)  # 정면 120·왼쪽 120(오른쪽 앞은 배출 통, 결정 0067)
 def single_jaw_cfg():
     """13.7 (a)(b)·막힘 시험은 단동식 비교 기준이다. 팔 파일 기본값이 바뀌어도(U5) 그대로 돌게 그리퍼를 명시하고, PC의 local.yaml은 읽지 않는다."""
     p = Path(tempfile.mkdtemp()) / "local.yaml"
@@ -42,7 +45,7 @@ def events(svc):
 def topedge_pick(tmp_path, height):
     drv, svc = start("topedge", tmp_path)
     try:
-        obj = DetectedObject(id="box58", x_mm=300, y_mm=275, angle_deg=45, width_mm=58, length_mm=58, confidence=1.0, source="manual", height_mm=height)
+        obj = DetectedObject(id="box58", x_mm=TOPEDGE[0], y_mm=TOPEDGE[1], angle_deg=45, width_mm=58, length_mm=58, confidence=1.0, source="manual", height_mm=height)
         with Sampler(drv) as s:
             r = svc.pick_and_place(obj)
         return r, s.samples, drv.sim_state()
@@ -71,11 +74,11 @@ def test_topedge_control_with_the_true_height_holds_the_box(tmp_path):
 def test_carry_does_not_slip_and_lands_on_target(tmp_path, size):
     drv, svc = start(f"carry{size}", tmp_path)
     try:
-        obj = DetectedObject(id="box", x_mm=300, y_mm=200, angle_deg=0, width_mm=size, length_mm=size, confidence=1.0, source="manual", height_mm=40)
+        obj = DetectedObject(id="box", x_mm=FRONT150[0], y_mm=FRONT150[1], angle_deg=0, width_mm=size, length_mm=size, confidence=1.0, source="manual", height_mm=40)
         with Sampler(drv) as s:
             r = svc.pick_and_place(obj)
             assert r.status == "ok", r
-            r = svc.place(at=(420, 170))
+            r = svc.place(at=PLACE_AT)
             assert r.status == "ok", r
         time.sleep(1.0)
         end = drv.sim_state()
@@ -83,7 +86,7 @@ def test_carry_does_not_slip_and_lands_on_target(tmp_path, size):
         worst_slip = max((d for _, _, d in series), default=0.0)
         assert series, "들어 올린 표본이 없다"
         o = end["objects"]["box"]
-        miss = float(np.hypot(o["x_mm"] - 420, o["y_mm"] - 170))
+        miss = float(np.hypot(o["x_mm"] - PLACE_AT[0], o["y_mm"] - PLACE_AT[1]))
         ev = events(svc)
         warns = [e for e in ev if e.get("code") in ("ARM-GRIP-OVERLOAD-WARN", "ARM-GRIP-OVERLOAD")]
         probes = [e for e in ev if e.get("code") == "ARM-LOAD-PROBE"]

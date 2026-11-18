@@ -110,6 +110,22 @@ def _truth(r: float, bearing: float, angle: float, size, base, dx: float = 0.0, 
             "length_mm": float(length), "width_mm": float(width), "height_mm": float(height)}
 
 
+def _bin_rects() -> list[tuple]:
+    """통 구역의 바깥 사각형(벽 두께 포함) (x0, y0, x1, y1) 목록."""
+    from ..core.config import load_workspace
+    from ..core.scene import BIN_WALL_T_MM
+
+    t = BIN_WALL_T_MM
+    return [(z["x_mm"] - z["w_mm"] / 2 - t, z["y_mm"] - z["h_mm"] / 2 - t, z["x_mm"] + z["w_mm"] / 2 + t, z["y_mm"] + z["h_mm"] / 2 + t)
+            for z in load_workspace(REPO_ROOT / "config" / "workspace.yaml").drop_zones.values() if z.get("type") == "bin"]
+
+
+def _hits_bin(truth: dict, rects) -> bool:
+    """물체를 감싸는 원(반 대각선)이 통 바깥 사각형에 닿는가. 회전과 상관없이 보수적으로 본다."""
+    rad = math.hypot(truth["length_mm"], truth["width_mm"]) / 2
+    return any(math.hypot(max(x0 - truth["x_mm"], 0, truth["x_mm"] - x1), max(y0 - truth["y_mm"], 0, truth["y_mm"] - y1)) < rad for x0, y0, x1, y1 in rects)
+
+
 def _base():
     from ..core.config import load_workspace
 
@@ -126,11 +142,16 @@ def episodes(suite: dict, seeds: int = 1, base=None, seed_start: int = 0) -> lis
     if "sample" in suite:
         sm = suite["sample"]
         eps = []
+        bins = _bin_rects()
         for s in range(seed_start, seed_start + seeds):
             rng = np.random.default_rng(s)
-            r, b = rng.uniform(*sm["radius_mm"]), rng.uniform(*sm["bearing_deg"])
-            a = b + base.yaw_deg if sm["angle_deg"] == "along" else rng.uniform(*sm["angle_deg"])
-            eps.append(Episode(f"{suite['name']}-0000-s{s}", s, _truth(r, b, a, sm["size_mm"], base), {}, place))
+            for _ in range(100):  # 배출 통(벽 포함)에 걸리는 자리는 같은 씨앗의 다음 수로 다시 뽑는다(결정 0067)
+                r, b = rng.uniform(*sm["radius_mm"]), rng.uniform(*sm["bearing_deg"])
+                a = b + base.yaw_deg if sm["angle_deg"] == "along" else rng.uniform(*sm["angle_deg"])
+                truth = _truth(r, b, a, sm["size_mm"], base)
+                if not _hits_bin(truth, bins):
+                    break
+            eps.append(Episode(f"{suite['name']}-0000-s{s}", s, truth, {}, place))
         return eps
     objs, given = dict(suite["objects"]), dict(suite.get("given") or {})
     if "positions" not in objs:  # radius_mm × bearing_deg를 positions 하나로(반경이 바깥)
@@ -148,6 +169,9 @@ def episodes(suite: dict, seeds: int = 1, base=None, seed_start: int = 0) -> lis
     for i, combo in enumerate(itertools.product(*[objs[k] for k in keys], *[given[k] for k in gkeys])):
         c = dict(zip(keys + gkeys, combo))
         r, bearing = c["positions"]
+        if any(list(c["size_mm"]) == list(k["size_mm"]) and [r, bearing] == [k["radius_mm"], k["bearing_deg"]] and c["angle_deg"] == k["angle_deg"]
+               for k in suite.get("skip") or []):  # 묶음의 skip 칸(배출 통과 겹침 등)은 뺀다. 순번 i는 그대로라 다른 칸의 에피소드 id가 바뀌지 않는다
+            continue
         for s in range(seed_start, seed_start + n_seeds):
             rng = np.random.default_rng([i, s])
             dx, dy, da = (rng.uniform(-sxy, sxy), rng.uniform(-sxy, sxy), rng.uniform(-sang, sang)) if (sxy or sang) else (0.0, 0.0, 0.0)
@@ -189,6 +213,11 @@ def _layout_of(ep: Episode, suite: dict) -> Layout:
     return Layout([SimObject(**ep.truth)], ep.place, xy, task_text(suite))
 
 
+def in_bin(o: dict, zone: dict) -> bool:
+    """통 구역(type: bin, 결정 0067) 판정: 물체 중심이 통 안쪽 사각형 안이고 바닥 위(벽 위에 얹히거나 판 밖으로 떨어지지 않음). 기울기·각도는 보지 않는다."""
+    return abs(o["x_mm"] - zone["x_mm"]) <= zone["w_mm"] / 2 and abs(o["y_mm"] - zone["y_mm"]) <= zone["h_mm"] / 2 and -1.0 <= o["z_mm"] <= float(zone["wall_mm"]) - 1.0  # z_mm는 물체 바닥 높이: 통 바닥(판) 위, 벽 윗면(wall_mm)에 얹힌 것은 아님
+
+
 def judge(driver, layout: Layout) -> dict:
     """물리만 보는 판정(보고 없이, 13.10.1 판정 표의 물리 쪽): driver.sim_state()와 layout만 읽는다.
     outcome: placed_ok(구역 직사각형 안 또는 at에서 PLACE_TOL_MM 안, 기울기 < 10°) → toppled → moved(처음 자리에서 10mm 넘게) → untouched.
@@ -204,7 +233,7 @@ def judge(driver, layout: Layout) -> dict:
         inside = abs(o["x_mm"] - z["x_mm"]) <= z["w_mm"] / 2 and abs(o["y_mm"] - z["y_mm"]) <= z["h_mm"] / 2
     else:  # at 또는 옛 점 구역
         inside = err <= PLACE_TOL_MM
-    placed = inside and tilt < TILT_MAX_DEG
+    placed = in_bin(o, z) if z.get("type") == "bin" else inside and tilt < TILT_MAX_DEG
     moved = math.hypot(o["x_mm"] - o0.x_mm, o["y_mm"] - o0.y_mm)
     outcome = "placed_ok" if placed else "toppled" if tilt >= TILT_MAX_DEG else "moved" if moved > PUSHED_MM else "untouched"
     return {"outcome": outcome, "placed": placed, "place_err_mm": round(err, 2), "tilt_end_deg": round(tilt, 2), "moved_mm": round(moved, 2)}
@@ -247,7 +276,7 @@ class BenchEnv:
 
         self.cfg, self.realtime, self.viewer = cfg, realtime, viewer
         self.ws = ws or load_workspace(REPO_ROOT / "config" / "workspace.yaml")
-        self.scene = load_scene(REPO_ROOT / "config" / "scene.yaml").for_gripper(cfg.gripper)
+        self.scene = load_scene(REPO_ROOT / "config" / "scene.yaml", self.ws).for_gripper(cfg.gripper)  # 통 벽(bin_*)까지: 서비스와 같은 장면, 결과 머리의 부품 목록에도 나온다
         self.drv = self.svc = None
 
     def reset(self, seed=None, options=None):
@@ -278,14 +307,17 @@ class BenchEnv:
 
 
 # -- 판정 --
-def judge_episode(result, samples: list, end: dict, truth: dict, target_xy, events: list, failed: str | None) -> dict:
-    """13.10.1 판정 표. result는 MotionResult(물리 실패면 None), end는 끝나고 1.0초 뒤 sim_state."""
+def judge_episode(result, samples: list, end: dict, truth: dict, target_xy, events: list, failed: str | None, zone: dict | None = None) -> dict:
+    """13.10.1 판정 표. result는 MotionResult(물리 실패면 None), end는 끝나고 1.0초 뒤 sim_state. zone이 통(type: bin)이면 놓기는 in_bin으로 본다."""
     reported = {"status": result.status if result else None, "reason": result.reason if result else None}
     o_end = end["objects"][OBJ] if end else None
     picked = any(st["held"] == OBJ and st["objects"][OBJ]["z_mm"] > PICKED_Z_MM for st in samples)
     place_err = float(math.hypot(o_end["x_mm"] - target_xy[0], o_end["y_mm"] - target_xy[1])) if (o_end and target_xy) else None
     tilt_end = float(o_end["tilt_deg"]) if o_end else None
-    placed = place_err is not None and place_err <= PLACE_TOL_MM and tilt_end < TILT_MAX_DEG
+    if zone is not None and zone.get("type") == "bin":
+        placed = o_end is not None and in_bin(o_end, zone)
+    else:
+        placed = place_err is not None and place_err <= PLACE_TOL_MM and tilt_end < TILT_MAX_DEG
     tools = [np.array(st["tool"]["pos_mm"]) for st in samples]
     tool_moved = max((float(np.linalg.norm(p - tools[0])) for p in tools), default=0.0)
     moved = float(math.hypot(o_end["x_mm"] - truth["x_mm"], o_end["y_mm"] - truth["y_mm"])) if o_end else 0.0
@@ -347,7 +379,7 @@ def run_episode(ep: Episode, cfg, log_dir: Path, env: BenchEnv | None = None, sa
             samples_out.extend(s.samples)
         end = None if failed else drv.sim_state()
         target = svc.skills.last_place_xy
-        row = judge_episode(result, s.samples, end, ep.truth, list(target) if target else None, read_events(svc), failed)
+        row = judge_episode(result, s.samples, end, ep.truth, list(target) if target else None, read_events(svc), failed, env.ws.drop_zones.get(zone) if zone else None)
         drops = drv.dropped_count - drops0
         row.update({"sim_s": round(end["t_s"], 2) if end else None, "wall_s": round(time.perf_counter() - t0, 2), "dropped_count": drops,
                     "realtime_lag": drv.realtime and drops > 0, "gap0_mm": info["gap0_mm"], "jaw_yaw_deg": info["jaw_yaw_deg"], "max_load_pct": round(s.max_load, 1)})

@@ -45,6 +45,8 @@ class Feeder:
         Image.fromarray(img).save(buf, format="JPEG", quality=80)
         try:
             self.q.put_nowait((os.getpid(), buf.getvalue(), self.label))
+        except queue.Full:  # 창이 못 따라오면(창을 붙잡고 있으면) 이 그림만 버린다
+            return True
         except Exception:  # noqa: BLE001 창 프로세스가 없어져도 일꾼은 계속 돈다
             return False
         return True
@@ -139,7 +141,7 @@ class Grid:
         import multiprocessing as mp
 
         self._mgr = mp.Manager()
-        self.q = self._mgr.Queue()
+        self.q = self._mgr.Queue(maxsize=FPS * self.n)  # 1초 분량까지만 쌓는다
         self._p = mp.Process(target=run_window, args=(self.q, self.n, self.title), daemon=True)
         self._p.start()
         set_queue(self.q)

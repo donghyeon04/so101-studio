@@ -28,12 +28,23 @@ VIEW_DISTANCE_M, VIEW_AZIMUTH_DEG, VIEW_ELEVATION_DEG = 0.5, 135.0, -30.0
 CATCHUP_MAX_S = 0.1  # 이 이상 밀리면 넘는 만큼 버린다
 
 
+def _with_bin_walls(scene, ws):
+    """서비스(load_scene(ws=))와 같은 장면: 통 구역의 벽(core.scene.bin_walls, 결정 0067)이 없으면 더한다. ws 없이 읽은 장면(CLI·GUI의 load_scene())도 같아진다."""
+    from ..core.scene import Scene, bin_walls
+
+    have = {p.name for p in (scene.parts if scene is not None else [])}
+    walls = [p for p in bin_walls(ws) if p.name not in have]
+    if not walls:
+        return scene
+    return Scene(scene.margin_mm if scene is not None else 10.0, (scene.parts if scene is not None else []) + walls)
+
+
 class MuJoCoDriver:
     def __init__(self, cfg, ws, *, scene=None, objects=(), realtime=True, viewer=False, scenario=None):
         if viewer and not realtime:
             raise ValueError("뷰어는 실시간 모드에서만")
         self.cfg, self.ws, self.objects, self.realtime = cfg, ws, list(objects), realtime
-        self.scene = scene.for_gripper(cfg.gripper) if scene is not None else None  # REQ-069: cfg 그리퍼와 다른 `gripper:` 부품은 건너뛴다
+        self.scene = _with_bin_walls(scene.for_gripper(cfg.gripper) if scene is not None else None, ws)  # REQ-069: cfg 그리퍼와 다른 `gripper:` 부품은 건너뛴다
         self.viewer = viewer
         self._parallel = cfg.gripper == "parallel"  # 로보나인 병렬 손(M4b): 그리퍼 관절이 slide(m)
         self._handle = None  # mujoco.viewer 핸들(뷰어를 켠 경우)

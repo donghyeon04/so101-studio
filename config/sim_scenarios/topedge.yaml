@@ -1,4 +1,4 @@
 # 13.7 (a): 턱이 윗모서리를 치는 접촉 실패 재현. 계획에는 높이 15를 넘기고 실제 상자 높이는 39다.
-# (300, 275)는 로봇 정면 225mm. 팔 원점을 다시 재면 같이 옮긴다(runbook 2-A A-1).
+# (215.2, 246.4)는 로봇 정면 225mm(결정 0067 받침). 팔 원점을 다시 재면 같이 옮긴다(runbook 2-A A-1).
 objects:
-  - {name: box58, x_mm: 300, y_mm: 275, angle_deg: 45, width_mm: 58, length_mm: 58, height_mm: 39}
+  - {name: box58, x_mm: 215.2, y_mm: 246.4, angle_deg: 45, width_mm: 58, length_mm: 58, height_mm: 39}

@@ -44,3 +44,10 @@ def test_feeder_stops_quietly_when_driver_is_gone():
     with mujoco_grid.Feeder(q, Gone(), "x"):
         time.sleep(0.3)
     assert q.empty()
+
+
+def test_feeder_drops_frames_when_the_queue_is_full_and_keeps_going():
+    q, drv = queue.Queue(maxsize=1), FakeDriver()
+    with mujoco_grid.Feeder(q, drv, "s1"):
+        time.sleep(0.4)
+    assert q.qsize() == 1 and drv.calls >= 3  # 꽉 찬 뒤에도 계속 그렸다(버리고 계속)

@@ -18,10 +18,12 @@ from so101_studio.arm.mujoco_model import (
 )
 from so101_studio.arm.sim_driver import make_sim_driver
 from so101_studio.core.config import load_robot, load_workspace
+from so101_studio.core.frames import robot_to_table
 from so101_studio.core.types import DetectedObject, JointState
 from so101_studio.service.arm_service import ArmService
 
 WS = load_workspace("config/workspace.yaml")
+FRONT150, PLACE_AT = robot_to_table(150, 0, WS.base), robot_to_table(120, 120, WS.base)  # carry 시나리오 자리, 놓을 곳(정면 120·왼쪽 120, 오른쪽 앞은 배출 통)
 
 
 @pytest.fixture(scope="module")
@@ -106,11 +108,11 @@ def carry_run(cfg, tmp_path, size):
     assert ok, msg
     sampler = Sampler(d).__enter__()
     try:
-        o = DetectedObject(id="box", x_mm=300, y_mm=200, angle_deg=0, width_mm=size, length_mm=size, confidence=1.0, source="manual", height_mm=40)
+        o = DetectedObject(id="box", x_mm=FRONT150[0], y_mm=FRONT150[1], angle_deg=0, width_mm=size, length_mm=size, confidence=1.0, source="manual", height_mm=40)
         r = svc.pick_and_place(o)
         assert r.status == "ok", r
         held = d.sim_state()["held"]
-        r = svc.place(at=(420, 170))
+        r = svc.place(at=PLACE_AT)
         assert r.status == "ok", r
         time.sleep(1.0)
         sampler.__exit__()
@@ -121,7 +123,7 @@ def carry_run(cfg, tmp_path, size):
         ev = read_events(svc)
         bad = [e for e in ev if e.get("code") in ("ARM-GRIP-OVERLOAD-WARN", "ARM-GRIP-OVERLOAD", "ARM-BLOCKED")
                or (e.get("code") == "ARM-FAULT" and str(e.get("data", {}).get("reason", "")).startswith(("overload", "overcurrent", "overheat")))]
-        miss = float(np.hypot(end["x_mm"] - 420, end["y_mm"] - 170))
+        miss = float(np.hypot(end["x_mm"] - PLACE_AT[0], end["y_mm"] - PLACE_AT[1]))
         print(f"carry{size}(gripper {cfg.gripper}) size {size}: held {held}, 공중 미끄러짐(z>15) {air:.2f}mm, 전체 미끄러짐 {slip:.2f}mm(들어 올린 뒤 {slip_t:.1f}초, z {slip_z:.0f}mm), 놓은 자리 차이 {miss:.2f}mm, 기울기 {end['tilt_deg']:.1f}°")
         assert d.failed_reason is None and isinstance(d, MuJoCoDriver)
         return {"held": held, "first": series[0] if series else None, "slip": slip, "air": air, "miss": miss, "tilt": end["tilt_deg"], "bad": bad}
