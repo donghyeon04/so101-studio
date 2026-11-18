@@ -49,6 +49,8 @@ META: dict[str, Meta] = {
     "grasp_bias_mm": _m("mm", -20, 20, 0.5),
     "grasp_tilt_deg": _m("°", 0, 60, 1),
     "grasp_tilt_tol_deg": _m("°", 0, 45, 1),
+    "grasp_contact_tilt_max_deg": _m("°", 0, 45, 1),
+    "grasp_approach_tilt_pref_deg": _m("°", 0, 60, 1),
     "grasp_min_contact_mm": _m("mm", 0, 50, 1),
     "place_drop_mm": _m("mm", 0, 20, 1),
     "place_release_mm": _m("mm", 0, 30, 1),

@@ -220,7 +220,9 @@ def build(backend, client_id: str, actions) -> None:
                     if reason == EDGE_TEXT:
                         offer_free_edge(backend, pick_place)
                     else:
-                        ui.notify(reason or "집어 옮겼습니다", type="negative" if reason else "positive")
+                        ap = backend.last_pick_approach
+                        tilt = f" (기울여 집기 {ap['beta']:.0f}°)" if ap and ap.get("beta") else ""  # arm 6.6.1: 고른 손 기울기 β
+                        ui.notify((reason or "집어 옮겼습니다") + tilt, type="negative" if reason else "positive")
 
                 control(ui.button("집어 옮기기", on_click=guarded(pick_place, needs=obj_list)).props("no-caps").classes("w-full").mark("pp-run"), needs=obj_list)
 
