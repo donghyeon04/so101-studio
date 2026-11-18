@@ -595,6 +595,7 @@ def _policy_part(args) -> list[dict]:
     os.chdir(REPO_ROOT)
     s = load_suite(suite)
     policy = load_act(checkpoint)  # 한 번만 연다(에피소드마다 PolicyRunner.start가 reset)
+    _warm_up(policy)
     cfg = load_cfg(suite_override(s, None, Path(out)))
     rows = []
     with (Path(out) / f"results-part-{i:02d}.jsonl").open("w", encoding="utf-8") as f:
@@ -606,6 +607,16 @@ def _policy_part(args) -> list[dict]:
             f.flush()
             print(f"{row['episode']}: {row['outcome']} ({row['policy']['reason']}) {row['wall_s']}s", flush=True)
     return rows
+
+
+def _warm_up(policy) -> None:
+    """첫 추론(CUDA 커널 준비)이 100~270ms라 일꾼마다 첫 에피소드가 too_slow로 끝났다(11-19, --jobs 6 평가마다 5~6개): 빈 관측으로 한 번 미리 돈다."""
+    import numpy as np
+
+    obs = {"observation.state": np.zeros(6, np.float32), **{f"observation.images.{c}": np.zeros((240, 320, 3), np.uint8) for c in ("top", "wrist")}}
+    policy.reset()
+    policy.select_action(obs)
+    policy.reset()
 
 
 def run_policy(suite: str, checkpoint: str, seeds: int = 50, seed_start: int = 10000, out_root: Path | None = None, max_s: float = POLICY_MAX_S,
