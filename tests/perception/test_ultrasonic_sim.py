@@ -624,3 +624,12 @@ def test_face_offset_polar_and_layout_on_plate():
     for seed in range(5):
         for b in bm.random_layout(random.Random(seed), "spread90"):
             assert bm.on_plate(b, ws) and 45 <= math.degrees(math.atan2(b.y - by, b.x - bx)) <= 135
+
+
+def test_layout_rejects_body_touching_bin_wall():
+    """설계서 6절: 중심이 통 무시 원 밖이어도 몸체(긴 막대)가 통 벽에 걸리면 거른다."""
+    from so101_studio.core.config import load_workspace
+    from so101_studio.perception.ultrasonic import benchmark as bm
+    z = next(iter(load_workspace().drop_zones.values()))
+    assert bm._hits_zone(Box(z["x_mm"] + z["w_mm"] / 2 + 10, z["y_mm"], 0, 30, 100), z)  # 벽 두께 안으로 걸치는 막대
+    assert not bm._hits_zone(Box(z["x_mm"], z["y_mm"] + 300, 0, 30, 100), z)

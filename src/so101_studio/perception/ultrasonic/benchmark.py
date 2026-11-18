@@ -25,6 +25,7 @@ from ...arm.kinematics import Kinematics
 from ...arm.skills import SEEDS
 from ...arm.trajectory import LookaheadShape, fillet_path
 from ...core.config import load_robot, load_workspace
+from ...core.scene import BIN_WALL_T_MM
 from ...core.types import JointState
 from ...service.targets import point_to_pose, tip_vector
 from ...task import policy
@@ -257,7 +258,17 @@ def on_plate(b: Box, ws) -> bool:
     """물체 테두리가 판(workspace table_mm, 원점은 판 모서리) 안이고 배출 구역 무시 원(반 대각선 + 벽 + safety_margin_mm, 설계서 6절) 밖이다."""
     t = ws.table_mm
     return (all(0 <= x <= t["x"] and 0 <= y <= t["y"] for x, y in _edge_pts(b))
-            and all(math.hypot(b.x - zx, b.y - zy) >= zr for zx, zy, zr in ws.ignore_zones()))
+            and all(math.hypot(b.x - zx, b.y - zy) >= zr for zx, zy, zr in ws.ignore_zones())
+            and not any(_hits_zone(b, z) for z in ws.drop_zones.values()))
+
+
+def _hits_zone(b: Box, z: dict) -> bool:
+    """물체 몸체(테두리 점)가 배출 구역 사각형에 걸리는지(설계서 6절). 통은 벽 두께만큼 바깥까지 본다. 가운데만 보면 긴 막대가 벽에 걸린다."""
+    if "w_mm" not in z:
+        return False
+    t = BIN_WALL_T_MM if z.get("type") == "bin" else 0.0
+    hw, hh = z["w_mm"] / 2 + t, z["h_mm"] / 2 + t
+    return any(abs(x - z["x_mm"]) <= hw and abs(y - z["y_mm"]) <= hh for x, y in _edge_pts(b))
 
 
 def random_layout(rng, name) -> list[Box]:
