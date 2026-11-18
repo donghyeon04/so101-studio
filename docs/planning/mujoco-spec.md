@@ -1,6 +1,6 @@
 # MuJoCo 물리 시뮬레이션·시험장 설계서
 
-상태: 확정 · 2026-11-14 (`arm-software-spec.md` 13절에서 옮김. 13.1~13.9는 M1~M4로 구현됨, 13.10 시험장 계획은 결정 0062. 2026-11-14 drift-report(main fcdcb0f, #348~#357) 반영: 13.9 병렬·뷰어, 13.10 M5 판정·시험장 기준 설정. 2026-11-15 총괄 밤 보고 반영: 시나리오는 그리퍼별, M5 설계 입력, M5b 시계 주입 계획. 2026-11-16 M5·M5b 첫 단계·M6 세부 설계 13.10.1~13.10.3(초안, EGM Stage 9 전)) · 2026-11-16 13.10.4 카메라·렌더·에피소드 기록(결정 0066, 초안. 2026-11-16 밤 Stage 9 (가)(나) 꼭 고칠 것 반영: 13.10.1·13.10.2·13.10.4)
+상태: 확정 · 2026-11-14 (`arm-software-spec.md` 13절에서 옮김. 13.1~13.9는 M1~M4로 구현됨, 13.10 시험장 계획은 결정 0062. 2026-11-14 drift-report(main fcdcb0f, #348~#357) 반영: 13.9 병렬·뷰어, 13.10 M5 판정·시험장 기준 설정. 2026-11-15 총괄 밤 보고 반영: 시나리오는 그리퍼별, M5 설계 입력, M5b 시계 주입 계획. 2026-11-16 M5·M5b 첫 단계·M6 세부 설계 13.10.1~13.10.3(초안, EGM Stage 9 전)) · 2026-11-16 13.10.4 카메라·렌더·에피소드 기록(결정 0066, 초안. 2026-11-16 밤 Stage 9 (가)(나) 꼭 고칠 것 반영: 13.10.1·13.10.2·13.10.4) · 2026-11-18 13.10.4 수집 다시 짜기(결정 0068)
 
 로컬 세션이 MuJoCo 드라이버(M1~M4)와 시험장(M5~M9)을 구현하는 기준이다. 절 번호는 옮기기 전과 같다(13.x). 팔 쪽 기본 규약(타입, `ArmService`, 안전, 집기·놓기)은 `arm-software-spec.md`, GUI 쪽은 `gui-spec.md` 12.8이다. 근거 결정: 0053(MuJoCoDriver), 0062(시험장), 0037(주제마다 도구 하나).
 
@@ -457,9 +457,18 @@ spread: {xy_mm: 0, angle_deg: 0}           # 씨앗마다 자리·각도를 흔�
 - 한 줄: `observation.state` = `driver.read_joints()`의 실제 관절 6개, `action` = `svc.status().cmd`의 명령 관절 6개, `observation.images.top`·`observation.images.wrist` = `render` 결과. 단위는 관절 1~5가 °, 그리퍼가 0~100(0 닫힘)이다. 이름은 `shoulder_pan.pos … gripper.pos`(`core/types.py` 순서)다. 키·차원·단위는 LeRobot `so101_follower`(각도 단위)와 같지만 영점까지 같다는 보장은 없다(실물로 옮기는 것은 12/4 뒤).
 - 데이터셋: `dataset_dir`가 없으면 `LeRobotDataset.create(repo_id="local/<이름>", root=dataset_dir, fps=fps, robot_type="so101_follower", features=…, use_videos=True)`로 만든다. **이미 있으면 `ValueError`로 거부한다**(이어 쓰기는 2차). `stop(save=True)`는 에피소드를 저장하고(`save_episode`), `stop(save=False)`는 버리며(`clear_episode_buffer`), `close()`는 마무리한다. lerobot 0.6.1 설치본의 실제 함수 이름과 Windows에서 영상 인코딩이 되는지는 첫 PR에서 확인해 적는다. 영상이 안 되면 `use_videos=False`(그림 파일)로 바꾸고 보고한다.
 - 과제 문장 `task`를 에피소드마다 적는다(결정 0066의 5항).
-- 기록 구간은 `start()`부터 마지막 동작 뒤 판정 대기 1.0초까지다.
+- 기록 구간은 `start()`부터 마지막 동작 뒤 판정 대기까지다. 대기는 수집에서 0.3초(결정 0068), 평가에서 1.0초다.
 - 시계: `time.perf_counter`로 25Hz를 맞춘다(실시간 수집). 13.10.2가 들어오면 `ArmService`의 시계로 바꾼다. **기록기는 13.10.2를 기다리지 않는다.**
 - `lerobot[dataset]`이 없으면 "lerobot[dataset]이 설치되지 않았습니다. docs/guides/tooling-setup.md C-8"로 끝낸다. 데이터셋 폴더는 `runs/datasets/<이름>/`(git 밖)이다. 이름은 글자·숫자·`_`·`-`만 받는다.
+
+**수집 다시 짜기**(결정 0068, 2026-11-18. REQ-072의 첫 300개는 0/50이었다: 시연 30~34초, 정지 프레임 16%, action과 상태의 차이 중앙값 0.29°)
+- **1차 묶음 `collect_pick1`**: 58×58×39 상자 하나, 반경 150~200mm, 방위 ±30°, **각도는 상자 한 면이 팔 방향(그 자리의 방위)과 나란하게 고정**, 배출 구역 `right`. 아래 기준을 넘으면 각도를 0~180°로, 반경·방위를 지금 `collect_pick` 범위로 넓힌다.
+- **빠른 시연**: sim 수집 전용 프리셋(`arm-software-spec.md` 6.9.1 프리셋 틀)으로 팔 속도·가속, 그리퍼 속도, 대기를 올리거나 줄여 **에피소드 길이 중앙값 10초 이하**를 맞춘다. 안전 검사(관절 한계·작업 영역·바닥·막힘)는 끄지 않는다. 프리셋 값과 단계별 시간(접근·하강·닫기·들기·옮기기·놓기·대기)을 `measurements.md`에 남긴다. 프리셋은 `--sim`에서만 받는다(실물 속도는 바꾸지 않는다).
+- **action 앞당김 사본**: 기록기는 그대로 그 틱의 명령(`cmd`)을 `action`에 쓴다. 따로 `python -m so101_studio.arm.mujoco_record --shift <데이터셋> --k 5`가 `action[t] = cmd[t+k]`(끝 k프레임은 마지막 명령)인 사본 `<이름>-k5`를 만든다. 학습은 k=0과 k=5 둘로 하고 같은 평가로 비교한다.
+- **시작 자세**는 그대로 `radar_clear`다. 위 카메라가 늘 상자를 본다(손목 카메라는 시작에서 상자가 안 보인다, 첫 프레임 29개 모두 0px). 두 변형이 모두 기준을 못 넘으면 수집 전용 시작 자세를 다시 본다.
+- **병렬**: `--jobs N`(13.10.1과 같은 틀). 일꾼마다 `runs/datasets/<이름>/part-NN/`에 데이터셋 조각을 쓰고, 끝나면 하나로 합친다(lerobot 0.6.1 설치본의 데이터셋 합치기 함수를 첫 PR에서 확인해 적는다. 없으면 조각을 그대로 두고 학습 쪽에서 여러 조각을 읽는다). **그 에피소드에 `realtime_lag`가 하나라도 있으면 저장하지 않는다.** N은 `realtime_lag`로 버려지는 비율이 5% 아래인 가장 큰 값으로 정해 적는다. 평가(`--policy`)도 같은 `--jobs`를 쓴다.
+- **다음 단계 기준**: 평가 씨앗 10000~10049(1차 묶음 배치) 50개 중 **15개(30%) 이상 `placed_ok`**. 넘으면 범위를 넓혀 같은 절차를 한다. 못 넘으면 시연 600개와 이어 학습(가장 좋은 체크포인트에서)을 한 번 더 하고, 그래도 안 되면 11/23 범위 점검에서 L3·L4를 자를지 본다.
+- **전문가 규칙**: 실제 작업 실행과 같은 `Skills.pick`·`place`다. 집기 규칙이 바뀌면(결정 0069, `grasp_approach`) 그 값으로 다시 모으고 데이터셋 정보에 적는다.
 
 **스크립트 전문가**(1차, 13.10.1에 붙임): `python -m so101_studio.arm.mujoco_bench --suite collect_pick --record <데이터셋 이름> --seed-start 0 --seeds 300`. 에피소드마다 기록기를 켜고, **`outcome`이 `placed_ok`인 에피소드만 저장**한다(실패는 `results.jsonl`에만 남는다).
 - 수집용 묶음 `collect_pick`: 58×58×39 상자 하나(시연 물체), 반경 120~220mm·방위 ±45°·각도 0~180°를 씨앗으로 고르게 뽑고 배출 구역 `right`에 놓는다. 300 에피소드가 첫 목표다(공개 사례: 300개·4만 스텝에 42~50%).
@@ -468,7 +477,7 @@ spread: {xy_mm: 0, angle_deg: 0}           # 씨앗마다 자리·각도를 흔�
 **학습과 평가**(1차, L3. 코드가 아니라 절차, `so101-train` 환경)
 - LeRobot의 ACT 학습 명령을 그대로 쓰고 `--output_dir runs/train/<이름>`을 준다. `so101-train`의 lerobot도 0.6.1로 고정한다(체크포인트 형식이 앱 환경과 같아야 한다).
 - 평가는 `mujoco_bench --suite collect_pick --policy <체크포인트 폴더> --seed-start 10000 --seeds 50`이다(`PolicyRunner`를 GUI 없이 쓴다, `arm-software-spec.md` 6.10). 체크포인트는 손실이 아니라 이 50개의 `placed_ok` 비율로 고른다.
-- 한 번 추론으로 쓰는 스텝 수(`n_action_steps`, 기본 100이면 4초 동안 관측을 보지 않는다)는 L3에서 값을 정해(예: 25) 학습 명령·스텝 수·성공률 표와 함께 `measurements.md`에 남긴다. 성공률 목표는 두지 않는다(결정 0066).
+- 한 번 추론으로 쓰는 스텝 수(`n_action_steps`)는 먼저 덩어리 전체(`chunk_size`와 같게)로 하고, 그다음 절반과 비교한다(레퍼런스 aviadarn: 덩어리 전체 실행이 25·50스텝마다 다시 계획보다 나았고, 시간 앙상블은 도움이 안 됐다). 학습 명령·스텝 수·성공률 표와 함께 `measurements.md`에 남긴다. 1차 묶음의 성공 기준은 위 "수집 다시 짜기"(결정 0068)이고, 넓힌 묶음에는 목표를 두지 않는다(결정 0066).
 
 **세계 다시 짓기**(2차: GUI 수집 화면과 정책 실행 화면의 [다음 배치]에만 필요하다)
 - `Backend.rebuild_world(seed)` 하나로 한다. 순서: ① `PolicyRunner.stop()`과 `EpisodeRecorder.stop(save=…)` ② `MuJoCoDriver.set_objects(layout.objects)`(13.5 겹침 검사 그대로) ③ `backend.sim.connect(fresh=True)`: 새 `Skills`에 `placed`·`known_objects`·`grip` 기억을 넘기지 않는다(지금 `connect`는 넘긴다) ④ 수동 물체 목록과 3D를 바꾼다. 팔은 ③에서 홈 자세로 놓인다.
