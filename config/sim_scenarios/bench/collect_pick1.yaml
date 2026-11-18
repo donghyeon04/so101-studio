@@ -1,0 +1,14 @@
+# 1차 수집 묶음(결정 0068, mujoco-spec 13.10.4 "수집 다시 짜기"): 58×58×39 상자 하나, 반경 150~200mm, 방위 ±30°,
+# 상자 한 면이 그 자리 방위(팔→상자 방향)와 나란하게 고정, 배출 구역 right. 빠른 시연 프리셋(collect_fast.yaml)과 판정 대기 0.3초.
+# 수집: mujoco_bench --suite collect_pick1 --record <이름> --seed-start 0 --seeds 300 --jobs N --viewer
+# 평가: mujoco_bench --suite collect_pick1 --policy <체크포인트> --seed-start 10000 --seeds 50 --jobs N --viewer (판정 대기는 PolicyRunner 1.0초)
+name: collect_pick1
+robot: collect_fast.yaml
+settle_s: 0.3
+sample:
+  size_mm: [58, 58, 39]
+  radius_mm: [150, 200]
+  bearing_deg: [-30, 30]
+  angle_deg: along
+place: {zone: right}
+task: pick the box and place it in the right zone

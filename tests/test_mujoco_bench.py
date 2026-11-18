@@ -1,5 +1,6 @@
 """M5 집기 시험장 완료 기준 (mujoco-spec 13.10.1). 실시간이라 대부분 slow. mujoco가 없으면 건너뛴다."""
 import json
+import math
 from dataclasses import replace
 
 import pytest
@@ -135,7 +136,24 @@ def test_worker_keeps_going_on_error_and_restores_grip_force(tmp_path, monkeypat
 
     force0 = mujoco_hand.GRIP_FORCE_N
     monkeypatch.setattr(bench, "run_episode", boom)
-    row = bench._worker((bench.episodes(bench.load_suite("pick_smoke"))[0], str(bench.OVERRIDE), str(tmp_path), force0 + 23, False))
+    row = bench._worker((bench.episodes(bench.load_suite("pick_smoke"))[0], str(bench.OVERRIDE), str(tmp_path), force0 + 23, False, bench.SETTLE_S))
     assert row["outcome"] == "sim_fail" and "깨짐" in row["failed_reason"] and row["grip_force_n"] == force0 + 23
     assert mujoco_hand.GRIP_FORCE_N == force0
     assert bench.summarize([row])[0]["outcomes"] == {"sim_fail": 1}
+
+
+def test_collect_pick1_box_face_follows_bearing_and_uses_fast_preset(tmp_path):
+    """결정 0068 1차 묶음: 반경 150~200·방위 ±30°, 상자 한 면이 팔→상자 방향과 나란하다. 묶음의 robot이 수집 프리셋을 고르고 판정 대기는 0.3초."""
+    s = bench.load_suite("collect_pick1")
+    base = bench._base()
+    for ep in bench.episodes(s, 20):
+        t = ep.truth
+        dx, dy = t["x_mm"] - base.x_mm, t["y_mm"] - base.y_mm
+        bearing = math.degrees(math.atan2(dy, dx)) - base.yaw_deg
+        assert 150 <= math.hypot(dx, dy) <= 200 and -30 <= bearing <= 30
+        assert abs((t["angle_deg"] - math.degrees(math.atan2(dy, dx)) + 45) % 90 - 45) < 0.01  # 좌표는 0.001mm로 반올림
+    assert s["settle_s"] == 0.3
+    cfg = bench.load_cfg(bench.suite_override(s, None, tmp_path))
+    assert cfg.speed_pct_default == 100 and cfg.gripper == "parallel"
+    assert bench.suite_override(s, "single_jaw", tmp_path).name == "robot_override.yaml"  # --gripper가 먼저
+    assert bench.suite_override(bench.load_suite("collect_pick"), None, tmp_path) == bench.OVERRIDE
