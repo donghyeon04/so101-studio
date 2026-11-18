@@ -23,7 +23,7 @@ def mj():
 def test_mujoco_pick_without_object_fails_and_does_not_place(mj, monkeypatch):
     placed = []
     monkeypatch.setattr(mj.sim, "place", lambda **kw: placed.append(kw))
-    assert mj.pick_place((300, 275), 0, 30, 30, None, height_mm=40) == "물체를 쥐지 못했습니다"
+    assert mj.pick_place((215, 250), 0, 30, 30, None, height_mm=40) == "물체를 쥐지 못했습니다"
     assert placed == []
     mj.sim.home()
 
@@ -67,7 +67,7 @@ def test_mujoco_save_workspace_asks_restart(mj, monkeypatch, tmp_path):
 def test_physics_failure_locks_moves(mj, monkeypatch):
     monkeypatch.setattr(type(mj.sim.driver), "failed_reason", property(lambda self: "발산"))
     assert mj.move_lock().startswith("물리 시뮬레이션이 멈췄습니다")
-    assert mj.pick_place((300, 275), 0, 30, 30, None, height_mm=40).startswith("물리 시뮬레이션이 멈췄습니다")
+    assert mj.pick_place((215, 250), 0, 30, 30, None, height_mm=40).startswith("물리 시뮬레이션이 멈췄습니다")
 
 
 def test_app_rejects_scenario_and_reports_missing_mujoco(monkeypatch, capsys):
