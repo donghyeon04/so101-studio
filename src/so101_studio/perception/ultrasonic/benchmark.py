@@ -46,10 +46,10 @@ MODELS = {
 DXL_LAG_DEG = 0.3  # XL330 가정: 4° 이동 약 7ms라 33ms 간격 안에 도착. 남는 지연(실측 전 가정)
 OBJECT_SIZES = ((30, 100), (40, 80), (50, 50))  # 폭 x 길이, 높이 40
 SCENARIOS = {  # 이름: (물체 수, 반경 mm, 방위 °, 중심 간격 mm 이상)
-    "spread90": (3, (100, 240), (25, 155), 90),
-    "spread120": (3, (100, 240), (25, 155), 120),
-    "demo": (3, (120, 220), (25, 155), 120),
-    "demo80": (3, (120, 220), (25, 155), 120),  # demo + 물체 모서리 사이 80mm 이상(설계서 6절 권장 배치, edge_gap)
+    "spread90": (3, (120, 220), (45, 135), 90),  # 결정 0067: 판 425x375에서 반경 220의 양 옆은 판 밖이라 방위 45~135°(정면 ±45°)
+    "spread120": (3, (120, 220), (45, 135), 120),
+    "demo": (3, (120, 220), (45, 135), 120),
+    "demo80": (3, (120, 220), (45, 135), 120),  # demo + 물체 모서리 사이 80mm 이상(설계서 6절 권장 배치, edge_gap)
     "single": (1, (100, 240), (25, 155), 0),
     "pair": (2, (120, 240), (25, 155), 0),  # 물체 둘, 모서리 사이 간격을 --pair-gap으로 정한다(이웃 물체를 따로 보는 최소 간격 재기)
 }
@@ -228,7 +228,8 @@ def build(boxes, seed=0, model="optimistic", reach=REACH, arm_kw=None, esp_kw=No
 
 def make_source(cfg, clk, esp, arm, baseline_dir=None, calibrate=True):
     path = Path(baseline_dir or tempfile.mkdtemp()) / "baseline.json"
-    src = UltrasonicSource(Link(esp, clk), cfg, arm_origin_mm=arm.base, arm_links_fn=arm.links_at, baseline_path=path)
+    src = UltrasonicSource(Link(esp, clk), cfg, arm_origin_mm=arm.base, arm_links_fn=arm.links_at, baseline_path=path,
+                          ignore_zones=load_workspace().ignore_zones())  # 작업 실행과 같이 배출 구역(통)을 후보에서 뺀다
     src.connect()
     if calibrate:
         boxes, esp.boxes = esp.boxes, []  # 빈 작업대로 기준값
@@ -252,17 +253,25 @@ def angle_ok(est, true_deg):
     return min(d, 180 - d) <= 22.5
 
 
+def on_plate(b: Box, ws) -> bool:
+    """물체 테두리가 판(workspace table_mm, 원점은 판 모서리) 안이고 배출 구역 무시 원에서 50mm 이상 떨어져 있다(통 벽이 빔을 가리지 않게)."""
+    t = ws.table_mm
+    return (all(0 <= x <= t["x"] and 0 <= y <= t["y"] for x, y in _edge_pts(b))
+            and all(math.hypot(b.x - zx, b.y - zy) >= zr + 50 for zx, zy, zr in ws.ignore_zones()))
+
+
 def random_layout(rng, name) -> list[Box]:
     """8.5절 시나리오: 팔 원점 기준 반경·방위 범위 안, 중심 간격 이상. 물체는 30x100·40x80·50x50, 방향 0/45/90/135° ±5°."""
     n, (r0, r1), (b0, b1), spacing = SCENARIOS[name]
     bx, by = arm_base()
+    ws = load_workspace()
     for _ in range(10000):
         boxes = []
         for _ in range(n):
             r, th = rng.uniform(r0, r1), math.radians(rng.uniform(b0, b1))
             w, length = rng.choice(OBJECT_SIZES)
             boxes.append(Box(bx + r * math.cos(th), by + r * math.sin(th), rng.choice((0, 45, 90, 135)) + rng.uniform(-5, 5), w, length))
-        if all(math.dist((a.x, a.y), (b.x, b.y)) >= spacing and (name != "demo80" or edge_gap(a, b) >= 80) for a, b in itertools.combinations(boxes, 2)):
+        if all(on_plate(b, ws) for b in boxes) and all(math.dist((a.x, a.y), (b.x, b.y)) >= spacing and (name != "demo80" or edge_gap(a, b) >= 80) for a, b in itertools.combinations(boxes, 2)):
             return boxes
     raise RuntimeError("배치를 못 만들었다")
 

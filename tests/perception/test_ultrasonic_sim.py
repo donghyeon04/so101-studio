@@ -608,3 +608,19 @@ def test_clipped_ring_pieces_are_short(tmp_path):
     ring.append(ring[0])
     pieces = probe._clip([(x, y - 130) for x, y in ring])  # 팔 원점 쪽으로 내려 도달 범위에 걸치게
     assert pieces and all(len(pc) <= 37 for pc in pieces)
+
+
+def test_face_offset_polar_and_layout_on_plate():
+    """H-4: 거리는 송수신기 앞면에서 재니 위치는 서보 축 + (face_offset + 거리). 시연 배치는 방위 45~135°, 판 안."""
+    import random
+
+    from so101_studio.core.config import load_workspace
+    from so101_studio.perception.ultrasonic import benchmark as bm
+    from so101_studio.perception.ultrasonic import radar
+    cfg = bm.load_config()
+    x, y = radar.polar(cfg, 90, 100)  # 서보 90° = 정면(heading -90°, 팔 쪽)
+    assert (x, y) == pytest.approx((cfg.radar.station_mm.x, cfg.radar.station_mm.y - 100 - cfg.radar.face_offset_mm))
+    ws, (bx, by) = load_workspace(), bm.arm_base()
+    for seed in range(5):
+        for b in bm.random_layout(random.Random(seed), "spread90"):
+            assert bm.on_plate(b, ws) and 45 <= math.degrees(math.atan2(b.y - by, b.x - bx)) <= 135
