@@ -1,6 +1,9 @@
 """REQ-056 (결정 0052, arm-software-spec 6.6·11.3.3): height_required, 초음파 CHECK 다시, 놓은 뒤 상승 최소(low_lift), ② 상자 폭, 집기 기억 넘김."""
+from dataclasses import replace
+
 import numpy as np
 import pytest
+from test_skills import LEGACY_TABLE_Z_MM
 from test_task import OK
 from test_task_check import StubProbe, StubSource, UsSkills, cand, run, runner
 
@@ -9,8 +12,8 @@ from so101_studio.core.config import load_robot, load_workspace
 from so101_studio.core.types import DetectedObject, MotionResult, ToolPose
 from so101_studio.service.arm_service import ArmService
 
-CFG = load_robot("config/robot.yaml")
-WS = load_workspace("config/workspace.yaml")
+CFG = replace(load_robot("config/robot.yaml"), table_z_mm=LEGACY_TABLE_Z_MM)
+WS = load_workspace("tests/workspace_600x400.yaml")
 TABLE = sorted((mm, v) for v, mm in CFG.gripper_width_mm)
 POINT = (300.0, 200.0)
 
@@ -65,7 +68,7 @@ class HeightSkills(UsSkills):
         super().__init__(pick_status="ok")
         self.first, self.last_pick_tilted = status, tilted
 
-    def pick(self, o):
+    def pick(self, o, place_targets=None):
         self.calls.append(f"pick:{o.id}:{o.height_mm:g}")
         if o.height_mm > 0 or self.first == "ok":
             return OK

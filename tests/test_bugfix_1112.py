@@ -1,6 +1,9 @@
 """11-12 실물 버그 2건: (1) 집은 물체가 known_objects에 있어 놓기 호버가 막힌다, (2) 쥔 채 막히면 새 동작이 그리퍼 step fault."""
+from dataclasses import replace
+
 import numpy as np
 import pytest
+from test_skills import LEGACY_TABLE_Z_MM
 
 from so101_studio.arm.fault_text import describe
 from so101_studio.arm.sim_driver import SimDriver
@@ -8,8 +11,8 @@ from so101_studio.core.config import load_robot, load_workspace
 from so101_studio.core.types import DetectedObject, JointState
 from so101_studio.service.arm_service import ArmService
 
-CFG = load_robot("config/robot.yaml")
-WS = load_workspace("config/workspace.yaml")
+CFG = replace(load_robot("config/robot.yaml"), table_z_mm=LEGACY_TABLE_Z_MM)
+WS = load_workspace("tests/workspace_600x400.yaml")
 TABLE = sorted((mm, v) for v, mm in CFG.gripper_width_mm)
 GUI_KNOWN = [(300.0, 190.0, 50.0), (250.0, 210.0, 50.0), (350.0, 200.0, 50.0)]  # obj-1 자신 포함  # GUI 자동 실행이 넘기는 기본 수동 물체(집는 obj-1 자신 포함, 길이 100 -> 반지름 50)
 

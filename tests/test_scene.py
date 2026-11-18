@@ -15,7 +15,7 @@ def test_repo_scene_has_radar_box():
     p = s.parts[0]
     assert p.name == "radar_station" and p.attach == "table" and p.collide
     assert p.mesh.bounds[0][2] == pytest.approx(0) and p.mesh.bounds[1][2] == pytest.approx(20)  # 아래면이 원점
-    assert p.T[:3, 3] == pytest.approx([300, 400, 0])
+    assert p.T[:3, 3] == pytest.approx([207.3, 405.5, 0])  # 결정 0067 레이더 서보 축
 
 
 def test_rpy_and_errors(tmp_path):
@@ -54,7 +54,7 @@ def test_service_and_mujoco_driver_share_the_filtered_scene(tmp_path, gripper, w
     from so101_studio.core.config import load_workspace
     from so101_studio.service.arm_service import ArmService
 
-    cfg, ws = _cfg(tmp_path, gripper), load_workspace("config/workspace.yaml")
+    cfg, ws = _cfg(tmp_path, gripper), load_workspace("tests/workspace_600x400.yaml")
     d = make_sim_driver(cfg, ws, load_scene())
     svc = ArmService(d, cfg, ws, 30)
     names = [p.name for p in svc.scene.parts]

@@ -85,6 +85,15 @@ class Kinematics:
         f, m = self.jaw_tip_offsets(pitch_deg, yaw_table_deg, gripper_value)
         return (np.asarray(f, float) + np.asarray(m, float)) / 2 if self.gripper.name == "parallel" else np.asarray(f, float)
 
+    def jaw_tips_at(self, q: JointState) -> tuple[np.ndarray, np.ndarray]:
+        """두 턱 끝의 절대 위치(작업대 xy, 모델 z, mm). 병렬은 실제 손 방향으로 만들어 wrist_roll을 돌린 기운 자세(6.6.1)에서도 맞다."""
+        if hasattr(self.gripper, "tips_at"):
+            return self.gripper.tips_at(q)
+        p = self.fk(q)
+        f, m = self.jaw_tip_offsets(p.pitch_deg, p.yaw_deg, q.gripper)
+        o = np.array([p.x_mm, p.y_mm, p.z_mm])
+        return o + np.asarray(f, float), o + np.asarray(m, float)
+
     @locked
     def link_points(self, q: JointState) -> list[tuple[float, float]]:
         """어깨(위팔 관절)·팔꿈치·손목·손끝(tcp_offset: 단동식 고정 턱 끝, 병렬 두 턱 끝 가운데)의 작업대 xy(mm). 레이더가 팔이 가린 자리를 지울 때 쓴다."""

@@ -1,0 +1,11 @@
+# 시험용 고정 작업대(결정 0067 전 600x400 배치). 동작 논리 시험이 실물 배치 값(config/workspace.yaml)이 바뀔 때마다 좌표를 고치지 않게 따로 둔다.
+# 새 배치(425x375, 통 구역)는 tests/test_workbench_bin.py가 config/workspace.yaml로 본다.
+table_mm: {x: 600, y: 400}
+robot_base_in_table: {x_mm: 300, y_mm: 50, yaw_deg: 90}   # 배치 확정 후 수정
+# 배출 구역: 사각형 {x_mm, y_mm: 가운데, w_mm·h_mm: 크기, slot_mm: 칸 간격}이면 slot_mm 격자의 칸에 로봇 원점에 가까운 빈 칸부터 놓고, 집기 범위(reach_mm) 밖의 칸은 뺀다.
+# 가득 차면 stopped(drop_zone_full). {x_mm, y_mm}만 있는 옛 점 형식은 한 점에 겹쳐 놓고 ARM-PLACE-SAME-SPOT 경고 (arm-software-spec 11.3.5). 기본값은 시험값: 작업대 조립 뒤 실측 위치로.
+drop_zones:
+  right: {x_mm: 480, y_mm: 150, w_mm: 100, h_mm: 80, slot_mm: 75}
+safety_margin_mm: 10
+candidate_reach_margin_mm: 60   # 확인(CHECK) 전 레이더 후보는 reach_mm 최대 + 이 값까지 고른다(후보가 실제보다 멀게 보인다, REQ-065). CHECK로 확정한 위치와 수동 입력은 reach_mm 그대로
+reach_mm: {min: 90, max: 250}   # '집기 범위'(pick_reach_mm): 로봇 원점에서 수직 하강으로 집을 수 있는 반경. 손끝 방향이 자유로운 움직임 범위는 ArmService.reach_ranges가 계산한다. 근거 (measurements.md T6 사전 조사). 도달 밖 물체는 작업에서 제외

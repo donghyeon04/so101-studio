@@ -11,7 +11,7 @@ from so101_studio.service import params
 from so101_studio.service.arm_service import ArmService
 
 CFG = load_robot("config/robot.yaml")
-WS = load_workspace("config/workspace.yaml")
+WS = load_workspace("tests/workspace_600x400.yaml")
 
 
 @pytest.fixture
@@ -115,7 +115,7 @@ def test_reload_workspace_updates_skills_safety_kinematics_and_rejects_while_mov
 
     from so101_studio.core.types import JointState
 
-    raw = yaml.safe_load(Path("config/workspace.yaml").read_text(encoding="utf-8"))
+    raw = yaml.safe_load(Path("tests/workspace_600x400.yaml").read_text(encoding="utf-8"))
     raw["robot_base_in_table"]["x_mm"] = 350
     raw["table_mm"] = {"x": 700, "y": 400}
     f = tmp_path / "ws.yaml"

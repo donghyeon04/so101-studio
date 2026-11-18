@@ -236,7 +236,7 @@ def conf(tmp_path):
 def service(tmp_path, conf, cfg=CFG0, hard=None):
     d = SimDriver(cfg.poses["home"])
     d.simulated, d.locked_reason = False, hard  # 실제 장치처럼 보이게(시뮬레이션은 잠그지 않는다)
-    svc = ArmService(d, cfg, load_workspace("config/workspace.yaml"), speed_pct=50, log_root=str(tmp_path / "log"))
+    svc = ArmService(d, cfg, load_workspace("tests/workspace_600x400.yaml"), speed_pct=50, log_root=str(tmp_path / "log"))
     svc.config_dir = conf
     ok, msg = svc.connect()
     assert ok, msg

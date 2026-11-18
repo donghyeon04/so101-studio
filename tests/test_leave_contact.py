@@ -1,16 +1,18 @@
 """실물 2-2(11-13): 놓은 직후 단동식 고정 턱이 상자 옆에 닿아(간격 0~2mm) 기울기 풀기가 box:1mm로 거절되던 것, 쥔 틈보다 넓은 물체 폭, PICK 기록."""
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from test_skills import LEGACY_TABLE_Z_MM
 
 from so101_studio.arm.sim_driver import SimDriver
 from so101_studio.core.config import load_robot, load_workspace
 from so101_studio.core.types import DetectedObject, JointState
 from so101_studio.service.arm_service import ArmService
 
-CFG = load_robot("config/robot.yaml", arm="so101_follower_01") if __import__("pathlib").Path("config/arms/so101_follower_01.yaml").exists() else load_robot("config/robot.yaml")
-WS = load_workspace("config/workspace.yaml")
+CFG = replace(load_robot("config/robot.yaml", arm="so101_follower_01") if __import__("pathlib").Path("config/arms/so101_follower_01.yaml").exists() else load_robot("config/robot.yaml"), table_z_mm=LEGACY_TABLE_Z_MM)
+WS = load_workspace("tests/workspace_600x400.yaml")
 TABLE = sorted((mm, v) for v, mm in CFG.gripper_width_mm)
 
 

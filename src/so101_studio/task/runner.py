@@ -207,7 +207,7 @@ class TaskRunner:
             self._emit("PICK", obj.id)
             if self._stopped():
                 return self._end("STOPPED")
-            r = self.skills.pick(obj)
+            r = self.skills.pick(obj, self.skills.place_targets(zone=self.zone))
             retry = True
             if not self._ok(r):  # 재시도 1회
                 if self._stop:
@@ -228,7 +228,7 @@ class TaskRunner:
                     self._skip(obj, r)
                     continue
                 if retry:
-                    r = self.skills.pick(obj)
+                    r = self.skills.pick(obj, self.skills.place_targets(zone=self.zone))
             if not self._ok(r):
                 fails[obj.id] = fails.get(obj.id, 0) + 1
                 self.failed.append(obj.id)

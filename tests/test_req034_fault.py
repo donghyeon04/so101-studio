@@ -67,7 +67,7 @@ def test_fault_text_in_arm_status(tmp_path):
     from so101_studio.core.config import load_workspace
     from so101_studio.service.arm_service import ArmService
 
-    s = ArmService(SimDriver(CFG.poses["home"]), CFG, load_workspace("config/workspace.yaml"), speed_pct=100, log_root=str(tmp_path))
+    s = ArmService(SimDriver(CFG.poses["home"]), CFG, load_workspace("tests/workspace_600x400.yaml"), speed_pct=100, log_root=str(tmp_path))
     assert s.connect()[0]
     try:
         s.ctl._fault("comm_lost")

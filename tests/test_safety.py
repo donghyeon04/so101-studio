@@ -12,7 +12,7 @@ from so101_studio.core.config import load_robot, load_workspace
 from so101_studio.core.types import JointState
 
 CFG = load_robot("config/robot.yaml")
-WS = load_workspace("config/workspace.yaml")
+WS = load_workspace("tests/workspace_600x400.yaml")
 HOME = JointState(*CFG.poses["home"])
 
 
@@ -199,7 +199,7 @@ def test_floor_check_lets_the_tip_leave_a_pose_already_below_the_floor_but_not_g
     from so101_studio.arm.safety import Safety
     from so101_studio.core.types import JointState, ToolPose
 
-    kin = SimpleNamespace(fk=lambda q: ToolPose(100, 100, q.shoulder_lift, 90, -90), jaw_tip_offsets=lambda *a: ((0, 0, 0), (0, 0, 0)))
+    kin = SimpleNamespace(fk=lambda q: ToolPose(100, 100, q.shoulder_lift, 90, -90), jaw_tips_at=lambda q: ((100, 100, q.shoulder_lift),) * 2)
     ws = SimpleNamespace(table_mm={"x": 600, "y": 400}, safety_margin_mm=10)
     s = Safety({}, ws, kin, z_floor_mm=5, table_z_mm=0)
     at = lambda h: JointState(0, h, 0, 0, 0, 0)  # 높이 = shoulder_lift 값(mm)
@@ -216,7 +216,7 @@ def test_safety_settings_margin_box_and_off_mode():
 
     base = {"shoulder_pan": [-118, 118], "gripper": [1, 99]}
     phys = {"shoulder_pan": [-119.5, 119.5]}
-    kin = SimpleNamespace(fk=lambda q: ToolPose(300, 200, q.shoulder_lift, 90, -90), jaw_tip_offsets=lambda *a: ((0, 0, 0), (0, 0, 0)))
+    kin = SimpleNamespace(fk=lambda q: ToolPose(300, 200, q.shoulder_lift, 90, -90), jaw_tips_at=lambda q: ((300, 200, q.shoulder_lift),) * 2)
     ws = SimpleNamespace(table_mm={"x": 600, "y": 400}, safety_margin_mm=10)
     s = Safety(base, ws, kin, z_floor_mm=5, table_z_mm=0, physical_limits=phys)
     q = lambda pan=0, h=50: JointState(pan, h, 0, 0, 0, 3)  # 높이 = shoulder_lift 값(mm)
