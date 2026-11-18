@@ -43,7 +43,9 @@ def load_act(checkpoint_dir):
 
 
 class PolicyRunner:
-    """judge: 끝나고 JUDGE_DELAY_S 뒤 부를 판정 함수 judge(driver) -> dict(outcome, …). 배치를 묶어(functools.partial) 넘긴다. 없으면 outcome None."""
+    """judge: 끝나고 JUDGE_DELAY_S 뒤 부를 판정 함수 judge(driver) -> dict(outcome, …). 배치를 묶어(functools.partial) 넘긴다. 없으면 outcome None.
+    돌리는 법 둘: start()는 벽시계 스레드(GUI·실시간). 시계로 돌릴 때(StepClock.every, mujoco-spec 13.10.2)는 begin() 뒤 걸음마다
+    `why = runner.due_stop(slow=False) or runner.step()`, why가 생기면 finish(why)."""
 
     def __init__(self, svc, driver, checkpoint_dir=None, fps: int = 25, policy=None, max_s: float = 20, judge=None):
         self.svc, self.driver, self.checkpoint_dir = svc, driver, checkpoint_dir
@@ -51,13 +53,23 @@ class PolicyRunner:
         self.result: dict | None = None  # 끝난 뒤 ARM-POLICY-STOP에 남긴 내용
         self._quit = threading.Event()
         self._thread: threading.Thread | None = None
+        self._infer: list[float] = []  # 걸음마다 추론 걸린 초(벽시계)
+        self._t0, self._skipped, self._sent, self._rejected = 0.0, 0, 0.0, None  # 시작 시각, 건너뛴 걸음, 마지막으로 보낸 시각, 안전 거부가 시작된 시각(제어 시계)
 
     def start(self) -> str | None:
-        """시작하면 None, 못 하면 사람이 읽을 이유."""
-        if not callable(getattr(self.driver, "render", None)):
-            return "정책 실행은 MuJoCo 엔진에서만 한다(실제 팔·기구학 엔진에는 카메라가 없다)"
+        """벽시계 스레드로 시작한다. 시작하면 None, 못 하면 사람이 읽을 이유."""
         if self._thread is not None and self._thread.is_alive():
             return "이미 실행 중"
+        if (why := self.begin()) is not None:
+            return why
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+        return None
+
+    def begin(self, **log) -> str | None:
+        """한 번 돌리기를 준비한다: 정책을 열고(없으면) reset, 시작 시각·걸음 기록을 비우고 ARM-POLICY-START(log를 더해)를 남긴다. 못 하면 이유."""
+        if not callable(getattr(self.driver, "render", None)):
+            return "정책 실행은 MuJoCo 엔진에서만 한다(실제 팔·기구학 엔진에는 카메라가 없다)"
         if self.policy is None:
             try:
                 self.policy = load_act(self.checkpoint_dir)
@@ -66,10 +78,22 @@ class PolicyRunner:
         self.policy.reset()
         self._quit.clear()
         self.result = None
-        self.svc.log_event("policy_start", {"checkpoint": None if self.checkpoint_dir is None else str(self.checkpoint_dir), "fps": self.fps},
+        self._t0 = self._sent = self.svc.clock.now()
+        self._infer, self._skipped, self._rejected = [], 0, None
+        self.svc.log_event("policy_start", {"checkpoint": None if self.checkpoint_dir is None else str(self.checkpoint_dir), "fps": self.fps, **log},
                            code="ARM-POLICY-START")
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
+        return None
+
+    def due_stop(self, slow: bool = True) -> str | None:
+        """지금 끝내야 하면 이유: max_s(제어 시계로 max_s 지남), stop(stop() 불림), too_slow(slow이고 SLOW_S 동안 아무 목표도 못 보냄). 아니면 None.
+        slow=False는 시계로 돌릴 때다(추론 지연이 시뮬레이션 시간 0이라 too_slow가 없다)."""
+        now = self.svc.clock.now()
+        if now - self._t0 >= self.max_s:
+            return "max_s"
+        if self._quit.is_set():
+            return "stop"
+        if slow and now - self._sent > SLOW_S:
+            return "too_slow"
         return None
 
     def stop(self, timeout: float = 3.0) -> None:
@@ -110,23 +134,14 @@ class PolicyRunner:
     def _run(self) -> None:
         """벽시계 스레드(GUI·실시간): fps마다 step()을 부른다."""
         period, clock = 1.0 / self.fps, self.svc.clock
-        t0 = nxt = self._sent = clock.now()
-        self._infer, self._skipped, self._rejected, reason = [], 0, None, "max_s"
-        while clock.now() - t0 < self.max_s:
-            if self._quit.is_set():
-                reason = "stop"
-                break
-            if clock.now() - self._sent > SLOW_S:
-                reason = "too_slow"
-                break
-            if (why := self.step(skip_after_s=period)) is not None:
-                reason = why
-                break
+        nxt = clock.now()
+        while (reason := self.due_stop() or self.step(skip_after_s=period)) is None:
             nxt = max(nxt + period, clock.now() - period)  # 밀렸으면 몰아서 따라잡지 않는다
             self._quit.wait(max(0.0, nxt - clock.now()))
-        self._finish(reason)
+        self.finish(reason)
 
-    def _finish(self, reason: str) -> None:
+    def finish(self, reason: str) -> None:
+        """끝낸다: 지금 자리에 서고, judge가 있으면 JUDGE_DELAY_S(제어 시계) 뒤 판정, result를 채우고 ARM-POLICY-STOP을 남긴다."""
         self.svc.stop()  # 서보 목표를 비워 0.5초를 기다리지 않고 지금 자리에서 선다
         outcome = None
         if self.judge is not None:
