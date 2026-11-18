@@ -429,27 +429,24 @@ def _feeder(drv, label: str, clock=None):
 POLICY_MAX_S = 45.0  # 정책 한 에피소드 상한(전문가 시연이 약 31초라 PolicyRunner 기본 20초로는 모자란다)
 
 
-def _run_stepped(runner, clock, max_s: float) -> None:
-    """--clock step: PolicyRunner 한 걸음을 시계의 every(1/fps)로 돌린다(13.10.2, 스레드 없음, 추론 지연은 시뮬레이션 시간 0이라 too_slow·건너뛰기 없음).
-    shortcut: PolicyRunner의 비공개 필드(_infer·_skipped·_rejected·_finish)를 쓴다. 팔 세션이 공개 '시계로 돌리기'를 만들면 그것으로 바꾼다."""
-    runner.policy.reset()
-    runner._infer, runner._skipped, runner._rejected = [], 0, None
-    runner.svc.log_event("policy_start", {"checkpoint": None, "fps": runner.fps, "clock": "step"}, code="ARM-POLICY-START")
-    done, out, t0 = threading.Event(), {"reason": "max_s"}, clock.now()
+def _run_stepped(runner, clock) -> None:
+    """--clock step: PolicyRunner 한 걸음을 시계의 every(1/fps)로 돌린다(13.10.2, 스레드 없음, 추론 지연은 시뮬레이션 시간 0이라 too_slow 없음).
+    순서는 팔 REQ-086의 공개 메서드대로: begin() 뒤 걸음마다 due_stop(slow=False) or step(), 이유가 생기면 finish(이유)."""
+    why = runner.begin(clock="step")
+    if why:
+        raise RuntimeError(why)
+    done, out = threading.Event(), {}
 
     def tick():
         if done.is_set():
             return
-        if clock.now() - t0 >= max_s:
-            done.set()
-            return
-        if (why := runner.step(None)) is not None:
+        if (why := runner.due_stop(slow=False) or runner.step()) is not None:
             out["reason"] = why
             done.set()
 
     clock.every(1.0 / runner.fps, tick)
     clock.wait(done)
-    runner._finish(out["reason"])
+    runner.finish(out["reason"])
 
 
 def run_policy_episode(ep: Episode, suite: dict, cfg, log_dir: Path, policy, max_s: float = POLICY_MAX_S, viewer: bool = False, clock: str = "wall") -> dict:
@@ -465,7 +462,7 @@ def run_policy_episode(ep: Episode, suite: dict, cfg, log_dir: Path, policy, max
     try:
         runner = PolicyRunner(env.svc, env.drv, policy=policy, max_s=max_s, judge=partial(judge, layout=_layout_of(ep, suite)))
         if getattr(env.clock, "drives_status", False):
-            _run_stepped(runner, env.clock, max_s)
+            _run_stepped(runner, env.clock)
         else:
             why = runner.start()
             if why:
