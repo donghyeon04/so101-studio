@@ -38,7 +38,7 @@ def test_ik_does_not_depend_on_what_other_calls_left_in_the_solver():
     from so101_studio.core.config import load_robot, load_workspace
 
     cfg = load_robot("config/robot.yaml")
-    kin = Kinematics(cfg.urdf, load_workspace("config/workspace.yaml").base, cfg.joint_limits_deg)  # 앱과 같은 설정(관절 한계·받침)
+    kin = Kinematics(cfg.urdf, load_workspace("tests/workspace_600x400.yaml").base, cfg.joint_limits_deg)  # 앱과 같은 설정(관절 한계·받침)
     seed, pose = JointState(0.0, -16.43, 29.72, 76.7, 0.0, 3.0), ToolPose(301.0, 200.0, 47.3, 90.0, -90.0)
     first = kin.ik(pose, seed, max_iter=100)
     assert first is not None

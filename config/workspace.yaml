@@ -1,9 +1,10 @@
-table_mm: {x: 600, y: 400}
-robot_base_in_table: {x_mm: 300, y_mm: 50, yaw_deg: 90}   # 배치 확정 후 수정
-# 배출 구역: 사각형 {x_mm, y_mm: 가운데, w_mm·h_mm: 크기, slot_mm: 칸 간격}이면 slot_mm 격자의 칸에 로봇 원점에 가까운 빈 칸부터 놓고, 집기 범위(reach_mm) 밖의 칸은 뺀다.
+table_mm: {x: 425, y: 375}   # 결정 0067: 하드웨어 담당 CAD의 판(두께 2, 40x80 프로파일 위). H-6 실측으로 고친다
+robot_base_in_table: {x_mm: 215.2, y_mm: 21.4, yaw_deg: 90}   # 결정 0067: J1 혼 원 중심(CAD). 팔 정면은 레이더 쪽(+y)
+# 배출 구역: 통 {type: bin, x_mm, y_mm: 가운데, w_mm·h_mm: 안쪽 크기, wall_mm: 벽 높이}이면 칸을 고르지 않고 통 가운데 위에서 쥔 물체 바닥이 벽 위 bin_drop_clear_mm에 오는 높이에서 열어 떨어뜨린다(결정 0067).
+# 사각형 {x_mm, y_mm: 가운데, w_mm·h_mm: 크기, slot_mm: 칸 간격}이면 slot_mm 격자의 칸에 로봇 원점에 가까운 빈 칸부터 놓고, 집기 범위(reach_mm) 밖의 칸은 뺀다.
 # 가득 차면 stopped(drop_zone_full). {x_mm, y_mm}만 있는 옛 점 형식은 한 점에 겹쳐 놓고 ARM-PLACE-SAME-SPOT 경고 (arm-software-spec 11.3.5). 기본값은 시험값: 작업대 조립 뒤 실측 위치로.
 drop_zones:
-  right: {x_mm: 480, y_mm: 150, w_mm: 100, h_mm: 80, slot_mm: 75}
+  right: {type: bin, x_mm: 355, y_mm: 80, w_mm: 110, h_mm: 110, wall_mm: 25}   # 결정 0067 시작값(오른쪽 앞 귀퉁이, 통 가운데 반경 약 152mm). H-6 실측으로 고친다
 safety_margin_mm: 10
 candidate_reach_margin_mm: 60   # 확인(CHECK) 전 레이더 후보는 reach_mm 최대 + 이 값까지 고른다(후보가 실제보다 멀게 보인다, REQ-065). CHECK로 확정한 위치와 수동 입력은 reach_mm 그대로
 reach_mm: {min: 90, max: 250}   # '집기 범위'(pick_reach_mm): 로봇 원점에서 수직 하강으로 집을 수 있는 반경. 손끝 방향이 자유로운 움직임 범위는 ArmService.reach_ranges가 계산한다. 근거 (measurements.md T6 사전 조사). 도달 밖 물체는 작업에서 제외

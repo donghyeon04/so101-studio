@@ -13,7 +13,7 @@ from so101_studio.core.types import JointState
 from so101_studio.service.arm_service import ArmService
 
 CFG = load_robot("config/robot.yaml")
-WS = load_workspace("config/workspace.yaml")
+WS = load_workspace("tests/workspace_600x400.yaml")
 
 
 class SerialTimeoutException(Exception):  # pyserial의 같은 이름 예외 흉내(드라이버는 형식 이름으로 알아본다)

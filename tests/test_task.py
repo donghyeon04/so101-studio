@@ -17,7 +17,7 @@ from so101_studio.task.policy import choose, reachable
 from so101_studio.task.runner import TaskRunner
 
 CFG = load_robot("config/robot.yaml")
-WS = load_workspace("config/workspace.yaml")
+WS = load_workspace("tests/workspace_600x400.yaml")
 OK = MotionResult("ok", 0.0, ToolPose(0, 0, 0, 0))
 
 

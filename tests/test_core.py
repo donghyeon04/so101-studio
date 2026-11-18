@@ -38,7 +38,8 @@ def test_load_configs():
     assert robot.port == "" and robot.pid == {"p": 16, "i": 0, "d": 32}
     assert len(robot.poses["home"]) == 6
     ws = load_workspace("config/workspace.yaml")
-    assert ws.base == BASE and ws.drop_zones["right"]["x_mm"] == 480 and ws.zone_slots("right")
+    assert ws.base.x_mm == 215.2 and ws.base.y_mm == 21.4 and ws.table_mm == {"x": 425, "y": 375}  # 결정 0067
+    assert ws.drop_zones["right"]["type"] == "bin" and ws.zone_slots("right") is None
 
 
 def test_unknown_key_is_rejected(tmp_path):

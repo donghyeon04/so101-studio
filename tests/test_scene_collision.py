@@ -112,7 +112,7 @@ def test_check_path_speed(kin, coll):
 def test_service_scene_and_reload(tmp_path):
     from so101_studio.arm.sim_driver import SimDriver
     from so101_studio.service.arm_service import ArmService
-    (tmp_path / "workspace.yaml").write_text(Path("config/workspace.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+    (tmp_path / "workspace.yaml").write_text(Path("tests/workspace_600x400.yaml").read_text(encoding="utf-8"), encoding="utf-8")
     (tmp_path / "scene.yaml").write_text("margin_mm: 5\nparts:\n  - {name: wall, box_mm: [10, 10, 10], xyz_mm: [1, 1, 0]}\n", encoding="utf-8")
     svc = ArmService(SimDriver(CFG.poses["home"]), CFG, WS, speed_pct=100, log_root=str(tmp_path / "runs"))
     assert svc.connect()[0]
@@ -128,7 +128,7 @@ BAD_SCENE = "parts:\n  - {name: a, file: nope.stl}\n"
 def test_reload_failure_changes_nothing_and_bad_scene_does_not_block_start(tmp_path, monkeypatch):
     from so101_studio.arm.sim_driver import SimDriver
     from so101_studio.service.arm_service import ArmService
-    (tmp_path / "workspace.yaml").write_text(Path("config/workspace.yaml").read_text(encoding="utf-8").replace("x_mm: 300", "x_mm: 310", 1), encoding="utf-8")
+    (tmp_path / "workspace.yaml").write_text(Path("tests/workspace_600x400.yaml").read_text(encoding="utf-8").replace("x_mm: 300", "x_mm: 310", 1), encoding="utf-8")
     (tmp_path / "scene.yaml").write_text(BAD_SCENE, encoding="utf-8")
     svc = ArmService(SimDriver(CFG.poses["home"]), CFG, WS, speed_pct=100, log_root=str(tmp_path / "runs"))
     assert svc.connect()[0]

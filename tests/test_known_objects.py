@@ -21,6 +21,7 @@ def test_runner_tells_the_arm_the_scanned_objects_with_the_gui_radius():
 def test_manual_run_places_all_three_objects_in_mujoco_without_touching(tmp_path, gripper):
     """기본 3개(100×30)를 끝까지 옮기고, 그 사이 물체끼리 닿지 않고 놓인 물체가 기울지 않는다(칸이 물체보다 좁던 문제, 실물 11-14)."""
     pytest.importorskip("mujoco")
+    import math
     import threading
     import time
 
@@ -32,17 +33,18 @@ def test_manual_run_places_all_three_objects_in_mujoco_without_touching(tmp_path
 
     local = tmp_path / "local.yaml"
     local.write_text(f"gripper: {gripper}\n", encoding="utf-8")
-    cfg, ws = load_robot("config/robot.yaml", local_path=local), load_workspace("config/workspace.yaml")
+    cfg, ws = load_robot("config/robot.yaml", local_path=local), load_workspace("config/workspace.yaml")  # ManualSource는 config/manual_objects.yaml(실물 배치, 결정 0067)을 읽는다
     drv = make_sim_driver(cfg, ws, None)
     svc = ArmService(drv, cfg, ws, log_root=str(tmp_path))
     ok, msg = svc.connect()
     assert ok, msg
     touches, stop = set(), threading.Event()
+    (bx, by, br), = ws.ignore_zones()  # 배출 통(결정 0067): 통 안에서는 떨어뜨린 물체끼리 닿는다(쌓임). 통 밖의 닿음만 본다
 
     def sample():
         while not stop.is_set():
             for c in drv.sim_state()["contacts"]:
-                if c["a"].startswith("obj:") and c["b"].startswith("obj:"):
+                if c["a"].startswith("obj:") and c["b"].startswith("obj:") and math.hypot(c["pos_mm"][0] - bx, c["pos_mm"][1] - by) > br:
                     touches.add(tuple(sorted((c["a"], c["b"]))))
             time.sleep(0.02)
 
@@ -54,8 +56,7 @@ def test_manual_run_places_all_three_objects_in_mujoco_without_touching(tmp_path
         stop.set()
         t.join()
     assert res["end"] == "no_objects" and sorted(res["picked"]) == ["obj-1", "obj-2", "obj-3"] and res["failed"] == [], res
-    assert not touches, touches
-    assert all(o["tilt_deg"] < 5 for o in drv.sim_state()["objects"].values())
+    assert not touches, touches  # 통에 떨어뜨린 물체는 쌓여 기울 수 있어 기울기는 보지 않는다
 
 
 def test_drop_slot_next_to_a_remaining_object_is_tried_last():
@@ -63,7 +64,7 @@ def test_drop_slot_next_to_a_remaining_object_is_tried_last():
     from so101_studio.arm.skills import Skills
     from so101_studio.core.config import load_workspace
     from so101_studio.core.types import MotionResult, ToolPose
-    ws, tried = load_workspace("config/workspace.yaml"), []
+    ws, tried = load_workspace("tests/workspace_600x400.yaml"), []
 
     def place_at(x, y):
         tried.append((x, y))
@@ -103,7 +104,7 @@ def test_place_uses_fine_candidates_when_the_object_does_not_fit_a_slot():
     from so101_studio.arm.skills import Skills
     from so101_studio.core.config import load_workspace
     from so101_studio.core.types import MotionResult, ToolPose
-    ws, tried = load_workspace("config/workspace.yaml"), []
+    ws, tried = load_workspace("tests/workspace_600x400.yaml"), []
 
     def place_at(x, y):
         tried.append((x, y))

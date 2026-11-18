@@ -11,7 +11,7 @@ from so101_studio.service.arm_service import ArmService
 from so101_studio.service.policy_runner import PolicyRunner
 
 CFG = load_robot("config/robot.yaml")
-WS = load_workspace("config/workspace.yaml")
+WS = load_workspace("tests/workspace_600x400.yaml")
 HOME = CFG.poses["home"]
 
 
