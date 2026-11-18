@@ -7,12 +7,14 @@ import pytest
 from so101_studio.arm.sim_driver import SimDriver
 from so101_studio.core.config import load_robot, load_workspace
 from so101_studio.core.logread import read_events
+from so101_studio.core.types import JointState
 from so101_studio.service.arm_service import ArmService
 from so101_studio.service.policy_runner import PolicyRunner
 
 CFG = load_robot("config/robot.yaml")
 WS = load_workspace("tests/workspace_600x400.yaml")
 HOME = CFG.poses["home"]
+HOME_Q = JointState(*HOME)
 
 
 class CamSim(SimDriver):
@@ -139,3 +141,43 @@ def test_missing_checkpoint_returns_a_message(tmp_path):
         assert why and why.startswith("정책을 불러오지 못했다") and policy_events(s) == []
     finally:
         s.disconnect()
+
+
+class FakeSvc:
+    """시계로 돌리기 시험용: servo_joints는 늘 받고, 보낸 목표와 이벤트만 센다."""
+
+    def __init__(self, clock):
+        from types import SimpleNamespace
+        self.clock, self.sent, self.codes = clock, [], []
+        self.ctl = SimpleNamespace(servo_reason=None)
+
+    def servo_joints(self, q):
+        self.sent.append(q)
+        return True
+
+    def stop(self):
+        pass
+
+    def log_event(self, kind, data, level="INFO", code=""):
+        self.codes.append((code, data))
+
+
+def test_clock_driven_run_begin_step_finish():
+    """REQ-086: 시계(StepClock.every)로 돌리는 공개 경로. ManualClock으로 걸음마다 1/fps씩 흘리면 max_s에서 끝나고 too_slow는 보지 않는다."""
+    from types import SimpleNamespace
+
+    from test_clock import ManualClock
+
+    clk = ManualClock()
+    svc = FakeSvc(clk)
+    drv = SimpleNamespace(render=lambda cam, width=320, height=240: np.zeros((height, width, 3), np.uint8), read_joints=lambda: HOME_Q)
+    r = PolicyRunner(svc, drv, policy=HomePolicy(), fps=25, max_s=1.0)
+    assert r.begin(clock="step") is None
+    n = 0
+    while (why := r.due_stop(slow=False) or r.step()) is None:
+        n += 1
+        clk.t = 1000.0 + n / 25  # 시뮬레이션 시간만 흐른다(더해 쌓으면 0.04×25가 1.0에 못 미친다)
+    r.finish(why)
+    assert why == "max_s" and n == 25 and len(svc.sent) == 25
+    assert [c for c, _ in svc.codes] == ["ARM-POLICY-START", "ARM-POLICY-STOP"] and svc.codes[0][1]["clock"] == "step"
+    assert r.result["reason"] == "max_s" and r.result["steps"] == 25 and r.result["skipped"] == 0
