@@ -261,17 +261,25 @@ def on_plate(b: Box, ws) -> bool:
 
 
 def random_layout(rng, name) -> list[Box]:
-    """8.5절 시나리오: 팔 원점 기준 반경·방위 범위 안, 중심 간격 이상. 물체는 30x100·40x80·50x50, 방향 0/45/90/135° ±5°."""
+    """8.5절 시나리오: 팔 원점 기준 반경·방위 범위 안, 중심 간격 이상(demo80은 모서리 간격 80 이상도), 판 안, 통 원 밖.
+    물체를 하나씩 뽑고 앞 물체와 조건이 안 맞으면 그 물체만 다시 뽑는다(200번 안에 안 되면 처음부터). 간격이 큰 배치에 치우친다.
+    물체는 30x100·40x80·50x50, 방향 0/45/90/135° ±5°."""
     n, (r0, r1), (b0, b1), spacing = SCENARIOS[name]
     bx, by = arm_base()
     ws = load_workspace()
-    for _ in range(10000):
+    for _ in range(1000):
         boxes = []
         for _ in range(n):
-            r, th = rng.uniform(r0, r1), math.radians(rng.uniform(b0, b1))
-            w, length = rng.choice(OBJECT_SIZES)
-            boxes.append(Box(bx + r * math.cos(th), by + r * math.sin(th), rng.choice((0, 45, 90, 135)) + rng.uniform(-5, 5), w, length))
-        if all(on_plate(b, ws) for b in boxes) and all(math.dist((a.x, a.y), (b.x, b.y)) >= spacing and (name != "demo80" or edge_gap(a, b) >= 80) for a, b in itertools.combinations(boxes, 2)):
+            for _ in range(200):
+                r, th = rng.uniform(r0, r1), math.radians(rng.uniform(b0, b1))
+                w, length = rng.choice(OBJECT_SIZES)
+                b = Box(bx + r * math.cos(th), by + r * math.sin(th), rng.choice((0, 45, 90, 135)) + rng.uniform(-5, 5), w, length)
+                if on_plate(b, ws) and all(math.dist((a.x, a.y), (b.x, b.y)) >= spacing and (name != "demo80" or edge_gap(a, b) >= 80) for a in boxes):
+                    boxes.append(b)
+                    break
+            else:
+                break
+        if len(boxes) == n:
             return boxes
     raise RuntimeError("배치를 못 만들었다")
 
