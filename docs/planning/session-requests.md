@@ -1,6 +1,6 @@
 # 세션 간 요청 대장
 
-상태: 초안 · 갱신 2026-11-17
+상태: 초안 · 갱신 2026-11-18
 
 절차와 양식은 `docs/guides/session-workflow.md`에 있다. GUI 세션(총괄)이 번호를 매기고 행과 상태를 관리한다(`decisions/0036`). 자세한 내용은 요청 메시지와 PR에 두고, 여기에는 한 줄만 남긴다.
 
@@ -79,8 +79,10 @@
 | REQ-069 | 장면 부품 선택 키 `gripper: parallel|single_jaw`(`mujoco-spec.md` 13.10.1 "장면을 하나로"): 지금 cfg 그리퍼와 다르면 `load_scene`을 쓰는 쪽(GUI 3D·충돌 검사·드라이버)이 모두 건너뜀. `config/scene.yaml`의 손목 부품 둘(`wrist_hcsr04`, `wrist_bracket`) 주석을 풀고 `gripper: parallel` | 총괄 → 팔(2026-11-16) | 추가(선택 키, #408. 13.10.1 Stage 9 전이지만 작고 독립이라 먼저) | 요청 | - | 걸러 읽는 자리와 `Scene`에 그리퍼를 넘기는 방법은 팔이 정하고 PR에 적는다. 13.10.1 시험 4번(드라이버 장면 = `svc.scene`)이 확인 기준. 단동식 기본에서 GUI 3D·충돌이 바뀌지 않음을 시험으로 |
 | REQ-070 | M5 집기 시험장(`mujoco-spec.md` 13.10.1, Stage 9 (가) 8건 반영본): `mujoco_bench`, 배치 `layout`·판정 `judge`, 고정 묶음 표. 실시간(시계 주입 없음), 지금 장면(작업대 없음)으로 시작하고 H-3 뒤 장면만 바꾼다 | 총괄 → MuJoCo(2026-11-17) | 추가(#414) | 요청 | - | 13.10.1 완료 기준. 팔 쪽 추가 수정 없음(REQ-069 그대로). 그다음 U15용 힘 한계 10·24·36N `pick_grid` 민감도 표 |
 | REQ-071 | 학습 플랫폼 1차 L1: 모델 카메라(`top`·`wrist`, 13.10.4 표 값)와 화면 밖 `render` | 총괄 → MuJoCo(2026-11-17) | 추가(#414, 1차) | 요청 | - | REQ-070 뒤. GUI ① 시점 화면(총괄)이 이 PR을 기다린다 |
-| REQ-072 | 학습 플랫폼 1차 L2·L3: 에피소드 기록기(LeRobot 데이터셋), 스크립트 전문가 300 에피소드(명령줄), `so101-train`에서 ACT 학습과 명령줄 평가 50개 | 총괄 → MuJoCo(2026-11-17) | 추가(#414, 1차) | 요청 | - | REQ-071·REQ-073 ①(`ArmStatus.cmd`) 뒤. 2차(수집 화면, 세계 다시 짓기, 이어 쓰기, connect(fresh), L5)는 내지 않는다 |
+| REQ-072 | 학습 플랫폼 1차 L2·L3: 에피소드 기록기(LeRobot 데이터셋), 스크립트 전문가 300 에피소드(명령줄), `so101-train`에서 ACT 학습과 명령줄 평가 50개 | 총괄 → MuJoCo(2026-11-17) | 추가(#414, 1차) | 완료 | #437 | REQ-071·REQ-073 ①(`ArmStatus.cmd`) 뒤. 2차(수집 화면, 세계 다시 짓기, 이어 쓰기, connect(fresh), L5)는 내지 않는다 |
 | REQ-073 | 학습 플랫폼 1차 L4(`arm-software-spec.md` 6.10): ① `ArmStatus.cmd`(기록기 `action`용 명령 관절값) → ② `servo_joints` → ③ `PolicyRunner`(시작·정지, 일시 정지는 2차) | 총괄 → 팔(2026-11-17) | 추가(#414, 1차) | 요청 | - | ①이 REQ-072를 막으니 먼저 PR. runner `probe.feed(poses, st)` 한 줄 줄이기도 같이 |
 | REQ-074 | U16 당기기 상한 측정(`ultrasonic-spec.md` 6절 "상한 측정 계획"): 병렬 kin 75~250, 씨앗 20, `single`·`demo`·`demo80` × (가) `retry_pull_max_mm=40` (나) 60 (다) 85 (라) 40 + `retry_pull_mm=1`. 설정마다 성공률(낙관·비관), 인식 평균·90%·최대, 단계당 다시 부른 횟수 평균·최대 | 총괄 → 초음파(2026-11-17) | 측정(#414) | 요청 | - | 6절 규칙으로 고른 설정을 총괄이 다시 돌려 inbox → 기획이 숫자·1절 표 확정. 측정만, 설정 파일 기본값은 바꾸지 않는다 |
 | REQ-075 | `config/ultrasonic.yaml` `check.retry_pull_max_mm` 기본값 20 → 85(`ultrasonic-spec.md` 8.3, U16 확정). 기본값 20을 가정한 벤치마크·시험도 맞춘다 | 총괄 → 초음파(2026-11-17) | 추가(#421) | 요청 | - | REQ-074(#417) 측정 결과 (다) 85를 기획이 확정 |
-| REQ-076 | 집기 쥠 확인(`arm-software-spec.md` 6.6, #430): 접촉으로 멈춰도(늦은 접촉 포함) 닫힌 턱 끝 벌림이 벌린 폭 − `grip_min_close_mm`(5)보다 넓으면 `no_object`(조임 한계 되돌림, `known_objects` 그대로, `grip` 비움, 접근 높이에서 열기), WARN `ARM-PICK-NO-GRIP`(벌린 폭·닫힌 폭), `last_pick_info.no_grip`. 단동식·병렬 공통. 설정 `grip_min_close_mm: 5` | 총괄 → 팔(2026-11-18) | 추가(#430, M5 거짓 성공) | 요청 | - | 시험: 윗면에 얹혀 닫히지 못하면 `no_object`, 정상 집기는 그대로. 합친 뒤 총괄이 M5 `pick_grid`·`inject_grid` 재측정(거짓 성공 0·거짓 실패 0) |
+| REQ-076 | 집기 쥠 확인(`arm-software-spec.md` 6.6, #430): 접촉으로 멈춰도(늦은 접촉 포함) 닫힌 턱 끝 벌림이 벌린 폭 − `grip_min_close_mm`(5)보다 넓으면 `no_object`(조임 한계 되돌림, `known_objects` 그대로, `grip` 비움, 접근 높이에서 열기), WARN `ARM-PICK-NO-GRIP`(벌린 폭·닫힌 폭), `last_pick_info.no_grip`. 단동식·병렬 공통. 설정 `grip_min_close_mm: 5` | 총괄 → 팔(2026-11-18) | 추가(#430, M5 거짓 성공) | 완료 | #433 | 시험: 윗면에 얹혀 닫히지 못하면 `no_object`, 정상 집기는 그대로. 합친 뒤 총괄이 M5 `pick_grid`·`inject_grid` 재측정(거짓 성공 0·거짓 실패 0) |
+| REQ-077 | ACT 수집 다시 짜기(`mujoco-spec.md` 13.10.4 "수집 다시 짜기", 결정 0068): 1차 묶음 `collect_pick1`(면이 방위와 나란, 반경 150~200, 방위 ±30°), sim 수집 프리셋으로 시연 중앙값 10초 이하·판정 대기 0.3초, `--shift --k 5` 사본, `--jobs` 병렬 수집·평가(`realtime_lag` 에피소드 버림), k=0·5 학습, 씨앗 10000~10049 중 15개 기준 | 총괄 → MuJoCo(2026-11-18) | 추가(#438) | 요청 | - | 이번 수집은 `grasp_approach: vertical`. 프리셋 키가 팔 영역에 필요하면 REQ로 |
+| REQ-078 | 접근 각도 후보 고르기(`arm-software-spec.md` 6.6.1, 결정 0069): 병렬 손 `grasp_approach: vertical|auto` | 총괄 → 팔 | 추가(#438) | 예정 | - | EGM Stage 9(총괄, 11-18) → 기획 반영 뒤 요청. 구현되면 총괄이 M5 `pick_grid`·`inject_grid`를 두 값으로 재서 inbox로 |
