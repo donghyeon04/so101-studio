@@ -65,7 +65,7 @@ class HeightSkills(UsSkills):
         super().__init__(pick_status="ok")
         self.first, self.last_pick_tilted = status, tilted
 
-    def pick(self, o):
+    def pick(self, o, place_targets=None):
         self.calls.append(f"pick:{o.id}:{o.height_mm:g}")
         if o.height_mm > 0 or self.first == "ok":
             return OK

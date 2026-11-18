@@ -50,6 +50,10 @@ class RobotConfig:
     grasp_tilt_mode: str = "equal_tips"  # 사용자 결정 11-13(실물 58x58x39: symmetric은 높은 턱이 9mm만 물림)
     grasp_tilt_tol_deg: float = 15.0
     grasp_max_open_mm: float = 100
+    grasp_approach: str = "vertical"  # 병렬 그리퍼의 접근: vertical(6.6 수직) | auto(기울기 후보마다 턱 방향을 계산해 고른다, arm-software-spec 6.6.1·결정 0069). 단동식은 늘 vertical과 같다
+    grasp_approach_tilts_deg: list[float] = field(default_factory=lambda: [0.0, 20.0, 35.0, 50.0])  # auto의 손끝 축 기울기 β 후보. 설정 파일로만 바꾼다(set_params·프리셋 대상 아님)
+    grasp_contact_tilt_max_deg: float = 20.0  # auto: 닫힘 방향 기울기 γ가 이보다 크면 후보를 버린다(시작값, M5 비교에서 고친다)
+    grasp_approach_tilt_pref_deg: float = 35.0  # auto: 통과한 후보 가운데 β가 이 값에 가까운 것을 고른다
     grasp_min_contact_mm: float = 8  # 물체 높이로 집는 높이를 정할 때 턱이 물체에 닿아야 하는 최소 높이(mm). 이보다 얕게 닿아야 지나가는 물체는 거부한다
     replay_a_max_deg_s2: float = 600  # 변환 재생(mode=fitted)이 맞추는 관절 가속 한도(°/s²). 손으로 움직인 기록은 계획 이동(a_max_deg_s2)보다 훨씬 거칠어 따로 둔다
     gripper_speed_pct: float = 100  # 그리퍼만 움직이는 동작(열기·닫기·놓으며 열기)의 속도 배율 1~100. 바로 적용된다
