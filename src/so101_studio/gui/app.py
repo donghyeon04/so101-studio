@@ -29,6 +29,7 @@ from .pages import (
     start,
     table,
     teach,
+    views,
     workspace,
 )
 from .pages.common import Controls, jog_pads
@@ -52,7 +53,7 @@ PAGES = (
     ("인식", sensors.menu()),
     ("장치", (("/arm", "팔", "G8"), ("/calibration", "캘리브레이션", "결정 0044"), ("/esp32", "ESP32 센서 보드", "3단계"))),
     ("설정", (("/params", "파라미터·프리셋", "G7"), ("/safety", "안전", "G7"), ("/table", "작업대·좌표", "G7"))),
-    ("학습", (("/policy", "정책 실행", "12.10"),)),
+    ("학습", (("/views", "시점", "12.10"), ("/policy", "정책 실행", "12.10"))),
     ("시스템", (("/runs", "실행 기록", "G8"), ("/logs", "로그", "G8"))),
 )
 # 페이지 제목 아래 한 줄 설명. 시작 화면 페이지 안내도 같은 문구를 쓴다 (gui-spec 11절 D11)
@@ -72,10 +73,11 @@ DESCRIPTIONS = {
     "/table": "팔 받침, 배출 구역, 센서가 작업대 어디에 있는지 정합니다.",
     "/runs": "지난 실행의 이벤트와 전압·온도 그래프를 봅니다.",
     "/logs": "앱과 감시 프로세스의 기록을 한 시간축으로 봅니다.",
+    "/views": "MuJoCo 시뮬레이션의 탑뷰·손목 카메라, 초음파, 3D를 한 화면에서 봅니다. 칸을 누르면 크게 봅니다.",
     "/policy": "학습한 정책(ACT)을 MuJoCo 시뮬레이션의 팔로 실행하고 두 카메라와 3D로 지켜봅니다.",
     "/start": "지금 모드와 처음 할 순서, 페이지 안내를 봅니다.",
 }
-BUILDERS = {"/": workspace.build, "/manual": manual.build, "/teach": teach.build, "/program": program.build, "/params": params.build, "/safety": safety.build, "/table": table.build, "/arm": arm.build, "/calibration": calibration.build, "/esp32": esp32.build, "/runs": runs.build, "/logs": logs.build, "/policy": policy.build, "/start": lambda b, c, a: start.build(b, c, a, PAGES[1:], DESCRIPTIONS), **sensors.pages()}  # 만든 페이지. 나머지는 자리만 있다
+BUILDERS = {"/": workspace.build, "/manual": manual.build, "/teach": teach.build, "/program": program.build, "/params": params.build, "/safety": safety.build, "/table": table.build, "/arm": arm.build, "/calibration": calibration.build, "/esp32": esp32.build, "/runs": runs.build, "/logs": logs.build, "/views": views.build, "/policy": policy.build, "/start": lambda b, c, a: start.build(b, c, a, PAGES[1:], DESCRIPTIONS), **sensors.pages()}  # 만든 페이지. 나머지는 자리만 있다
 COMPONENTS = ("버스", "서보")  # 감시 칸과 센서 칸은 따로 있다 (decisions/0030)
 TOP_STATS = ("센서", "전압", "최고 온도", "속도", "조작권")  # 감시 칸은 아이콘이 있어 따로 그린다. 실행 방식은 오른쪽 고르기 칸이 보인다
 WIDE_ONLY = {"센서", "최고 온도"}  # 1440px 아래에서는 숨긴다. 과열은 서보 칸이 경고로 보인다
