@@ -101,6 +101,7 @@
 | `docs/decisions/0063-robonine-wrist-bracket-topview.md` | 결정 | 확정 | 그리퍼는 로보나인 병렬(교체 뒤 기본), 손목은 짧은 초음파 브래킷만(0°, 오프셋 {0.0, 66.5, 99.5}), 카메라는 탑뷰 하나, 실물·MuJoCo·초음파를 다시 맞추는 순서 |
 | `docs/decisions/0064-test-tiers.md` | 결정 | 확정 | 시험 네 층(빠른 묶음 / testmon 바뀐 곳 / 전체는 xdist 병렬 / 화면 비교는 GUI PR·배포 전만), 시험 포트 0, NiceGUI user 픽스처 기본, 허수 시험 정리, 측정 시험은 measure로 뺌 (0046 대체) |
 | `docs/decisions/0067-workbench-cad-values.md` | 결정 | 확정 | 작업대·팔·레이더 자리를 CAD 값으로(판 425×375, 팔 (215.2, 21.4), 레이더 (207.3, 405.5)·높이 23.2), 배출 구역은 오른쪽 귀퉁이 통 하나, 시연 방위 45~135° |
+| `docs/decisions/0071-act-second-collection.md` | 결정 | 확정 | ACT 2차 수집: 수집 전용 시작 자세(한계 15° 안쪽, 손목 카메라가 상자를 봄), 새 장면 300개→모자라면 600, 한계 자르기는 미룸, 11/23 3단계 기준 |
 | `docs/decisions/0070-clock-injection-now.md` | 결정 | 확정 | 시계 주입(mujoco-spec 13.10.2)을 12/4 전에: 팔 Clock·WallClock → MuJoCo StepClock → 시험장·기록기·평가 연결, 빠른 모드 보기 창 |
 | `docs/decisions/0069-grasp-approach-candidates.md` | 결정 | 확정 | 병렬 손 집기·놓기를 접근 각도 후보 고르기로(수직은 대체), `grasp_approach` vertical·auto, M5에서 이기면 기본 auto |
 | `docs/decisions/0068-act-collection-redesign.md` | 결정 | 확정 | ACT 수집 재설계: 좁힌 1차 묶음, 10초 이하 시연, action k=0·5 비교, 시작 자세 유지, 씨앗 50개 중 15개 기준, 병렬 수집·평가 |
