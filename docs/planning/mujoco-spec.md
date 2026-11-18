@@ -1,6 +1,6 @@
 # MuJoCo 물리 시뮬레이션·시험장 설계서
 
-상태: 확정 · 2026-11-14 (`arm-software-spec.md` 13절에서 옮김. 13.1~13.9는 M1~M4로 구현됨, 13.10 시험장 계획은 결정 0062. 2026-11-14 drift-report(main fcdcb0f, #348~#357) 반영: 13.9 병렬·뷰어, 13.10 M5 판정·시험장 기준 설정. 2026-11-15 총괄 밤 보고 반영: 시나리오는 그리퍼별, M5 설계 입력, M5b 시계 주입 계획. 2026-11-16 M5·M5b 첫 단계·M6 세부 설계 13.10.1~13.10.3(초안, EGM Stage 9 전)) · 2026-11-16 13.10.4 카메라·렌더·에피소드 기록(결정 0066, 초안. 2026-11-16 밤 Stage 9 (가)(나) 꼭 고칠 것 반영: 13.10.1·13.10.2·13.10.4) · 2026-11-18 13.10.4 수집 다시 짜기(결정 0068) · 2026-11-18 작업대 CAD 반영·배출 통(결정 0067)
+상태: 확정 · 2026-11-14 (`arm-software-spec.md` 13절에서 옮김. 13.1~13.9는 M1~M4로 구현됨, 13.10 시험장 계획은 결정 0062. 2026-11-14 drift-report(main fcdcb0f, #348~#357) 반영: 13.9 병렬·뷰어, 13.10 M5 판정·시험장 기준 설정. 2026-11-15 총괄 밤 보고 반영: 시나리오는 그리퍼별, M5 설계 입력, M5b 시계 주입 계획. 2026-11-16 M5·M5b 첫 단계·M6 세부 설계 13.10.1~13.10.3(초안, EGM Stage 9 전)) · 2026-11-16 13.10.4 카메라·렌더·에피소드 기록(결정 0066, 초안. 2026-11-16 밤 Stage 9 (가)(나) 꼭 고칠 것 반영: 13.10.1·13.10.2·13.10.4) · 2026-11-18 13.10.4 수집 다시 짜기(결정 0068) · 2026-11-18 작업대 CAD 반영·배출 통(결정 0067) · 2026-11-18 13.10.2 시계 주입 앞당김(결정 0070), Stage 9 꼭 고칠 것 9개 반영
 
 로컬 세션이 MuJoCo 드라이버(M1~M4)와 시험장(M5~M9)을 구현하는 기준이다. 절 번호는 옮기기 전과 같다(13.x). 팔 쪽 기본 규약(타입, `ArmService`, 안전, 집기·놓기)은 `arm-software-spec.md`, GUI 쪽은 `gui-spec.md` 12.8이다. 근거 결정: 0053(MuJoCoDriver), 0062(시험장), 0037(주제마다 도구 하나).
 
@@ -350,7 +350,7 @@ spread: {xy_mm: 0, angle_deg: 0}           # 씨앗마다 자리·각도를 흔�
 | `outcome` | 아래에서 처음 맞는 것 하나: `sim_fail`(물리 실패) → `rejected`(보고가 `out_of_bounds`·`height_required`·`locked`이거나, `ik_fail`이면서 도구가 1mm 미만 움직임) → `placed_ok`(`placed`) → `dropped`(`picked`였는데 `placed` 아님) → `toppled`(끝에 `tilt_deg` ≥ 10) → `pushed`(안 집혔고 처음 자리에서 10mm 넘게 밀림) → `untouched` |
 | `agree` | `false_ok`(보고가 `ok`인데 `outcome`이 `placed_ok`가 아님 = 거짓 성공), `false_fail`(보고가 `ok`가 아닌데 `placed_ok`), `match`(나머지) |
 | 재는 값(키) | `slip_mm`(13.7 (b)의 정의), `place_err_mm`, `tilt_end_deg`, `other_pushed_mm`(다른 물체가 밀린 최대 거리), `events`(코드별 건수: `ARM-BLOCKED`, `ARM-GRIP-OVERLOAD-WARN`, `ARM-GRIP-OVERLOAD`, `ARM-FAULT`, `ARM-CARRY-LOW`, `ARM-OPENING-PATH-FALLBACK`), `sim_s`, `wall_s`, `dropped_count`, `gap0_mm`·`jaw_yaw_deg`(아래 실패 주입) |
-- 미끄러짐은 값만 적고 실패로 치지 않는다(기준과 조임 힘은 U15: 실물 2-10과 13.10.2의 결정 스텝 결과 뒤).
+- 미끄러짐은 값만 적고 실패로 치지 않는다(기준과 조임 힘은 U15: 실물 2-10과 13.10.2 완료 기준 4 뒤).
 - 실시간 모드에서는 `connect()` 직후의 `dropped_count`를 빼고(연결 때는 늘 몇 번 놓친다, 13.3) 남는 값이 0보다 큰 에피소드에 `realtime_lag: true`를 달고 요약 표에서 따로 센다.
 
 **실패 주입**(병렬 손의 topedge 대응, U14): 병렬 손은 높이를 잘못 알아도 윗모서리를 치지 않는다. 대신 **자리가 어긋나면 클램프가 물체 윗면에 내려앉는다.** `given`으로 팔에게 알려 주는 값을 참값에서 어긋나게 한다: `pos_offset_mm: [벌림 축, 그 수직]`, `width_error_mm`, `height_error_mm`, `angle_error_deg`.
@@ -365,7 +365,7 @@ spread: {xy_mm: 0, angle_deg: 0}           # 씨앗마다 자리·각도를 흔�
 
 **완료 기준**(`tests/test_mujoco_bench.py`, 실시간이라 `slow`)
 1. `pick_smoke`가 끝까지 돌고 `results.jsonl`이 12줄, 줄마다 판정 표의 키(`reported`, `picked`, `placed`, `outcome`, `agree`, 재는 값 키)가 다 있다.
-2. 같은 묶음·씨앗이면 물체 참값과 알려 준 값이 두 번 돌려도 같다(세계가 씨앗으로 정해진다. 결과까지 같은 것은 13.10.2 뒤에 본다).
+2. 같은 묶음·씨앗이면 물체 참값과 알려 준 값이 두 번 돌려도 같다(세계가 씨앗으로 정해진다. 결과까지 같은 것은 13.10.2 완료 기준 3).
 3. 한 에피소드의 `ArmService`가 다음 에피소드에 넘어가지 않는다(둘째 에피소드의 `Skills`에 놓은 자리·남은 물체 기억이 없다).
 4. 덮어쓰기 `gripper: parallel`에서 드라이버 장면 부품과 `svc.scene` 부품 이름이 같고 손목 부품 둘이 들어 있다. `--gripper single_jaw`에서는 둘 다 없고 cfg의 그리퍼 층이 단동식이다(`cfg.grasp_tilt_deg`가 0이 아님).
 5. 실패 주입 한 칸: 58 상자, 정면 180mm, 벌림 축 어긋남 = (G − W)/2 + 8mm → 클램프(`clamp_right` 또는 `clamp_left`)와 물체의 접촉 가운데 `z_mm`가 물체 높이 ±5mm인 것이 한 번 이상 나오고 `outcome`이 `placed_ok`가 아니다.
@@ -373,30 +373,90 @@ spread: {xy_mm: 0, angle_deg: 0}           # 씨앗마다 자리·각도를 흔�
 
 **파일 정리**: 만들기 = `arm/mujoco_bench.py`, `config/sim_scenarios/bench/robot.yaml`·`pick_grid.yaml`·`inject_grid.yaml`·`pick_smoke.yaml`, `tests/test_mujoco_bench.py`. 고치기 = `tests/test_mujoco_scenarios.py`·`tests/test_mujoco_parallel.py`(표본기·미끄러짐을 가져다 쓰게), `measurements.md`(기준 6). 팔 영역은 고치지 않는다(REQ-069는 끝났다). 시험장은 `Skills`의 비공개 함수 둘(`_needed_gap`, `_pick_yaw`)과 `last_place_xy`를 읽기만 한다.
 
-#### 13.10.2 M5b 첫 단계: 시계 주입 (2026-11-16, Stage 9 (가) 지적 반영. **구현은 12/4 뒤(2차, 2026-11-17 사용자 승인, 결정 0066 상태 줄). 구현 전에 이 절만 Stage 9를 다시 돌린다**)
-**왜**: 제어가 벽시계에 묶여 있어(`arm/motion.py`·`arm/skills.py`·`service/arm_service.py`의 `perf_counter`·`sleep`·`monotonic` 46줄) `ArmService` 위 시험과 시험장이 실시간보다 빨라지지 못한다. 병렬 58mm 미끄러짐이 실행마다 0.8~10mm로 갈리는 원인이 실시간 지터인지도 이것 없이는 가를 수 없다(원인은 아직 확인하지 않았다).
+#### 13.10.2 M5b 첫 단계: 시계 주입 (2026-11-16 초안 · 2026-11-18 앞당김(결정 0070), EGM Stage 9 꼭 고칠 것 9개 반영 — 구현 REQ를 낼 수 있다)
+약어: M5b = 시험장 빠른 모드(13.10 표), U15 = 병렬 손 미끄러짐 기준·조임 힘(`learning-platform.md` 3a), `carry45`·`carry58` = 병렬 손으로 45·58mm 상자를 들고 가는 시나리오(13.7).
 
-**미루는 이유**(2026-11-16 밤): 결과가 실행마다 같으려면 아래 "보조 맞추기"까지 해야 하고, 그것은 팔 핵심 세 파일의 46줄과 `ArmService` 공개 메서드 전부를 건드린다. 실물 팔이 오는 주에 이 변경을 넣는 위험이 크고, 12/4까지 필요한 수집·평가는 실시간으로도 된다(300 에피소드 약 2시간).
+**왜**: 제어가 벽시계에 묶여 있다(`arm/motion.py`·`arm/skills.py`·`service/arm_service.py`의 시간 호출 50줄, 2026-11-18 main b06b689 기준, 아래 표). 목적은 넷이다. ① 수집·정책 평가·M5 비교를 실시간보다 빨리 돈다. ② `realtime_lag`로 버리는 에피소드를 없앤다. ③ `--jobs`를 물리 코어 절반(13.10.1 "나란히 돌리기")보다 크게 쓴다. ④ 같은 씨앗이면 결과가 같다(58mm 미끄러짐 0.8~10mm 편차가 지터인지 물리인지 가른다). 목적마다 아래 완료 기준이 있다.
 
-**설계**
-- `core/clock.py`(팔 영역): `Clock` 규약은 `now() -> float`(단조 초), `sleep(seconds)`, `tick_sleep(seconds)`(제어 틱 스레드만 부른다), 읽기 전용 `drives_status: bool`이다. `WallClock`은 `time.perf_counter`·`time.sleep`을 그대로 부르고 `tick_sleep`은 `sleep`과 같으며 `drives_status`는 False다. 초음파 쪽에 이미 있는 `RealClock`·`SimClock`(`now_ns()`·`sleep()`, `perception/ultrasonic/model.py`·`fake_esp32.py`)은 이 파일로 옮겨 같은 규약 아래 둔다(13.10.3에서 어댑터가 필요 없게).
-- `MotionController(..., clock=WallClock(), on_status=None)`, `Skills(..., clock=)`, `ArmService(..., clock=)`: 제어 시간에는 `time` 모듈을 직접 부르지 않는다. `ArmService`가 받은 시계를 둘에 넘긴다. **기본값에서는 동작이 지금과 같다**(실제 팔, `SimDriver`, 실시간 MuJoCo, GUI).
-- 기록 시각(`time_ns`, 이벤트·상태 줄의 t)은 벽시계 그대로다. 단 `follow_path`가 돌려주는 `PoseSample.t_ns`는 받은 시계로 찍는다: `t_ns = int(clock.now() * 1e9)`.
-- `StepClock(driver)`(`arm/mujoco_clock.py`, MuJoCo 영역): `now()`는 드라이버의 시뮬레이션 시간, `drives_status`는 True다. `tick_sleep(s)`만 `driver.advance(s)`를 부른다. 다른 스레드의 `sleep(s)`는 시뮬레이션 시간이 그만큼 흐를 때까지 기다린다(조건 변수. 벽시계 5초 동안 시간이 안 흐르면 `RuntimeError`).
-- **보조 맞추기**(결과가 실행마다 같으려면 꼭 필요하다): 틱 스레드는 등록된 다른 스레드가 모두 `clock.sleep`이나 `MotionHandle.wait` 안에서 기다리는 동안에만 `advance`한다. "깨어 있는 스레드 수"를 센다: `ArmService` 공개 메서드에 들어가면 1을 더하고, 기다림에 들어가면 1을 빼고, 나오면 되돌린다. 수가 0보다 크면 틱 스레드도 기다린다. 이것이 없으면 호출 스레드가 IK·계획을 계산하거나 접촉 판단을 폴링하는 동안(`skills.py`의 `time.sleep(0.04)` 폴링) 시뮬레이션 시간이 얼마나 흐를지를 GIL과 OS 스케줄이 정해, 그리퍼가 멈추는 값이 실행마다 달라진다. MuJoCo 자체는 입력이 같으면 결과가 같다.
-- 상태 루프(10Hz): `MotionController._loop`는 `with self._lock` 블록이 **끝난 뒤**, `clock.tick_sleep` 앞에서 `max(1, control_hz // 10)`틱마다 `on_status()`를 부른다(락 안에서 부르면 `check_blocked`·`note_comm`이 같은 락을 다시 잡아 멈춘다. 이 락은 재진입이 안 된다). `ArmService.connect`는 `clock.drives_status`이면 상태 스레드를 띄우지 않고 `on_status`에 상태 루프 한 바퀴 본문을 넘긴다. 벽시계에서는 지금 그대로다.
-- `StepClock`은 `MuJoCoDriver(realtime=False)`와만 쓰고 뷰어와는 쓰지 않는다(만들 때 `driver.realtime`·`driver.viewer`를 검사해 `ValueError`). 13.3에는 "`realtime=False`는 `advance`로만 시간이 흐른다. `StepClock`이 그 `advance`를 부르는 시험·시험장 전용 경로다"를 더한다.
+**받아들이는 위험**(2026-11-18): 팔 핵심 세 파일을 고친다. 기본 시계에서 동작이 같다는 것은 완료 기준 1a~1c로 본다(작업 나누기 ①).
 
-**같은 시계를 쓰는 것**(구현 PR이 하나씩 확인해 표로 남긴다): 막힘 판정 시간(`BLOCKED_ZONE_S`, `_blocked_until`), 통신 끊김 창(`HealthMonitor.comm_s`), 부하·과열 감시, 틱 따라잡기 `MAX_TICK_ADVANCE`, 조그 데드맨, `wait_idle`, 접촉 판단·놓은 뒤 기다림. **벽시계로 남는 것(허용 목록)**: 기록 시각, `ArmService`의 탐침·사고 묶음 쿨다운(`time.monotonic`), 기록 스레드, 감시 프로세스 heartbeat, 교시 기록(`record`).
+**범위 밖**: 스레드를 스케줄러 하나로 모으는 일과 대량 병렬 시험(M5b 둘째 단계), `task/runner.py`의 시간 호출 5곳(13.10.3), 초음파 `RealClock`·`SimClock` 옮기기.
+
+**용어**: 제어 시간 = 동작·판정·기다림의 길이와 시한. 기록 시각 = 로그·데이터 줄에 찍는 시각. 틱 = `MotionController._loop` 한 바퀴. 틱 스레드 = `_loop`를 도는 스레드.
+
+**규약**(`core/clock.py`, 팔 영역)
+- `Clock`: `now() -> float`(단조 초), `now_ns() -> int`, `sleep(seconds)`, `wait(event, timeout) -> bool`, `tick_sleep(seconds)`(틱 스레드만. 다른 스레드가 부르면 `RuntimeError`), `participate()`(문맥 관리자), 읽기 전용 `drives_status: bool`.
+- `WallClock`: `time.perf_counter`, `time.perf_counter_ns`(초음파 `RealClock`과 같은 값), `time.sleep`, `event.wait(timeout)`를 그대로 부른다. `tick_sleep`은 `sleep`과 같고 `participate()`는 아무것도 하지 않으며 `drives_status`는 False다.
+- 초음파의 `RealClock`·`SimClock`(`now_ns()`·`sleep()`)은 이 단계에서 옮기지 않는다(가져다 쓰는 곳이 초음파·GUI 영역이고, `SimClock.sleep`은 기다리지 않고 자기 시각을 앞당겨 뜻이 반대다). 13.10.3에서 가상 ESP32에 `StepClock`을 그대로 넘긴다.
+- `MotionController(..., clock=WallClock())`, `ArmService(..., clock=)`, 읽기 전용 `ArmService.clock`. `Skills`·`Teach`는 `self.ctl.clock`을 쓴다(서명 그대로). **기본값에서는 동작이 지금과 같다**(실제 팔, `SimDriver`, 실시간 MuJoCo, GUI).
+
+**시간 호출 표**(2026-11-18 main b06b689. 구현 PR이 행 번호를 그때 코드로 고쳐 남긴다. "시계" = 받은 시계로 바꾼다, "벽시계" = 그대로 둔다)
+| 파일:행 | 쓰임 | 분류 |
+|---|---|---|
+| motion.py:128, 207, 242 | execute·retarget·stop의 시작 시각 | 시계 |
+| motion.py:163, 164, 171, 581, 582 | 조그 입력 시각, 데드맨, 조그 dt | 시계 |
+| motion.py:187, 469, 572 | `_blocked_until` | 시계 |
+| motion.py:478 | `check_blocked`의 `BLOCKED_ZONE_S` | 시계 |
+| motion.py:191, 632 | 서보 입력 시각, `SERVO_TIMEOUT_S` | 시계 |
+| motion.py:195 | 서보 거부 기록 1초 묶음 | 시계(이벤트 수가 같아야 한다) |
+| motion.py:120, 296, 298, 333, 377, 568, 569, 627 | `HealthMonitor` comm_ok·comm_failed | 시계 |
+| motion.py:365 | `_check_health`(`HEALTH_PERIOD_S`) | 시계 |
+| motion.py:523 | `_tick`의 `MAX_TICK_ADVANCE` | 시계 |
+| motion.py:249, 250, 251 | `wait_idle` | 시계 |
+| motion.py:313, 316, 340 | 틱 간격, `time.sleep` | 시계(`tick_sleep`) |
+| motion.py:125, 261, 352, 655 | `MotionResult.duration_s` | 시계 |
+| motion.py:562 | `trace(perf_counter_ns(), q)` → PoseTrail → 초음파 `sensor_at` | 시계(`now_ns`) |
+| motion.py:564, 566 | `tap`: 가운데 시각이 `PoseSample.t_ns`, 차이가 읽기 걸린 ns | 시각은 시계(`now_ns`), 걸린 ns는 벽시계 |
+| motion.py:339 | `ring.add(time.time_ns(), …)` | 벽시계(기록 시각) |
+| skills.py:347, 358 | 접촉 폴링 `sleep(0.04)`, 닫은 뒤 `sleep(0.15)` | 시계 |
+| skills.py:997, 1000 | `ARM-OPENING-PATH`의 `actual_s` | 시계 |
+| arm_service.py:229 | `ArmStatus.t = time.time()` | 벽시계(기록 시각) |
+| arm_service.py:257, 284 | 상태 루프 간격 | 벽시계 전용(StepClock에서는 아래 "상태 루프") |
+| arm_service.py:291, 384 | 탐침·사고 묶음 쿨다운 | 벽시계(탐침·사고 묶음만 막고 제어 판단에 들어가지 않는다) |
+| arm_service.py:265, 335 | `_volt_hist`, 토크 풀림 진단 10초 창 | 벽시계(진단 표시용, 제어 판단 아님) |
+- `PoseSample.t_ns`와 `trace`의 시각은 `MotionController._tick`에서 `clock.now_ns()`로 찍는다(`tap`의 첫 인자). `follow_path`는 그 값을 담기만 한다. `perception/base.py:32`의 주석("time.perf_counter_ns")도 같이 고친다.
+- 세 파일 밖(`arm/teach.py`의 교시 기록, `watchdog/`의 heartbeat, `events.jsonl`·`status.jsonl`을 쓰는 기록 스레드)은 벽시계 그대로다. 다만 `teach.py:244, 247`의 `MotionHandle.wait`는 아래 기다림 규칙을 따라 바뀐다.
+- `#444` 접근 각도 코드(`arm/approach.py`)에는 시간 호출이 없다(계산만 길다).
+
+**StepClock**(`arm/mujoco_clock.py`, MuJoCo 영역)
+- `StepClock(driver)`는 `MuJoCoDriver(realtime=False)`와만 쓴다(만들 때 `driver.realtime`·수동 뷰어를 검사해 `ValueError`. 검사는 이미 드라이버에 있는 값을 본다). `drives_status`는 True다.
+- `now()`는 시계가 스스로 센 시간이다(실제로 `advance`한 스텝 수 × 스텝 2ms, 0에서 시작). `driver.data.time`을 읽지 않는다(`data`는 연결 전 None이고 `connect`마다 0으로 돌아간다). `now_ns()`는 `int(now() * 1e9)`다. `tick_sleep(s)`는 남은 몫을 쌓아 두고 정수 스텝만 `advance`한다(30Hz처럼 2ms의 정수배가 아닌 틱에서 오차가 쌓이지 않게).
+- **번갈아 돌기(lockstep)**: `StepClock`은 참여 스레드 집합을 갖는다. `StepClock`을 만든 스레드(시험장 주 스레드)는 저절로 참여하고, 다른 스레드는 `with clock.participate():`로만 참여한다. 참여 스레드는 `clock.sleep`·`clock.wait` 안에 있을 때만 기다림으로 센다(스레드마다 깊이를 세므로 중첩해도 된다). 틱 스레드는 참여 스레드가 하나 이상이고 모두 기다리는 동안에만 `advance`하고, 기다리는 동안에도 `_quit`을 본다. `ArmService` 공개 메서드는 감싸지 않는다(감싸면 틱 스레드가 상태 본문의 `self.status()` 때문에 자기를 기다리고, 공개 메서드끼리 부르면 멈춘다).
+  - 이것이 없으면 IK 계산·접촉 폴링 동안 시뮬레이션 시간이 얼마나 흐를지를 OS 스케줄이 정해, 결과가 실행마다 달라진다. MuJoCo는 같은 빌드·같은 기계에서 입력이 같으면 결과가 같다.
+- **기다림**: `MotionHandle.wait`·`wait_idle`·`skills.py`의 폴링과 닫은 뒤 기다림은 모두 `clock.wait`·`clock.sleep`을 쓴다. `MotionController.close`는 `_quit.set()` 뒤 `clock.wait(self._loop_done, 1.0)`으로 기다리고, `_loop`는 끝날 때 `_loop_done`을 세운다(에피소드마다 틱 스레드가 남지 않게).
+- **멈춤 감지**: 기다리는 스레드는 `driver.failed_reason`이 생기면 바로 `RuntimeError`(물리 시뮬레이션이 멈췄습니다: …)를 낸다. 벽시계 5초 규칙은 참여 스레드가 모두 기다리는데 틱 스레드가 5초 동안 `tick_sleep`에 한 번도 들어오지 않을 때만 걸린다(틱 스레드가 죽었거나 막힘). 참여 스레드가 계산하는 시간(`auto` 접근 각도 탐색, 첫 `render`, `load_act`와 첫 추론, 영상 인코딩)은 세지 않는다.
+- **`every(period_s, fn)`**: 틱 스레드가 `tick_sleep`에서 `advance`한 직후, 시뮬레이션 시간이 `period_s`의 배수를 지날 때마다 `fn()`을 등록 순서대로 부른다(틱 락 밖. 예외는 잡아 `SIM-CLOCK-CALLBACK-ERROR`로 남기고 계속한다). `WallClock`에는 없다.
+
+**상태 루프**: `_status_loop` 본문 한 바퀴를 `ArmService._status_once()`로 떼어 낸다(2Hz 건강 읽기 셈은 `self._status_n`). `_status_loop`도 이것을 부른다. `connect`는 상태 스레드를 띄우던 자리(`_write_status` 다음 줄)에서 `clock.drives_status`이면 스레드를 띄우지 않고 `clock.every(1 / STATUS_HZ, self._status_once)`를 등록한다. `MotionController`에는 `on_status`를 두지 않는다. 벽시계에서는 지금 그대로다.
+
+**시계를 쓰는 다른 곳**: StepClock에서는 시험장 표본기(50Hz), 에피소드 기록기(25fps, `frame()`과 `add_frame`), `PolicyRunner` 한 걸음(관측 → 추론 → `servo_joints`, 팔 세션이 `PolicyRunner.step()`으로 떼어 낸다)을 모두 `every`로 돌리고 따로 스레드를 띄우지 않는다.
+- 그래서 추론 지연은 시뮬레이션 시간으로 0이다(모형 결정. 실물에서는 추론 시간만큼 늦으므로 실물 성공률과 직접 비교하지 않는다). `infer_ms`는 벽시계로 기록만 하고, "한 주기 넘긴 추론 건너뛰기"와 `SLOW_S`는 StepClock에서 쓰지 않는다.
+- `REJECT_S`·`max_s`·`JUDGE_DELAY_S`와 시험장의 `settle_s`·결과 폴링은 `clock.now()`·`clock.sleep`으로 잰다. 첫 프레임 기다림은 StepClock에서 뺀다.
+- WallClock(GUI·실시간)에서는 지금 스레드 그대로다(`PolicyRunner`의 벽시계 스레드가 `step()`을 부른다).
+- #443의 GC 끄기·`encoder_threads=1`은 StepClock에서도 그대로 둔다.
+
+**보기 창**(2026-11-18, 사용자가 늘 화면으로 보고 싶어 한다): MuJoCo 수동 뷰어(`--viewer`)는 실시간 모드에서만 쓴다. `--clock step`에서는 화면 밖 렌더로 위 카메라를 띄우는 보기 창(`--viewer grid`. main에 들어온 것을 쓴다)을 `every`에서 시뮬레이션 시간 `viewer_hz`(기본 10)마다 그린다. 렌더는 `data` 복사본을 그리므로 물리 결과를 바꾸지 않는다(완료 기준 3이 보기 창을 켜도 같아야 한다). 화면은 실시간보다 빨리 흐르고, 한 장면을 실시간으로 다시 보려면 같은 씨앗을 `--clock wall --viewer`로 돌린다. `--jobs` > 1이면 보기 창은 첫 일꾼만 띄운다.
+
+13.3에는 "`realtime=False`는 `advance`로만 시간이 흐른다. `StepClock`이 그 `advance`를 부르는 시험·시험장 전용 경로다"를 더한다(`mujoco_driver.py:4` 독스트링과 같은 뜻). StepClock에서는 13.10.1 "나란히 돌리기"의 실시간 제한(물리 코어 절반)이 걸리지 않는다.
 
 **완료 기준**
-1. 기본 시계에서 `python -m pytest -q -m "not slow and not measure"` 전체가 그대로 통과한다. 세 파일에 제어 시간을 `time` 모듈로 직접 부르는 곳이 남지 않았는지 보는 시험이 있다(위 허용 목록만 남는다). 시험 파일은 `tests/test_clock.py`(팔)와 `tests/test_mujoco_clock.py`(MuJoCo)다.
-2. `carry45`(병렬 손, 시험장 실행기로)를 `realtime=False` + `StepClock`으로 돌리면 `placed_ok`이고 놓은 자리 7mm·기울기 10° 안이며, 벽시계로 실시간 모드의 1/5 이하다(목표. 못 미치면 측정값과 막는 곳을 보고).
-3. 같은 씨앗을 두 번 돌리면 `results.jsonl`의 판정 값이 같고 미끄러짐·놓은 자리 오차가 0.01mm 안에서 같다.
-4. `carry58`을 같은 씨앗으로 14번 돌린 미끄러짐 분포를 `measurements.md`에 남긴다. 범위가 0.01mm 안이면(기준 3이 통과한 상태에서) 실시간에서 갈린 것은 지터였다. 그다음 씨앗을 바꿔(자리 ±2mm) 14번 돌린 분포가 물리 쪽 편차다. U15의 입력이다.
-- 스레드를 스케줄러 하나로 모으는 일과 대량 병렬 시험은 이 단계 뒤(M5b 둘째 단계)다.
+- 1a. 기본 시계에서 `python -m pytest -q -m "not slow and not measure"`가 모두 통과한다. `tests/test_motion.py`의 늦은 틱 시험 둘(150·178행 근처, 지금 `motion.time`을 바꿔 끼운다)은 `MotionController(..., clock=ManualClock())`(시험 전용, `tests/test_clock.py`에 둔다)로 고친다.
+- 1b. `tests/test_clock.py`는 세 파일을 AST로 읽어 `time.*` 호출을 위 표의 벽시계 줄(파일, 함수, 속성)과 대조한다. 기본 시계의 `ArmService`(`SimDriver`)가 `connect` 뒤 상태 스레드를 띄우는지, `WallClock.now()`가 `time.perf_counter()`와 같은 축인지도 본다.
+- 1c. 실물 확인(팔 PR을 합친 뒤 한 번, runbook대로. 하드웨어라 사용자에게 먼저 묻는다. 실물 팔이 아직 없으면 도착한 첫날 U13과 함께): home, `pick_and_place` 한 번, 조그 키를 떼고 데드맨 정지, USB를 뽑아 `comm_lost`, E-STOP.
+- 2. `mujoco_bench`에 `--clock wall|step`(기본 `wall`)을 더한다. `step`이면 `BenchEnv`가 `realtime=False` 드라이버와 `StepClock`을 만들어 `ArmService(..., clock=)`에 넘긴다. `--viewer`(수동 뷰어)와 함께면 거부한다. 묶음 `bench/carry.yaml`(45·58 상자, 팔 정면 반경 180mm(지금 13.7 `carry*`의 (300, 200)과 같은 상대 자리, 결정 0067 판 기준), 놓을 곳은 배출 통, `spread: {xy_mm: 2}`, 병렬 손)을 만든다. `--suite carry --clock step`의 carry45가 `placed_ok`이고, `wall_s`가 같은 씨앗 `--clock wall`의 1/5 이하다. 넘지 못하면 실패이고 PR에 두 `wall_s`와 막는 곳을 적는다.
+- 3. `pick_smoke`를 같은 씨앗으로 `--clock step --jobs 1`과 `--jobs 8`로 돌리면 `reported`·`outcome`·`agree`가 같고 `slip_mm`·`place_err_mm`가 0.01mm 안이다.
+- 4. `carry58` 같은 씨앗 14번과 `spread` 씨앗 14번의 `slip_mm` 최소·중앙·최대를 `measurements.md`에 남긴다(U15의 입력).
+- 5. `--clock step`에서는 `realtime_lag`가 늘 false다. 13.10.4의 "lag 에피소드 저장 안 함"은 걸리지 않는다.
+- 6. `collect_pick1` 50 에피소드를 `--clock step --jobs 12`로 돌린 `wall_s` 합계를 `measurements.md`에 남긴다.
+- 7. 정책 평가(`--policy`) 10 에피소드를 같은 씨앗·`--clock step`으로 두 번 돌리면 `outcome`이 같다(torch 스레드 수를 1로 고정한 상태에서).
+- 해석: 기준 3이 통과한 상태에서 4의 같은 씨앗 범위가 0.01mm 안이면, 실시간에서 갈린 것은 지터였다. 씨앗을 바꾼 분포가 물리 쪽 편차다.
 
-**공유 파일**: 팔 영역 셋(`arm/motion.py`, `arm/skills.py`, `service/arm_service.py`)과 `core/clock.py`. 인자가 늘어나는 변경이라 팔 세션이 구현하고, `StepClock`과 시험은 MuJoCo 세션이 한다. 순서는 총괄이 정한다.
+**파일과 주인**: 팔 세션 = 만들기 `core/clock.py`, `tests/test_clock.py`. 고치기 `arm/motion.py`, `arm/skills.py`, `arm/teach.py`, `service/arm_service.py`, `service/policy_runner.py`, `perception/base.py`(주석), `tests/test_motion.py`. MuJoCo 세션 = 만들기 `arm/mujoco_clock.py`, `tests/test_mujoco_clock.py`, `config/sim_scenarios/bench/carry.yaml`. 고치기 `arm/mujoco_bench.py`, `arm/mujoco_record.py`, `tests/test_mujoco_parallel.py`, 13.3 문장. 초음파 영역은 고치지 않는다.
+
+**작업 나누기**(각 단계가 따로 합쳐져도 빌드·시험이 깨지지 않는다)
+1. **① 팔 PR(동작 변화 없음)**: `core/clock.py`(`Clock`·`WallClock`), `MotionController(clock=)`와 위 표의 "시계" 줄 전부, `MotionHandle.wait`·`wait_idle`·`close`가 `clock.wait`, `ArmService(clock=)`·`ArmService.clock`·`_status_once` 떼어 내기(상태 스레드는 그대로), `PolicyRunner.step()` 떼어 내기(벽시계 스레드가 `step()`을 부름). 시험 1a·1b. 합친 뒤 1c(사용자에게 먼저 묻는다).
+2. **② MuJoCo PR: StepClock**: `arm/mujoco_clock.py`(센 시간, 참여 스레드, `every`, 멈춤 감지, 닫기). `tests/test_mujoco_clock.py`는 가짜 드라이버로 본다: 참여 스레드가 깨어 있으면 틱이 기다림, `advance` 뒤 `sleep`이 깨어남, 중첩 참여가 멈추지 않음, `close`가 걸리지 않음, `failed_reason`이면 바로 오류. ①과 나란히 만들 수 있다(가짜 드라이버만 쓴다).
+3. **③ MuJoCo PR: 연결**: `--clock step`, 표본기·기록기·`PolicyRunner`를 `every`로, settle·폴링을 `clock.sleep`으로, 보기 창, `bench/carry.yaml`, 완료 기준 2~7.
 
 #### 13.10.3 M6 초음파를 MuJoCo에 세부 설계 (2026-11-16 초안, EGM Stage 9 전)
 **무엇을 답하나**: 실제 브래킷·손·팔 형상에서 초음파 인식이 도는가. 지금 벤치마크의 가상 ESP32는 상자 목록과 수식으로 거리를 만들어, 빔이 자기 클램프나 팔에 걸리는 것, 레이더가 실제 팔 형상에 가리는 것, 인식한 자리로 **물리에서 실제로 집히는지**를 볼 수 없다.
@@ -460,7 +520,7 @@ spread: {xy_mm: 0, angle_deg: 0}           # 씨앗마다 자리·각도를 흔�
 - 데이터셋: `dataset_dir`가 없으면 `LeRobotDataset.create(repo_id="local/<이름>", root=dataset_dir, fps=fps, robot_type="so101_follower", features=…, use_videos=True)`로 만든다. **이미 있으면 `ValueError`로 거부한다**(이어 쓰기는 2차). `stop(save=True)`는 에피소드를 저장하고(`save_episode`), `stop(save=False)`는 버리며(`clear_episode_buffer`), `close()`는 마무리한다. lerobot 0.6.1 설치본의 실제 함수 이름과 Windows에서 영상 인코딩이 되는지는 첫 PR에서 확인해 적는다. 영상이 안 되면 `use_videos=False`(그림 파일)로 바꾸고 보고한다.
 - 과제 문장 `task`를 에피소드마다 적는다(결정 0066의 5항).
 - 기록 구간은 `start()`부터 마지막 동작 뒤 판정 대기까지다. 대기는 수집에서 0.3초(결정 0068), 평가에서 1.0초다.
-- 시계: `time.perf_counter`로 25Hz를 맞춘다(실시간 수집). 13.10.2가 들어오면 `ArmService`의 시계로 바꾼다. **기록기는 13.10.2를 기다리지 않는다.**
+- 시계: `time.perf_counter`로 25Hz를 맞춘다(실시간 수집). 13.10.2가 들어오면 `--clock step`에서는 `StepClock.every`로 돈다(13.10.2 "시계를 쓰는 다른 곳"). **기록기는 13.10.2를 기다리지 않는다.**
 - `lerobot[dataset]`이 없으면 "lerobot[dataset]이 설치되지 않았습니다. docs/guides/tooling-setup.md C-8"로 끝낸다. 데이터셋 폴더는 `runs/datasets/<이름>/`(git 밖)이다. 이름은 글자·숫자·`_`·`-`만 받는다.
 
 **수집 다시 짜기**(결정 0068, 2026-11-18. REQ-072의 첫 300개는 0/50이었다: 시연 30~34초, 정지 프레임 16%, action과 상태의 차이 중앙값 0.29°)
