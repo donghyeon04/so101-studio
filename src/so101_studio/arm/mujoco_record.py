@@ -83,8 +83,13 @@ class EpisodeRecorder:
         self._stop.clear()
         gc.collect()
         gc.disable()  # 기록 중 GC 2세대 수집이 GIL을 0.1초 넘게 잡아 물리가 밀렸다(realtime_lag, 결정 0068). stop()에서 다시 켠다
-        self._thread = threading.Thread(target=self._run, name="episode-recorder", daemon=True)
-        self._thread.start()
+        try:
+            self._thread = threading.Thread(target=self._run, name="episode-recorder", daemon=True)
+            self._thread.start()
+        except BaseException:
+            self._thread = None
+            gc.enable()
+            raise
 
     def stop(self, save: bool) -> int:
         """기록을 멈추고 save면 에피소드로 저장, 아니면 버린다. 저장한 줄 수(버렸으면 0)."""
