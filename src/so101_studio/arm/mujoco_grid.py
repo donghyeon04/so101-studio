@@ -1,6 +1,6 @@
 """여러 일꾼의 화면을 창 하나에 격자로 모아 보기(`mujoco_bench --viewer grid`, 2026-11-18 사용자 요청).
 
-일꾼 프로세스마다 `Feeder` 스레드가 위 카메라(`top`)를 초당 FPS장 그려 JPEG로 큐에 넣고, 창 프로세스(`run_window`, tkinter)가
+일꾼 프로세스마다 `Feeder` 스레드가 보기용 시점(`view`, 그리퍼를 비스듬히 따라감)을 초당 FPS장 그려 JPEG로 큐에 넣고, 창 프로세스(`run_window`, tkinter)가
 일꾼(pid)마다 칸 하나를 잡아 그 아래에 에피소드 이름과 결과를 적는다. MuJoCo 뷰어와 달리 시점은 고정이다."""
 import contextlib
 import io
@@ -10,8 +10,8 @@ import queue
 import threading
 import time
 
-FPS = 8
-SIZE = (320, 240)
+FPS = 20
+SIZE = (480, 360)
 
 _GRID = None  # 이 프로세스의 큐(일꾼은 풀 initializer가, --jobs 1은 run이 넣는다)
 
@@ -27,7 +27,7 @@ def current():
 
 
 class Feeder:
-    """한 에피소드 동안 driver.render('top')을 큐로 보낸다. render는 드라이버의 렌더 전용 스레드가 그려 어느 스레드에서 불러도 된다."""
+    """한 에피소드 동안 driver.render('view')(그리퍼를 따라가는 보기용 시점)를 큐로 보낸다. render는 드라이버의 렌더 전용 스레드가 그려 어느 스레드에서 불러도 된다."""
 
     def __init__(self, q, driver, label: str):
         self.q, self.driver, self.label = q, driver, label
@@ -38,7 +38,7 @@ class Feeder:
         from PIL import Image
 
         try:
-            img = self.driver.render("top", *SIZE)
+            img = self.driver.render("view", *SIZE)
         except (RuntimeError, ValueError):  # 연결이 끊겼거나 카메라가 없다
             return False
         buf = io.BytesIO()

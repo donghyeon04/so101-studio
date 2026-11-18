@@ -16,7 +16,7 @@ class FakeDriver:
         self.calls = 0
 
     def render(self, camera, width, height):
-        assert camera == "top"
+        assert camera == "view"
         self.calls += 1
         return np.zeros((height, width, 3), np.uint8)
 
