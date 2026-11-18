@@ -59,8 +59,19 @@ def test_chart_has_six_joint_series_on_one_axis(backend):
     assert len({s["color"] for s in options["series"]}) == 6
 
 
+@pytest.fixture
+def old_table(backend):
+    """기록 wave_safe1은 결정 0067 전 600x400 작업대에서 만들었다: 그 배치로 재생해 작업대 가장자리에 걸리지 않게 한다(팔 시험의 tests/workspace_600x400.yaml과 같다)."""
+    for arm in backend._arms():
+        arm.reload_workspace("tests/workspace_600x400.yaml")
+    yield backend
+    for arm in backend._arms():
+        arm.reload_workspace("config/workspace.yaml")
+
+
 @pytest.mark.slow
-def test_replay_follows_total_and_segment_speed(backend):
+def test_replay_follows_total_and_segment_speed(old_table):
+    backend = old_table
     segments = backend.arm.record_info(NAME)["segments"]
     plain = backend.arm.replay(NAME, 1.0).duration_s
     assert plain == pytest.approx(expected_seconds(segments, {}, 1.0), abs=0.2)
@@ -84,7 +95,8 @@ def test_outside_record_is_refused_with_advice_then_cut_at_the_limit(backend):
 
 
 @pytest.mark.slow
-def test_finished_full_replay_has_no_cut(backend):
+def test_finished_full_replay_has_no_cut(old_table):
+    backend = old_table
     assert backend.replay(NAME, 1.0) is None
     assert backend.replay_cut() is None
 

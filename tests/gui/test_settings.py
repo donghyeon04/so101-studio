@@ -74,7 +74,8 @@ def test_off_mode_removes_box_and_free_mode_opens_xy(clean):
     assert clean.readout()["안전 모드"] == "끔"
     assert clean.set_safety("free", 0.0, None) is None
     box = handles["/allowed"]
-    assert np.asarray(box.position)[:2] == pytest.approx([0.3, 0.2])
+    t = clean.arm.ws.table_mm
+    assert np.asarray(box.position)[:2] == pytest.approx([t["x"] / 2000, t["y"] / 2000])  # 판 가운데
     assert clean.readout()["안전 모드"] == "자유"
 
 
@@ -128,12 +129,13 @@ def test_view_only_cannot_change_safety(clean):
 def test_workspace_text_keeps_comments_and_changes_values():
     text = pathlib.Path("config/workspace.yaml").read_text(encoding="utf-8")
     out = update_workspace_text(text, VALUES, "right")
-    assert "배치 확정 후 수정" in out and "도달 밖 물체는" in out
+    assert "H-6 실측으로 고친다" in out and "도달 밖 물체는" in out
     data = yaml.safe_load(out)
     assert data["table_mm"] == {"x": 700, "y": 450}
     assert data["robot_base_in_table"] == {"x_mm": 320, "y_mm": 60, "yaw_deg": 90}
     zone = data["drop_zones"]["right"]
     assert (zone["x_mm"], zone["y_mm"]) == (520, 170)  # 사각형 구역이면 w_mm·h_mm·slot_mm도 남는다(아래 시험)
+    assert (zone.get("type"), zone.get("wall_mm")) == ("bin", 25)  # 통 구역(결정 0067)은 type·벽 높이가 남는다
     assert data["safety_margin_mm"] == 12
     assert data["reach_mm"] == {"min": 90, "max": 250}
 
@@ -167,9 +169,9 @@ def test_table_page_shows_values_and_saves(clean, tmp_path, monkeypatch):
         await user.should_see(marker="ws-plane")
         await user.should_see("실측 전 값")
         assert await _until(lambda: clean.owner is not None)
-        _one(user, "ws-zone_x").meta.set(480)
+        _one(user, "ws-zone_x").meta.set(360)  # 판(425) 안
         user.find(marker="ws-save").click()
-        assert await _until(lambda: yaml.safe_load(path.read_text(encoding="utf-8"))["drop_zones"]["right"]["x_mm"] == 480)
+        assert await _until(lambda: yaml.safe_load(path.read_text(encoding="utf-8"))["drop_zones"]["right"]["x_mm"] == 360)
         await user.should_see("저장했습니다")
 
     try:

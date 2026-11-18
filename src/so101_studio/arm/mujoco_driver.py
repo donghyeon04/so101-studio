@@ -23,6 +23,8 @@ from .mujoco_model import (
 
 JAW_ROLES = ("jaw_fixed", "jaw_moving", "clamp_right", "clamp_left")  # held 판정에 쓰는 턱 역할(단동식 둘, 병렬 클램프 둘)
 VIEWER_SYNC_S = 1 / 15  # 뷰어에 복사본을 보내는 간격(30Hz는 렌더가 CPU를 먹어 60초에 버림 45~64번, 15Hz는 1~4번: measurements.md)
+VIEW_CAMERA = "view"  # 보기 전용 자유 카메라 이름(render만, 모델 카메라가 아니다)
+VIEW_DISTANCE_M, VIEW_AZIMUTH_DEG, VIEW_ELEVATION_DEG = 0.5, 135.0, -30.0
 CATCHUP_MAX_S = 0.1  # 이 이상 밀리면 넘는 만큼 버린다
 
 
@@ -153,7 +155,7 @@ class MuJoCoDriver:
             if not self.connected or self.model is None:
                 raise RuntimeError("연결 전에는 render할 수 없다")
             m = self.model
-            if self._mj.mj_name2id(m, self._mj.mjtObj.mjOBJ_CAMERA, camera) < 0:
+            if camera != VIEW_CAMERA and self._mj.mj_name2id(m, self._mj.mjtObj.mjOBJ_CAMERA, camera) < 0:
                 raise ValueError(f"모르는 카메라: {camera!r}")
             if self._rdata is None:
                 self._rdata = self._mj.MjData(m)
@@ -161,8 +163,17 @@ class MuJoCoDriver:
         r = self._renderers.get((width, height))
         if r is None:  # 크기마다 하나(GUI 화면과 기록기가 다른 크기를 번갈아 불러도 다시 만들지 않게)
             r = self._renderers[(width, height)] = self._mj.Renderer(m, height, width)
-        r.update_scene(self._rdata, camera=camera)
+        r.update_scene(self._rdata, camera=self._view_camera(m) if camera == VIEW_CAMERA else camera)
         return r.render()
+
+    def _view_camera(self, m):
+        """보기 전용 자유 카메라(`render("view")`, 격자 창): 그리퍼를 비스듬히 위·옆에서 따라간다. 모델에는 카메라를 더하지 않는다(학습 영상 top·wrist는 그대로)."""
+        cam = self._mj.MjvCamera()
+        cam.type = self._mj.mjtCamera.mjCAMERA_FREE
+        g = self._rdata.xpos[self._mj.mj_name2id(m, self._mj.mjtObj.mjOBJ_BODY, "gripper")]
+        cam.lookat[:] = [g[0], g[1], max(g[2] - 0.04, self.cfg.table_z_mm / 1000.0)]  # 손끝 쪽(손 몸통보다 조금 아래), 작업대 아래로는 안 본다
+        cam.distance, cam.azimuth, cam.elevation = VIEW_DISTANCE_M, VIEW_AZIMUTH_DEG, VIEW_ELEVATION_DEG
+        return cam
 
     @property
     def failed_reason(self) -> str | None:

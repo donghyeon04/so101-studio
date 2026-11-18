@@ -124,7 +124,7 @@ def test_policy_episode_runs_the_runner_and_judges(tmp_path):
             return obs["observation.state"].tolist()
 
     s = bench.load_suite("collect_pick")
-    row = bench.run_policy_episode(bench.episodes(s, 1, seed_start=10000)[0], s, bench.load_cfg(), tmp_path, Hold(), max_s=1.0)
+    row = bench.run_policy_episode(bench.episodes(s, 1, seed_start=10000)[0], s, bench.load_cfg(), tmp_path, Hold(), max_s=2.0)  # 첫 렌더러 만들기가 1초 가까이 걸릴 때가 있어 1.0초면 8스텝으로 실패했다
     assert row["outcome"] == "untouched" and row["policy"]["reason"] == "max_s" and row["policy"]["steps"] > 10
 
 
