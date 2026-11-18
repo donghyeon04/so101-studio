@@ -151,7 +151,8 @@ def test_object_reachable_gives_radar_candidates_the_same_margin_as_the_task(bac
 
     from so101_studio.core.types import DetectedObject
 
-    far = DetectedObject("us-1", 300.0, 330.0, None, 0.0, 0.0, 0.5, "ultrasonic")  # 팔 원점(300, 50)에서 반경 280: 집기 범위(250) 밖, 여유(+60) 안
+    b = backend.arm.ws.base
+    far = DetectedObject("us-1", b.x_mm, b.y_mm + 280.0, None, 0.0, 0.0, 0.5, "ultrasonic")  # 팔 원점 정면 반경 280: 집기 범위(250) 밖, 여유(+60) 안
     assert not backend.object_reachable(far)
     monkeypatch.setattr(backend, "source", SimpleNamespace(start_check=lambda *a, **k: None))
     assert backend.object_reachable(far)

@@ -88,12 +88,13 @@ def test_plan_unreachable_point_gives_reason_and_no_preview(backend):
 def test_horizontal_tip_plans_moves_and_draws_reach_rings(backend):
     """REQ-037: 손끝 각도 0(수평)으로 앞쪽 점에 닿고, 집기 범위와 움직임 범위 호를 3D에 그린다."""
     nodes = backend.scene.server.scene._handle_from_node_name
-    plan = backend.plan(300, 350, 120, 90, 0)
+    b = backend.arm.ws.base
+    plan = backend.plan(b.x_mm, b.y_mm + 300.0, 120, 90, 0)  # 팔 정면 반경 300
     assert plan.ok, plan.text
     assert "/marks/reach/pick" in nodes and "/marks/reach/motion" in nodes
     backend.scene.clear_target()
     assert "/marks/reach/pick" not in nodes
-    assert backend.move_to(300, 350, 120, 90, 0) is None
+    assert backend.move_to(b.x_mm, b.y_mm + 300.0, 120, 90, 0) is None
     assert backend.arm.status().tool.pitch_deg == pytest.approx(0, abs=5)
     assert backend.jog_step("cartesian", CART_AXES.index("pitch"), -15) is None  # 아래로 15°
     assert backend.arm.status().tool.pitch_deg == pytest.approx(-15, abs=5)
@@ -274,9 +275,9 @@ def test_joint_to_moves_one_joint_to_the_typed_angle(backend):
 def test_pick_place_moves_object_to_the_place_point(backend):
     """gui-spec 11절 B7: 집기 점에서 집어 놓기 점에 놓는다. 범위 밖이면 이유를 돌려준다."""
     backend.set_speed(100)
-    assert backend.pick_place((300, 200), 0, 30, 30, (420, 120)) is None  # 놓기 점은 기본 수동 물체(350,200, 반지름 50)와 겹치지 않게(#229부터 알려진 물체를 피한다)
-    assert backend.pick_place((300, 200), 0, 58, 58, (420, 120), height_mm=39) is None  # REQ-034 높이 칸
-    assert "집기 점이 집기 범위 밖" in (backend.pick_place((300, 60), 0, 30, 30, None) or "")
+    assert backend.pick_place((215, 160), 0, 30, 30, (215, 250)) is None  # 팔 정면(결정 0067 판). 놓기 점은 기본 수동 물체(반지름 50)와 겹치지 않게(#229부터 알려진 물체를 피한다)
+    assert backend.pick_place((215, 160), 0, 58, 58, (215, 250), height_mm=39) is None  # REQ-034 높이 칸
+    assert "집기 점이 집기 범위 밖" in (backend.pick_place((215, 30), 0, 30, 30, None) or "")
 
 
 def test_pick_place_passes_place_target_and_keeps_tilt(backend, monkeypatch):
