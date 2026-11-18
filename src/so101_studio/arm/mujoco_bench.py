@@ -273,7 +273,7 @@ class BenchEnv:
 
         self.cfg, self.realtime, self.viewer = cfg, realtime, viewer
         self.ws = ws or load_workspace(REPO_ROOT / "config" / "workspace.yaml")
-        self.scene = load_scene(REPO_ROOT / "config" / "scene.yaml").for_gripper(cfg.gripper)
+        self.scene = load_scene(REPO_ROOT / "config" / "scene.yaml", self.ws).for_gripper(cfg.gripper)  # 통 벽(bin_*)까지: 서비스와 같은 장면, 결과 머리의 부품 목록에도 나온다
         self.drv = self.svc = None
 
     def reset(self, seed=None, options=None):
