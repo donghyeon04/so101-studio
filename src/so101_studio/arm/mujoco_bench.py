@@ -182,6 +182,9 @@ def episodes(suite: dict, seeds: int = 1, base=None, seed_start: int = 0) -> lis
     for i, combo in enumerate(itertools.product(*[objs[k] for k in keys], *[given[k] for k in gkeys])):
         c = dict(zip(keys + gkeys, combo))
         r, bearing = c["positions"]
+        if any(list(c["size_mm"]) == list(k["size_mm"]) and [r, bearing] == [k["radius_mm"], k["bearing_deg"]] and c["angle_deg"] == k["angle_deg"]
+               for k in suite.get("skip") or []):  # 묶음의 skip 칸(배출 통과 겹침 등)은 뺀다. 순번 i는 그대로라 다른 칸의 에피소드 id가 바뀌지 않는다
+            continue
         for s in range(seed_start, seed_start + n_seeds):
             rng = np.random.default_rng([i, s])
             dx, dy, da = (rng.uniform(-sxy, sxy), rng.uniform(-sxy, sxy), rng.uniform(-sang, sang)) if (sxy or sang) else (0.0, 0.0, 0.0)

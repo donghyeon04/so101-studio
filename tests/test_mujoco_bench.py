@@ -204,3 +204,9 @@ def test_step_clock_runs_the_policy_on_sim_time(tmp_path):
 def test_step_clock_refuses_the_manual_viewer():
     with pytest.raises(ValueError):
         bench.BenchEnv(bench.load_cfg(), viewer=True, clock="step")
+
+def test_pick_grid_moves_the_right_column_off_the_bin_and_skips_two_cells():
+    """REQ-080(사용자 결정 2026-11-19): −40° 열을 −20°로 옮기고 그래도 통과 겹치는 120mm 두 칸을 뺀다. 남은 칸의 에피소드 id는 순번 그대로다."""
+    eps = bench.episodes(bench.load_suite("pick_grid"))
+    ids = {e.id for e in eps}
+    assert len(eps) == 223 and len(ids) == 223 and "pick_grid-0000-s0" in ids and "pick_grid-0224-s0" in ids
