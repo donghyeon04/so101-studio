@@ -177,3 +177,16 @@ def test_clip_actions_keeps_every_joint_inside_limits_minus_margin(tmp_path):
     assert clipped[JOINTS[0]] == {"frames": 3, "pct": 33.33}  # 시프트 뒤 1(2 미만) 1개 + 103(102 초과) 2개, 9프레임 중
     info = json.loads((dst / "meta" / "collect.json").read_text(encoding="utf-8"))
     assert [d["op"] for d in info["derived"]] == ["shift", "clip"]
+
+
+@pytest.mark.slow
+def test_step_clock_records_on_sim_time(tmp_path):
+    """13.10.2: --clock step 수집은 기록기가 시계의 every(1/25초)로 돈다(스레드 없음). 프레임 수 ≈ 시뮬레이션 길이 × 25."""
+    import json
+
+    from so101_studio.arm import mujoco_bench as bench
+
+    out = bench.run("collect_pick1", seeds=1, out_root=tmp_path, record="st", clock="step")
+    row = json.loads((out / "results.jsonl").read_text(encoding="utf-8"))
+    assert row["outcome"] == "placed_ok" and not row["realtime_lag"]
+    assert abs(row["recorded_frames"] - row["sim_s"] * 25) <= 3

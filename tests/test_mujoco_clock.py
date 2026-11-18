@@ -105,11 +105,11 @@ def test_tick_sleep_keeps_the_remainder_and_only_the_tick_thread_may_call_it():
     clock = StepClock(d)
     quit_, done = start_tick(clock, period=1 / 30)  # 2ms의 정수배가 아니다
     clock.sleep(1.0)
+    with pytest.raises(RuntimeError):
+        clock.tick_sleep(0.02)  # 틱 스레드가 살아 있는 동안 다른 스레드는 부를 수 없다
     quit_.set()
     clock.wait(done, 1.0)
     assert abs(clock.now() - round(clock.now() / (1 / 30)) / 30) <= STEP_S  # 30Hz 틱 수 × 1/30초와 한 스텝 안
-    with pytest.raises(RuntimeError):
-        clock.tick_sleep(0.02)  # 만든 스레드는 틱 스레드가 아니다
 
 
 def test_every_fires_on_period_multiples_and_survives_errors():
@@ -163,3 +163,33 @@ def test_same_script_gives_the_same_sim_times():
         return sorted(seen)
 
     assert run() == run() == run()
+
+
+def test_a_new_tick_thread_takes_over_after_the_old_one_ends():
+    """#452 리뷰: 다시 연결해 MotionController를 새로 만들면 새 틱 스레드가 넘겨받는다(옛 스레드가 끝났을 때만)."""
+    clock = StepClock(FakeDriver())
+    quit_, done = start_tick(clock)
+    clock.sleep(0.04)
+    quit_.set()
+    clock.wait(done, 1.0)
+    time.sleep(0.05)  # 옛 틱 스레드가 완전히 끝나게
+    quit2, done2 = start_tick(clock)
+    clock.sleep(0.04)
+    assert clock.now() == pytest.approx(0.08, abs=0.021)
+    quit2.set()
+    clock.wait(done2, 1.0)
+
+
+def test_hidden_wait_is_reported(monkeypatch):
+    """#452 리뷰: 참여 스레드가 시계 밖에서 기다리면(time.sleep) 틱이 못 돌고, HIDDEN_WAIT_S 뒤 그 스레드 이름을 WARN으로 남긴다."""
+    from so101_studio.arm import mujoco_clock
+
+    monkeypatch.setattr(mujoco_clock, "HIDDEN_WAIT_S", 0.2)
+    d = FakeDriver()
+    clock = StepClock(d)
+    quit_, done = start_tick(clock)
+    time.sleep(0.5)  # 시계 밖 기다림
+    assert "SIM-CLOCK-HIDDEN-WAIT" in d.events
+    quit_.set()
+    clock.close()
+    done.wait(1.0)

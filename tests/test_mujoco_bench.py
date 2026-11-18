@@ -137,7 +137,7 @@ def test_worker_keeps_going_on_error_and_restores_grip_force(tmp_path, monkeypat
 
     force0 = mujoco_hand.GRIP_FORCE_N
     monkeypatch.setattr(bench, "run_episode", boom)
-    row = bench._worker((bench.episodes(bench.load_suite("pick_smoke"))[0], str(bench.OVERRIDE), str(tmp_path), force0 + 23, False, bench.SETTLE_S))
+    row = bench._worker((bench.episodes(bench.load_suite("pick_smoke"))[0], str(bench.OVERRIDE), str(tmp_path), force0 + 23, False, bench.SETTLE_S, "wall"))
     assert row["outcome"] == "sim_fail" and "깨짐" in row["failed_reason"] and row["grip_force_n"] == force0 + 23
     assert mujoco_hand.GRIP_FORCE_N == force0
     assert bench.summarize([row])[0]["outcomes"] == {"sim_fail": 1}
@@ -171,6 +171,39 @@ def test_sampled_layouts_stay_off_the_bin_and_bin_judge():
     assert not bench.in_bin({"x_mm": 355, "y_mm": 140, "z_mm": -0.1}, zone)  # 벽 밖
     assert not bench.in_bin({"x_mm": 355, "y_mm": 80, "z_mm": 25.0}, zone)  # 벽 위에 얹힘(z_mm는 바닥 높이)
 
+
+@pytest.mark.slow
+def test_step_clock_repeats_the_same_episode_exactly(tmp_path):
+    """13.10.2 완료 기준 3·5: --clock step이면 같은 씨앗은 같은 결과(미끄러짐·놓은 자리까지), realtime_lag는 늘 false. 실시간보다 빠르다."""
+    s = bench.load_suite("carry")
+    ep = next(e for e in bench.episodes(s, 1) if e.id == "carry-0001-s0")
+    cfg = bench.load_cfg()
+    a = bench.run_episode(ep, cfg, tmp_path / "a", clock="step")
+    b = bench.run_episode(ep, cfg, tmp_path / "b", clock="step")
+    assert a["outcome"] == b["outcome"] == "placed_ok"
+    assert (a["slip_mm"], a["place_err_mm"], a["sim_s"]) == (b["slip_mm"], b["place_err_mm"], b["sim_s"])
+    assert not a["realtime_lag"] and a["wall_s"] < a["sim_s"] / 3
+
+
+@pytest.mark.slow
+def test_step_clock_runs_the_policy_on_sim_time(tmp_path):
+    """--clock step 정책 한 에피소드: 추론 지연은 시뮬레이션 시간으로 0이라 too_slow가 없고, max_s 1초면 25fps로 꼭 24걸음이다(0.04~0.96초, 1.0초에는 끝낸다)."""
+
+    class Hold:
+        def reset(self):
+            pass
+
+        def select_action(self, obs):
+            return obs["observation.state"].tolist()
+
+    s = bench.load_suite("collect_pick1")
+    row = bench.run_policy_episode(bench.episodes(s, 1, seed_start=10000)[0], s, bench.load_cfg(), tmp_path, Hold(), max_s=1.0, clock="step")
+    assert row["outcome"] == "untouched" and row["policy"]["reason"] == "max_s" and row["policy"]["steps"] == 24
+
+
+def test_step_clock_refuses_the_manual_viewer():
+    with pytest.raises(ValueError):
+        bench.BenchEnv(bench.load_cfg(), viewer=True, clock="step")
 
 def test_pick_grid_moves_the_right_column_off_the_bin_and_skips_two_cells():
     """REQ-080(사용자 결정 2026-11-19): −40° 열을 −20°로 옮기고 그래도 통과 겹치는 120mm 두 칸을 뺀다. 남은 칸의 에피소드 id는 순번 그대로다."""

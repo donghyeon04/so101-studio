@@ -1,0 +1,11 @@
+# 시계 주입 완료 기준(mujoco-spec 13.10.2, 결정 0070): 45·58 상자를 팔 정면 반경 180mm에서 집어 배출 통에 놓는다. 병렬 손.
+# 씨앗마다 자리를 ±2mm 흔든다(spread). 실행: mujoco_bench --suite carry --clock step|wall [--seeds N]
+name: carry
+objects:
+  size_mm: [[45, 45, 40], [58, 58, 39]]   # [길이, 폭, 높이]
+  radius_mm: [180]
+  bearing_deg: [0]
+  angle_deg: [0]
+place: {zone: right}
+given: {}
+spread: {xy_mm: 2, angle_deg: 0}

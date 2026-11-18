@@ -733,3 +733,16 @@ p99 증가는 -0.04ms(기준 2ms 이하), time_lost_s 증가 0%(기준 1% 미만
   그래서 −40°를 −20°로 옮기고 120mm의 두 칸 [58,58,39]@45°와 [100,30,40]@0°를 뺐다(`skip`, 225 → 223 에피소드). `pick_grid`·`inject_grid`·`pick_smoke`는 통 겹침 0, 판 밖 0이다.
 - 시나리오 `carry30/45/58`·`topedge`는 새 받침 기준 같은 상대 자리로 옮겼다(정면 150mm (215.2, 171.4), 정면 225mm (215.2, 246.4)). 놓을 곳은 정면 120·왼쪽 120(95.2, 141.4)이다(오른쪽 앞은 통).
 - M5 고정 묶음 표는 이 장면에서 `--clock step`으로 새로 잰다(옛 표와 섞지 않는다, 다음 PR).
+
+## MuJoCo 시계 주입 ③: `--clock step` (2026-11-19, REQ-084, 결정 0070, mujoco-spec 13.10.2, 병렬 손, 결정 0067 판·통 장면)
+- 연결: `BenchEnv(clock="step")`은 에피소드 스레드에서 에피소드마다 새 `StepClock`을 만들어 `ArmService(clock=)`에 넘긴다(드라이버 `realtime=False`). 그래서 만든 스레드가 참여하고, `every`·틱 스레드가 앞 에피소드와 섞이지 않는다(#452·#457 리뷰). 표본기 50Hz, 기록기 25fps, 정책 한 걸음 25fps, 보기 창(`--viewer grid`, 10Hz, `--jobs`>1이면 첫 일꾼만)은 모두 `every`로 돈다. settle은 `clock.sleep`이다. 수동 뷰어는 거부한다. 정책은 `torch.set_num_threads(1)`이다.
+- 시계 고침(만들며 찾음): 깨어날 조건이 찬 참여 스레드가 틱 스레드의 본문(제어 틱·every)과 같이 돌면, 누가 먼저 상태를 읽느냐가 OS 스케줄에 달려 `--jobs 8`에서 12개 중 2개가 0.11·1.29mm 달랐다. 그래서 틱 스레드가 다음 `tick_sleep`에 들어올 때까지 참여 스레드를 잡아 둔다. 그 밖에 옛 틱 스레드가 끝났으면 넘겨받기, 틱이 벽시계 30초 못 돌면 깨어 있는 참여 스레드 이름을 `SIM-CLOCK-HIDDEN-WAIT`로 남기기를 더했다.
+
+| 완료 기준 | 명령 | 결과 |
+|---|---|---|
+| 2 빠르기 | `--suite carry --seeds 1 --clock step` / `--clock wall` | 58 상자 placed_ok, wall_s **2.99초** / 32.36초(1/10.8). 45 상자는 5.78초(첫 에피소드라 불러오기 포함) / 35.13초 |
+| 3 같은 결과 | `--suite pick_smoke --clock step --jobs 1` 대 `--jobs 8` | 12개 모두 reported·outcome·agree 같고 slip_mm·place_err_mm 차이 0(두 번 잼). wall_s 합 38.8 / 89.0초 |
+| 4 미끄러짐 | `carry-0001-s0`(58) 같은 씨앗 14번 / `--seeds 14`(spread ±2mm) | 같은 씨앗 2.95mm ×14(범위 0) / 씨앗 14개 최소 2.94·중앙 2.95·최대 2.96mm. 실시간에서 0.8~10mm로 갈린 것은 지터였다 |
+| 5 lag | 위 실행 전부 | realtime_lag 0 |
+| 6 수집 50개 | `--suite collect_pick1 --clock step --seeds 50 --seed-start 2000 --jobs 12` | placed_ok 50/50, wall_s 합 **282.2초**(에피소드 중앙 5.18초, 일꾼 12개가 함께 돌아 하나하나는 실시간 8.6초보다 조금 빠른 정도). 실시간 `--jobs 6`은 에피소드 중앙 11.7초 |
+| 7 정책 같은 결과 | `--suite collect_pick1 --clock step --policy act_pick1_k0clip/060000 --seed-start 10000 --seeds 10 --jobs 5 --viewer grid` 두 번 | 10개 모두 outcome·끝난 이유·걸음 수가 같다. too_slow 0. (옛 장면으로 배운 정책이라 통 벽 거부 `scene:bin_right_*`로 끝난 것이 7개) |

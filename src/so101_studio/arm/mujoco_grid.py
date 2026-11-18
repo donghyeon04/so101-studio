@@ -12,14 +12,21 @@ import time
 
 FPS = 20
 SIZE = (480, 360)
+VIEWER_HZ = 10  # --clock step: 시뮬레이션 시간 viewer_hz마다 그린다(13.10.2 보기 창)
 
 _GRID = None  # 이 프로세스의 큐(일꾼은 풀 initializer가, --jobs 1은 run이 넣는다)
+_OWNER = None  # 여러 일꾼이 나눠 쓰는 dict: --clock step에서 창에 그리는 일꾼(첫 일꾼 하나)
 
 
-def set_queue(q) -> None:
-    """일꾼 풀 initializer(이 프로세스의 큐)."""
-    global _GRID
-    _GRID = q
+def set_queue(q, owner=None) -> None:
+    """일꾼 풀 initializer(이 프로세스의 큐, 첫 일꾼을 고르는 공유 dict)."""
+    global _GRID, _OWNER
+    _GRID, _OWNER = q, owner
+
+
+def claim() -> bool:
+    """이 일꾼이 그리는 일꾼인가(--clock step은 첫 일꾼만 그린다). 공유 dict가 없으면 늘 True."""
+    return _OWNER is None or _OWNER.setdefault("pid", os.getpid()) == os.getpid()
 
 
 def current():
@@ -29,10 +36,12 @@ def current():
 class Feeder:
     """한 에피소드 동안 driver.render('view')(그리퍼를 따라가는 보기용 시점)를 큐로 보낸다. render는 드라이버의 렌더 전용 스레드가 그려 어느 스레드에서 불러도 된다."""
 
-    def __init__(self, q, driver, label: str):
+    def __init__(self, q, driver, label: str, clock=None):
+        """clock이 StepClock(drives_status)이면 스레드 대신 시계의 every(1/VIEWER_HZ)로 그린다(렌더는 data 복사본이라 물리 결과를 바꾸지 않는다)."""
         self.q, self.driver, self.label = q, driver, label
+        self.clock = clock if getattr(clock, "drives_status", False) else None
         self._stop = threading.Event()
-        self._t = threading.Thread(target=self._run, name="grid-feeder", daemon=True)
+        self._t = None if self.clock else threading.Thread(target=self._run, name="grid-feeder", daemon=True)
 
     def _send(self) -> bool:
         from PIL import Image
@@ -55,13 +64,21 @@ class Feeder:
         while not self._stop.wait(1.0 / FPS) and self._send():
             pass
 
+    def _tick(self) -> None:
+        if not self._stop.is_set():
+            self._send()
+
     def __enter__(self):
-        self._t.start()
+        if self.clock:
+            self.clock.every(1.0 / VIEWER_HZ, self._tick)
+        else:
+            self._t.start()
         return self
 
     def __exit__(self, *a):
         self._stop.set()
-        self._t.join(timeout=1.0)
+        if self._t is not None:
+            self._t.join(timeout=1.0)
         self._send()  # 결과 글(note)이 붙은 마지막 그림
 
     def note(self, label: str) -> None:
@@ -132,7 +149,7 @@ def run_window(q, n: int, title: str = "MuJoCo 시험장") -> None:
 
 
 class Grid:
-    """부모 쪽: Manager 큐와 창 프로세스를 띄우고 닫는다. with Grid(n) as q: ProcessPoolExecutor(initializer=set_queue, initargs=(q,))."""
+    """부모 쪽: Manager 큐와 창 프로세스를 띄우고 닫는다. with Grid(n) as qo: ProcessPoolExecutor(initializer=set_queue, initargs=qo)."""
 
     def __init__(self, n: int, title: str = "MuJoCo 시험장"):
         self.n, self.title = n, title
@@ -144,8 +161,9 @@ class Grid:
         self.q = self._mgr.Queue(maxsize=FPS * self.n)  # 1초 분량까지만 쌓는다
         self._p = mp.Process(target=run_window, args=(self.q, self.n, self.title), daemon=True)
         self._p.start()
-        set_queue(self.q)
-        return self.q
+        self.owner = self._mgr.dict()
+        set_queue(self.q, self.owner)
+        return self.q, self.owner
 
     def __exit__(self, *a):
         set_queue(None)
