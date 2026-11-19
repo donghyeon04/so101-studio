@@ -80,7 +80,7 @@ def build(backend, client_id: str, actions) -> None:
             return
         judge = None
         suite = training_info(Path(path)).get("suite")
-        if layout_on.value and suite:  # 학습 배치(mujoco-spec 13.10.4 세계 다시 짓기): 학습 때 묶음의 이 씨앗 자리에 상자를 놓고 끝나면 판정한다
+        if layout_on.value and suite and hasattr(svc.driver, "set_objects"):  # 학습 배치(mujoco-spec 13.10.4 세계 다시 짓기): 학습 때 묶음의 이 씨앗 자리에 상자를 놓고 끝나면 판정한다
             try:
                 lay = await run.io_bound(backend.rebuild_world, suite, int(seed.value))
             except ValueError as e:

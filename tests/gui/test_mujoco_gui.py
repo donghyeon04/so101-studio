@@ -94,3 +94,26 @@ def test_app_rejects_scenario_and_reports_missing_mujoco(monkeypatch, capsys):
     with pytest.raises(SystemExit) as e:
         gui_app.main(argparse.Namespace(sim=True, sim_engine="mujoco", viser_port=8194))
     assert e.value.code == 2 and "MuJoCo가 설치되지 않았습니다" in capsys.readouterr().out
+
+
+def test_rebuild_world_puts_the_training_layout_into_mujoco(mj):
+    """mujoco-spec 13.10.4 세계 다시 짓기(결정 0071 시연): 학습 묶음의 씨앗 배치로 MuJoCo 물체와 수동 물체 목록이 같이 바뀐다."""
+    try:
+        lay = mj.rebuild_world("collect_pick2", 10000)
+        (box,) = lay.objects
+        objs = mj.sim.driver.sim_state()["objects"]
+        assert len(objs) == 1 and abs(next(iter(objs.values()))["x_mm"] - box.x_mm) < 2.0
+        assert [(round(o.x_mm), round(o.y_mm)) for o in mj.objects()] == [(round(box.x_mm), round(box.y_mm))]
+        assert mj.sim.skills.placed == [] and mj.sim.skills.grip is None
+    finally:
+        # 다음 시험을 위해 처음 물체로: 수동 물체 파일대로 다시 짓는다
+        from so101_studio.arm.mujoco_model import SimObject
+        from so101_studio.perception.manual import ManualSource
+
+        mj.sim.driver.set_objects([SimObject(o.id, o.x_mm, o.y_mm, o.angle_deg or 0.0, o.width_mm, o.length_mm, o.height_mm) for o in ManualSource().scan().objects])
+        mj.sim.connect(fresh=True)
+
+
+def test_rebuild_world_refuses_without_mujoco(backend):
+    with pytest.raises(ValueError, match="MuJoCo"):
+        backend.rebuild_world("collect_pick2", 10000)
