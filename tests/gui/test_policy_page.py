@@ -152,3 +152,32 @@ def test_start_pose_comes_from_the_training_dataset(tmp_path):
     assert policy_page.start_pose_of(ckpt) == [0.0, -30.0, 30.0, 75.0, 0.0, 50.0]
     (ckpt / "train_config.json").write_text("{", encoding="utf-8")
     assert policy_page.start_pose_of(ckpt) is None
+
+
+def test_training_preset_is_applied_and_the_old_values_come_back(backend):
+    """GUI 기본 속도(30%)면 정책 목표가 잘려 팔이 뒤처진다(11-20): 수집 프리셋을 적용하고 바꾸기 전 값을 돌려준다. 서비스에 없는 키(gripper)는 건너뛴다."""
+    svc = backend.sim
+    old = {k: v["value"] for k, v in svc.get_params().items()}
+    info = {"preset_values": {"gripper": "parallel", "speed_pct_default": 100, "joint_v_max_deg_s": 150, "servo_acceleration": 50}}
+    try:
+        before = policy_page.apply_training_preset(svc, info)
+        now = svc.get_params()
+        assert now["speed_pct"]["value"] == 100 and now["joint_v_max_deg_s"]["value"] == 150 and now["servo_acceleration"]["value"] == 50
+        assert set(before) <= {"speed_pct", "joint_v_max_deg_s", "servo_acceleration"} and "gripper" not in before
+        assert policy_page.apply_training_preset(svc, info) == {}  # 이미 같은 값이면 바꿀 것이 없다
+        svc.set_params(before)
+        assert {k: v["value"] for k, v in svc.get_params().items()} == old
+        assert policy_page.apply_training_preset(svc, {}) == {}  # collect.json이 없는 체크포인트
+    finally:
+        svc.set_params({k: old[k] for k in ("speed_pct", "joint_v_max_deg_s", "servo_acceleration")})
+
+
+def test_gripper_mismatch_is_reported_before_start(backend):
+    """학습 손과 시뮬레이션 손이 다르면 시작 전에 알린다(11-20: 병렬로 배운 정책이 단동식 손에서 0/6). 모르면 막지 않는다."""
+    svc = backend.sim
+    have = svc.cfg.gripper
+    other = "parallel" if have != "parallel" else "single_jaw"
+    why = policy_page.gripper_mismatch(svc, {"preset_values": {"gripper": other}})
+    assert why and policy_page.GRIPPER_TEXT[other] in why and "다시 켠" in why
+    assert policy_page.gripper_mismatch(svc, {"preset_values": {"gripper": have}}) is None
+    assert policy_page.gripper_mismatch(svc, {}) is None

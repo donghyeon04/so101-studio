@@ -174,6 +174,7 @@ class Backend:
         self.owner: str | None = None  # 조작권을 가진 브라우저. NiceGUI 이벤트 루프에서만 바꾼다
         self.policy = None  # 정책 실행 페이지의 PolicyRunner. 페이지를 옮겨도 계속 돈다 (gui-spec 12.10 ③)
         self.policy_loading = self.policy_cancel = False  # 정책을 불러오는 중인가, 그 사이 [정지]를 눌렀는가
+        self.policy_saved_params: dict = {}  # 정책 실행에 수집 프리셋을 적용하기 전 값. 실행이 끝나면 정책 페이지가 되돌린다
         ws = load_workspace()
         # 실행 기록은 주 팔 하나만 남긴다. 같은 초에 만들면 폴더 이름이 겹친다
         self.real = ArmService(real_driver, cfg, ws, speed, log_root, proc="gui") if real_driver else None
