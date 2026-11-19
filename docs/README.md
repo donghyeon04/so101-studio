@@ -35,6 +35,7 @@
 | `docs/guides/real-arm-runbook.md` | 가이드 | 초안 | 실물 팔 절차서: 매번 시작할 때, GUI 실물 켜기, 남은 실물 확인(턱 높이·집기·교시 변환본·AC4·table_z 등), 초음파 실물 순서, 문제가 나면 |
 | `docs/guides/tooling-setup.md` | 가이드 | 확정 | 계정마다 설치할 플러그인, MCP, 스킬 |
 | `docs/guides/session-workflow.md` | 가이드 | 확정 | 세션 역할(기획 + 로컬 넷, GUI 세션 총괄), worktree와 브랜치(합친 뒤 지우기 순서), REQ 양식, 기획 요청, 보고 체계(7a), 새 계정·새 PC로 옮길 때와 세션별 시작 프롬프트(8) |
+| `docs/guides/radar-bringup.md` | 가이드 | 초안 | 레이더(XL330 + OpenRB + HC-SR04) 조립·배선·펌웨어·첫 켜기·측정(B1~B4·R1) 사용자 안내, VIN 전압 확인이 맨 앞 |
 | `docs/guides/release-checklist.md` | 가이드 | 초안 | 배포·공개 준비 점검표: 레포 위생(브랜치·폴더·git 제외·CAD 파일), 깨끗한 PC 설치 시험, 시험과 코드, 공개 문서(README·라이선스·개인 정보·버전 태그) |
 | `docs/decisions/0001-claude-md-authoring.md` | 결정 | 확정 | CLAUDE.md는 짧게, 절차는 skill로 |
 | `docs/decisions/0002-docs-structure.md` | 결정 | 확정 | 문서 유형 4종, 색인, 상태값, 조사 원문 비보관 |
