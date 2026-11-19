@@ -9,7 +9,7 @@
 - 하드웨어 담당 CAD를 반영했다: 판 425×375mm(40×80 프로파일 위), 새 J1 받침, 오른쪽 앞 귀퉁이의 배출 통, 레이더 받침(XL330 + OpenRB + HC-SR04)의 자리와 형상([`decisions/0067`](docs/decisions/0067-workbench-cad-values.md)). 판 높이·팔 원점은 CAD 값이라 실물 조립 뒤 실측으로 고친다.
 - 병렬(로보나인) 손은 높이를 알면 기울여 집을 수 있다(`grasp_approach: auto`, 기본은 수직).
 - 실물 팔로는 11-13까지 전원·자동 캘리브레이션·집기·놓기를 확인했다(옛 받침, 58mm 상자 5회 왕복 30%·50%에서 10/10). 새 작업대·레이더 조립과 실물 재확인은 다음 단계다.
-- 학습(ACT 모방학습, 위·손목 카메라 + 관절): 스크립트 시연 988개로 학습한 v2가 시뮬레이션에서 처음 보는 배치 50번 중 45번을 집어 통에 놓는다(새 씨앗으로 다시 확인하는 중). 시연 314개로는 7~17/50이었다(기준 15/50, [`decisions/0071`](docs/decisions/0071-act-second-collection.md)). GUI 정책 실행 화면에서 학습 배치를 놓고 돌려 볼 수 있다.
+- 학습(ACT 모방학습, 위·손목 카메라 + 관절): 스크립트 시연 988개로 학습한 v2가 시뮬레이션에서 고르지 않은 새 씨앗 50개에서 38번을 집어 통에 놓는다(체크포인트를 고른 씨앗에서는 45/50). 시연 314개로는 7~17/50이었다(기준 15/50, [`decisions/0071`](docs/decisions/0071-act-second-collection.md)). GUI 정책 실행 화면에서 학습 배치를 놓고 돌려 볼 수 있다.
 - 다음은 초음파 정확도다: 레이더 조립 → 실측 → 보정([`decisions/0072`](docs/decisions/0072-ultrasonic-accuracy-first.md)). 카메라 학습은 카메라를 산 뒤 한다.
 - 현황 한 장은 [`docs/planning/project-status.md`](docs/planning/project-status.md), 진행 중인 일과 사용자 결정은 [`docs/planning/work-queue.md`](docs/planning/work-queue.md)에 있다.
 
