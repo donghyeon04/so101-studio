@@ -29,9 +29,11 @@ JOINT_MAP = {
 GRIPPER_FRAME_POS = (-0.0079, -0.000218121, -0.0981274)
 GRIPPER_FRAME_QUAT = (0.0, 0.0, 1.0, 0.0)  # (w, x, y, z)
 
-# 받침 충돌 geom: 원본 menagerie base body에는 충돌 geom이 없다(전부 visual). 받침 visual 메쉬들의 경계 상자(base 프레임, m)를 상자로 더한다.
-BASE_BOX_POS = (0.0136, 0.0, 0.0238)
-BASE_BOX_HALF = (0.0699, 0.0555, 0.0680)
+# 받침 충돌 geom: 원본 menagerie base body에는 충돌 geom이 없다(전부 visual). 경계 상자(base 프레임 = URDF base_link, m)로 더한다.
+# 결정 0067(H-2·H-3): 옛 받침(base_so101_v2)은 새 J1 받침(assets/assets/base_mount_h0.stl, J1 모터 밑면 z 24mm 아래)으로 바꾼다.
+BASE_BOX_POS = (0.0124, 0.0, 0.0470)  # 모터 홀더·J1 모터·전원판 메쉬의 경계(z 23.7~70.2mm)
+BASE_BOX_HALF = (0.0434, 0.0256, 0.0232)
+BASE_MOUNT_STL = Path(__file__).resolve().parents[3] / "assets" / "assets" / "base_mount_h0.stl"  # base_link 좌표 m(URDF와 같은 파일)
 
 # 장면 부품이 붙는 URDF 링크 -> MJCF body 이름
 LINK_BODY = {
@@ -148,6 +150,7 @@ def load_model(scene=None, objects=(), *, base: frames.Pose2D, table_z_mm: float
         gripper.add_site(name="gripper_frame", pos=list(GRIPPER_FRAME_POS), quat=list(GRIPPER_FRAME_QUAT), group=3)
     if parallel_hand:
         gripper.add_site(name="wrist_sonar", pos=[v / 1000.0 for v in SONAR_POS_MM], quat=[0, 1, 0, 0], group=3)  # 센서 막 중심. site z축이 광선 방향 = gripper_link -z(턱 끝 쪽)
+    _replace_base_mount(spec, table_z_mm)
     spec.body("base").add_geom(name="base_box", type=mujoco.mjtGeom.mjGEOM_BOX, pos=list(BASE_BOX_POS), size=list(BASE_BOX_HALF), group=3, rgba=[0.5, 0.5, 0.5, 0.0])
 
     # base는 월드에 붙은 body라 MuJoCo가 base-shoulder(부모-자식) 접촉을 거르지 않는다: 받침 상자가 어깨 모터와 겹쳐 늘 닿으므로 쌍을 뺀다
@@ -176,6 +179,24 @@ def load_model(scene=None, objects=(), *, base: frames.Pose2D, table_z_mm: float
             warnings.append(("SIM-OBJECT-HEIGHT-DEFAULT", {"object": o.name, "height_mm": DEFAULT_OBJECT_HEIGHT_MM}))
         _add_object(spec, o, base, table_z_mm)
     return spec.compile(), warnings
+
+
+def _replace_base_mount(spec, table_z_mm: float) -> None:
+    """옛 받침 visual(base_so101_v2)을 지우고 새 J1 받침 메쉬를 visual로, 그 경계 상자를 충돌 geom(base_mount_box)으로 더한다(결정 0067).
+    메쉬 아래쪽 돌기(z −15.3mm까지, 판·프로파일 구멍에 꽂히는 핀으로 보임)는 충돌 상자에서 빼고 작업 면(table_z_mm) 위만 쓴다."""
+    import mujoco
+    import trimesh
+
+    base = spec.body("base")
+    for g in list(base.geoms):
+        if g.meshname == "base_so101_v2":
+            spec.delete(g)
+    m = trimesh.load(BASE_MOUNT_STL, force="mesh")
+    spec.add_mesh(name="base_mount_h0", uservert=np.asarray(m.vertices, float).reshape(-1).tolist(), userface=np.asarray(m.faces, int).reshape(-1).tolist())
+    base.add_geom(name="base_mount_visual", type=mujoco.mjtGeom.mjGEOM_MESH, meshname="base_mount_h0", contype=0, conaffinity=0, group=2, rgba=[0.2, 0.2, 0.22, 1.0], mass=0)
+    lo, hi = m.bounds.copy()
+    lo[2] = max(lo[2], table_z_mm / 1000.0)
+    base.add_geom(name="base_mount_box", type=mujoco.mjtGeom.mjGEOM_BOX, pos=((lo + hi) / 2).tolist(), size=((hi - lo) / 2).tolist(), group=3, rgba=[0.5, 0.5, 0.5, 0.0])
 
 
 def _add_table(world, base, table_z_mm: float, tx: float, ty: float) -> None:

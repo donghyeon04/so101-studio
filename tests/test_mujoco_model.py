@@ -126,3 +126,17 @@ def test_menagerie_camera_mount_is_removed(model):
     for kind, name in ((mujoco.mjtObj.mjOBJ_BODY, "camera_mount"), (mujoco.mjtObj.mjOBJ_CAMERA, "wrist_cam"), (mujoco.mjtObj.mjOBJ_GEOM, "camera_box1"), (mujoco.mjtObj.mjOBJ_GEOM, "camera_box2")):
         assert mujoco.mj_name2id(model, kind, name) == -1, name
     assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "gripper_frame") >= 0
+
+
+def test_new_j1_mount_replaces_the_old_base_plate():
+    """결정 0067(H-3 ①): 옛 받침 visual(base_so101_v2)은 없고, 새 받침 메쉬와 충돌 상자가 있다. 충돌 상자 바닥은 작업 면(아래 핀은 뺀다)."""
+    import mujoco
+
+    from so101_studio.arm.mujoco_model import load_model
+
+    m, _ = load_model(base=load_workspace("config/workspace.yaml").base, table_z_mm=-2.9)
+    assert "base_so101_v2" not in {m.mesh(m.geom_dataid[g]).name for g in range(m.ngeom) if m.geom_dataid[g] >= 0}
+    g = m.geom("base_mount_box").id
+    bottom = m.geom_pos[g][2] - m.geom_size[g][2]
+    assert abs(bottom * 1000 - (-2.9)) < 0.01 and m.geom("base_mount_visual").contype == 0
+    assert mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, "base_box") >= 0
