@@ -320,3 +320,23 @@ def test_render_thread_ends_on_disconnect():
             assert d._rpool is None and not [t for t in threading.enumerate() if t.name.startswith("mujoco-render")]
     finally:
         d.disconnect()
+
+
+def test_set_objects_rebuilds_the_world_on_next_connect():
+    """REQ-092(13.10.4 세계 다시 짓기): set_objects 뒤 connect하면 새 물체만 있다. 연결 중에 불러도 지금 세계는 그대로다. 바닥이 겹치면 ValueError이고 목록은 그대로다."""
+    from so101_studio.arm.mujoco_driver import MuJoCoDriver
+    from so101_studio.arm.mujoco_model import SimObject
+    from so101_studio.core.config import load_robot, load_workspace
+
+    cfg, ws = load_robot("config/robot.yaml"), load_workspace("config/workspace.yaml")
+    d = MuJoCoDriver(cfg, ws, objects=[SimObject("a", 200, 200, 0, 30, 30, 30)], realtime=False)
+    d.connect()
+    try:
+        d.set_objects([SimObject("b", 250, 180, 0, 40, 40, 30), SimObject("c", 150, 180, 0, 40, 40, 30)])
+        assert set(d.sim_state()["objects"]) == {"a"}  # 연결 중에는 그대로
+        with pytest.raises(ValueError):
+            d.set_objects([SimObject("x", 200, 200, 0, 40, 40, 30), SimObject("y", 210, 200, 0, 40, 40, 30)])
+        d.connect()
+        assert set(d.sim_state()["objects"]) == {"b", "c"}
+    finally:
+        d.disconnect()
