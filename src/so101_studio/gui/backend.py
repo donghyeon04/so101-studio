@@ -715,6 +715,29 @@ class Backend:
         self.studio.stop()
         self.stop_all()
 
+    def rebuild_world(self, suite: str, seed: int):
+        """MuJoCo 세계를 시험장 묶음(suite)의 씨앗 seed 배치로 다시 짓는다(mujoco-spec 13.10.4 "세계 다시 짓기", 결정 0071 시연).
+        ① 정책 실행을 멈춘다 ② 드라이버 물체를 그 배치로(set_objects) ③ 시뮬레이션 팔을 기억 없이 다시 연결(connect(fresh=True), 팔은 홈)
+        ④ 수동 물체 목록·3D를 같은 물체로. 배치(mujoco_bench.Layout)를 돌려준다. 못 하면 ValueError(이유). 스레드에서 부른다."""
+        from ..arm import mujoco_bench
+
+        if not self._physical() or not hasattr(self.sim.driver, "set_objects"):
+            raise ValueError("학습 배치는 MuJoCo 시뮬레이션에서만 놓을 수 있습니다")
+        if self.policy is not None:
+            self.policy.stop()
+        lay = mujoco_bench.layout(suite, int(seed))
+        self.sim.driver.set_objects(lay.objects)  # 겹치면 ValueError(13.5)
+        ok, msg = self.sim.connect(fresh=True)
+        if not ok:
+            raise ValueError(f"다시 연결하지 못했습니다: {msg}")
+        for obj in self.objects():
+            self.source.remove(obj.id)
+        for o in lay.objects:
+            self.source.add(DetectedObject(o.name, o.x_mm, o.y_mm, o.angle_deg, o.width_mm, o.length_mm, 1.0, "manual", height_mm=o.height_mm))
+        self.state.placed = 0
+        self._changed_objects()
+        return lay
+
     def _changed_objects(self) -> None:
         if self.scene:
             self.scene.set_objects(self.objects(), self.state.chosen)

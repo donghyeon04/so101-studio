@@ -3,6 +3,7 @@
 
 import json
 import time
+from functools import partial
 from pathlib import Path
 
 from nicegui import run, ui
@@ -14,6 +15,8 @@ from .common import CAMERA_TITLES, Controls, camera_tile, scene_frame, watch_vis
 
 TRAIN_ROOT = Path("runs/train")
 NO_RENDER_TEXT = "학습한 정책 실행은 MuJoCo 시뮬레이션에서만 합니다"
+OUTCOME_TEXT = {"placed_ok": "성공 (배출 통에 놓음)", "untouched": "상자를 건드리지 못함", "moved": "상자를 밀기만 함", "dropped": "들었다가 떨어뜨림",
+                "toppled": "상자가 넘어짐", "placed_off": "다른 곳에 놓음"}
 MAX_S = 45  # 전문가 시연(집어서 놓기)이 약 31초라 PolicyRunner 기본 20초면 놓기 전에 끊긴다. 명령줄 평가(--policy)와 같은 값
 
 
@@ -23,14 +26,18 @@ def checkpoints(root: Path) -> list[str]:
     return [str(p) for p in found]
 
 
-def start_pose_of(checkpoint: Path) -> list[float] | None:
-    """학습 데이터의 시작 자세(결정 0071): 체크포인트의 train_config.json → dataset.root → meta/collect.json의 start_pose. 없거나 못 읽으면 None."""
+def training_info(checkpoint: Path) -> dict:
+    """체크포인트의 train_config.json → dataset.root → meta/collect.json(mujoco_bench가 수집 때 쓴 묶음·시작 자세). 없거나 못 읽으면 {}."""
     try:
         cfg = json.loads((Path(checkpoint) / "train_config.json").read_text(encoding="utf-8"))
-        info = json.loads((Path(cfg["dataset"]["root"]) / "meta" / "collect.json").read_text(encoding="utf-8"))
+        return json.loads((Path(cfg["dataset"]["root"]) / "meta" / "collect.json").read_text(encoding="utf-8"))
     except (OSError, KeyError, TypeError, ValueError):
-        return None
-    pose = info.get("start_pose")
+        return {}
+
+
+def start_pose_of(checkpoint: Path) -> list[float] | None:
+    """학습 데이터의 시작 자세(결정 0071). 없으면 None(지금 자리에서 시작)."""
+    pose = training_info(checkpoint).get("start_pose")
     return [float(v) for v in pose] if pose and len(pose) == 6 else None
 
 
@@ -38,8 +45,11 @@ def result_lines(result: dict | None, rejects: int | None) -> list[str]:
     if not result:
         return ["아직 실행하지 않았습니다"]
     ms = "-" if result["infer_ms_mean"] is None else f"평균 {result['infer_ms_mean']}ms · 최대 {result['infer_ms_max']}ms"
-    return [f"끝난 이유: {result['reason']}", f"추론 시간: {ms}", f"보낸 주기 {result['steps']} · 건너뛴 주기 {result['skipped']}",
-            f"거부된 목표: {'기록 없음' if rejects is None else rejects}"]
+    lines = [f"끝난 이유: {result['reason']}", f"추론 시간: {ms}", f"보낸 주기 {result['steps']} · 건너뛴 주기 {result['skipped']}",
+             f"거부된 목표: {'기록 없음' if rejects is None else rejects}"]
+    if result.get("outcome"):  # 학습 배치로 돌렸으면 시험장 판정(mujoco_bench.judge)
+        lines.insert(0, f"판정: {OUTCOME_TEXT.get(result['outcome'], result['outcome'])}")
+    return lines
 
 
 def count_rejects(svc, since_ns: int) -> int | None:
@@ -68,7 +78,19 @@ def build(backend, client_id: str, actions) -> None:
             return
         if running():  # 불러오는 동안 다시 눌러도 러너를 하나 더 만들지 않는다
             return
-        backend.policy = runner = PolicyRunner(svc, svc.driver, checkpoint_dir=Path(path), max_s=MAX_S)
+        judge = None
+        suite = training_info(Path(path)).get("suite")
+        if layout_on.value and suite:  # 학습 배치(mujoco-spec 13.10.4 세계 다시 짓기): 학습 때 묶음의 이 씨앗 자리에 상자를 놓고 끝나면 판정한다
+            try:
+                lay = await run.io_bound(backend.rebuild_world, suite, int(seed.value))
+            except ValueError as e:
+                ui.notify(str(e), type="warning")
+                return
+            from ...arm import (
+                mujoco_bench,  # MuJoCo가 없는 설치에서도 페이지가 열리게 여기서 부른다
+            )
+            judge = partial(mujoco_bench.judge, layout=lay)
+        backend.policy = runner = PolicyRunner(svc, svc.driver, checkpoint_dir=Path(path), max_s=MAX_S, judge=judge)
         backend.policy_loading, backend.policy_cancel = True, False
         started_ns[0] = time.time_ns()
         try:
@@ -85,6 +107,18 @@ def build(backend, client_id: str, actions) -> None:
         elif backend.policy_cancel:  # 불러오는 중에 [정지]를 눌렀다: start()가 _quit을 지우므로 여기서 다시 멈춘다
             await run.io_bound(runner.stop)
 
+    async def next_layout() -> None:
+        """씨앗을 하나 올리고 그 배치로 세계를 다시 짓는다(시작은 하지 않는다)."""
+        suite = training_info(Path((choice.value or "").strip())).get("suite")
+        if not suite:
+            ui.notify("이 체크포인트의 학습 데이터에 묶음 정보(collect.json)가 없습니다", type="warning")
+            return
+        seed.value = int(seed.value) + 1
+        try:
+            await run.io_bound(backend.rebuild_world, suite, int(seed.value))
+        except ValueError as e:
+            ui.notify(str(e), type="warning")
+
     async def stop() -> None:
         backend.policy_cancel = True
         if backend.policy is not None:
@@ -100,6 +134,10 @@ def build(backend, client_id: str, actions) -> None:
         if choice.options:
             choice.value = choice.options[0]
         status = ui.label("").classes("stat-value").mark("policy-status")
+    with ui.row().classes("w-full items-center gap-3"):
+        layout_on = ui.switch("학습 배치로 (학습 때 묶음의 상자 자리)", value=True).mark("policy-layout")
+        seed = ui.number("씨앗", value=10000, min=0, step=1, format="%d").classes("w-28").mark("policy-seed")
+        controls.add(ui.button("다음 배치", on_click=controls.guard(next_layout)).props("outline no-caps").mark("policy-next"))
 
     visible = watch_visibility()
     with ui.row().classes("w-full no-wrap items-start gap-4"):
