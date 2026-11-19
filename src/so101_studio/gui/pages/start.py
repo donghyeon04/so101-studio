@@ -15,8 +15,8 @@ def mode_text(backend, ports: list[dict]) -> tuple[str, str]:
     """(큰 글자, 설명). 시뮬레이션으로 켰는데 보드가 꽂혀 있으면 실물로 켜는 방법을 알린다."""
     if backend.real is None:
         if any(is_usb_serial(p) for p in ports):
-            return "시뮬레이션", "포트에 팔 보드가 꽂혀 있습니다. 실물로 쓰려면 앱을 닫고 \"실물 팔 실행.cmd\"로 다시 켜세요."
-        return "시뮬레이션", "팔 없이 화면 속 팔로 움직입니다. 실물 팔이 있으면 \"실물 팔 실행.cmd\"로 켜세요."
+            return "시뮬레이션", "포트에 팔 보드가 꽂혀 있습니다. 실물로 쓰려면 앱을 닫고 \"SO-101 Studio\"로 다시 켜세요(팔이 보이면 실물로 켜집니다)."
+        return "시뮬레이션", "팔 없이 화면 속 팔로 움직입니다. 실물 팔은 USB를 꽂고 전원을 켠 뒤 \"SO-101 Studio\"로 다시 켜면 연결됩니다."
     lock = backend.move_lock()
     if lock:
         return "실물", f"실물 팔에 연결했지만 움직이는 버튼이 잠겨 있습니다: {lock}"
