@@ -831,3 +831,19 @@ p99 증가는 -0.04ms(기준 2ms 이하), time_lost_s 증가 0%(기준 1% 미만
 - **기준(15/50) 통과**: 60k가 25/50(50%)이다. 1차(시작 자세 radar_clear, 옛 장면)의 최고 4/50보다 크게 올랐다.
 - 60k 실패 25건: fault로 끝난 13건(moved 10, toppled 2, untouched 1)과 max_s 12건(untouched 6, moved 5, toppled 1). 한계 거부로 끝난 실패는 0건이다(joint_limit:gripper 2건은 이미 놓은 뒤라 placed_ok). fault 17건(성공 4 포함)의 원인은 `overload:shoulder_pan` 11, `overcurrent` 6이다. 정책이 상자·통 벽을 밀어 과부하 감시가 멈췄다. 한계 거부가 실패의 절반을 넘지 않으므로 6.10 건은 올리지 않는다.
 - 11/23 범위 점검 기준(15/50 이상이면 L3·L4를 시연에 넣는다)에 들어간다.
+
+## MuJoCo 접근 각도 M5 비교: `--approach vertical|auto` (2026-11-19, REQ-078 후속, arm-software-spec 6.6.1, 결정 0067 판·통 장면, `--clock step --jobs 12 --viewer grid`)
+- 같은 커밋(b346a3a)에서 두 값으로 돌렸다. `--approach`는 덮어쓰기 파일 사본에 `grasp_approach` 한 줄을 더한다. `inject_grid` 어긋남은 auto면 `Skills._approach`가 고른 면의 법선 방향으로 준다.
+
+| 묶음 | 값 | placed_ok | 거짓 성공 | 반경 120 blocked | 길이 80·100 90° ik_fail | 그 밖 |
+|---|---|---|---|---|---|---|
+| `pick_grid`(223) | vertical | **149** | **0** | 10 | 16 | 240mm `pick_out_of_reach` 45, scene:bin 3 |
+| `pick_grid`(223) | auto | 97 | **21** | 33 | 0 | blocked 합 53(wrist_flex 추종 오차 50), dropped 28, 240mm 45 |
+| `inject_grid`(45) | vertical | **30** | 0 | - | - | rejected 9, untouched 5, pushed 1 |
+| `inject_grid`(45) | auto | 17 | 0 | - | - | untouched 19, dropped 9 |
+
+- auto의 거짓 성공 21건은 모두 반경 150·180·210에서 "보고 ok, 실제로는 떨굼"이다(기울여 쥔 상자가 옮기는 중이나 통에서 빠졌다). 미끄러짐도 vertical 중앙 1.63·최대 3.65mm에서 auto 중앙 4.33·최대 14.53mm로 커졌다.
+- auto는 길이 80·100 상자 90°의 `ik_fail`을 16에서 0으로 없앴다. 하지만 기울인 접근·하강에서 wrist_flex 추종 오차로 `blocked`가 53건 났다(반경 120에서 33).
+- 6.6.1의 바꾸기 조건("auto의 placed_ok가 vertical 이상이고 거짓 성공이 늘지 않으면 기본을 auto로")을 **채우지 못한다**. 기본은 vertical 그대로 둔다.
+- 반경 240mm는 #472(reach_mm 100~230) 뒤로 `ik_fail`이 아니라 `out_of_bounds: pick_out_of_reach`로 거부된다.
+- 13.7 (a) topedge를 auto로 다시 돌리는 것은 이번에 하지 않았다(시나리오가 단동식 기준이라 병렬 손 auto 비교에 맞게 고쳐야 한다).
