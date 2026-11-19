@@ -70,6 +70,7 @@ class Probe:
         self.tool_z = c.max_object_height_mm + c.clearance_mm
         self.yaw = pick_yaw(cfg, (cand.x_mm, cand.y_mm), arm_origin_mm)
         self.info: dict = {}
+        self.segments: list[dict] = []  # 기록용(8.4 checks/): 구간마다 경로·상태·PoseSample·점
         self._gen = self._run()
         self._seg = None
         self._cur = None
@@ -92,6 +93,8 @@ class Probe:
         데이터 없음으로 보고 다음 경로로 간다. 정지·E-STOP으로 빈 목록이 오는 경우는 작업 실행이 먼저 끊는다는 가정이다.
         status = follow_path 결과 상태(last_path.status). "ik_fail"이면 첫 점을 안쪽으로 당겨 같은 단계를 다시 낸다(6절 첫 점 당기기, U16)."""
         name, seg, sensor_pts = self._cur
+        log = {"stage": name, "segment": seg, "sensor_pts": sensor_pts, "status": status, "poses": poses, "points": []}  # 변환은 기록할 때만
+        self.segments.append(log)
         if not poses:
             self._retry = self._pulled(sensor_pts) if status == "ik_fail" else None
             if self._retry is None:
@@ -101,6 +104,7 @@ class Probe:
             return
         # 경로 밖 점(접근 이동 중 측정 등)은 버린다
         pts = [p for p in self.src.arm_points(poses) if _near(p, sensor_pts, 12)]
+        log["points"] = pts  # (x, y, 센서 z, d)
         self._publish_path(name, seg, [(x, y, z - d) for x, y, z, d in pts], phase="end")
         self._step(pts)
 
