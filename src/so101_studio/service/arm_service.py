@@ -121,9 +121,10 @@ class ArmService:
         self._connected = False
 
     # ---- 연결
-    def connect(self, port: str | None = None) -> tuple[bool, str]:
+    def connect(self, port: str | None = None, fresh: bool = False) -> tuple[bool, str]:
         """연결하고 컨트롤러·기능을 만든다. 실패하면 (False, 오류 메시지). 이미 연결돼 있으면(통신 끊김 fault 뒤 다시 연결 등) 먼저 정리한다.
-        다시 연결해도 토크는 끄지 않고, 새 컨트롤러가 현재 위치를 명령값으로 삼는다 (decisions/0031)."""
+        다시 연결해도 토크는 끄지 않고, 새 컨트롤러가 현재 위치를 명령값으로 삼는다 (decisions/0031).
+        fresh=True면 집기 기억·알려진 물체·놓은 물체 기억을 넘기지 않는다(세계를 다시 지을 때, mujoco-spec 13.10.4, REQ-093)."""
         if self._connected:
             self.disconnect()
         self.port = port or self.cfg.port  # 연결한 포트(진단 linkwatch가 같은 포트를 쓴다)
@@ -150,7 +151,7 @@ class ArmService:
         self.skills = Skills(self.ctl, self.kin, self.cfg, self.ws, self.speed)
         if getattr(self.driver, "physical_objects", False) and self.cfg.sim_blocked:  # MuJoCo는 추종 오차가 작아 판정할 때만 막힘 문턱을 시뮬레이션 값(robot.yaml sim_blocked)으로 본다. cfg·프리셋 저장값은 실제 설정 그대로
             self.ctl.blocked_cfg = _SimBlocked(self.cfg)
-        if old is not None:  # 다시 연결하며 Skills를 새로 만들어도 집기 기억과 알려진 물체는 넘긴다 (11.3.3)
+        if old is not None and not fresh:  # 다시 연결하며 Skills를 새로 만들어도 집기 기억과 알려진 물체는 넘긴다 (11.3.3)
             self.skills.grip, self.skills.placed, self.skills.known_objects = old.grip, old.placed, old.known_objects
             self.skills.known_height = old.known_height
             self.skills.placed_size = old.placed_size

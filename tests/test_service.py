@@ -143,3 +143,25 @@ def test_unsafe_mode_is_off_and_keeps_only_the_per_step_limit(svc):
 def test_cli_unsafe_flag_warns_and_runs(capsys):
     main(["--sim", "--unsafe", "status"])
     assert "모두 끕니다" in capsys.readouterr().out
+
+
+def test_connect_fresh_drops_grip_and_object_memory(tmp_path):
+    """REQ-093: connect(fresh=True)는 집기 기억·알려진 물체·놓은 물체 기억을 넘기지 않는다. 기본(fresh=False)은 넘긴다(11.3.3)."""
+    from so101_studio.arm.sim_driver import SimDriver
+    from so101_studio.core.config import load_robot, load_workspace
+    from so101_studio.service.arm_service import ArmService
+
+    cfg = load_robot("config/robot.yaml")
+    s = ArmService(SimDriver(cfg.poses["home"]), cfg, load_workspace("tests/workspace_600x400.yaml"), log_root=None)
+    try:
+        assert s.connect()[0]
+        k = s.skills
+        k.placed, k.known_objects, k.grip = [(300.0, 200.0, 20.0)], [(250.0, 150.0, 20.0)], {"tilted": False}
+        k.placed_angle, k.placed_size, k.placed_height = {(300.0, 200.0): 30.0}, {(300.0, 200.0): (30.0, 30.0)}, {(300.0, 200.0): 40.0}
+        assert s.connect()[0] and s.skills is not k
+        assert s.skills.placed == k.placed and s.skills.known_objects == k.known_objects and s.skills.grip == k.grip
+        assert s.connect(fresh=True)[0]
+        f = s.skills
+        assert (f.placed, f.known_objects, f.grip, f.placed_angle, f.placed_size, f.placed_height) == ([], [], None, {}, {}, {})
+    finally:
+        s.disconnect()
