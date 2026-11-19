@@ -192,3 +192,9 @@ def test_step_clock_records_on_sim_time(tmp_path):
     assert 100 < row["recorded_frames"] <= row["sim_s"] * 25 + 1  # start_pose로 옮기는 동안은 기록하지 않는다
     info = json.loads((tmp_path / "runs" / "datasets" / "st" / "meta" / "collect.json").read_text(encoding="utf-8"))
     assert info["start_pose"] == bench.load_suite("collect_pick2")["start_pose"]  # 정책 실행이 같은 자세에서 시작하게(결정 0071)
+
+
+@pytest.fixture(autouse=True)
+def _keep_real_runs(monkeypatch):
+    """시험이 만드는 실행 기록이 진짜 runs/의 보관 정리를 부르지 않게 한다(2026-11-19 test_cli_status_mujoco가 runs/train 체크포인트를 지웠다)."""
+    monkeypatch.setattr("so101_studio.core.logging.prune_runs", lambda *a, **k: [])
