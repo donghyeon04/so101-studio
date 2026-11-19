@@ -42,6 +42,13 @@ def test_check_record_paired(tmp_path):
     seg = check["segments"][0]
     assert seg["poses"][0]["sensor_mm"] and seg["segment"]["points_mm"] and check["arm_raw"]
     assert any(s["points"] for s in check["segments"])
+    assert src._probe is None  # 다음 확인에 이번 구간이 안 섞인다
+
+
+def test_empty_run_not_indexed(tmp_path):
+    run = truth.TruthRun("R1", sim=True, root=tmp_path)
+    run.close()
+    assert truth.index(tmp_path) == [] and (run.dir / "truth.json").exists()
 
 
 def test_no_record_dir_writes_nothing(tmp_path):
