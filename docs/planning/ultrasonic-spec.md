@@ -1,6 +1,6 @@
 # 초음파 인식 설계서 (레이더 + 팔 확인)
 
-상태: 확정 · 2026-11-05 · 2026-11-14 로보나인·짧은 브래킷 반영(1절 기준, 3.3, 결정 0063) · 2026-11-14 결정 대조(3.6 손목 브래킷, 6절 원 반지름, 8.3 설정 예, B1 높이, 0035 참조) · 2026-11-15 CHECK yaw를 후보 반경별로(결정 0065: 1절, 6절, 8.3), 벤치마크 재실행 값(1절 표), 최종 재실행 값(main 3fba261)·병렬 손 실제 기구학 두 열(U16)·그리퍼별 `tool_reach_mm`(병렬 75~250)·기준 100초, 확인 전 후보 거르기 여유(5절), 모서리 간격(6절) · 2026-11-16 U16 첫 점 당기기(6절·8.2·8.3), drift-report 반영(1·5·6절) · 2026-11-16 밤 병렬 표를 구현된 첫 점 당기기 값 한 열로, 당기기 상한 측정 계획 · 2026-11-17 당기기 상한 85mm 확정(REQ-074 #417·총괄 재실행: 1절 병렬 표, 6절, 8.3) · 2026-11-18 결정 0067 CAD 값(3.1 자리·높이, 8.3 `face_offset_mm`), 시연 방위 45~135°(6절) · 2026-11-19 결정 0072(A1 위치 10mm, 8.4 정답 쌍 기록) · 2026-11-20 8.4 정답 쌍 폴더·형식(REQ-096 #497), 10절 R1 명령, 11절 R1 자리와 통 · 2026-11-20 밤 8.6 A1 도구·I1 정답 기록(초안, Stage 9 전), 10절 A1 10mm, drift-report 반영(1절 표를 H-4 6bba117 값으로, 도달 범위 H-2 뒤 95~230·100~255, 8.5 시나리오·호버 규칙, 시연 배치 규칙 하나로(6절·11절), R1 기준값은 통을 둔 채)
+상태: 확정 · 2026-11-05 · 2026-11-14 로보나인·짧은 브래킷 반영(1절 기준, 3.3, 결정 0063) · 2026-11-14 결정 대조(3.6 손목 브래킷, 6절 원 반지름, 8.3 설정 예, B1 높이, 0035 참조) · 2026-11-15 CHECK yaw를 후보 반경별로(결정 0065: 1절, 6절, 8.3), 벤치마크 재실행 값(1절 표), 최종 재실행 값(main 3fba261)·병렬 손 실제 기구학 두 열(U16)·그리퍼별 `tool_reach_mm`(병렬 75~250)·기준 100초, 확인 전 후보 거르기 여유(5절), 모서리 간격(6절) · 2026-11-16 U16 첫 점 당기기(6절·8.2·8.3), drift-report 반영(1·5·6절) · 2026-11-16 밤 병렬 표를 구현된 첫 점 당기기 값 한 열로, 당기기 상한 측정 계획 · 2026-11-17 당기기 상한 85mm 확정(REQ-074 #417·총괄 재실행: 1절 병렬 표, 6절, 8.3) · 2026-11-18 결정 0067 CAD 값(3.1 자리·높이, 8.3 `face_offset_mm`), 시연 방위 45~135°(6절) · 2026-11-19 결정 0072(A1 위치 10mm, 8.4 정답 쌍 기록) · 2026-11-20 8.4 정답 쌍 폴더·형식(REQ-096 #497), 10절 R1 명령, 11절 R1 자리와 통 · 2026-11-20 밤 8.6 A1 도구·I1 정답 기록(초안, Stage 9 전), 10절 A1 10mm, drift-report 반영(1절 표를 H-4 6bba117 값으로, 도달 범위 H-2 뒤 95~230·100~255, 8.5 시나리오·호버 규칙, 시연 배치 규칙 하나로(6절·11절), R1 기준값은 통을 둔 채) · 2026-11-20 8.6 Stage 9 꼭 고칠 것 8건(연결·I1 판정·A1 판정 규칙·배치 변환·확인 높이·TruthRun·고칠 파일·후보 뜻), 1절·10절 표기
 
 근거 결정: `decisions/0034`(레이더 + 팔 확인), `0043`(스캔 서보 OpenRB-150 + XL330, 서보 전원 5V. 0035의 스캔 서보·전원을 대체), `0063`(손목은 팀 CAD 짧은 브래킷, 0035의 손목 브래킷을 대체), `0038`(확인 모드 하나), `0039`·`0041`(대기 자세 `radar_clear`), `0036`(로컬 세션 셋), `0004`(인식 공통 출력), `0006`(ESP32 1개 + HC-SR04 2개), `0013`(작업대 좌표계, 높이는 작업대 면 기준), `0015`(안전 설정), `0026`(E-STOP). 비교 근거는 기획 세션의 가상 센서 시뮬레이션이다(조사 원문은 커밋하지 않는다). 숫자는 실측 전 값이라 10절 B1·B2 실측 뒤 다시 계산한다.
 
@@ -10,9 +10,9 @@
 | 항목 | 가상 값 (8.5절 벤치마크 고정 시나리오, 낙관 / 비관. **2026-11-19 H-4 뒤**: 커밋 6bba117, REQ-081, `measurements.md` "초음파 벤치마크: 레이더 CAD 자리와 새 작업대". 판 425×375, 레이더 CAD 자리(결정 0067), 통, 기준 그리퍼 = 병렬 손 실제 기구학(`--reach kin --gripper parallel`), 도달 95~230, 호버 40→10mm 내림(8.5 "팔"), 씨앗 20) | 실물 합격 기준 |
 |---|---|---|
 | 레이더 후보 위치 | 90mm 안 100%, 오차 중앙 25~40mm(모든 조건) | R1: 물체 1개 9자리에서 95%가 90mm 안 (확인 경로가 찾을 수 있는 범위) |
-| 팔 확인 위치 | H-4 표에는 없다. 비교 실험 (가)(결정 0074, 씨앗 200)에서 낸다 | A1 12회: 중앙값 5mm 이하, 11회 이상(약 90%)이 **10mm** 안(결정 0072: 병렬 그리퍼 한쪽 여유 10mm, M5에서 10mm 어긋남까지 모두 집힘. 2026-11-19 전에는 15mm) |
-| 팔 확인 방향 | H-4 표에는 없다. 비교 실험 (가)에서 낸다 | A1 12회 중 10회 이상 (약 85%) |
-| 3개 끝까지 | `demo` 성공 77% / 68%, 인식 평균 69 / 81초. `demo80`(모서리 80mm 조건) 95% / 87%, 70 / 71초. `spread120` 93% / 67%, 70 / 75초. `spread90` 53% / 37%, 73 / 77초. 실패 상한 3. 모드는 하나(결정 0038) | 10회 평균 2개 이상 성공, 인식 평균 **100초 이하** (임시. 2026-11-06 70→100초, 2026-11-14 130초, 2026-11-15 100초. H-4 뒤 평균도 69~81초라 그대로. U9·B1 실측으로 다시 정한다) |
+| 팔 확인 위치 | H-4 표에는 없다. 비교 실험 (가)(결정 0074, 씨앗 200)에서 낸다 | A1 12회: 중앙값 5mm 이하, 11회 이상(약 92%)이 **10mm** 안(결정 0072: 병렬 그리퍼 한쪽 여유 10mm, M5에서 10mm 어긋남까지 모두 집힘. 2026-11-19 전에는 15mm) |
+| 팔 확인 방향 | H-4 표에는 없다. 비교 실험 (가)에서 낸다 | A1 12회 중 10회 이상 (약 83%, 정사각형 물체는 뺀다) |
+| 3개 끝까지 | `demo` 성공 77% / 68%, 인식 평균 69 / 81초. `demo80`(모서리 80mm 조건) 95% / 87%, 70 / 71초. `spread120` 93% / 67%, 70 / 75초. `spread90` 53% / 37%, 73 / 77초. 실패 상한 3. 모드는 하나(결정 0038) | I1 10회: 평균 2개 이상 성공(성공은 아래 정의, 위치 15mm), 인식 평균 **100초 이하** (임시. 2026-11-06 70→100초, 2026-11-14 130초, 2026-11-15 100초. H-4 뒤 평균도 69~81초라 그대로. U9·B1 실측으로 다시 정한다) |
 | 물체 1개 (`single`) | 성공 50% / 46%, 인식 평균 25 / 26초. `single`은 아직 옛 범위(반경 100~240, 방위 25~155°, 판 안 검사 없음)라 반경 230 밖은 병렬 손이 못 닿는다(8.5) | (I1에 포함) |
 
 - **비교 실험 (가)**(결정 0074): 위 네 시나리오와 `single`을 씨앗 200으로 다시 재면 이 표를 그 값으로 바꾸고, 확인 위치·방향 칸을 채운다.
@@ -394,66 +394,100 @@ arm_sensor_offset_mm: {x: 0.6, y: 66.5, z: 99.5}   # 결정 0063 짧은 브래�
 - `runs/<시각>/checks/NNN.json`: 구간, `PoseSample`, 팔 센서 측정, 점(x, y, h), 결과와 신뢰도.
 - `events.jsonl`(결정 0030 공통 머리): `US-CONNECT`, `US-LOST`, `US-BASELINE`, `US-CANDIDATES`, `US-CHECK`(결과·소요 시간), `US-CHECK-FAIL`.
 - `summary.json`에 물체별 레이더·확인 시간을 넣어 비교 실험(인식 속도)에 쓴다.
-- **정답 쌍**(결정 0072, 2026-11-19 · 2026-11-20 REQ-096 #497 구현에 맞춤): R1·A1·I1 실측에서는 사람이 놓은 물체의 정답(자리 표시 x, y, 각도, 크기, 높이)을 남긴다. 정답 쌍 실행은 `runs/ultrasonic-truth/<시각>-<시험>/`에 `truth.json`·`scans/`·`checks/`를 함께 둔다(실행 폴더 정리 대상 밖, REQ-094). 실측 목록은 `runs/ultrasonic-truth/index.jsonl`(실행 폴더, 시험 이름, 커밋, 물체 수, 자리 수)에 한 줄씩 더한다. 형식은 `perception/ultrasonic/truth.py` 머리말이다. R1은 `radar_check r1`이 남긴다. A1은 `checktest a1`, I1은 `run --source ultrasonic --truth-layout K`가 남긴다(8.6, 초안). 12/4 뒤 "스캔 → 위치·크기" 지도학습 추정기(2차)의 학습 데이터다.
+- **정답 쌍**(결정 0072, 2026-11-19 · 2026-11-20 REQ-096 #497 구현에 맞춤): R1·A1·I1 실측에서는 사람이 놓은 물체의 정답(자리 표시 x, y, 각도, 크기, 높이)을 남긴다. 정답 쌍 실행은 `runs/ultrasonic-truth/<시각>-<시험>/`에 `truth.json`·`scans/`·`checks/`를 함께 둔다(실행 폴더 정리 대상 밖, REQ-094). 실측 목록은 `runs/ultrasonic-truth/index.jsonl`(`run`, `test`, `commit`, `objects`, `placements`, `sim`)에 한 줄씩 더한다. 형식은 `perception/ultrasonic/truth.py` 머리말이다. R1은 `radar_check r1`이 남긴다. A1·I1은 8.6 초안의 명령(`checktest a1`, `run --source ultrasonic --truth-layout K`)으로 남길 계획이다. 12/4 뒤 "스캔 → 위치·크기" 지도학습 추정기(2차)의 학습 데이터다.
 
-### 8.6 팔 확인 실측 도구 `checktest a1`과 I1 정답 기록 (초안, 2026-11-20, EGM Stage 9 전)
-10절 A1(팔 확인 단독)과 I1(통합)을 돌리고 정답 쌍(8.4)을 남기는 도구다. R1은 `radar_check r1`(#497)이 이미 한다.
+### 8.6 팔 확인 실측 도구 `checktest a1`과 I1 정답 기록 (초안, 2026-11-20. 구현 전 점검(결정 0048 Stage 9)의 꼭 고칠 것 8건을 같은 날 반영했다. 총괄이 합친 뒤 팔 REQ의 근거로 쓴다)
+10절 A1(팔 확인 단독)과 I1(통합)을 돌리고 정답 쌍(8.4)을 남기는 도구다. R1은 `radar_check r1`(#497)이 이미 한다. A1은 정답 가까운 후보에서의 **확인 정확도만** 잰다. 오프셋 0~30mm는 실제 레이더 후보 오차(H-4 뒤 중앙 25~40mm, 90mm 안 100%)보다 쉽다.
 
 **어디서 도나**
 - A1은 팔을 움직이므로 `ArmService`를 거치는 팔 쪽 CLI 명령 `so101 checktest a1`이다. `radar_check`는 인식 모듈 안이라 팔을 import하지 못하고(8.2 의존 방향), `run --source ultrasonic`은 레이더·집기·놓기까지 돌므로 CHECK만 보는 A1과 맞지 않는다.
-- I1은 레이더부터 집기·놓기까지 전부이므로 지금 `run --source ultrasonic`에 정답 옵션 `--truth-layout K`만 단다.
-- **A1은 레이더를 쓰지 않는다.** 그래서 레이더 조립·기준값(B1~R1) 없이 할 수 있다. 필요한 것은 손목 센서(브래킷 장착)·ESP32·팔(로보나인)과 A0이다. 레이더가 늦으면 A0·A1을 먼저 한다.
+- I1은 레이더부터 집기·놓기까지 전부이므로 `run --source ultrasonic`에 정답 옵션 `--truth-layout K`만 단다.
+- **A1은 레이더 쪽을 쓰지 않는다**(`scan`·`prefetch`를 부르지 않는다). 그래서 레이더 조립과 B2·B4·R1 없이 할 수 있다. 필요한 것은 손목 센서(브래킷 장착)·ESP32·팔(로보나인)과 A0이다. B1이 없으면 크기 추정은 가정 빔 반각(7.5°)으로 한다. 서보 쪽 보드(OpenRB·XL330)가 없거나 덜 꽂혔으면 `config/ultrasonic.local.yaml`의 `servo.driver`를 `pwm`으로 둔다(`dxl`인데 OpenRB가 오류 줄을 보내면 소스가 예외를 낸다). 레이더가 늦으면 A0·A1을 먼저 한다.
 
-**명령**
+**명령**(CLI는 전역 옵션 + 위치 인자 `values`인 평평한 argparse다. `a1`은 `values[0]`이고 아래 옵션은 모두 전역 옵션이다)
 ```
 so101.cmd --speed 30 checktest a1 --us-port COMx [--obj 40x80x40] [--offset 30] [--seed 0] [--reps 1] [--note 메모]
 so101.cmd --sim checktest a1                       # 가상 ESP32·가상 팔, 사람 입력 없음(물체를 정답 자리에 놓는다)
-so101.cmd --speed 30 run --source ultrasonic --us-port COMx --truth-layout 3   # I1 배치 3번(1~10)
-so101.cmd --sim run --source ultrasonic --truth-layout 3                       # 같은 배치를 가상 ESP32에
+so101.cmd --speed 30 run --source ultrasonic --us-port COMx --truth-layout 3 [--note 메모]   # I1 배치 3번(1~10)
+so101.cmd --sim run --source ultrasonic --truth-layout 3                                    # 같은 배치를 가상 ESP32에
 ```
+- `--obj 폭x길이x높이`(mm), `--offset` 후보를 정답에서 떨어뜨리는 최대 거리(mm), `--seed` 후보 씨앗, `--reps N` 12회 묶음을 N번(정답 쌍을 늘릴 때만), `--note` `truth.json` 메모.
 
-**A1 자리와 순서**(12회 = 3자리 × 4방향, 1절 A1 기준과 같은 수)
+**A1 자리와 순서**(한 묶음 12회 = 3자리 × 4방향, 1절 A1 기준과 같은 수)
 | 자리 | 작업대 좌표(mm) | 팔 원점 기준 반경·방위 | 통 무시 원 가운데 (355, 80)까지 |
 |---|---|---|---|
 | S1 | (189, 169) | 150mm · 100° | 188mm |
 | S2 | (125, 177) | 180mm · 120° | 250mm |
-| S3 | (270, 224) | 210mm · 75° | 168mm |
-- 팔 원점은 `workspace.yaml`의 `robot_base_in_table` (215.2, 21.4)이다. 세 자리는 시연 배치 규칙(6절: 반경 120~220, 방위 45~135°, 중심이 통 무시 원(112.8mm) 밖, 몸체가 판 안이고 통 벽과 안 겹침)을 지키고, 가까움·가운데·멂과 왼쪽·오른쪽을 한 번씩 덮는다. S3에 긴 축 135°로 놓아도 몸체(80mm)가 통 벽(y 25~135)에 닿지 않는다. 반경은 150부터다(M5에서 반경 120은 병렬 손 `blocked`가 많았다, `project-status.md` 8절 1). 작업대 실측(H-6)으로 팔 원점이나 통 자리가 바뀌면 같은 규칙으로 다시 고른다.
-- 방향은 긴 축 0·45·90·135°(작업대 x축 기준, 벤치마크 물체와 같음)다. 자리마다 네 방향을 차례로 해서 사람은 물체를 돌리기만 한다. 물체는 `--obj`(기본 40×80×40, R1과 같음)다.
+| S3 | (270, 224) | 210mm · 75° | 167mm |
+- 팔 원점은 `workspace.yaml`의 `robot_base_in_table` (215.2, 21.4)이다. 세 자리는 6절 시연 배치 규칙(반경 120~220, 방위 45~135°, 중심이 통 무시 원 112.8mm 밖, 몸체가 판 안이고 통 벽과 안 겹침)을 지키고, 가까움·가운데·멂과 방위 75·100·120°로 정면 양쪽을 덮는다. 통 벽은 두께 포함 x 297~413·y 22~138이고, S3에 긴 축 135°로 놓아도 40×80 몸체가 닿지 않는다. 반경은 150부터다(MuJoCo 집기 시험장 M5에서 병렬 손이 반경 120·방위 ±40°에서 `blocked` 24건, `project-status.md` 8절 1). 작업대 실측(H-6)으로 팔 원점이나 통 자리가 바뀌면 같은 규칙으로 다시 고른다.
+- 방향은 긴 축 0·45·90·135°(작업대 x축 기준, 벤치마크 물체와 같음)다. 자리마다 네 방향을 차례로 해서 사람은 물체를 돌리기만 한다(n = 1~12: S1 0·45·90·135°, S2 …, S3 …).
+- 시작 전 거부: `--obj` 높이가 `check.max_object_height_mm`(40)보다 크면 끝낸다(확인 높이가 고정이라 물체에 닿는다, 아래 안전).
+
+**후보**(`a1_plan`이 시작 전에 모두 만든다)
+- 후보 = 계획 자리(S1~S3) + 오프셋. 오프셋 방위는 0~360° 균등, 거리는 0~`--offset`(기본 30mm) 균등이고 `random.Random(f"a1-{seed}-{rep}-{n}")`로 고정한다(같은 씨앗이면 같은 후보).
+- 후보는 레이더 후보와 같은 꼴이다: `DetectedObject(f"a1-{rep}-{n}", x, y, None, 0.0, 0.0, 0.3, "ultrasonic")`(`source.py`의 후보 만들기와 같음, 높이 0 = 모름).
+- 사람이 실제로 놓은 값을 적으면 **정답만** 그 값으로 바꾸고 후보는 그대로다.
 
 **한 회의 흐름**
-1. 팔을 `poses.radar_clear`로 보낸다. 사람이 물체를 놓는 동안 팔이 비켜 있고, 작업 실행의 첫 `CHECK`와 같은 자세에서 출발한다.
-2. 화면: `n/12: 물체 중심을 S1 (189, 169)에, 긴 축을 45°로 놓고 손을 빼고 Enter (q = 끝, "x y 각도" = 실제로 놓은 값)`. 실제로 놓은 값을 적으면 그 값이 정답이다.
-3. 후보를 만든다: 정답 + 오프셋. 방향은 무작위, 크기는 0~`--offset`(30mm) 균등이고 `random.Random(f"a1-{seed}-{n}")`로 고정한다. 후보는 레이더 후보와 같은 꼴(`angle_deg=None`, `confidence` 0.3, `height_mm` 0)이다.
-4. **작업 실행과 같은 CHECK 코드**로 확인한다(결정 0037: 복사하지 않는다). 첫 점 당기기·도달 범위 자르기·정지 처리도 그대로다.
-5. `TruthRun.add([정답], src.saved[before:], rep)`로 남긴다. 후보·결과·상태는 `checks/NNN.json`에 이미 들어간다(`candidate`, `result`, `status`).
-6. 한 줄 출력: 상태, 위치 오차(mm), 방향 맞음(벤치마크 `angle_ok`: 0~180 차이 22.5° 이하), 확인 시간.
-- 끝나면 1절 A1 기준으로 합격을 판정해 출력한다: 위치 오차 중앙값 5mm 이하, 12회 중 11회 이상 10mm 안, 방향 12회 중 10회 이상. `empty`·`unreachable`·`aborted`는 실패로 센다(그 회 오차 없음). 기록 경로와 `index.jsonl` 한 줄은 `TruthRun.close()`가 남긴다.
+1. 팔을 `poses.radar_clear`로 보낸다. 사람이 물체를 놓는 동안 팔이 비켜 있고, 작업 실행의 첫 `CHECK`와 같은 자세에서 출발한다. 결과가 `ok`가 아니면 그 회를 실패로 남기고 멈춘다(아래 판정).
+2. 화면 두 줄: `n/12: S1 (189, 169)에 물체 중심, 긴 축 45°. 놓고 손을 뺀 뒤 Enter` / `(다르게 놓았으면 "x y 각도", q = 끝)`. `--sim`은 묻지 않고 `src.esp.boxes`를 정답 하나로 바꾼다(`radar_check._sim_source`와 같은 방식).
+3. `before = len(src.saved)` → `runner.check_candidate(후보)` → `run.add([정답], src.saved[before:], rep)`(`radar_check.r1`과 같은 순서). 후보·결과·상태는 `checks/NNN.json`에 이미 들어간다(`candidate`, `result`, `status`). 확인마다 `end_check`가 한 번 쓰므로(`aborted` 포함) 회마다 `checks`는 정확히 1개, `scans`는 0개다.
+4. 한 줄 출력: 상태, 위치 오차(mm, 결과와 정답 중심 사이), 방향 맞음, 확인 시간(`run_a1`이 `check_candidate` 앞뒤 시각으로 잰다).
+- 정답: `truth.obj(x, y, 각도, 폭, 길이, 높이, id="P1")`. 폭 = 길이(정사각형)면 `angle_deg`는 `None`이고 그 회는 방향 판정을 빼고 위치만 본다(1절 "성공" 정의와 같음).
+- `check_candidate`는 작업 실행의 `reachable(res, ws)` 거르기를 쓰지 않는다(A1은 집지 않고 확인 정확도만 잰다). 그래서 `checks/NNN.json`의 `status`와 A1의 상태가 같다.
+
+**A1 판정**(`a1_summary`)
+- 분모는 늘 12다(한 묶음). `ok`가 아닌 회(`empty`·`unreachable`·`aborted`, `radar_clear` 실패)는 위치 오차를 +∞로 두고 중앙값에 넣으며, 10mm 안 횟수와 방향 맞음 횟수에 넣지 않는다.
+- 합격: 위치 오차 중앙값 5mm 이하, 10mm 안 11회 이상, 방향 맞음 10회 이상(벤치마크 `angle_ok`: 0~180° 주기로 22.5° 이하). `--obj`가 정사각형(폭 = 길이)이면 12회가 모두 정사각형이므로 방향 기준을 빼고 위치 두 기준만 본다.
+- `aborted`(정지·고장·잠김)나 `radar_clear` 실패가 나오면 그 회를 실패로 남기고 **남은 회를 돌리지 않는다**(E-STOP 뒤 팔이 다시 움직이지 않게).
+- `q`나 `aborted`로 12회 전에 끝나면 판정은 "미완료"이고 합격·불합격을 내지 않는다(남긴 회는 `truth.json`에 그대로 남는다).
+- `--reps N`이면 묶음마다 12회로 따로 판정한다.
+- 끝나면 판정, 기록 경로를 출력하고, `TruthRun.close()`가 `index.jsonl`에 한 줄을 남긴다.
 
 **I1 정답 기록**(`--truth-layout K`)
-- 배치 K(1~10)는 벤치마크 `random_layout(random.Random(f"i1-{K}"), "demo80")`이 만든 물체 3개다(6절 시연 배치 규칙과 모서리 80mm 조건이 `on_plate`·`edge_gap`으로 들어 있어 더 볼 것이 없다. 좌표는 5mm, 각도는 5°로 반올림해 보인다). 실물은 배치를 화면에 보이고 사람이 놓은 뒤 Enter, `--sim`은 가상 ESP32에 같은 배치를 놓는다(지금의 `demo-None-0` 대신).
-- 실행 하나가 자리 하나다: `TruthRun("I1")`을 열고 `record_dir`를 넘기고, 작업 실행이 끝나면 `add(배치 3개, src.saved, 1)`와 `close()`. I1 10회 = 배치 1~10을 한 번씩. 판정은 `summary.json`과 정답으로 1절 I1 기준(10회 평균 2개 이상 성공, 인식 평균 100초 이하)이다.
+- 배치: `i1_layout(k) -> list[Box]`는 `random_layout(random.Random(f"i1-{k}"), "demo80")`의 물체 3개를 좌표 5mm·각도 5°로 반올림한 Box다(6절 시연 배치 규칙과 모서리 80mm 조건이 `on_plate`·`edge_gap`으로 들어 있다). 반올림 뒤 `on_plate`·`edge_gap >= 80`을 다시 보고, 어기면 `RuntimeError`다(시험으로 K = 1~10 모두 통과를 확인). `random_layout`은 그때의 `workspace.yaml`을 읽으므로 작업대 설정이 바뀌면 배치 K도 바뀐다(`truth.json`에는 그때 값이 남는다).
+- 정답: 물체 i(1~3)마다 `truth.obj(b.x, b.y, None if b.width == b.length else b.angle_deg % 180, b.width, b.length, b.height, id=f"P{i}")`.
+- 실물: 배치를 화면에 보이고(물체별 크기·자리·각도) 사람이 놓은 뒤 Enter. `--sim`: `make_ultrasonic_source(..., boxes=i1_layout(k))`로 같은 반올림 값을 가상 ESP32에 놓는다(지금 `--sim`이 쓰는 기본 `demo` 배치 대신).
+- 준비물: 크기(30×100·40×80·50×50, 높이 40)는 중복으로 뽑히므로 한 배치에 같은 크기가 2~3개 나올 수 있다. 크기마다 3개씩 준비한다. 배치 1~10의 크기 목록 표는 구현 PR이 `i1_layout`으로 뽑아 이 절에 싣는다.
+- 실행 하나가 정답 배치 하나다: `TruthRun("I1", src.cfg, sim=a.sim, note=f"log={svc.logger.dir} {a.note}")`를 열고 `src.record_dir = run.dir`, 작업 실행이 끝나면(성공·중단 모두 `try/finally`) `run.add(정답 3개, src.saved, 1)`와 `close()`. note의 `log=`가 그 실행의 `runs/<시각>/`(`summary.json`)를 가리킨다(`truth.py`는 바꾸지 않는다). I1 10회 = 배치 1~10을 한 번씩.
+- **I1 판정**(`i1_summary(truth_dirs)`): 실행마다 `checks/*.json`에서 `status == "ok"`인 `result`를 정답 물체 가운데 가장 가까운 것(30mm 안, 벤치마크 `run_cycle`과 같음)과 짝짓고, 위치 15mm 이하 + `angle_ok`(정사각형은 위치만)를 성공으로 센다(1절 "성공" 정의. A1의 10mm와 다르다). 한 정답 물체에는 처음 짝지은 결과 하나만 센다. 인식 시간은 note의 `log=` 폴더 `summary.json`에서 물체별 `radar_s + check_s`의 합이다(`summary.succeeded`는 놓은 물체 수라 쓰지 않는다). 합격은 1절 I1 기준: 10회 평균 2개 이상 성공, 인식 평균 100초 이하.
 
-**팔 REQ에 들어갈 인터페이스**(초음파 영역은 바꾸지 않는다. `truth.py`·`source.py` 그대로)
+**`TruthRun` 만들기**: A1·I1 모두 `TruthRun("A1"|"I1", src.cfg, sim=a.sim, note=…)`(`radar_check.py`의 R1과 같음)이고, 소스를 만든 뒤 `src.record_dir = run.dir`로 넣는다. `service/ultrasonic.py`의 `make_ultrasonic_source`는 바꾸지 않는다(가상 `calibrate()`는 파일을 쓰지 않아 뒤에 넣어도 잃는 기록이 없다).
+
+**팔 REQ에 들어갈 인터페이스**(초음파 영역 `truth.py`·`source.py`·`service/ultrasonic.py`는 바꾸지 않는다)
 ```python
-# service/ultrasonic.py
-def make_ultrasonic_source(arm, *, sim, port=None, radar=None, boxes=None, record_dir=None): ...  # record_dir → UltrasonicSource.record_dir
 # task/runner.py
 class TaskRunner:
     def check_candidate(self, cand: DetectedObject) -> tuple[DetectedObject | None, str]:
-        """작업 실행 밖에서 CHECK 한 번(A1). 처음 한 번 _begin_checkable(), 그다음 _check()와 같은 코드. 상태 ok|empty|unreachable|aborted."""
-# service/check_test.py (새 파일)
-A1_SPOTS = (("S1", 189, 169), ("S2", 125, 177), ("S3", 270, 224)); A1_ANGLES = (0, 45, 90, 135)
-def a1_plan(seed=0, offset_mm=30.0, obj=(40, 80, 40)) -> list[dict]          # [{n, spot, truth: truth.obj(...), cand: DetectedObject}] 12개
-def run_a1(runner, src, run: TruthRun, place, plan) -> list[dict]           # place(item) -> 정답 dict | None(끝). 한 회마다 radar_clear → place → check_candidate → run.add
-def a1_summary(res) -> str                                                  # 1절 A1 판정
-def i1_layout(k: int) -> list[dict]                                         # truth.obj 3개
-```
-- CLI: `checktest a1`(새 명령, `--us-port`·`--obj`·`--offset`·`--seed`·`--reps`·`--note`), `run --truth-layout K`. `--sim`에서는 `place`가 `src.esp.boxes`를 정답 하나로 바꾼다(`radar_check._sim_source`와 같은 방식).
-- 시험: `--sim checktest a1`이 12회를 끝까지 돌고 `truth.json`에 자리 12개·`checks/` 12개 이상, 같은 씨앗이면 같은 후보. `--sim run --truth-layout 1`이 `truth.json`에 물체 3개를 남김.
-- 안전: 처음은 30% 이하, 클램프·전원 스위치 옆. 확인 높이 규칙(물체 높이 + 15mm)과 E-STOP은 작업 실행과 같다.
+        """작업 실행 밖에서 CHECK 한 번(A1). 상태 ok|empty|unreachable|aborted.
 
-**이번 초안 밖**(필요하면 같은 명령의 하위 명령으로 붙인다): A0 보정(막대 십자 확인 5회 → `arm_sensor_offset_mm`), GUI 화면. A1 반복(`--reps 2`)은 정답 쌍을 늘릴 때만 쓴다.
+        처음 부를 때 한 번: self.source.connect()(run()과 같은 순서. 가상 쪽은 두 번째 연결이 되지만 run()도 같다)와
+        _begin_checkable(). 그다음은 _check()와 같은 코드. reachable() 거르기는 하지 않는다.
+        """
+
+# service/check_test.py (새 파일). TaskRunner는 Studio(svc, src).task로 만든다
+A1_SPOTS = (("S1", 189, 169), ("S2", 125, 177), ("S3", 270, 224))
+A1_ANGLES = (0, 45, 90, 135)
+
+# [{n, rep, spot, truth: truth.obj(...), cand: DetectedObject}], 묶음마다 12개
+def a1_plan(seed: int = 0, offset_mm: float = 30.0, obj=(40, 80, 40), reps: int = 1) -> list[dict]: ...
+
+# place(item) -> 정답 dict(그대로 또는 사람이 고친 값) | None(q). 회마다 radar_clear → place → check_candidate → run.add.
+# aborted·radar_clear 실패면 멈춘다. try/finally로 runner._trail.detach()와 run.close()
+def run_a1(svc, runner, src, run, place, plan) -> list[dict]: ...
+
+def a1_summary(res: list[dict]) -> str: ...                 # 위 A1 판정, 묶음마다
+def i1_layout(k: int) -> list[Box]: ...                     # 반올림한 Box 3개
+def i1_truth(boxes: list[Box]) -> list[dict]: ...           # truth.obj 3개(id P1~P3)
+def i1_summary(truth_dirs: list[str]) -> str: ...           # 위 I1 판정
+```
+- **고칠 파일(팔 세션)**: `src/so101_studio/cli/__init__.py`(`COMMANDS`에 `checktest`, 전역 옵션 `--obj`·`--offset`·`--seed`·`--reps`·`--note`·`--truth-layout`, `checktest a1` 분기: `svc.enable_torque()` → 소스 → `TruthRun` → `run_a1`. `run_task`의 `--truth-layout`: 배치 표시·Enter, `TruthRun` 열기·`record_dir`·끝난 뒤 `add`·`close`), `src/so101_studio/task/runner.py`(`check_candidate`), `src/so101_studio/service/check_test.py`(새 파일).
+- **시험** `tests/test_check_test.py`(새 파일):
+  - 단위: `a1_plan`(같은 씨앗이면 같은 후보, 모든 자리·방향의 정답 몸체가 `on_plate`), `a1_summary`(실패 섞인 중앙값 +∞, 정사각형, `q` 조기 끝 = 미완료, `aborted` = 멈춤·미완료), `i1_layout`(K = 1~10 반올림 뒤 규칙 통과), `check_candidate` 첫 호출이 가짜 소스의 `connect()`를 한 번만 부르는지(`--sim` 끝까지 시험만으로는 실물의 연결 누락을 잡지 못한다).
+  - 끝까지(`@pytest.mark.slow`, `speed_pct=100`, `tests/test_task_check.py`의 `make_ultrasonic_source(arm, sim=True, boxes=...)` 틀): `--sim checktest a1`이 12회를 돌고 `truth.json`의 `placements` 12개, 각 `checks` 정확히 1개, `scans` 0개, 같은 씨앗이면 같은 후보. `--sim run --truth-layout 1`이 `truth.json`에 물체 3개와 `log=`를 남기고 `i1_summary`가 그 폴더를 읽는다.
+- **안전**: 처음은 `--speed 30` 이하, 클램프로 고정하고 전원 스위치 옆에서 지킨다. 확인 높이는 `check.max_object_height_mm + clearance_mm`(지금 40 + 15 = 55mm) 고정이다(`check.py`). 그래서 `--obj` 높이가 `max_object_height_mm`보다 크면 시작 전에 거부한다. CLI에는 E-STOP 감시가 없고 Ctrl+C로 멈춘다(`run`과 같다. 확인 중 Ctrl+C는 ESP32에 `stop`을 보내고 끝낸다).
+
+**이번 초안 밖**(필요하면 같은 명령의 하위 명령으로 붙인다): A0 보정(막대 십자 확인 5회 → `arm_sensor_offset_mm`, 따로 REQ), GUI 화면.
 
 ## 9. 작업 순서
 | # | 작업 | 맡는 곳 | 완료 기준 | 날짜 |
@@ -476,10 +510,10 @@ def i1_layout(k: int) -> list[dict]                                         # tr
 | B2 | 옆에서 본 면 각도 한계 | 센서 20mm 높이 수평, 200mm 앞 상자를 5°씩 돌리며 10회씩 | 메아리가 끊기는 각도 |
 | B3 | 최소 측정 간격 | 센서 2개 번갈아 20·25·29·33·40ms 간격, 각 200회 | 엉뚱한 값 비율 → `ping_gap_ms` |
 | B4 | 서보 지연·떨림 | 연속 왕복에서 같은 물체의 갈 때·올 때 방위 차이, 정지 때 떨림 | ±3° 넘으면(dxl이면 먼저 `ang` 보정과 프로필 속도 확인) 다시 검토 |
-| R1 | 레이더 단독 | 물체를 치운 판에서 기준값(`radar_check --port COMx calibrate`. **배출 통은 제자리에 두고 잰다**: 통이 기준값에 들어가야 통 벽이 후보로 나오지 않는다. 시연 때 기준값도 같다) 뒤 물체 1개를 3×3 자리(x 150/215/280, y 150/190/230)에 3회씩: `radar_check --port COMx r1 --obj 폭x길이x높이`(자리마다 Enter, 정답 쌍은 8.4). 배출 구역 무시 원을 쓰지 않는다. (280, 150)은 통 무시 원(가운데 (355, 80), 반경 113) 안이지만 그대로 잰다(아래) | 후보 오차 95%가 90mm 안 |
+| R1 | 레이더 단독 | 물체를 치운 판에서 기준값(`radar_check --port COMx calibrate`. **배출 통은 제자리에 두고 잰다**: 통이 기준값에 들어가야 통 벽이 후보로 나오지 않는다. 시연 때 기준값도 같다) 뒤 물체 1개를 3×3 자리(x 150/215/280, y 150/190/230)에 3회씩: `radar_check --port COMx r1 --obj 폭x길이x높이`(자리마다 Enter, 정답 쌍은 8.4). 배출 구역 무시 원을 쓰지 않는다. (280, 150)은 통 무시 원(가운데 (355, 80), 반경 112.8mm) 안이지만 그대로 잰다(아래) | 후보 오차 95%가 90mm 안 |
 | A0 | 팔 센서 위치 보정 | 지름 10mm 막대를 기준점에 세우고 십자 확인 5회 | `arm_sensor_offset_mm` |
-| A1 | 팔 확인 단독 | 물체 1개, 4방향 × 3자리, 레이더 대신 정답 근처(±30mm) 후보: `checktest a1`(8.6, 초안). 레이더 없이 할 수 있다 | 1절 표: 위치 중앙값 5mm 이하·12회 중 11회가 **10mm** 안(결정 0072), 방향 12회 중 10회 이상 |
-| I1 | 통합 | 물체 3개 10회: `run --source ultrasonic --truth-layout 1~10`(8.6) | 1절 표 |
+| A1 | 팔 확인 단독 | 물체 1개, 4방향 × 3자리, 레이더 대신 정답에서 무작위 방향으로 0~30mm 떨어진 후보: `checktest a1`(8.6, 초안). 레이더 쪽 없이 할 수 있다 | 1절 표: 위치 중앙값 5mm 이하·12회 중 11회 **이상**이 **10mm** 안(결정 0072), 방향 12회 중 10회 이상(판정 규칙은 8.6) |
+| I1 | 통합 | 물체 3개 10회: `run --source ultrasonic --truth-layout 1~10`(8.6, 초안) | 1절 표(판정은 8.6 `i1_summary`) |
 
 ## 11. 정할 것과 열린 질문
 - 스캔 서보는 OpenRB-150 + XL330(결정 0043)이다. 서보 전원은 5V(A 충전기 또는 B 강압 모듈, 결정 0043-2)이고 12V를 OpenRB VIN에 넣지 않는다. 손목 브래킷은 결정 0063이다(0035는 대체됨).
@@ -488,4 +522,4 @@ def i1_layout(k: int) -> list[dict]                                         # tr
 - 초음파 세션은 결정 0036으로 만든다(Sonnet, 폴더 `../so101-studio-us`).
 - 도달 범위는 6절 "도달 범위로 자르기"로 정했다(U3 결과). 실물에서 바깥쪽이 더 모자라면 센서를 손끝 바깥쪽에 다는 브래킷(센서 도달 최대 약 30mm 증가, 턱 간섭 확인 필요)을 검토한다.
 - 레이더 시야에 팔 받침이 들어오는 영향은 기준값에 포함된다고 보고, R1에서 확인한다.
-- **R1 자리 (280, 150)과 통**(2026-11-20 기획 판단): 옮기지 않는다. R1은 무시 구역 없이 레이더 정확도를 재는 시험이고, 기준값에 통이 들어가므로(10절 R1: 통을 제자리에 두고 기준값을 잰다) 이 자리는 통 벽 바로 옆 물체를 레이더가 가를 수 있는지 보는 값이 된다. 그 값으로 통 무시 반경(지금 반 대각선 + 벽 높이 + 여유 = 113mm, `ignore_zones`)을 줄일 수 있는지 본다. 작업 실행에서는 그 자리 물체가 가려지므로 A1·I1의 자리는 6절 시연 배치 규칙(물체 중심이 통 무시 원 112.8mm 밖, 몸체가 판 안이고 통 벽과 안 겹침, 벤치마크 `on_plate`와 같음. 50mm를 더 두지 않는다)으로 고른다(8.6).
+- **R1 자리 (280, 150)과 통**(2026-11-20 기획 판단): 옮기지 않는다. R1은 무시 구역 없이 레이더 정확도를 재는 시험이고, 기준값에 통이 들어가므로(10절 R1: 통을 제자리에 두고 기준값을 잰다) 이 자리는 통 벽 바로 옆 물체를 레이더가 가를 수 있는지 보는 값이 된다. 그 값으로 통 무시 반경(지금 반 대각선 + 벽 높이 + 여유 = 112.8mm, `ignore_zones`)을 줄일 수 있는지 본다. 작업 실행에서는 그 자리 물체가 가려지므로 A1·I1의 자리는 6절 시연 배치 규칙(물체 중심이 통 무시 원 112.8mm 밖, 몸체가 판 안이고 통 벽과 안 겹침, 벤치마크 `on_plate`와 같음. 50mm를 더 두지 않는다)으로 고른다(8.6).
