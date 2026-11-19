@@ -1,6 +1,6 @@
 # 레이더 조립·점검 안내 (사용자용)
 
-상태: 초안 · 2026-11-19 (초음파 세션 작성, 결정 0043·0067, `ultrasonic-spec.md` 10절 B1~B4·R1, `real-arm-runbook.md` 3절의 실물 첫 단계)
+상태: 초안 · 2026-11-19 (초음파 세션 작성, 결정 0043·0067, `ultrasonic-spec.md` 10절 B1~B4·R1, `real-arm-runbook.md` 3절의 실물 첫 단계) · 2026-11-20 R1 명령을 `radar_check r1`로(REQ-096)
 
 부품만 출력한 상태에서 시작한다. 실물 작업은 사용자가 한다. 막히면 그 자리에서 멈추고 알린다. 팔은 이 안내에서 쓰지 않는다(전원 끔).
 
@@ -67,7 +67,7 @@ python -m so101_studio.perception.ultrasonic.radar_check --port COM(ESP32) cente
 | B2 면 각도 한계 | 레이더 센서를 작업대 면 위 수평으로, 200mm 앞 상자를 5°씩 돌린다 | `bench --port COM --k r --n 10 --gap 60 --label B2-<각도>` | 메아리가 끊기는(outlier/none이 올라가는) 각도 |
 | B4-1 서보 지연 | 정면(90°) 약 300mm에 폭 30mm 이상 단단한 물체 하나만 | `radar_check --port COM lag` | \|지연\| 3° 이하 |
 | B4-2 정지 떨림 | 같은 물체 앞 | `radar_check ... center` 뒤 `bench --port COM --k r --n 200 --label B4-jitter` | 표준편차가 작고 최대-최소가 몇 mm 안 |
-| R1 레이더 단독 | 빈 판(팔은 시야 밖)에서 기준값, 그 뒤 물체 1개를 3×3 자리(x 150/215/280, y 150/190/230 mm, 작업대 좌표)에 3번씩 | `radar_check --port COM calibrate` → 물체를 놓고 `radar_check --port COM scan` | 후보가 실제 중심에서 90mm 안인 비율 95%(27개 중 26개) 이상 |
+| R1 레이더 단독 | 빈 판(팔은 시야 밖)에서 기준값, 그 뒤 물체 1개를 3×3 자리(x 150/215/280, y 150/190/230 mm, 작업대 좌표)에 3번씩 | 먼저 `radar_check --port COMx calibrate`(빈 판) → `radar_check --port COMx r1 --obj 폭x길이x높이`(예 `40x80x40`, 자리마다 물체를 놓고 Enter, 3회. 정답 쌍이 `runs/ultrasonic-truth/<시각>-R1/`에 남는다) | 후보가 실제 중심에서 90mm 안인 비율 95%(27개 중 26개) 이상 |
 
 R1에서 후보가 좌우 거울이면(물체가 오른쪽인데 왼쪽으로 나옴) 펌웨어 `openrb_servo.ino`의 `DIR`을 +1/−1로 뒤집어 다시 올린다. 90°가 정면이 아니면 브래킷을 90° 단위로 다시 끼운다.
 
