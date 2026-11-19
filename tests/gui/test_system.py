@@ -270,7 +270,11 @@ def test_logs_read_run_events_incrementally(tmp_path):
         first = [r.text for r in backend.logs() if r.text.startswith("connect")]
         assert len(first) == 1
         backend.estop()
+        deadline = time.monotonic() + 5  # 기록 쓰기는 따로 도는 스레드라 부하가 크면 늦게 보인다(11-20 전체 시험에서 한 번 빈 목록)
         records = backend.logs()
+        while not any(r.text.startswith("estop") for r in records) and time.monotonic() < deadline:
+            time.sleep(0.05)
+            records = backend.logs()
         assert [r.level for r in records if r.text.startswith("estop")] == ["WARNING"]
         assert len([r for r in records if r.text.startswith("connect")]) == 1  # 다시 읽어도 겹치지 않는다
     finally:

@@ -22,7 +22,7 @@ from so101_studio.gui.scene3d import urdf_cfg
 
 @pytest.fixture(scope="module")
 def backend3d():
-    backend = Backend(log_root=None, viser_port=8191)
+    backend = Backend(log_root=None, viser_port=0)
     yield backend
     backend.close()
 
