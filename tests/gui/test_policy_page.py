@@ -53,8 +53,12 @@ def test_start_then_stop_with_a_fake_policy(backend, monkeypatch, tmp_path):
     monkeypatch.setattr(policy_runner, "JUDGE_DELAY_S", 0.0)
     events = []
     monkeypatch.setattr(backend.sim, "log_event", lambda kind, data=None, level="INFO", code=None: events.append(code))
-    (tmp_path / "run1" / "checkpoints" / "last" / "pretrained_model").mkdir(parents=True)
+    ckpt = tmp_path / "run1" / "checkpoints" / "last" / "pretrained_model"
+    ckpt.mkdir(parents=True)
+    _with_start_pose(ckpt, tmp_path / "ds", [10.0, -30.0, 30.0, 75.0, 0.0, 50.0])
     monkeypatch.setattr(policy_page, "TRAIN_ROOT", tmp_path)
+    moves, move = [], backend.sim.move_joints
+    monkeypatch.setattr(backend.sim, "move_joints", lambda goal, *a, **k: (moves.append(goal), move(goal, *a, **k))[1])
     backend.policy = None
 
     async def check(user):
@@ -72,6 +76,7 @@ def test_start_then_stop_with_a_fake_policy(backend, monkeypatch, tmp_path):
             await asyncio.sleep(0.05)
         await user.should_see("끝난 이유: stop")
         assert backend.policy.max_s == policy_page.MAX_S
+        assert moves and moves[0].shoulder_pan == 10.0 and moves[0].wrist_flex == 75.0  # 결정 0071: 학습 때 시작 자세로 먼저 옮겼다
 
     try:
         open_policy(backend, check)
@@ -127,3 +132,23 @@ def test_stop_while_loading_cancels_and_second_click_makes_no_second_runner(back
         if backend.policy is not None:
             backend.policy.stop()
         backend.policy = None
+
+
+def _with_start_pose(ckpt, ds, pose):
+    """체크포인트 → train_config.json의 dataset.root → meta/collect.json의 start_pose(mujoco_bench가 쓰는 모양)."""
+    import json
+
+    (ds / "meta").mkdir(parents=True)
+    (ds / "meta" / "collect.json").write_text(json.dumps({"suite": "collect_pick2", "start_pose": pose}), encoding="utf-8")
+    (ckpt / "train_config.json").write_text(json.dumps({"dataset": {"root": str(ds)}}), encoding="utf-8")
+
+
+def test_start_pose_comes_from_the_training_dataset(tmp_path):
+    """없거나 깨졌으면 None(지금 자리에서 시작), 있으면 관절 6개."""
+    ckpt = tmp_path / "ckpt"
+    ckpt.mkdir()
+    assert policy_page.start_pose_of(ckpt) is None
+    _with_start_pose(ckpt, tmp_path / "ds", [0, -30, 30, 75, 0, 50])
+    assert policy_page.start_pose_of(ckpt) == [0.0, -30.0, 30.0, 75.0, 0.0, 50.0]
+    (ckpt / "train_config.json").write_text("{", encoding="utf-8")
+    assert policy_page.start_pose_of(ckpt) is None
