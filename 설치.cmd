@@ -34,6 +34,8 @@ if not exist "%MF%\condabin\conda.bat" (
 )
 set "ROOT=%MF%"
 del "%INSTALLER%" >nul 2>&1
+rem 제거.cmd가 이 표시 파일이 있을 때만 Miniforge를 지울지 묻는다
+> "%TOOLS%\installed-by-so101.txt" echo 설치.cmd가 Miniforge를 %MF%에 설치했습니다. 제거.cmd가 이 파일을 보고 지울지 묻습니다.
 
 :have_conda
 echo conda 위치: %ROOT%
@@ -59,12 +61,31 @@ if errorlevel 1 (
   goto fail
 )
 
-rem 4) 점검 (읽기 전용, 팔을 움직이지 않는다)
+rem 4) MuJoCo(물리 시뮬레이션, 선택). tooling-setup C24 줄, numpy가 바뀌지 않게 --no-deps
+set "ENVDIR=%ROOT%\envs\so101"
+set "ANS="
+set /p "ANS=MuJoCo(물리 시뮬레이션)도 설치할까요? [Y/n] "
+if /i "%ANS%"=="n" goto skip_mujoco
+set "PATH=%ENVDIR%\Library\bin;%ENVDIR%;%ENVDIR%\Scripts;%PATH%"
+python -m pip install --no-deps mujoco==4.0.0 mujoco-core==4.0.0 mujoco-studio==4.0.0 glfw==2.11.0 pyopengl==3.1.10
+if errorlevel 1 echo [경고] MuJoCo를 설치하지 못했습니다. 기구학 시뮬레이션은 그대로 됩니다.
+set "NPV="
+for /f "delims=" %%v in ('python -c "import numpy; print(numpy.__version__)"') do set "NPV=%%v"
+if "%NPV%"=="2.2.6" (echo numpy 2.2.6 확인) else echo [경고] numpy가 2.2.6이 아닙니다: %NPV%. docs\guides\tooling-setup.md C24를 보세요.
+:skip_mujoco
+
+rem 5) 바로가기 "SO-101 Studio" (바탕화면·시작 메뉴, 작업 폴더는 레포). 제거.cmd가 같은 이름으로 지운다
+set "SO101_LNK_TARGET=%~dp0SO-101 Studio 실행.cmd"
+set "SO101_LNK_DIR=%~dp0"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=New-Object -ComObject WScript.Shell; foreach($f in 'Desktop','Programs'){ $l=$s.CreateShortcut((Join-Path ([Environment]::GetFolderPath($f)) 'SO-101 Studio.lnk')); $l.TargetPath=$env:SO101_LNK_TARGET; $l.WorkingDirectory=$env:SO101_LNK_DIR; $l.Save() }"
+if errorlevel 1 echo [경고] 바로가기를 만들지 못했습니다. "SO-101 Studio 실행.cmd"를 직접 더블클릭하세요.
+
+rem 6) 점검 (읽기 전용, 팔을 움직이지 않는다)
 echo.
 echo === 점검 ===
 call "%~dp0so101.cmd" doctor --no-probe
 echo.
-echo 설치가 끝났습니다. "시뮬레이션 실행.cmd"를 더블클릭하세요.
+echo 설치가 끝났습니다. 바탕화면의 "SO-101 Studio"(또는 이 폴더의 "SO-101 Studio 실행.cmd")를 더블클릭하세요.
 pause
 exit /b 0
 
