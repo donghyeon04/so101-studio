@@ -4,11 +4,12 @@
 
 *Pick-and-place with an SO-101 arm using two low-cost ultrasonic sensors instead of a camera, with a web GUI, a kinematic and a MuJoCo physics simulator. Windows, Python 3.12. Docs are in Korean.*
 
-## 지금 상태 (2026-11-14)
-- 시뮬레이션에서는 처음부터 끝까지 돈다: 초음파 인식, 작업 실행(가까운 순으로 집어 배출 구역에 놓기), GUI. 물리 시뮬레이션(MuJoCo)도 CLI·GUI에서 된다.
-- 실물 팔로는 전원·자동 캘리브레이션·집기·놓기를 확인했다. 58mm 상자 집어 옮기기 5회 왕복이 속도 30%·50%에서 10/10이다.
-- 초음파 센서·레이더와 카메라의 실물 연결은 아직이다(부품·작업대·브래킷 출력 대기).
-- 다음은 MuJoCo를 시험장으로 키워 집기·초음파 흐름을 실물 전에 반복해서 재는 일이다(결정 0062).
+## 지금 상태 (2026-11-19, 1차 배포 준비)
+- 시뮬레이션에서는 처음부터 끝까지 돈다: 초음파 인식, 작업 실행(가까운 순으로 집어 배출 통에 놓기), GUI. 물리 시뮬레이션(MuJoCo)은 시험장·학습 데이터 수집·정책 평가까지 되고, 시뮬레이션 시계로 실시간의 약 10배 빠르게 돈다.
+- 하드웨어 담당 CAD를 반영했다: 판 425×375mm(40×80 프로파일 위), 새 J1 받침, 오른쪽 앞 귀퉁이의 배출 통, 레이더 받침(XL330 + OpenRB + HC-SR04)의 자리와 형상([`decisions/0067`](docs/decisions/0067-workbench-cad-values.md)). 판 높이·팔 원점은 CAD 값이라 실물 조립 뒤 실측으로 고친다.
+- 병렬(로보나인) 손은 높이를 알면 기울여 집을 수 있다(`grasp_approach: auto`, 기본은 수직).
+- 실물 팔로는 11-13까지 전원·자동 캘리브레이션·집기·놓기를 확인했다(옛 받침, 58mm 상자 5회 왕복 30%·50%에서 10/10). 새 작업대·레이더 조립과 실물 재확인은 다음 단계다.
+- 학습(ACT 모방학습)은 시뮬레이션에서 진행 중이다. 1차 4/50, 2차는 새 시작 자세로 다시 모으는 중([`decisions/0071`](docs/decisions/0071-act-second-collection.md)).
 - 현황 한 장은 [`docs/planning/project-status.md`](docs/planning/project-status.md), 진행 중인 일과 사용자 결정은 [`docs/planning/work-queue.md`](docs/planning/work-queue.md)에 있다.
 
 ## 무엇을 하나
@@ -17,8 +18,9 @@
 | 초음파 인식 | 서보가 돌리는 HC-SR04 레이더로 후보를 찾는다. 팔 손목의 센서로 지나가며 위치·폭·방향을 확정한다(`CHECK`). 후보가 없으면 다시 찾는다(`RESCAN`). |
 | 팔 | 관절·직교 조그, 좌표 이동, 물체 방향에 맞춘 집기와 대칭으로 벌리는 놓기, 교시(손으로 움직여 기록·재생). 자동 캘리브레이션은 측정·비교·저장과 0° 확인까지 한다. |
 | 안전 | 관절 한계, 작업대 가장자리, 바닥 검사. E-STOP 감시 프로세스(heartbeat·단축키 F9). 과열·과부하 감시. 캘리브레이션이 맞지 않으면 움직이는 명령을 잠근다. |
-| GUI | 브라우저에서 여는 화면 15개(작업 공간, 직접 조작, 교시, 프로그램, 초음파, 수동 입력, 팔, 캘리브레이션, 파라미터, 안전, 작업대 등). 3D 보기, 운영자 화면, 같은 망의 다른 기기에서 보기 전용(`--share`). |
+| GUI | 브라우저에서 여는 화면 17개(작업 공간, 직접 조작, 교시, 프로그램, 초음파, 수동 입력, 팔, 캘리브레이션, 파라미터, 안전, 작업대, 시점, 정책 실행 등). 3D 보기, 운영자 화면, 같은 망의 다른 기기에서 보기 전용(`--share`). |
 | 시뮬레이션 | `--sim`(기구학)으로 팔 없이 모든 기능을 돌린다. `--sim --sim-engine mujoco`(물리)는 턱이 물체 윗면을 치거나 미끄러지는 접촉을 보인다. |
+| 학습 | MuJoCo 시험장(`mujoco_bench`)으로 스크립트 시연을 LeRobot 데이터셋으로 모으고, ACT 정책을 학습해 시뮬레이션에서 평가·실행한다(GUI 정책 실행 화면). |
 | 기록 | 실행마다 `runs/날짜-시각/`에 `events.jsonl`·`status.jsonl`(전압 포함)을 남기고, 사고 묶음(`incident`)을 만든다. |
 
 ## 빠른 시작 (Windows)
@@ -55,13 +57,23 @@
 | `powertest`, `shaketest`, `servoinfo`, `linkwatch` | 진단 |
 | `incident` | 지금까지의 기록으로 사고 묶음 생성 |
 
+MuJoCo 시험장(물리 시뮬레이션, `python -m so101_studio.arm.mujoco_bench`):
+
+| 명령 | 하는 일 |
+|---|---|
+| `--suite pick_grid --clock step --jobs 12 --viewer grid` | 고정 묶음 집기 시험(결과 표는 `runs/bench-mujoco/`). `--clock step`은 시뮬레이션 시계(빠르고 같은 씨앗이면 같은 결과), `--viewer grid`는 일꾼 화면을 창 하나에 |
+| `--suite collect_pick1 --record <이름> --seeds 300` | 스크립트 시연을 LeRobot 데이터셋(`runs/datasets/<이름>/`)으로 |
+| `--suite collect_pick1 --policy <체크포인트> --seed-start 10000 --seeds 50` | 학습한 ACT 정책 평가 |
+| `python -m so101_studio.arm.mujoco_record --shift\|--clip <데이터셋>` | 데이터셋 사본(action 앞당김, 관절 한계 안쪽으로 자르기) |
+
 전체 설명은 [`CLAUDE.md`](CLAUDE.md)의 "실행" 절에 있다.
 
 ## 하드웨어
 - 팔: SO-ARM101 Follower(STS3215 서보 6개, 12V), 버스 서보 보드.
 - 초음파: ESP32(`firmware/esp32_scanner`)가 HC-SR04 두 개를 읽는다. 하나는 서보가 돌리는 레이더 스테이션(OpenRB-150 + XL330, `firmware/openrb_servo`)에, 하나는 팔 손목에 단다.
 - 카메라(비교 실험용): AI-Thinker ESP32-CAM 1대([`decisions/0058`](docs/decisions/0058-camera-esp32-cam.md)).
-- 작업대: 600×400mm.
+- 작업대: 판 425×375mm, 40×80 알루미늄 프로파일 두 개 위. 팔은 프로파일에 꽂는 J1 받침, 레이더는 앞 프로파일 위(결정 0067).
+- 그리퍼: 로보나인 병렬 그리퍼(결정 0063), 손목에 초음파 센서 브래킷.
 
 부품과 비용은 [`docs/planning/hardware.md`](docs/planning/hardware.md)에 있다. HC-SR04는 5V, ESP32는 3.3V라 Echo 핀은 분압 저항이나 레벨 시프터를 거쳐 연결한다.
 
@@ -85,8 +97,9 @@
 
 ## 시험
 ```
-python -m pytest -q -m "not slow"   # 개발 중
-python -m pytest -q                 # 전체(약 1시간, GUI 화면 시험 포함)
+python -m pytest -q -m "not slow and not measure"            # 개발 중(빠른 묶음)
+python -m pytest -q -n auto -m "not measure" --ignore=tests/gui_visual   # 전체(약 12분, xdist)
+python -m pytest -q tests/gui_visual                          # GUI 화면 비교(보드를 뽑고)
 python -m ruff check src tests
 ```
 GUI 시험은 고정 포트를 쓰므로 한 번에 하나만 돌린다.

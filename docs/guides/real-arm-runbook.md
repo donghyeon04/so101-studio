@@ -38,14 +38,14 @@
 - 진단(`powertest`·`shaketest`)은 이제 끝나면 쉬는 자세로 돌아간다(REQ-047). 그래도 편 자세에서는 팔 아래에 손을 받칠 준비를 한다. 서보가 풀리면 `events.jsonl`의 `ARM-TORQUE-LOSS-DIAG`(power_reset / protection / no_response)를 본다.
 - 높이를 재는 명령은 GUI 좌표 이동(턱 끝, 작업대 위 높이)으로 한다. CLI `goto`의 z는 모델 z다.
 
-### 2-A. 작업대 조립 뒤 (이 순서대로, 2026-11-07 기획 확정)
+### 2-A. 작업대 조립 뒤 (이 순서대로, 2026-11-07 기획 확정 · 2026-11-19 결정 0067 CAD 값으로 갱신, hardware.md H-6)
 판 위로 팔을 옮기면 팔 원점과 작업 면 높이가 둘 다 바뀔 수 있다. 앞 단계 값이 뒤 단계의 기준이므로 순서를 바꾸지 않는다.
 | # | 할 일 | 방법 | 고칠 곳 |
 |---|---|---|---|
-| A-1 | 팔 원점 실측 | 판의 앞 왼쪽 모서리가 (0, 0)이다. 팔 받침 회전축 중심의 x·y를 자로 잰다(설계 약 300, 61). yaw는 팔 정면이 +y인지 본다 | `workspace.yaml` `robot_base_in_table` |
-| A-2 | 작업 면 높이 다시 확인 | 2-6과 같은 방법. 판 윗면이 예전 책상과 높이가 다를 수 있다 | `robot.yaml` `table_z_mm`(바뀌면 팔 세션 REQ) |
-| A-3 | 배출 구역 표시 위치 | 판 위 낮은 평면 표시의 중심을 잰다(계획 500, 150) | `workspace.yaml` `drop_zones` |
-| A-4 | 장면 부품·센서 위치 | 레이더 스테이션과 브래킷 위치(레이더 축 계획 300, 400)를 잰다 | `config/scene.yaml`, `config/ultrasonic.yaml`(초음파 세션) |
+| A-1 | 팔 원점 실측 | 판의 앞 왼쪽 모서리가 (0, 0)이다. 팔 J1 회전축 중심의 x·y를 자로 잰다(CAD 215.2, 21.4: 판 앞 가장자리에서 21.4mm 안쪽). yaw는 팔 정면이 +y(레이더 쪽)인지 본다 | `workspace.yaml` `robot_base_in_table` |
+| A-2 | 작업 면 높이 다시 확인 | 2-6과 같은 방법. CAD 값은 −2.9(옛 받침 실측 −15). 바뀌면 집기 범위 `reach_mm`(지금 100~230)과 초음파 `tool_reach`도 다시 계산한다(REQ-090) | 팔 파일 `config/arms/<팔>.yaml` `table_z_mm`(바뀌면 팔 세션 REQ) |
+| A-3 | 배출 구역 표시 위치 | 배출 통(안쪽 110×110, 벽 25)의 가운데를 잰다(CAD 355, 80) | `workspace.yaml` `drop_zones` |
+| A-4 | 장면 부품·센서 위치 | 레이더 XL330 축 위치(CAD 207.3, 405.5, 판 밖 앞 프로파일 위)와 센서 높이(CAD 23.2)를 잰다 | `config/scene.yaml`, `config/ultrasonic.yaml`(초음파 세션) |
 | A-5 | 집기·놓기 확인 | 2-2를 다시 한다(놓기는 `arm-software-spec.md` 11.3 구현 뒤) | 기록만 |
 | A-6 | 레이더 기준값 | 레이더가 준비된 뒤, 판 위를 비우고 기준값을 다시 잰다 | `config/ultrasonic_baseline.json` |
 | A-7 | 교시 새로 기록 → 변환본 재생 | 2-3. 새 판의 작업 범위 안에서 기록한다 | `config/sequences/` |
