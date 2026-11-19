@@ -20,9 +20,13 @@ OUTCOME_TEXT = {"placed_ok": "성공 (배출 통에 놓음)", "untouched": "상�
 MAX_S = 45  # 전문가 시연(집어서 놓기)이 약 31초라 PolicyRunner 기본 20초면 놓기 전에 끊긴다. 명령줄 평가(--policy)와 같은 값
 
 
-def checkpoints(root: Path) -> list[str]:
-    """runs/train/*/checkpoints/*/pretrained_model, 최근 것 먼저."""
-    found = sorted(root.glob("*/checkpoints/*/pretrained_model"), key=lambda p: p.stat().st_mtime, reverse=True)
+def checkpoints(root: Path, siblings: bool = False) -> list[str]:
+    """runs/train/*/checkpoints/*/pretrained_model, 최근 것 먼저. siblings면 옆 폴더(같은 PC의 다른 worktree, ../*/runs/train)도 본다:
+    학습은 MuJoCo 폴더에서 하고 GUI는 다른 폴더에서 켜는 일이 많아 목록이 비었다(11-20)."""
+    roots = [root.resolve()]
+    if siblings:
+        roots += [r.resolve() for r in Path.cwd().resolve().parent.glob(f"*/{root.as_posix()}") if r.resolve() not in roots]
+    found = sorted((p for r in roots for p in r.glob("*/checkpoints/*/pretrained_model")), key=lambda p: p.stat().st_mtime, reverse=True)
     return [str(p) for p in found]
 
 
@@ -170,7 +174,7 @@ def build(backend, client_id: str, actions) -> None:
         start_button = controls.add(ui.button("시작", on_click=controls.guard(start)).props("no-caps").mark("policy-start"))
 
     with ui.row().classes("w-full items-center gap-3"):
-        choice = ui.select(checkpoints(TRAIN_ROOT), label="체크포인트 (runs/train/…/pretrained_model 또는 직접 입력)", with_input=True,
+        choice = ui.select(checkpoints(TRAIN_ROOT, siblings=True), label="체크포인트 (runs/train/…/pretrained_model 또는 직접 입력)", with_input=True,
                            new_value_mode="add-unique").classes("flex-1").mark("policy-checkpoint")
         if choice.options:
             choice.value = choice.options[0]

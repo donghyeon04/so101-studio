@@ -181,3 +181,15 @@ def test_gripper_mismatch_is_reported_before_start(backend):
     assert why and policy_page.GRIPPER_TEXT[other] in why and "다시 켠" in why
     assert policy_page.gripper_mismatch(svc, {"preset_values": {"gripper": have}}) is None
     assert policy_page.gripper_mismatch(svc, {}) is None
+
+
+def test_checkpoint_list_includes_sibling_folders(tmp_path, monkeypatch):
+    """학습은 MuJoCo 폴더, GUI는 다른 폴더에서 켠다: 옆 폴더의 runs/train도 목록에 넣는다(같은 폴더는 한 번만)."""
+    for folder, name, t in (("gui", "a", 100), ("sim", "b", 200)):
+        p = tmp_path / folder / "runs" / "train" / name / "checkpoints" / "last" / "pretrained_model"
+        p.mkdir(parents=True)
+        os.utime(p, (t, t))
+    monkeypatch.chdir(tmp_path / "gui")
+    root = Path("runs/train")
+    assert [Path(s).parts[-4] for s in policy_page.checkpoints(root)] == ["a"]
+    assert [Path(s).parts[-4] for s in policy_page.checkpoints(root, siblings=True)] == ["b", "a"]

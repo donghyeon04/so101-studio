@@ -48,7 +48,7 @@ def test_mujoco_objects_cannot_be_edited(mj):
 def test_mujoco_objects_drawn_from_physics(mj):
     mj._on_sim_objects(None)
     state = mj.sim.driver.sim_state()["objects"]["obj-1"]
-    node, _ = mj.scene._sim_nodes["obj-1"]
+    node, _, _ = mj.scene._sim_nodes["obj-1"]
     x, y, _z = node.position
     assert abs(x * 1000 - state["x_mm"]) < 1 and abs(y * 1000 - state["y_mm"]) < 1
     mj.scene.set_objects(mj.objects())  # 계획 쪽을 다시 그려도 물리 물체는 남는다
@@ -105,6 +105,8 @@ def test_rebuild_world_puts_the_training_layout_into_mujoco(mj):
         assert len(objs) == 1 and abs(next(iter(objs.values()))["x_mm"] - box.x_mm) < 2.0
         assert [(round(o.x_mm), round(o.y_mm)) for o in mj.objects()] == [(round(box.x_mm), round(box.y_mm))]
         assert mj.sim.skills.placed == [] and mj.sim.skills.grip is None
+        mj._on_sim_objects(None)  # 3D 물리 물체도 새 배치만(11-20: 옛 상자가 남았다)
+        assert set(mj.scene._sim_nodes) == set(objs)
     finally:
         # 다음 시험을 위해 처음 물체로: 수동 물체 파일대로 다시 짓는다
         from so101_studio.arm.mujoco_model import SimObject
