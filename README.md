@@ -31,13 +31,20 @@
    - conda가 없으면 Miniforge를 `C:\so101-tools\miniforge3`에 설치한다(관리자 권한 필요 없음, 한글 사용자 폴더 문제를 피하려고 영문 경로).
    - git이 없으면 받는다.
    - `so101` 환경을 만든 뒤 점검(`doctor`)까지 보여 준다.
+   - MuJoCo(물리 시뮬레이션)도 설치할지 `Y/n`으로 묻는다.
+   - 바탕화면과 시작 메뉴에 "SO-101 Studio" 바로가기를 만든다.
    - 처음 설치에 약 3GB를 받는다. 다시 실행하면 환경을 갱신한다.
-3. `시뮬레이션 실행.cmd`를 더블클릭한다. 팔이 없어도 GUI가 시뮬레이션으로 켜진다(브라우저에서 `http://127.0.0.1:8080`).
-4. 실물 팔이 있으면 `실물 팔 실행.cmd`를 쓴다.
-   - USB 시리얼 드라이버(CH340)를 먼저 설치한다([`docs/guides/arm-hardware-setup.md`](docs/guides/arm-hardware-setup.md)).
+3. 바탕화면의 "SO-101 Studio"(또는 `SO-101 Studio 실행.cmd`)를 더블클릭한다. 브라우저에서 `http://127.0.0.1:8080`으로 GUI가 열린다.
+   - 실물 팔이 없으면 GUI가 시뮬레이션으로 켜고 화면에 알린다.
+   - 실물 팔을 쓰려면 USB 시리얼 드라이버(CH340)를 먼저 설치한다([`docs/guides/arm-hardware-setup.md`](docs/guides/arm-hardware-setup.md)).
    - 캘리브레이션이 다르면 팔이 잠겨 읽기만 된다.
+4. 지우려면 `제거.cmd`를 실행한다.
+   - 지울 목록을 보여 주고, `yes`를 입력해야 진행한다.
+   - `so101` 환경과 바로가기를 지운다.
+   - Miniforge는 `설치.cmd`가 직접 깐 경우에만 한 번 더 묻고 지운다.
+   - 레포 폴더(`runs/`·`config/local.yaml` 포함)와 LeRobot 캘리브레이션 캐시는 지우지 않으므로 직접 지운다.
 
-두 실행 파일은 켤 때마다 `git pull --ff-only`를 하고(실패해도 지금 버전으로 계속), `so101.cmd [--sim] gui`를 부른다. `so101.cmd`는 `C:\so101-tools\miniforge3`, `C:\miniforge3`, 사용자 폴더의 miniforge·miniconda에서 `so101` 환경을 찾는다(근거 [`decisions/0040`](docs/decisions/0040-team-local-install.md)).
+`SO-101 Studio 실행.cmd`는 켤 때마다 `git pull --ff-only`를 하고(실패해도 지금 버전으로 계속), `so101.cmd gui`를 부른다. `so101.cmd`는 `C:\so101-tools\miniforge3`, `C:\miniforge3`, 사용자 폴더의 miniforge·miniconda에서 `so101` 환경을 찾는다(근거 [`decisions/0040`](docs/decisions/0040-team-local-install.md)).
 
 직접 설치할 때는 `conda env create -f environment.yml` 뒤 `conda activate so101`을 한다. numpy는 conda 설치본을 쓰므로 `pip`로 다시 설치하지 않는다. MuJoCo는 선택이고, 설치 줄은 [`docs/guides/tooling-setup.md`](docs/guides/tooling-setup.md) C24에 있다.
 

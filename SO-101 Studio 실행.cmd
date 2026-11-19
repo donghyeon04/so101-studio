@@ -2,10 +2,8 @@
 chcp 65001 >nul
 setlocal EnableExtensions
 cd /d "%~dp0"
-echo 실물 팔로 GUI를 켭니다.
-echo 팔은 클램프로 고정하고, 처음에는 속도 30%% 이하로, 전원 스위치 옆에서 지켜보세요. 주변 반경 50cm를 비웁니다.
-echo 계속하려면 아무 키나 누르세요.
-pause >nul
+echo SO-101 Studio를 켭니다. 실물 팔이 없으면 시뮬레이션으로 켜집니다.
+echo 실물 팔이면: 클램프로 고정하고, 처음에는 속도 30%% 이하로, 전원 스위치 옆에서 지켜보세요. 주변 반경 50cm를 비웁니다.
 rem 켤 때마다 최신 코드로 (git 폴더일 때만, 실패해도 계속)
 set "GIT=git"
 where git >nul 2>&1
