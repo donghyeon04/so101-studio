@@ -1,6 +1,7 @@
 """UltrasonicSource: PerceptionSource + 확인 기능(CheckableSource). 레이더로 후보를 찾고, 팔 확인(check.py)으로 확정한다.
 이벤트(Studio.bus): us.sweep(한 방향 회전마다), us.candidates, us.check_path(구간·점), us.check_result."""
 import dataclasses
+import json
 import math
 from bisect import bisect_right
 from pathlib import Path
@@ -22,7 +23,7 @@ class UltrasonicSource:
     name = "ultrasonic"
 
     def __init__(self, link, cfg, *, bus=None, arm_origin_mm=None, arm_links_fn=None,
-                 baseline_path="config/ultrasonic_baseline.json", ignore_zones=()):
+                 baseline_path="config/ultrasonic_baseline.json", ignore_zones=(), record_dir=None):
         self.link, self.cfg, self.bus = link, cfg, bus
         self.clock = link.clock
         self.arm_origin = arm_origin_mm or _arm_origin_from_workspace()
@@ -41,6 +42,10 @@ class UltrasonicSource:
         self._fails: list[list] = []  # [x, y, 못 간 횟수]: 못 가서 못 잰 후보는 두 번째에 뺀다(6절)
         self._fail_count = 0  # 이번 작업 실행의 확인 실패(물체 없음·못 감) 횟수
         self._n = 0
+        self.record_dir = record_dir  # 있으면 scans/NNN.json·checks/NNN.json을 남긴다(8.4, 정답 쌍은 truth.py)
+        self.saved: list[str] = []  # record_dir 기준 상대 경로, 남긴 순서
+        self._check_raw: list = []  # 이번 확인의 팔 센서 측정 (t_ns, d)
+        self._probe: Probe | None = None
 
     # --- PerceptionSource ---
     def connect(self) -> None:
@@ -93,6 +98,7 @@ class UltrasonicSource:
         if self.bus:
             self.bus.publish("us.candidates", {"objects": [dataclasses.asdict(o) for o in objs], "arcs": raw["arcs"],
                                                "masked": raw["masked"]})
+        self._record_scan("scan", objs, raw)
         return ScanResult(objs, (self.clock.now_ns() - t0) / 1e9, raw)
 
     def rescan(self) -> ScanResult:
@@ -107,6 +113,7 @@ class UltrasonicSource:
         if self.bus:
             self.bus.publish("us.candidates", {"objects": [dataclasses.asdict(o) for o in objs], "arcs": raw["arcs"],
                                                "masked": raw["masked"], "rescan": True})
+        self._record_scan("rescan", objs, raw)
         return ScanResult(objs, (self.clock.now_ns() - t0) / 1e9, raw)
 
     @property
@@ -145,11 +152,13 @@ class UltrasonicSource:
         hz = round(1000 / self.cfg.ping_gap_ms)  # 30Hz
         self._service()
         self._arm_buf.clear()
+        self._check_raw = []
         self._last_pose = None
         self.link.send(cmd="stream", hz=hz, max_mm=300)
         self.link.expect(True)
         self._checking = True
-        return Probe(self, candidate, self.cfg, self.arm_origin, self.bus)
+        self._probe = Probe(self, candidate, self.cfg, self.arm_origin, self.bus)  # end_check가 기록할 구간을 읽는다
+        return self._probe
 
     def end_check(self, cand=None, result=None, info=None, status="ok") -> None:
         if self._checking:
@@ -165,6 +174,12 @@ class UltrasonicSource:
             if self.bus:
                 self.bus.publish("us.check_result", {"id": cand.id, "object": dataclasses.asdict(result) if result else None,
                                                      "info": info or {}, "status": status})
+            if self.record_dir:
+                segs = [{**s, "segment": dataclasses.asdict(s["segment"]), "poses": [dataclasses.asdict(p) for p in s["poses"]]}
+                        for s in (self._probe.segments if self._probe else [])]
+                self._record("checks", {"t_ns": self.clock.now_ns(), "candidate": dataclasses.asdict(cand), "status": status,
+                                        "result": dataclasses.asdict(result) if result else None, "info": info or {},
+                                        "segments": segs, "arm_raw": self._check_raw})
 
     def note_failure(self, x_mm: float, y_mm: float) -> None:
         """확인 실패(못 가서 못 잼)나 집기 실패를 작업 실행이 알린다. check.max_fail_per_run에 센다.
@@ -213,6 +228,27 @@ class UltrasonicSource:
         return out
 
     # --- 내부 ---
+    def _record_scan(self, kind, objs, raw) -> None:
+        if not self.record_dir:
+            return
+        b = self.baseline
+        self._record("scans", {
+            "t_ns": self.clock.now_ns(), "kind": kind,
+            "passes": [{"dir": p.dir, "meas": p.meas, "shift": p.shift} for p in self._passes],
+            "baseline": {"d": b.d, "unstable": sorted(b.unstable)} if b else None,
+            "values": raw["values"], "arcs": raw["arcs"], "masked": raw["masked"], "shift": raw["shift"],
+            "candidates": [dataclasses.asdict(o) for o in objs]})
+
+    def _record(self, kind: str, data: dict) -> None:
+        if not self.record_dir:
+            return
+        n = sum(f.startswith(kind + "/") for f in self.saved) + 1
+        rel = f"{kind}/{n:03d}.json"
+        path = Path(self.record_dir) / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        self.saved.append(rel)
+
     def _service(self) -> None:
         for m in self.link.poll():
             t = m.get("t")
@@ -229,6 +265,8 @@ class UltrasonicSource:
                 self._cur, self._cur_shift = [], {}
             elif t == "a":
                 self._arm_buf.append((m["t_ns"], m["d"]))
+                if self.record_dir and self._checking:
+                    self._check_raw.append((m["t_ns"], m["d"]))
             elif t == "err":
                 raise UltrasonicLinkError(f"ESP32 오류: {m.get('msg')}")
 
