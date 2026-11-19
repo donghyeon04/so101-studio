@@ -15,7 +15,7 @@ pytestmark = pytest.mark.slow
 
 @pytest.fixture(scope="module")
 def mj():
-    b = Backend(log_root=None, viser_port=8193, sim_engine="mujoco")
+    b = Backend(log_root=None, viser_port=0, sim_engine="mujoco")
     yield b
     b.close()
 
@@ -92,7 +92,7 @@ def test_app_rejects_scenario_and_reports_missing_mujoco(monkeypatch, capsys):
     monkeypatch.setattr(gui_app, "WatchdogLink", FakeLink)
     monkeypatch.setattr(backend_mod, "make_sim_driver", missing)
     with pytest.raises(SystemExit) as e:
-        gui_app.main(argparse.Namespace(sim=True, sim_engine="mujoco", viser_port=8194))
+        gui_app.main(argparse.Namespace(sim=True, sim_engine="mujoco", viser_port=0))
     assert e.value.code == 2 and "MuJoCo가 설치되지 않았습니다" in capsys.readouterr().out
 
 

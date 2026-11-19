@@ -12,7 +12,7 @@ def pytest_configure(config):
 
 @pytest.fixture(scope="module")
 def shared_backend():
-    backend = Backend(log_root=None, viser_port=8190)
+    backend = Backend(log_root=None, viser_port=0)
     yield backend
     backend.close()
 

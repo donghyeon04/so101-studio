@@ -65,7 +65,7 @@ def _link():
 
 @pytest.fixture
 def backend(monkeypatch):
-    backend = Backend(log_root=None, viser_port=8192, real_driver=PulledPort(load_robot().poses.get("home")))
+    backend = Backend(log_root=None, viser_port=0, real_driver=PulledPort(load_robot().poses.get("home")))
     backend.link = _link()
     backend.set_speed(30)
     board = {"device": "COM7", "vid": 0x1A86, "pid": 0x55D3, "serial": backend.real.cfg.board_serial, "description": ""}
