@@ -1,12 +1,14 @@
 """정책 실행 페이지 1차 줄인 판 (gui-spec 12.10 ③): 체크포인트 고르기, [시작]·[정지], 탑뷰·손목 카메라와 3D, 끝난 뒤 추론 시간·건너뜀·거부 수.
 늘 시뮬레이션 쪽 서비스(backend.sim)에 붙는다. 일시 정지·다음 배치·판정 표시는 2차다."""
 
+import json
 import time
 from pathlib import Path
 
 from nicegui import run, ui
 
 from ...core.logread import read_events
+from ...core.types import JointState
 from ...service.policy_runner import CAMERAS, PolicyRunner
 from .common import CAMERA_TITLES, Controls, camera_tile, scene_frame, watch_visibility
 
@@ -19,6 +21,17 @@ def checkpoints(root: Path) -> list[str]:
     """runs/train/*/checkpoints/*/pretrained_model, 최근 것 먼저."""
     found = sorted(root.glob("*/checkpoints/*/pretrained_model"), key=lambda p: p.stat().st_mtime, reverse=True)
     return [str(p) for p in found]
+
+
+def start_pose_of(checkpoint: Path) -> list[float] | None:
+    """학습 데이터의 시작 자세(결정 0071): 체크포인트의 train_config.json → dataset.root → meta/collect.json의 start_pose. 없거나 못 읽으면 None."""
+    try:
+        cfg = json.loads((Path(checkpoint) / "train_config.json").read_text(encoding="utf-8"))
+        info = json.loads((Path(cfg["dataset"]["root"]) / "meta" / "collect.json").read_text(encoding="utf-8"))
+    except (OSError, KeyError, TypeError, ValueError):
+        return None
+    pose = info.get("start_pose")
+    return [float(v) for v in pose] if pose and len(pose) == 6 else None
 
 
 def result_lines(result: dict | None, rejects: int | None) -> list[str]:
@@ -59,6 +72,11 @@ def build(backend, client_id: str, actions) -> None:
         backend.policy_loading, backend.policy_cancel = True, False
         started_ns[0] = time.time_ns()
         try:
+            if (pose := start_pose_of(Path(path))) is not None:  # 학습 때와 같은 자세에서 시작해야 정책이 상자를 본다(결정 0071)
+                r = await run.io_bound(svc.move_joints, JointState(*pose))
+                if r.status != "ok":
+                    ui.notify(f"시작 자세로 못 갔습니다: {r.reason or r.status}", type="warning")
+                    return
             why = await run.io_bound(runner.start)  # torch·lerobot을 처음 불러오면 몇 초 걸린다
         finally:
             backend.policy_loading = False
