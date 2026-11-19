@@ -37,9 +37,9 @@ check:
   early_stop_cells: 0     # T9, 경로 안에서 멈추는 기능이 생길 때까지 0(끔)
   fallback_grid_mm: 20
   max_fail_per_run: 3     # 한 번의 작업 실행에서 확인·집기 실패가 이만큼이면 DONE. 0 = 끔
-  tool_reach_mm: {min: 60, max: 255}   # 단동식(기본). 손끝 반경, 팔 원점 기준 (REQ-023 계산 50~265 + 여유)
+  tool_reach_mm: {min: 100, max: 255}   # 단동식(기본). 손끝 반경, 팔 원점 기준. 방위 45·90·135° 모두 되는 범위(접근 높이 60 기준, REQ-090·measurements "H-2 뒤 집기 범위")
   retry_pull_mm: 2        # U16: ik_fail이면 그 단계 첫 점을 이만큼씩 안쪽으로 당겨 다시 부른다
   retry_pull_max_mm: 85   # 당기는 거리 합의 상한. 0 = 끔
-  tool_reach_by_gripper:   # 그리퍼 종류별 도달 범위(결정 11-15 기획): 있으면 tool_reach_mm 대신 쓴다. 병렬 손은 팔 도달 날값이 73~250이라 최소를 75로(결정 11-15, 70~72 점이 경로에 남으면 단계 전체가 ik_fail)
-    parallel: {min: 75, max: 250}
+  tool_reach_by_gripper:   # 그리퍼 종류별 도달 범위(결정 11-15 기획): 있으면 tool_reach_mm 대신 쓴다. 병렬 손은 H-2 뒤 접근 높이 60 기준 95~230(REQ-090). 범위 밖 점이 경로에 남으면 단계 전체가 ik_fail
+    parallel: {min: 95, max: 230}
 arm_sensor_offset_mm: {x: 0.6, y: 66.5, z: 99.5}   # 두 턱 끝 가운데 기준, 결정 0063, #335 (CAD 값, 센서 높이 약 155mm). 도구 프레임(x = 턱이 벌어지는 축), A0 보정으로 고침

@@ -119,14 +119,13 @@ def test_three_objects_end_to_end_time(tmp_path):
 
 
 def test_ring_is_one_follow_path_call(tmp_path):
-    """원(R)은 follow_path 한 번(연속 경로)이고, 물체당 4번(L1, L2, 원, L3+L4) 부른다."""
-    cfg, clk, esp, arm = build([Box(300, 200, 0)])
+    """원(R)은 follow_path 한 번(연속 경로)이다. 물체당 4번(L1, L2, 원, L3+L4) 부르고, 도달 범위(100~255)에 걸려 선이 끊기면 조각마다 더 부른다."""
+    cfg, clk, esp, arm = build([Box(215, 190, 0)])
     src = make_source(cfg, clk, esp, arm, tmp_path)
     do_check(src, arm, src.scan().objects[0])
-    assert len(arm.calls) == 4
+    assert len(arm.calls) >= 4
     lengths = sorted(L for L, _ in arm.calls)
-    assert any(abs(L - 2 * math.pi * cfg.check.ring_r_mm) < 3 for L in lengths)  # 원은 한 번
-    assert lengths[-1] > 2 * cfg.check.line_mm  # L3+L4는 한 번에 이어 간다(연결 구간 포함)
+    assert sum(abs(L - 2 * math.pi * cfg.check.ring_r_mm) < 3 for L in lengths) == 1  # 원은 한 번
 
 
 def test_link_lost_raises(tmp_path):
@@ -161,13 +160,13 @@ def test_prefetch_makes_next_scan_instant(tmp_path):
 
 def test_unreachable_segment_is_skipped_not_deleted(tmp_path):
     """바깥쪽 물체: 세로선(L2)이 도달 밖이면 그 구간을 건너뛰고(unreachable 기록) 나머지로 확정한다."""
-    cfg, clk, esp, arm = build([Box(250, 220, 0)], reach=STRICT_REACH)  # 센서 오프셋 66.5mm 때문에 옛 자리(300, 235)는 전부 도달 밖이 된다
+    cfg, clk, esp, arm = build([Box(250, 200, 0)], reach=STRICT_REACH)  # 새 팔 원점(215.2, 21.4)에서 L2가 반경 240 밖으로 나간다
     src = make_source(cfg, clk, esp, arm, tmp_path)
     cand = src.scan().objects[0]
     obj, probe, _ = do_check(src, arm, cand)
     assert "L2" in probe.info["unreachable"]
     assert obj is not None and probe.status == "ok"
-    assert math.dist((obj.x_mm, obj.y_mm), (250, 220)) < 15
+    assert math.dist((obj.x_mm, obj.y_mm), (250, 200)) < 15
     assert obj.confidence < 0.9  # 못 간 구간이 있으면 덜 믿는다
 
 
@@ -287,10 +286,10 @@ def test_clip_to_reach_splits_and_limits_paths(tmp_path):
     cfg, clk, esp, arm = build([Box(215, 170, 0)], yaw_pivot_mm=0)  # yaw 고정 90
     src = make_source(cfg, clk, esp, arm, tmp_path)
     probe = src.start_check(src.scan().objects[0])
-    # yaw 90이라 손끝 = 센서 + (66.5, -0.6). 센서 x 165.2면 손끝 x 231.7이라 원점(215.2, 21.4) 반경 60 안(손끝 y -36.3~79.1)은 건너뛴다
+    # yaw 90이라 손끝 = 센서 + (66.5, -0.6). 센서 x 165.2면 손끝 x 231.7이라 원점(215.2, 21.4) 반경 100 안(손끝 y -77.2~120.0)은 건너뛴다
     pieces = probe._clip([(165.2, -100), (165.2, 140)])
     assert len(pieces) == 2
-    assert pieces[0][-1][1] == pytest.approx(-36.3, abs=3) and pieces[1][0][1] == pytest.approx(79.1, abs=3)
+    assert pieces[0][-1][1] == pytest.approx(-77.2, abs=3) and pieces[1][0][1] == pytest.approx(120.0, abs=3)
     reach = cfg.check.tool_reach_mm
     probe, _obj, segs = _all_segments(src, arm, src.scan().objects[0])
     for seg in segs:
@@ -553,12 +552,12 @@ def test_benchmark_seed_timeout_marks_seed_failed():
 
 
 def test_tool_reach_by_gripper():
-    """그리퍼별 도달 범위: 병렬은 75~250, 단동식·없음은 60~255(기본), 명시한 값이 가장 우선."""
+    """그리퍼별 도달 범위(REQ-090, 접근 높이 60 기준): 병렬은 95~230, 단동식·없음은 100~255(기본), 명시한 값이 가장 우선."""
     from so101_studio.perception.ultrasonic.model import load_config
 
-    assert load_config().check.tool_reach_mm == {"min": 60, "max": 255}
-    assert load_config(gripper="single_jaw").check.tool_reach_mm == {"min": 60, "max": 255}
-    assert load_config(gripper="parallel").check.tool_reach_mm == {"min": 75, "max": 250}
+    assert load_config().check.tool_reach_mm == {"min": 100, "max": 255}
+    assert load_config(gripper="single_jaw").check.tool_reach_mm == {"min": 100, "max": 255}
+    assert load_config(gripper="parallel").check.tool_reach_mm == {"min": 95, "max": 230}
     assert load_config(gripper="parallel", tool_reach_mm={"min": 50, "max": 265}).check.tool_reach_mm == {"min": 50, "max": 265}
 
 
@@ -566,12 +565,12 @@ def test_benchmark_gripper_flows_into_check_reach():
     """벤치마크 build(gripper=...)가 실제 CHECK와 같은 길(load_config)로 그리퍼별 값을 읽는다."""
     from so101_studio.perception.ultrasonic.benchmark import build
 
-    assert build([], gripper="parallel")[0].check.tool_reach_mm.min == 75
-    assert build([])[0].check.tool_reach_mm.min == 60
+    assert build([], gripper="parallel")[0].check.tool_reach_mm.min == 95
+    assert build([])[0].check.tool_reach_mm.min == 100
 
 
 @pytest.mark.slow  # 팔 서비스를 만들어 각 약 11초
-@pytest.mark.parametrize(("gripper", "lo", "hi"), [("single_jaw", 60, 255), ("parallel", 75, 250)])
+@pytest.mark.parametrize(("gripper", "lo", "hi"), [("single_jaw", 100, 255), ("parallel", 95, 230)])
 def test_make_ultrasonic_source_reads_reach_from_arm_gripper(gripper, lo, hi, tmp_path):
     """service/ultrasonic.py의 한 줄: 팔 cfg의 그리퍼 종류가 check.tool_reach_mm(그리퍼별)로 이어진다."""
     from so101_studio.arm.sim_driver import SimDriver
