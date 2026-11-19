@@ -627,6 +627,22 @@ def test_face_offset_polar_and_layout_on_plate():
             assert bm.on_plate(b, ws) and 45 <= math.degrees(math.atan2(b.y - by, b.x - bx)) <= 135
 
 
+def test_show80_layout():
+    """REQ-099: show80은 반경 150~220, 모서리 80mm 이상, 판 안·통 회피(on_plate)를 지킨다."""
+    import itertools
+    import random
+
+    from so101_studio.core.config import load_workspace
+    from so101_studio.perception.ultrasonic import benchmark as bm
+    ws, (bx, by) = load_workspace(), bm.arm_base()
+    for seed in range(3):  # 배치 하나에 4초쯤 걸린다(edge_gap 다시 뽑기)
+        boxes = bm.random_layout(random.Random(seed), "show80")
+        assert len(boxes) == 3
+        for b in boxes:
+            assert bm.on_plate(b, ws) and 150 <= math.hypot(b.x - bx, b.y - by) <= 220
+        assert all(bm.edge_gap(a, b) >= 80 for a, b in itertools.combinations(boxes, 2))
+
+
 def test_layout_rejects_body_touching_bin_wall():
     """설계서 6절: 중심이 통 무시 원 밖이어도 몸체(긴 막대)가 통 벽에 걸리면 거른다."""
     from so101_studio.core.config import load_workspace
