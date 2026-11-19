@@ -809,3 +809,25 @@ p99 증가는 -0.04ms(기준 2ms 이하), time_lost_s 증가 0%(기준 1% 미만
 - `workspace.yaml` `reach_mm`을 {90, 250}에서 **{100, 230}**(두 그리퍼 모두 되는 범위)으로 바꿨다.
 - 초음파 `check.tool_reach_by_gripper`에 맞출 값: 병렬 95~230, 단동식 100~255(방위 셋 모두 되는 범위).
 - `table_z_mm`은 CAD 값이다. H-6 실측으로 바뀌면 같은 계산을 다시 한다.
+
+## MuJoCo ACT 2차 수집·학습·평가 (2026-11-19, REQ-087, 결정 0071, 결정 0067 판·통 장면, `--clock step`)
+- 시작 자세 `start_pose: [0, -30, 30, 75, 0, 50]`(묶음 `collect_pick2`, 연결 뒤 radar_clear에서 이 자세로 옮긴 다음 기록·정책 시작). 모든 관절이 한계에서 15° 이상 안쪽이다(가장 가까운 것은 wrist_flex 75, 한계 103.6).
+  - 고른 방법: pan 0·roll 0·그리퍼 50으로 고정하고 lift·elbow·wrist_flex 격자(한계 15° 안쪽)를 `collect_pick1` 배치 20개에 놓았다. 손목 카메라(320×240) 첫 프레임의 주황 픽셀 50개 이상을 "보임"으로 셌다.
+  - 1위 후보가 수집 씨앗 0~199 198/200(99%), 평가 씨앗 10000~10049 49/50(98%)이었다. 이웃 [0,-35,35,75]도 198/200이고, wrist_flex 70은 68/200이라 민감하다.
+- 수집: `mujoco_bench --suite collect_pick2 --record pick2_v1 --seed-start 0 --seeds 330 --clock step --jobs 12 --viewer grid` → placed_ok 314, rejected 1(통 벽), sim_fail 15. sim_fail은 모두 메모리 부족이었다(MemoryError, `avcodec_open2(libsvtav1)` 할당 실패, BrokenProcessPool). 일꾼 12개가 동시에 녹화하면 메모리가 모자라므로, 녹화는 일꾼 6개 안팎으로 한다. 저장 **314 에피소드, 58,847프레임**(중앙 188프레임, 7.5초)이다. 첫 프레임 손목 카메라에 상자가 보인 것은 32개 중 32개(픽셀 중앙 7,618)다. action과 state 차이 중앙 0.17°, 정지 프레임 9.7%다.
+- 사본: `--clip pick2_v1`이 그리퍼 7,612프레임(12.77%), wrist_flex 6,794프레임(11.4%, 1° 안쪽으로)을 잘랐다.
+- 학습: `pick2_v1-clip`, k0만(k5는 뺐다), ACT 기본 + `n_action_steps` 100, 60k스텝, 52분 16초, loss 0.111(l1).
+- 평가: `--suite collect_pick2 --policy <ckpt> --seed-start 10000 --seeds 50 --clock step --jobs 6 --viewer grid`. 추론 지연은 시뮬레이션 시간으로 0이다.
+
+| 체크포인트 | placed_ok | 끝난 이유 |
+|---|---|---|
+| 10k | 12/50 | fault 26, joint_limit:gripper 18, scene:bin 4, joint_limit:wrist_flex 2 |
+| 20k | 11/50 | max_s 26, fault 17, joint_limit:gripper 5, joint_limit:wrist_flex 2 |
+| 30k | 13/50 | max_s 23, fault 17, joint_limit:gripper 8, scene:bin 2 |
+| 40k | **15/50** | max_s 28, fault 21, scene:bin 1 |
+| 50k | 14/50 | max_s 24, fault 23, scene:bin 2, joint_limit:gripper 1 |
+| **60k** | **25/50** | max_s 31, fault 17, joint_limit:gripper 2 |
+
+- **기준(15/50) 통과**: 60k가 25/50(50%)이다. 1차(시작 자세 radar_clear, 옛 장면)의 최고 4/50보다 크게 올랐다.
+- 60k 실패 25건 가운데 fault 13은 `overload:shoulder_pan` 11과 `overcurrent` 6이다(fault 17 전체 기준). 정책이 상자·통 벽을 밀어 과부하 감시가 멈췄다. max_s 12건(untouched 6, moved 5, toppled 1)과 joint_limit:gripper 0건이 나머지다. 60k의 placed_ok에도 끝난 이유가 joint_limit:gripper인 것이 2건 있다. 한계 거부가 실패의 절반을 넘지 않으므로 6.10 건은 올리지 않는다.
+- 11/23 범위 점검 기준(15/50 이상이면 L3·L4를 시연에 넣는다)에 들어간다.
