@@ -218,3 +218,12 @@ def test_collect_pick2_start_pose_keeps_15_degrees_from_every_limit():
     cfg = bench.load_cfg(bench.suite_override(s, None, bench.BENCH_DIR))
     q = dict(zip(cfg.joint_limits_deg, s["start_pose"]))
     assert all(lo + 15 <= q[j] <= hi - 15 for j, (lo, hi) in cfg.joint_limits_deg.items() if j != "gripper") and q["gripper"] == 50
+
+
+def test_approach_override_adds_one_line(tmp_path):
+    """6.6.1 M5 비교: --approach는 덮어쓰기 파일 사본에 grasp_approach 한 줄을 더한다(그리퍼 등 나머지는 그대로)."""
+    s = bench.load_suite("pick_grid")
+    for a in ("vertical", "auto"):
+        cfg = bench.load_cfg(bench.suite_override(s, None, tmp_path, a))
+        assert cfg.grasp_approach == a and cfg.gripper == "parallel"
+    assert bench.suite_override(s, None, tmp_path) == bench.OVERRIDE
