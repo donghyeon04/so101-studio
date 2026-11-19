@@ -74,7 +74,7 @@ class RobotConfig:
     blocked_held_cruise_deg: float = 9.0  # 실물 최대 6.63
     blocked_grip_units: float = 10.0  # 그리퍼 닫기(집기 밖): 실제 - 명령이 이 값(그리퍼 눈금)을 넘으면 접촉. 집기의 contact_lag_units(4)가 먼저 걸리도록 더 크게
     sim_blocked: dict = field(default_factory=dict)  # MuJoCo 시뮬레이션(드라이버 physical_objects)일 때 blocked_* 문턱을 이 값으로 덮는다: 액추에이터 추종 오차가 실물 서보보다 훨씬 작아 실물 문턱으로는 막힘 감지가 꺼진 것과 같다
-    gripper: str = "single_jaw"  # 그리퍼 종류: single_jaw(기본) | parallel. 세부 값은 config/grippers/<종류>.yaml이 robot.yaml 위에 겹쳐진다 (결정 0043)
+    gripper: str = "single_jaw"  # 그리퍼 종류: single_jaw | parallel. 이 기본값은 robot.yaml 값만 쓴 단동식이고, 설정 파일 기본은 robot.yaml의 parallel(REQ-098). 세부 값은 config/grippers/<종류>.yaml이 robot.yaml 위에 겹쳐진다 (결정 0043)
     gripper_tip_offset_mm: float = 0.0  # 병렬 그리퍼: TCP(두 턱 중앙)에서 턱 끝까지 도구 축 방향 거리. 실물 몫(자리만)
     gripper_width_mm: list[list[float]] = field(default_factory=lambda: [[0, 0], [100, 90]])
     a_max_deg_s2: float = 120
@@ -177,10 +177,11 @@ GRIPPER_TYPES = ("single_jaw", "parallel")
 
 
 def load_robot_ex(path: str | Path = "config/robot.yaml", arm: str | None = None, serials=(), arms_dir: str | Path | None = None,
-                  local_path: str | Path | None = None) -> tuple[RobotConfig, dict]:
+                  local_path: str | Path | None = None, gripper: str | None = None) -> tuple[RobotConfig, dict]:
     """robot.yaml <- config/arms/<팔>.yaml <- config/grippers/<종류>.yaml <- config/local.yaml 순서로 겹쳐 읽는다(뒤가 앞을 덮고, 키 단위로 통째로 바꾼다).
     arms 폴더와 local.yaml은 robot.yaml 옆에서 찾는다. 둘 다 없으면 robot.yaml만 읽는다(예전과 같다).
-    (설정, {"arm": 이름|None, "reason": 이유, "files": [읽은 파일]})."""
+    gripper를 주면 그리퍼 종류만 local.yaml보다 앞서 이것으로 고른다(시험·벤치마크용).
+    (설정, {"arm": 이름|None, "reason": 이유, "files": [읽은 파일], "gripper_from": 그리퍼를 고른 곳})."""
     path = Path(path)
     arms_dir = Path(arms_dir) if arms_dir else path.parent / "arms"
     local_path = Path(local_path) if local_path else path.parent / "local.yaml"
@@ -189,7 +190,8 @@ def load_robot_ex(path: str | Path = "config/robot.yaml", arm: str | None = None
     merged = _read_yaml(path)
     files = [str(path)]
     arm_yaml = _read_yaml(arm_files(arms_dir)[name]) if name else {}
-    gtype = local.get("gripper") or arm_yaml.get("gripper") or merged.get("gripper") or "single_jaw"
+    sources = (("인자", gripper), ("local.yaml", local.get("gripper")), ("팔 파일", arm_yaml.get("gripper")), ("robot.yaml", merged.get("gripper")))
+    gfrom, gtype = next(((k, v) for k, v in sources if v), ("기본값", "single_jaw"))
     if gtype not in GRIPPER_TYPES:
         raise ValueError(f"알 수 없는 그리퍼 종류: {gtype} (있는 종류: {list(GRIPPER_TYPES)})")
     gfile = path.parent / "grippers" / f"{gtype}.yaml"
@@ -204,12 +206,12 @@ def load_robot_ex(path: str | Path = "config/robot.yaml", arm: str | None = None
     if local_path.exists():
         files.append(str(local_path))
     merged |= {k: v for k, v in local.items() if k != "arm"}
-    return draccus.decode(RobotConfig, merged), {"arm": name, "reason": reason, "files": files, "local": local}
+    return draccus.decode(RobotConfig, merged), {"arm": name, "reason": reason, "files": files, "local": local, "gripper_from": gfrom}
 
 
 def load_robot(path: str | Path = "config/robot.yaml", arm: str | None = None, serials=(), arms_dir: str | Path | None = None,
-               local_path: str | Path | None = None) -> RobotConfig:
-    return load_robot_ex(path, arm, serials, arms_dir, local_path)[0]
+               local_path: str | Path | None = None, gripper: str | None = None) -> RobotConfig:
+    return load_robot_ex(path, arm, serials, arms_dir, local_path, gripper)[0]
 
 
 def load_workspace(path: str | Path = "config/workspace.yaml") -> WorkspaceConfig:

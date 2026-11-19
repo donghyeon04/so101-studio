@@ -10,7 +10,7 @@ from so101_studio.core.types import DetectedObject
 from so101_studio.service import params
 from so101_studio.service.arm_service import ArmService
 
-CFG = load_robot("config/robot.yaml")
+CFG = load_robot("config/robot.yaml", gripper="single_jaw")  # 단동식 기하로 잰 기대값 (REQ-098: 기본은 parallel)
 WS = load_workspace("tests/workspace_600x400.yaml")
 
 

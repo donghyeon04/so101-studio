@@ -12,7 +12,7 @@ from so101_studio.arm.sim_driver import SimDriver
 from so101_studio.core.config import load_robot, load_workspace
 from so101_studio.service.arm_service import ArmService
 
-CFG = load_robot("config/robot.yaml")
+CFG = load_robot("config/robot.yaml", gripper="single_jaw")  # 단동식 기하로 잰 기대값 (REQ-098: 기본은 parallel)
 WS = load_workspace("tests/workspace_600x400.yaml")
 Z = 55.0
 OFF = {"x": 0.0, "y": 30.0, "z": 55.0}  # 호출하는 쪽(초음파 설정)이 넘기는 값

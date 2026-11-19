@@ -1,2 +1,2 @@
-# 단동식(SO-101 기본, 고정 턱 1 + 가동 턱 1). 값은 robot.yaml에 있고 여기서는 덮어쓰지 않는다.
+# 단동식(SO-101 원래 그리퍼, 고정 턱 1 + 가동 턱 1). 예비: 켜려면 config/local.yaml에 `gripper: single_jaw`(REQ-098). 값은 robot.yaml에 있고 여기서는 덮어쓰지 않는다.
 gripper: single_jaw

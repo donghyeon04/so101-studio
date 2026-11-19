@@ -19,12 +19,12 @@ def load_parallel():
         return load_robot("config/robot.yaml", local_path=Path(d) / "local.yaml")
 
 
-def test_default_is_single_jaw_and_parallel_is_selected_by_local_yaml(tmp_path):
-    assert load_robot("config/robot.yaml", local_path=tmp_path / "none.yaml").gripper == "single_jaw"
-    local = tmp_path / "local.yaml"
-    local.write_text("gripper: parallel\n", encoding="utf-8")
-    c = load_robot("config/robot.yaml", local_path=local)
+def test_default_is_parallel_and_single_jaw_is_selected_by_local_yaml(tmp_path):
+    c = load_robot("config/robot.yaml", local_path=tmp_path / "none.yaml")  # REQ-098: 기본 병렬
     assert c.gripper == "parallel" and c.grasp_tilt_deg == 0 and max(mm for _, mm in c.gripper_width_mm) == 84
+    local = tmp_path / "local.yaml"
+    local.write_text("gripper: single_jaw\n", encoding="utf-8")
+    assert load_robot("config/robot.yaml", local_path=local).gripper == "single_jaw"
     local.write_text("gripper: nope\n", encoding="utf-8")
     with pytest.raises(ValueError):
         load_robot("config/robot.yaml", local_path=local)

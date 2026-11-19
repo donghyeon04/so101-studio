@@ -37,7 +37,7 @@ def test_ik_does_not_depend_on_what_other_calls_left_in_the_solver():
     """placo 풀이기는 마지막 fk·턱 높이 계산이 남긴 상태에 따라 같은 입력에 다른 해(또는 None)를 냈다: 상태 스레드의 fk가 끼어드는 부하에서 follow_path가 가끔 ik_fail (REQ 11-13)."""
     from so101_studio.core.config import load_robot, load_workspace
 
-    cfg = load_robot("config/robot.yaml")
+    cfg = load_robot("config/robot.yaml", gripper="single_jaw")  # Kinematics 기본 손이 단동식 (REQ-098)
     kin = Kinematics(cfg.urdf, load_workspace("tests/workspace_600x400.yaml").base, cfg.joint_limits_deg)  # 앱과 같은 설정(관절 한계·받침)
     seed, pose = JointState(0.0, -16.43, 29.72, 76.7, 0.0, 3.0), ToolPose(301.0, 200.0, 47.3, 90.0, -90.0)
     first = kin.ik(pose, seed, max_iter=100)

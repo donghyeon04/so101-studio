@@ -1,4 +1,4 @@
-# 병렬 그리퍼(Robonine Parallel Gripper, STS3215 ID 6, 스트로크 84mm). 결정 0043-1. 켜려면 config/local.yaml에 `gripper: parallel`.
+# 병렬 그리퍼(Robonine Parallel Gripper, STS3215 ID 6, 스트로크 84mm). 결정 0043-1. 기본 그리퍼(robot.yaml `gripper: parallel`, REQ-098).
 # TCP는 두 턱 중앙, 보정 0, 기본 수직(grasp_tilt_deg 0), `grasp_approach: auto`면 접근 각도 후보 고르기(arm-software-spec 6.6.1), W <= G - 4. 아래 값은 모두 실물 시험 전 시작값이다 (runbook에서 채운다).
 gripper: parallel
 gripper_width_mm: [[0, 0], [100, 84]]   # [서보 값, 벌림 폭 mm]. 실물 몫: 카드·캘리퍼로 잰 표로 바꾼다
