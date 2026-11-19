@@ -12,6 +12,7 @@ from ..core.config import load_workspace
 from ..core.types import DetectedObject
 from ..perception.ultrasonic import truth
 from ..perception.ultrasonic.benchmark import (
+    SCENARIOS,
     angle_ok,
     edge_gap,
     on_plate,
@@ -95,13 +96,16 @@ def a1_summary(res: list[dict]) -> str:
 
 
 def i1_layout(k: int) -> list[Box]:
-    """I1 배치 K: demo80 배치를 좌표 5mm·각도 5°로 반올림한 물체 3개.
-    반올림으로 모서리 간격이 80mm 아래로 줄면(K=1·2·6·8은 첫 배치가 77~80mm) 같은 rng로 다음 배치를 뽑는다. 20번 안에 안 되면 RuntimeError."""
+    """I1 배치 K: show80 배치(반경 150~220)를 좌표 5mm·각도 5°로 반올림한 물체 3개.
+    반올림 뒤 판 안·모서리 80mm·반경 150~220(149.x가 생길 수 있다)을 다시 보고, 어기면 같은 rng로 다음 배치를 뽑는다. 20번 안에 안 되면 RuntimeError."""
     r5 = lambda v: round(v / 5) * 5
     rng, ws = random.Random(f"i1-{k}"), load_workspace()
+    lo, hi = SCENARIOS["show80"][1]
+    bx, by = ws.robot_base_in_table["x_mm"], ws.robot_base_in_table["y_mm"]
     for _ in range(20):
-        boxes = [Box(r5(b.x), r5(b.y), r5(b.angle_deg), b.width, b.length, b.height) for b in random_layout(rng, "demo80")]
-        if all(on_plate(b, ws) for b in boxes) and all(edge_gap(a, b) >= 80 for i, a in enumerate(boxes) for b in boxes[i + 1:]):
+        boxes = [Box(r5(b.x), r5(b.y), r5(b.angle_deg), b.width, b.length, b.height) for b in random_layout(rng, "show80")]
+        if (all(on_plate(b, ws) and lo <= math.dist((b.x, b.y), (bx, by)) <= hi for b in boxes)
+                and all(edge_gap(a, b) >= 80 for i, a in enumerate(boxes) for b in boxes[i + 1:])):
             return boxes
     raise RuntimeError(f"I1 배치 {k}: 반올림 뒤 시연 배치 규칙을 지키는 배치를 못 만들었다")
 
