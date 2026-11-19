@@ -855,3 +855,21 @@ p99 증가는 -0.04ms(기준 2ms 이하), time_lost_s 증가 0%(기준 1% 미만
 - 6.6.1의 바꾸기 조건("auto의 placed_ok가 vertical 이상이고 거짓 성공이 늘지 않으면 기본을 auto로")을 **채우지 못한다**. 기본은 vertical 그대로 둔다.
 - 반경 240mm는 #472(reach_mm 100~230) 뒤로 `ik_fail`이 아니라 `out_of_bounds: pick_out_of_reach`로 거부된다.
 - 13.7 (a) topedge를 auto로 다시 돌리는 것은 이번에 하지 않았다(시나리오가 단동식 기준이라 병렬 손 auto 비교에 맞게 고쳐야 한다).
+
+## MuJoCo ACT 2차 밤샘 결과: k0clip·s2·s3·v2 (2026-11-19 밤~11-20, 결정 0071·0072, 커밋 f14e049, `--clock step`, 평가 씨앗 10000~10049)
+- 평가 명령: `mujoco_bench --suite collect_pick2 --policy <ckpt>/pretrained_model --seed-start 10000 --seeds 50 --clock step --jobs 6`. 추론 평균 3.9ms. 학습은 모두 k0·clip·ACT 기본 + `n_action_steps` 100·batch 8.
+- 이름 정리: `k0clip`은 pick2_v1(314개) 첫 학습의 다시 학습, `s2`·`s3`은 같은 데이터·같은 명령을 다시 학습한 것(씨앗만 다름), `v2`는 pick2_v2(시연 988개)다. 같은 설정도 학습마다 달라 pick2_v1 계열은 7~17/50이다.
+
+| 이름(`runs/train/…`) | 데이터 | 체크포인트별 placed_ok (50개 중) | 가장 좋은 체크포인트 |
+|---|---|---|---|
+| `act_pick2_k0clip` | pick2_v1-clip, 60k | 40k 16, 50k 16, **60k 17** | `act_pick2_k0clip/checkpoints/060000` (17/50) |
+| `act_pick2_k0clip_s2` | 같음, 60k | 40k 7, 50k 11, 60k 7 | `…_s2/checkpoints/050000` (11/50) |
+| `act_pick2_k0clip_s3` | 같음, 60k | 40k 12, 50k 11, 60k 9 | `…_s3/checkpoints/040000` (12/50) |
+| `act_pick2v2_k0clip` | pick2_v2-clip, 100k | 10k 13, 20k 24, 30k 31, 40k 36, 50k 36, 60k 42, 70k 39, 80k 37, 90k 39, **100k 45** | `act_pick2v2_k0clip/checkpoints/100000` (**45/50**, 90%) |
+
+- s2·s3의 10k~30k는 평가하지 않았다. 표의 "가장 좋은"은 평가한 체크포인트 안에서다.
+- **v2**: `pick2_v2`는 `collect_pick2`로 씨앗 0~989를 모아 placed_ok 988(저장 988 에피소드·184,965프레임), rejected 2다. `--clip`이 wrist_flex 21,064프레임(11.39%)·그리퍼 23,643프레임(12.78%)을 잘랐다(`pick2_v2-clip`). 학습은 k0, 100k스텝, 1시간 41분, loss 0.024(l1 0.023, 4.33 epoch)다.
+- v2 100k 실패 5건: toppled 3(씨앗 10032·10044·10048 등), moved 1, untouched 1. 끝난 이유는 max_s 49, `servo:fault` 1이다. pick2_v1 계열의 fault 17건(과부하 감시, 위 "60k fault 원인")이 v2에서는 10k 24 → 60k 2 → 100k 1로 줄었다.
+- 읽기: 시연을 314개에서 988개로 늘리자 17/50 → 45/50이 됐고 30k부터 15/50 기준을 넘는다. 체크포인트 사이 흔들림은 36~45/50(40k 이후)이다. 가장 좋은 체크포인트를 같은 50개 씨앗으로 골랐으므로 45/50은 약간 낙관이다(새 씨앗 확인은 하지 않았다). 시뮬레이션 안의 값이고 부하 판정이 실물보다 예민한 상태 그대로다.
+- 같은 밤 확인: 전체 시험 1381 passed(24분 5초), 기준값 `carry` 씨앗 0~499 placed_ok 1000.
+- 결정 0072에 따라 ACT 새 수집은 하지 않는다.
