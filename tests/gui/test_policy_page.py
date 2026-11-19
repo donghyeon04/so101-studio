@@ -170,3 +170,14 @@ def test_training_preset_is_applied_and_the_old_values_come_back(backend):
         assert policy_page.apply_training_preset(svc, {}) == {}  # collect.json이 없는 체크포인트
     finally:
         svc.set_params({k: old[k] for k in ("speed_pct", "joint_v_max_deg_s", "servo_acceleration")})
+
+
+def test_gripper_mismatch_is_reported_before_start(backend):
+    """학습 손과 시뮬레이션 손이 다르면 시작 전에 알린다(11-20: 병렬로 배운 정책이 단동식 손에서 0/6). 모르면 막지 않는다."""
+    svc = backend.sim
+    have = svc.cfg.gripper
+    other = "parallel" if have != "parallel" else "single_jaw"
+    why = policy_page.gripper_mismatch(svc, {"preset_values": {"gripper": other}})
+    assert why and policy_page.GRIPPER_TEXT[other] in why and "다시 켠" in why
+    assert policy_page.gripper_mismatch(svc, {"preset_values": {"gripper": have}}) is None
+    assert policy_page.gripper_mismatch(svc, {}) is None

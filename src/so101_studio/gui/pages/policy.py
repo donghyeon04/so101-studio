@@ -41,6 +41,20 @@ def start_pose_of(checkpoint: Path) -> list[float] | None:
     return [float(v) for v in pose] if pose and len(pose) == 6 else None
 
 
+GRIPPER_TEXT = {"parallel": "병렬", "single_jaw": "단동식"}
+
+
+def gripper_mismatch(svc, info: dict) -> str | None:
+    """학습 때 손(collect.json preset_values.gripper)과 지금 시뮬레이션 손이 다르면 안내 문장. 같거나 모르면 None.
+    shortcut: 그 자리에서 손을 바꾸지 않는다(드라이버를 다시 지어야 한다), 정책 실행이 자주 쓰이면 자동 전환을 넣는다."""
+    want, have = (info.get("preset_values") or {}).get("gripper"), svc.cfg.gripper
+    if not want or want == have:
+        return None
+    name = lambda g: GRIPPER_TEXT.get(g, g)
+    return (f"이 정책은 {name(want)} 손으로 배웠는데 지금 시뮬레이션은 {name(have)} 손입니다. "
+            f"팔 > 그리퍼에서 {name(want)}으로 바꾸고 GUI를 다시 켠 뒤 시작하세요.")
+
+
 def apply_training_preset(svc, info: dict) -> dict:
     """학습 데이터를 모은 수집 프리셋(collect.json preset_values)을 시뮬레이션 서비스에 적용하고 바꾸기 전 값을 돌려준다.
     GUI 기본(속도 30%, 90°/s)이면 정책 목표가 잘려 팔이 뒤처진다(11-20 measurements, 씨앗 10000~10019 11/20 → 20/20).
@@ -97,6 +111,9 @@ def build(backend, client_id: str, actions) -> None:
         judge = None
         info = training_info(Path(path))
         suite = info.get("suite")
+        if why := gripper_mismatch(svc, info):  # 다른 손이면 손목 그림·집는 기구학이 달라 조용히 실패한다(11-20: 단동식 0/6)
+            ui.notify(why, type="warning", timeout=0, close_button="닫기")
+            return
         backend.policy_loading, backend.policy_cancel = True, False  # 프리셋 적용부터 불러오기까지: 그 사이 tick이 프리셋을 되돌리지 않게
         try:
             try:  # 세계 다시 짓기(connect) 전에: 재연결 키도 이번 연결에 먹게. 끝나면 tick이 되돌린다
