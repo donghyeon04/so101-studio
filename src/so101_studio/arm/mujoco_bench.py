@@ -252,13 +252,20 @@ def judge(driver, layout: Layout) -> dict:
     return {"outcome": outcome, "placed": placed, "place_err_mm": round(err, 2), "tilt_end_deg": round(tilt, 2), "moved_mm": round(moved, 2)}
 
 
-def make_given(truth: dict, inject: dict, skills) -> tuple[DetectedObject, float, float]:
-    """참값 + 어긋남 → (팔에게 알려 주는 값, G mm, 벌림 축 yaw °). G·벌림 축은 자리 어긋남 전의 값으로 Skills가 계산한다(13.10.1 실패 주입)."""
+def make_given(truth: dict, inject: dict, skills, place: dict | None = None) -> tuple[DetectedObject, float, float]:
+    """참값 + 어긋남 → (팔에게 알려 주는 값, G mm, 벌림 축 yaw °). G·벌림 축은 자리 어긋남 전의 값으로 Skills가 계산한다(13.10.1 실패 주입).
+    grasp_approach auto면 어긋남은 Skills가 고를 기울인 집기의 면 법선 방향으로 준다(arm-software-spec 6.6.1 M5 비교). 후보가 없으면(수직) 벌림 축 그대로."""
     g0 = DetectedObject(id=OBJ, x_mm=truth["x_mm"], y_mm=truth["y_mm"], angle_deg=truth["angle_deg"] + inject.get("angle_error_deg", 0.0),
                         width_mm=truth["width_mm"] + inject.get("width_error_mm", 0.0), length_mm=truth["length_mm"],
                         confidence=1.0, source="manual", height_mm=truth["height_mm"] + inject.get("height_error_mm", 0.0))
     gap = float(skills._needed_gap(g0, tilt_ok=False))
     yaw = float(skills._pick_yaw(g0))
+    if getattr(skills.cfg, "grasp_approach", "vertical") == "auto" and place:
+        from .approach import faces
+
+        plan = skills._approach(g0, skills.place_targets(place.get("zone"), tuple(place["at"]) if place.get("at") else None))
+        if plan is not None:
+            yaw = next(n for f, _, n in faces(g0.angle_deg, g0.width_mm, g0.length_mm) if f == plan.ap["face"])
     a, b = inject.get("pos_offset_mm", (0.0, 0.0))
     ux, uy = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
     return replace(g0, x_mm=g0.x_mm + a * ux - b * uy, y_mm=g0.y_mm + a * uy + b * ux), gap, yaw
@@ -317,7 +324,7 @@ class BenchEnv:
         ok, msg = self.svc.connect()
         if not ok:
             raise RuntimeError(f"연결 실패: {msg}")
-        given, gap, yaw = make_given(ep.truth, ep.inject, self.svc.skills)
+        given, gap, yaw = make_given(ep.truth, ep.inject, self.svc.skills, ep.place)
         info = {"gap0_mm": round(gap, 2), "jaw_yaw_deg": round(yaw, 2), "drops_at_connect": self.drv.dropped_count}
         return {"joints": asdict(self.svc.driver.read_joints()), "truth": ep.truth, "given": asdict(given)}, info
 
@@ -568,11 +575,15 @@ def _grid(on: bool, n: int, title: str):
     return mujoco_grid.Grid(n, title) if on else contextlib.nullcontext((None, None))
 
 
-def suite_override(s: dict, gripper: str | None, out: Path) -> Path:
-    """덮어쓰기 파일: --gripper > 묶음의 robot(수집 프리셋, config/sim_scenarios/bench/<파일>) > 기본 robot.yaml."""
-    if gripper:
-        return gripper_override(gripper, out)
-    return BENCH_DIR / s["robot"] if s.get("robot") else OVERRIDE
+def suite_override(s: dict, gripper: str | None, out: Path, approach: str | None = None) -> Path:
+    """덮어쓰기 파일: --gripper > 묶음의 robot(수집 프리셋, config/sim_scenarios/bench/<파일>) > 기본 robot.yaml.
+    approach(vertical|auto)를 주면 그 파일에 grasp_approach 한 줄을 더한 사본을 결과 폴더에 쓴다(6.6.1 M5 비교)."""
+    base = gripper_override(gripper, out) if gripper else BENCH_DIR / s["robot"] if s.get("robot") else OVERRIDE
+    if not approach:
+        return base
+    p = Path(out) / "robot_override_approach.yaml"
+    p.write_text(base.read_text(encoding="utf-8").rstrip() + f"\ngrasp_approach: {approach}\n", encoding="utf-8")
+    return p
 
 
 def _record_part(args) -> list[dict]:
@@ -605,7 +616,8 @@ def _write_collect_info(root: Path, s: dict, override: Path, cfg, settle_s: floa
 
 
 def run(suite: str, seeds: int = 1, gripper: str | None = None, jobs: int = 1, only: str | None = None, out_root: Path | None = None,
-        grip_force: float | None = None, seed_start: int = 0, record: str | None = None, viewer: bool = False, grid: bool = False, clock: str = "wall") -> Path:
+        grip_force: float | None = None, seed_start: int = 0, record: str | None = None, viewer: bool = False, grid: bool = False, clock: str = "wall",
+        approach: str | None = None) -> Path:
     """묶음을 돌려 결과 폴더를 돌려준다: results.jsonl·summary.json·summary.md·episodes/<id>/(events·status).
     record(데이터셋 이름)를 주면 runs/datasets/<이름>/에 placed_ok이고 realtime_lag 없는 에피소드만 LeRobot 데이터셋으로 남긴다.
     --jobs N이면 일꾼마다 <이름>/part-NN/에 쓰고 끝에 lerobot aggregate_datasets로 하나로 합친다(결정 0068)."""
@@ -625,7 +637,7 @@ def run(suite: str, seeds: int = 1, gripper: str | None = None, jobs: int = 1, o
     tag = f"-f{grip_force:g}" if grip_force is not None else ""
     out = (out_root or REPO_ROOT / "runs" / "bench-mujoco") / f"{datetime.now():%Y%m%d-%H%M%S}-{commit}{tag}"
     out.mkdir(parents=True, exist_ok=True)
-    override = suite_override(s, gripper, out)
+    override = suite_override(s, gripper, out, approach)
     jobs_list = [(e, str(override), str(out), grip_force, viewer, settle_s, clock, s.get("start_pose")) for e in eps]
     parted = bool(record) and jobs > 1
     rows = []
@@ -669,7 +681,7 @@ def run(suite: str, seeds: int = 1, gripper: str | None = None, jobs: int = 1, o
     first = next((r for r in rows if r["gripper"]), rows[0])
     walls = [r["wall_s"] for r in rows if r.get("wall_s")]
     summary.update({"suite": s["name"], "commit": commit, "seed_start": seed_start, "record": record, "recorded": sum(1 for r in rows if r.get("recorded_frames")),
-                    "recorded_frames": sum(r.get("recorded_frames") or 0 for r in rows), "jobs": jobs, "clock": clock, "preset": override.name, "settle_s": settle_s,
+                    "recorded_frames": sum(r.get("recorded_frames") or 0 for r in rows), "jobs": jobs, "clock": clock, "approach": getattr(load_cfg(override), "grasp_approach", None), "preset": override.name, "settle_s": settle_s,
                     "wall_s_median": round(float(np.median(walls)), 2) if walls else None,
                     "gripper": first["gripper"], "scene_parts": first["scene_parts"], "seeds": seeds, "grip_force_n": rows[0]["grip_force_n"]})
     (out / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -759,6 +771,7 @@ def main(argv=None):
     ap.add_argument("--seed-start", type=int, default=0, help="첫 씨앗(전문가 수집 0~9999, 평가 10000~, 13.10.4)")
     ap.add_argument("--policy", help="학습한 ACT 체크포인트 폴더(pretrained_model): 수집 대신 정책을 평가한다(PolicyRunner, --jobs N이면 일꾼마다 체크포인트를 연다)")
     ap.add_argument("--clock", choices=["wall", "step"], default="wall", help="wall: 실시간(벽시계). step: 시뮬레이션 시계(StepClock, 13.10.2)로 실시간보다 빠르게, realtime_lag 없음. 수동 뷰어(--viewer)와는 안 되고 --viewer grid는 된다")
+    ap.add_argument("--approach", choices=["vertical", "auto"], help="집기 접근 각도 규칙(grasp_approach, arm-software-spec 6.6.1). 덮어쓰기 파일에 한 줄을 더한다. 안 주면 cfg 그대로")
     ap.add_argument("--viewer", nargs="?", const="window", choices=["window", "grid"],
                     help="보며 돌린다(실시간). --viewer: MuJoCo 뷰어 창(에피소드마다 새로, --jobs N이면 창 N개). --viewer grid: 창 하나에 일꾼마다 위 카메라 칸")
     ap.add_argument("--record", help="데이터셋 이름: placed_ok 에피소드를 runs/datasets/<이름>/에 LeRobot 데이터셋으로(realtime_lag 에피소드는 빼고, --jobs N이면 part-NN 조각을 쓰고 끝에 합친다)")
@@ -772,7 +785,7 @@ def main(argv=None):
             print(f"결과: {out}")
             return
         out = run(a.suite, a.seeds, a.gripper, a.jobs, a.only, grip_force=a.grip_force, seed_start=a.seed_start, record=a.record,
-                  viewer=a.viewer == "window", grid=a.viewer == "grid", clock=a.clock)
+                  viewer=a.viewer == "window", grid=a.viewer == "grid", clock=a.clock, approach=a.approach)
     except (RuntimeError, ValueError) as e:  # lerobot 없음·데이터셋 폴더 있음·이름 규칙 등: 사람이 읽을 한 줄로 끝낸다
         raise SystemExit(str(e)) from e
     print((out / "summary.md").read_text(encoding="utf-8"))

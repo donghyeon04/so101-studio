@@ -648,3 +648,12 @@ def test_local_yaml_overlays_ultrasonic_yaml(tmp_path):
     cfg = load_config(cfg_path)
     assert cfg.servo.driver == "dxl" and cfg.port == "COM9" and cfg.radar.dip_mm == 77 and cfg.radar.merge_mm == 110
     assert load_config(cfg_path, servo={"driver": "pwm"}).servo.driver == "pwm"
+
+
+def test_radar_check_lag_matches_fake_servo_lag(tmp_path):
+    """radar_check.lag_deg: 가상 서보 지연 3°를 갈 때·올 때 호 중심 차이/2로 되찾는다(B4-1 도구)."""
+    from so101_studio.perception.ultrasonic.radar_check import lag_deg
+    cfg, clk, esp, arm = build([Box(207.3, 105.0, 0, width=60, length=60)], esp_kw={"servo_lag_deg": 3.0, "ang_noise_deg": 0.0})  # 정면(서보 축 아래) 약 300mm
+    src = make_source(cfg, clk, esp, arm, tmp_path)
+    res = lag_deg(src, 6)
+    assert res["지연"] == pytest.approx(3.0, abs=1.0)
