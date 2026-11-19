@@ -44,19 +44,21 @@ EVENT_LEVEL = {"estop": ("WARN", "ARM-ESTOP"), "locked": ("WARN", "ARM-LOCKED"),
 
 
 def plan_goto(kin, cfg, q0: JointState, goal: ToolPose, speed_pct: float):
-    """직선(MoveL)으로 못 가면 목표 위 approach_height_mm 지점으로 MoveJ한 뒤 수직으로 내려간다(pick과 같은 순서)."""
+    """직선(MoveL)으로 못 가면 목표 위 호버 지점으로 MoveJ한 뒤 수직으로 내려간다(pick과 같은 순서).
+    호버 높이는 놓기(Skills._heights)처럼 approach_height_mm부터 5mm씩 10mm까지 낮춰 처음 풀리는 것(REQ-089: 새 받침 table_z -2.9에서 높이 55mm 목표는 호버 40이 안 닿는다)."""
     traj = cfg_move_l(cfg, kin, kin.fk(q0), goal, q0, speed_pct)
     if traj is not None:
         return [traj]
-    hover = replace(goal, z_mm=goal.z_mm + cfg.approach_height_mm)
-    # 현재 관절로 풀리면 그 답을 쓰고(기존 동작), 못 풀면 Skills._ik처럼 대표 자세들을 씨앗으로 쓴다: 손목을 접은 자세(radar_clear)에서 출발하면 현재 관절만으로는 대부분 실패한다 (REQ-030)
-    for seed in [q0, *(replace(sd, gripper=q0.gripper) for sd in SEEDS)]:
-        q_hover = kin.ik(hover, seed)
-        if q_hover is None:
-            continue
-        down = cfg_move_l(cfg, kin, hover, goal, q_hover, speed_pct)
-        if down is not None:
-            return [cfg_move_j(cfg, q0, q_hover, speed_pct), down]
+    for h in [float(h) for h in range(int(cfg.approach_height_mm), 9, -5)] or [float(cfg.approach_height_mm)]:
+        hover = replace(goal, z_mm=goal.z_mm + h)
+        # 현재 관절로 풀리면 그 답을 쓰고(기존 동작), 못 풀면 Skills._ik처럼 대표 자세들을 씨앗으로 쓴다: 손목을 접은 자세(radar_clear)에서 출발하면 현재 관절만으로는 대부분 실패한다 (REQ-030)
+        for seed in [q0, *(replace(sd, gripper=q0.gripper) for sd in SEEDS)]:
+            q_hover = kin.ik(hover, seed)
+            if q_hover is None:
+                continue
+            down = cfg_move_l(cfg, kin, hover, goal, q_hover, speed_pct)
+            if down is not None:
+                return [cfg_move_j(cfg, q0, q_hover, speed_pct), down]
     return None
 
 

@@ -150,3 +150,21 @@ def test_bin_place_that_does_not_open_is_not_ok(tmp_path):
         assert ("ARM-PLACE-NOT-RELEASED", "ERROR") in events
     finally:
         ctl.close()
+
+
+# REQ-089: 새 받침(table_z -2.9)에서 초음파 CHECK 첫 점(손끝 수직 아래, 판 위 55mm)은 호버 40mm로는 닿지 않는다. plan_goto는 호버를 5mm씩 낮춘다
+@pytest.mark.slow
+@pytest.mark.parametrize("r", [120.0, 170.0, 220.0])
+def test_goto_check_height_is_reachable_from_radar_clear(tmp_path, r):
+    from so101_studio.arm.sim_driver import SimDriver
+    from so101_studio.core.types import JointState
+    from so101_studio.service.arm_service import ArmService, plan_goto
+
+    cfg = parallel_cfg(tmp_path)
+    s = ArmService(SimDriver(cfg.poses["radar_clear"]), cfg, WS, log_root=None)
+    assert s.connect()[0]
+    try:
+        x, y = WS.base.x_mm, WS.base.y_mm + r  # 정면(방위 90°)
+        assert plan_goto(s.kin, cfg, JointState(*cfg.poses["radar_clear"]), s.point_pose(x, y, 55.0), 100) is not None
+    finally:
+        s.disconnect()
