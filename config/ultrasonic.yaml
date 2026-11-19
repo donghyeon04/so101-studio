@@ -5,9 +5,10 @@ ping_gap_ms: 33
 servo: {driver: pwm}      # pwm = MG90S(GPIO 13) | dxl = OpenRB-150 + XL330(결정 0043, 읽은 각도 ang). 연결할 때 펌웨어에 `driver` 명령으로 알린다
 beam_half_deg: 7.5        # B1 실측으로 고침
 radar:
-  station_mm: {x: 300, y: 400}
+  station_mm: {x: 207.3, y: 405.5}   # 결정 0067 CAD(서보 축). H-6 실측으로 고침
   heading_deg: -90
-  height_mm: 20
+  height_mm: 23.2          # 결정 0067 CAD
+  face_offset_mm: 48.7     # 결정 0067: 서보 축 → 송수신기 앞면. 거리는 앞면에서 재므로 위치 계산에 더한다
   sweep: {from_deg: 10, to_deg: 170, step_deg: 4, bounce: true}
   max_mm: 600
   dip_mm: 30

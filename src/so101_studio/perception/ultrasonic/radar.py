@@ -44,7 +44,8 @@ def azimuth_deg(cfg, servo_deg: float) -> float:
 
 def polar(cfg, servo_deg: float, dist_mm: float) -> tuple[float, float]:
     st, az = cfg.radar.station_mm, math.radians(azimuth_deg(cfg, servo_deg))
-    return st.x + dist_mm * math.cos(az), st.y + dist_mm * math.sin(az)
+    d = cfg.radar.face_offset_mm + dist_mm  # 거리는 송수신기 앞면에서 잰다(결정 0067)
+    return st.x + d * math.cos(az), st.y + d * math.sin(az)
 
 
 def make_baseline(passes: list[Pass]) -> Baseline:
@@ -75,7 +76,7 @@ def mask_arm(meas, links_fn, cfg, shift=None) -> tuple[list, set]:
             for x, y in links_fn(t):
                 bearing = math.degrees(math.atan2(y - st.y, x - st.x))
                 diff = (bearing - az + 180) % 360 - 180
-                if abs(diff) <= lim and abs(math.hypot(x - st.x, y - st.y) - d) <= cfg.radar.arm_mask_mm:
+                if abs(diff) <= lim and abs(math.hypot(x - st.x, y - st.y) - cfg.radar.face_offset_mm - d) <= cfg.radar.arm_mask_mm:
                     hide = True
                     break
         if hide:

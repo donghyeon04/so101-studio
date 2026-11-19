@@ -2,9 +2,10 @@
 # 배출 통(workspace.yaml drop_zones의 type: bin)의 벽은 여기 적지 않는다: load_scene(ws=...)가 통 값으로 만든다(bin_<구역>_s·n·w·e, 결정 0067).
 margin_mm: 10            # 이보다 가까워지면 거부(scene:<이름>)
 parts:
-  # 예시: 초음파 레이더 스테이션. 자리는 config/ultrasonic.yaml의 radar.station_mm. 크기는 실물을 재서 바꾼다.
+  # 초음파 레이더 받침(결정 0067 CAD: 모터 브라켓·XL330·센서 브라켓·OpenRB+HC-SR04, 바디마다 볼록 껍질). 원점 = 서보 축·작업대 면, 센서는 정면(90°, 팔 쪽 -y) 자세.
+  # shortcut: 센서는 XL330으로 10~170° 돌지만 충돌 형상은 정면 자세 하나다. 돌면 센서 브라켓(축에서 약 49mm)이 축 둘레 반경 약 50mm 반원(판 쪽 y < 405.5)을 쓸고 지나간다. 팔이 그 안에 들어갈 일이 생기면 쓸린 부피로 바꾼다
   - name: radar_station
-    box_mm: [60, 40, 20]     # [w, d, h], 가운데 아래면이 원점. STL이면 file: assets/scene/<이름>.stl (mm 단위)
+    file: assets/scene/radar_station.stl   # 서보 축 기준 mm. 출처 assets/scene/NOTICE.txt
     attach: table            # table 또는 URDF 링크 이름
     xyz_mm: [207.3, 405.5, 0]  # 결정 0067 레이더 서보 축(판 밖 앞 프로파일 위). table이면 작업대 좌표(z = 작업대 면 위), 링크면 그 링크 프레임 기준 mm
     rpy_deg: [0, 0, 0]
