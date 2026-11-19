@@ -15,7 +15,7 @@ from so101_studio.core.config import load_robot, load_workspace
 from so101_studio.core.scene import load_scene
 from so101_studio.core.types import JointState
 
-CFG = load_robot("config/robot.yaml")
+CFG = load_robot("config/robot.yaml", gripper="single_jaw")  # 단동식 기하로 잰 기대값 (REQ-098: 기본은 parallel)
 WS = load_workspace("config/workspace.yaml")
 HOME = JointState(*CFG.poses["home"])
 

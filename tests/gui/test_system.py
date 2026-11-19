@@ -520,17 +520,17 @@ def test_gripper_type_can_be_changed_for_the_next_start(backend, tmp_path, monke
     local = tmp_path / "local.yaml"
     local.write_text("# 주석\nport: COM9\n", encoding="utf-8")
     monkeypatch.setattr(backend, "local_path", str(local))
-    assert backend.gripper_info()["type"] == "single_jaw"
+    assert backend.gripper_info()["type"] == "parallel"  # 기본은 병렬(REQ-098), 단동식은 예비로 고른다
     assert backend.choose_gripper("nope") and "gripper" not in local.read_text(encoding="utf-8")
     assert gripper_text({"type": "parallel", "max_open_mm": 84}) == "그리퍼: 병렬(두 턱이 대칭으로 움직임) · 최대 벌림 84 mm"
 
     async def check(user):
-        assert "단동식" in _one(user, "gripper-type").text
+        assert "병렬" in _one(user, "gripper-type").text
         assert await _until(lambda: backend.owner is not None and _one(user, "gripper-change").enabled)
-        _one(user, "gripper-picker").value = "parallel"
+        _one(user, "gripper-picker").value = "single_jaw"
         user.find(marker="gripper-change").click()
-        assert await _until(lambda: "gripper: parallel" in local.read_text(encoding="utf-8"))
+        assert await _until(lambda: "gripper: single_jaw" in local.read_text(encoding="utf-8"))
         await user.should_see("다시 시작하면 적용됩니다")
 
     in_app(backend, "/arm", check)
-    assert local.read_text(encoding="utf-8") == "# 주석\nport: COM9\ngripper: parallel\n"
+    assert local.read_text(encoding="utf-8") == "# 주석\nport: COM9\ngripper: single_jaw\n"

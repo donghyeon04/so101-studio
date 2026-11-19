@@ -52,7 +52,9 @@ def test_real_config_loads_the_same_values_as_before_the_split():
     cfg, info = load_robot_ex("config/robot.yaml")
     assert info["arm"] == "so101_follower_01" and cfg.arm_name == "so101_follower_01"
     assert cfg.calibration_id == "so101_follower_01" and cfg.joint_offsets_deg == {"shoulder_pan": -3.0}
-    assert cfg.joint_limits_deg["elbow_flex"] == [-97.7, 95] and cfg.table_z_mm == -2.9 and len(cfg.gripper_width_mm) == 8
+    assert cfg.joint_limits_deg["elbow_flex"] == [-97.7, 95] and cfg.table_z_mm == -2.9
+    assert cfg.gripper == "parallel" and info["gripper_from"] == "robot.yaml" and cfg.gripper_width_mm == [[0, 0], [100, 84]]  # 기본 병렬(REQ-098): 팔 파일의 단동식 폭 표는 그리퍼 파일이 덮는다
+    assert len(load_robot("config/robot.yaml", gripper="single_jaw").gripper_width_mm) == 8  # 단동식이면 팔 파일 폭 표 그대로
     assert cfg.port == "" and cfg.board_serial  # COM 번호는 PC별 값이라 robot.yaml에 없다
 
 

@@ -14,7 +14,7 @@ from so101_studio.core.config import load_robot, load_workspace
 from so101_studio.core.types import DetectedObject
 
 LEGACY_TABLE_Z_MM = -15.0  # tests/workspace_600x400.yaml과 짝인 옛 받침의 작업대 높이(결정 0067 전). 실물 값은 config/arms
-CFG = replace(load_robot("config/robot.yaml"), table_z_mm=LEGACY_TABLE_Z_MM)
+CFG = replace(load_robot("config/robot.yaml", gripper="single_jaw"), table_z_mm=LEGACY_TABLE_Z_MM)  # 단동식 기대값 (REQ-098)
 WS = load_workspace("tests/workspace_600x400.yaml")
 TABLE = sorted((mm, v) for v, mm in CFG.gripper_width_mm)
 WIDTH = 30.0

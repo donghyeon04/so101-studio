@@ -8,7 +8,7 @@ from so101_studio.core.types import ToolPose
 from so101_studio.service.arm_service import ArmService
 from so101_studio.service.targets import from_table, parse_target
 
-CFG = load_robot("config/robot.yaml")
+CFG = load_robot("config/robot.yaml", gripper="single_jaw")  # 단동식 기하로 잰 기대값 (REQ-098: 기본은 parallel)
 WS = load_workspace("tests/workspace_600x400.yaml")
 CUR = ToolPose(300, 200, 50, 90, -90)
 

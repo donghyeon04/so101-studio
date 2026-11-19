@@ -163,6 +163,8 @@ def doctor(cfg=None, probe: bool = True, port: str | None = None, progress=None,
     except ArmSelectionError as e:
         cfg_now = load_robot_ex(config_path, arms_dir=config_dir / "_no_arms")[0] if cfg is None else cfg
         checks.append(_check("팔 파일", "fail", str(e), "--arm <이름>이나 config/local.yaml의 arm으로 고른다"))
+    checks.append(_check("그리퍼", "ok", f"{cfg_now.gripper} (설정 출처: {info.get('gripper_from', '-')})",  # 표시만: 실물에 달린 그리퍼는 알 수 없다 (REQ-098)
+                         "실물에 단동식이 달려 있으면 config/local.yaml에 gripper: single_jaw" if cfg_now.gripper == "parallel" else ""))
 
     cal, cal_path = (find_calibration(cfg_now.calibration_id, config_dir) if cfg_now.calibration_id else (None, ""))
     checks.append(_check("캘리브레이션 파일", "ok" if cal else "fail", f"{cfg_now.calibration_id}: {cal_path}" if cal else f"{cfg_now.calibration_id or '(id 없음)'} 파일을 못 찾았다",

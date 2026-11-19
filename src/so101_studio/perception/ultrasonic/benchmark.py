@@ -603,7 +603,7 @@ def main(argv=None):
     ap.add_argument("--hover-mm", type=float, help="--reach kin의 접근 호버 높이(기본 robot.yaml approach_height_mm). (가)안")
     ap.add_argument("--tool-reach", help="MIN,MAX: check.tool_reach_mm를 이번만 바꾼다(기본 설정값 60,255). (나)안")
     ap.add_argument("--servo", choices=["pwm", "dxl"], default="pwm", help=f"가상 레이더 서보: pwm(기본, 지연 ±3°) | dxl(XL330: 지연 {DXL_LAG_DEG}° + 읽은 각도 ang 사용, 가정값이라 B4로 고친다)")
-    ap.add_argument("--gripper", choices=["single_jaw", "parallel"], help="--reach kin의 그리퍼 종류(기본: 설정 파일 그대로 = 단동식). 병렬은 robot.yaml 위에 grippers/parallel.yaml(URDF 포함)을 겹친다")
+    ap.add_argument("--gripper", choices=["single_jaw", "parallel"], help="--reach kin의 그리퍼 종류(기본: 설정 파일 그대로 = 병렬). 병렬은 robot.yaml 위에 grippers/parallel.yaml(URDF 포함)을 겹친다")
     ap.add_argument("--seed-timeout", type=float, default=300.0, help="--reach kin에서 씨앗 하나의 제한 시간(초, 기본 300, 0이면 끔). 넘으면 그 씨앗을 실패로 적고 다음으로 간다(멈춘 칸을 끊기 위해 자식 프로세스에서 돌린다)")
     ap.add_argument("--pair-gap", type=float, default=40.0, help="--scenario pair의 두 물체 모서리 간격 mm(기본 40)")
     ap.add_argument("--set", action="append", default=[], metavar="KEY=VAL", help="check.<KEY>를 이번만 바꾼다(여러 번 가능, 예: --set yaw_deg=45 --set ring_r_mm=50 --set clearance_mm=40)")

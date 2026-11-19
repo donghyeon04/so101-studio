@@ -1,4 +1,5 @@
-urdf: assets/so101_new_calib.urdf
+urdf: assets/so101_new_calib.urdf  # 단동식 URDF. 기본 그리퍼 parallel이면 grippers/parallel.yaml의 urdf가 덮는다
+gripper: parallel  # 기본 그리퍼(REQ-098, 결정 0063을 앞당김). 단동식은 config/local.yaml에 `gripper: single_jaw`
 control_hz: 50
 gripper_acceleration: 25  # 그리퍼 전용 가속 한계. 접촉 감지(contact_lag_units)를 25에서 맞췄고 팔 관절을 10으로 낮춘 뒤 다시 검증하기 전까지 유지
 pid: {p: 16, i: 0, d: 32}
