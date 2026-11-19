@@ -186,7 +186,9 @@ def test_step_clock_records_on_sim_time(tmp_path):
 
     from so101_studio.arm import mujoco_bench as bench
 
-    out = bench.run("collect_pick1", seeds=1, out_root=tmp_path, record="st", clock="step")
+    out = bench.run("collect_pick2", seeds=1, out_root=tmp_path, record="st", clock="step")
     row = json.loads((out / "results.jsonl").read_text(encoding="utf-8"))
     assert row["outcome"] == "placed_ok" and not row["realtime_lag"]
-    assert abs(row["recorded_frames"] - row["sim_s"] * 25) <= 3
+    assert 100 < row["recorded_frames"] <= row["sim_s"] * 25 + 1  # start_pose로 옮기는 동안은 기록하지 않는다
+    info = json.loads((tmp_path / "runs" / "datasets" / "st" / "meta" / "collect.json").read_text(encoding="utf-8"))
+    assert info["start_pose"] == bench.load_suite("collect_pick2")["start_pose"]  # 정책 실행이 같은 자세에서 시작하게(결정 0071)

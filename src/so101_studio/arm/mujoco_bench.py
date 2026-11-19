@@ -599,7 +599,8 @@ def _write_collect_info(root: Path, s: dict, override: Path, cfg, settle_s: floa
     """데이터셋 meta/collect.json: 어느 묶음·프리셋·집기 규칙으로 모았는지(결정 0068·0069)."""
     preset = yaml.safe_load(override.read_text(encoding="utf-8")) or {}
     info = {"suite": s["name"], "preset": override.name, "preset_values": preset, "settle_s": settle_s, "commit": commit,
-            "seed_start": seed_start, "seeds": seeds, "grasp_approach": getattr(cfg, "grasp_approach", "vertical")}
+            "seed_start": seed_start, "seeds": seeds, "grasp_approach": getattr(cfg, "grasp_approach", "vertical"),
+            "start_pose": s.get("start_pose")}  # 정책 실행(GUI)이 학습 때와 같은 자세에서 시작하게(결정 0071)
     (root / "meta" / "collect.json").write_text(json.dumps(info, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
