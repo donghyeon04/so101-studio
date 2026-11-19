@@ -14,6 +14,7 @@ import time
 
 STEP_S = 0.002  # mujoco_model.load_model의 timestep(2ms)
 STALL_S = 5.0
+STALL_BUSY_S = 60.0  # 틱 스레드가 살아서 본문(제어 틱·every)을 도는 중이면 이만큼까지 기다린다(--jobs 12에 다른 일이 겹치면 한 바퀴가 5초를 넘은 적이 있다, 11-19 inject_grid)
 HIDDEN_WAIT_S = 30.0  # 틱이 이만큼(벽시계) 못 돌면 깨어 있는 참여 스레드를 WARN(시계 밖 기다림 time.sleep·Event.wait·join 찾기)
 POLL_S = 0.002  # 이벤트 기다림을 다시 보는 벽시계 간격(Event.set은 이 시계의 조건 변수를 깨우지 않는다)
 
@@ -115,9 +116,11 @@ class StepClock:
         if why:
             raise RuntimeError(f"물리 시뮬레이션이 멈췄습니다: {why}")
         if self._idle_since is not None and not self._closed:
+            dead = self._tick_thread is not None and not self._tick_thread.is_alive()
+            limit = self.stall_s if dead or self._tick_thread is None else max(self.stall_s, STALL_BUSY_S)
             since = max(self._idle_since, self._tick_wall)
-            if time.monotonic() - since > self.stall_s:
-                raise RuntimeError(f"시뮬레이션 시계가 멈췄습니다: 참여 스레드가 모두 기다리는데 틱 스레드가 {self.stall_s:g}초 동안 돌지 않았다")
+            if dead or time.monotonic() - since > limit:
+                raise RuntimeError(f"시뮬레이션 시계가 멈췄습니다: 참여 스레드가 모두 기다리는데 틱 스레드가 {'끝났다' if dead else f'{limit:g}초 동안 돌지 않았다'}")
 
     def sleep(self, seconds: float) -> None:
         if seconds <= 0:

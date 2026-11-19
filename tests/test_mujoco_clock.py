@@ -193,3 +193,17 @@ def test_hidden_wait_is_reported(monkeypatch):
     quit_.set()
     clock.close()
     done.wait(1.0)
+
+
+def test_dead_tick_thread_raises_right_away():
+    """틱 스레드가 끝났는데(죽음) 참여 스레드가 기다리면 stall_s를 기다리지 않고 바로 오류다. 살아서 본문을 도는 중이면 STALL_BUSY_S까지 기다린다."""
+    clock = StepClock(FakeDriver(), stall_s=5.0)
+    quit_, done = start_tick(clock)
+    clock.sleep(0.04)
+    quit_.set()
+    clock.wait(done, 1.0)
+    time.sleep(0.05)
+    t0 = time.monotonic()
+    with pytest.raises(RuntimeError, match="끝났다"):
+        clock.sleep(1.0)
+    assert time.monotonic() - t0 < 1.0
