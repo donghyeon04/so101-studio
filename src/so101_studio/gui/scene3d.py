@@ -185,7 +185,7 @@ class Scene3D:
         self._handle.on_update(self._on_drag)
         self._objects_root = None
         self._sim_root = None  # MuJoCo 물리 물체(gui-spec 12.8). 계획 쪽 /objects와 따로 둔다
-        self._sim_nodes: dict = {}  # 이름 -> (상자 노드, 지금 색)
+        self._sim_nodes: dict = {}  # 이름 -> (상자 노드, 지금 색, 크기 mm)
         self.plan_opacity = 1.0  # MuJoCo면 Backend가 0.4로 둔다: 계획 물체는 흐리게, 물리 물체는 진하게
         marks = scene.add_frame("/marks", show_axes=False)
         parts = scene.add_frame("/parts", show_axes=False)
@@ -299,25 +299,28 @@ class Scene3D:
                 )
 
     def set_sim_objects(self, objects: dict, held: str | None) -> None:
-        """MuJoCo 물리 물체(sim_state()의 objects, gui-spec 12.8). 상자는 처음 한 번 만들고 뒤로는 자리·방향·색만 바꾼다. 기울기는 그리지 않는다."""
+        """MuJoCo 물리 물체(sim_state()의 objects, gui-spec 12.8). 상자는 처음 한 번 만들고 뒤로는 자리·방향·색만 바꾼다. 기울기는 그리지 않는다.
+        세계 다시 짓기(set_objects)로 없어진 물체는 지우고, 같은 이름이라도 크기가 바뀌면 다시 만든다(11-20: 옛 상자가 3D에 남았다)."""
         scene = self.server.scene
         with self.server.atomic():
             if self._sim_root is None:
                 self._sim_root = scene.add_frame("/sim_objects", show_axes=False, visible=self.layers["objects"])
+            for name in [n for n in self._sim_nodes if n not in objects or self._sim_nodes[n][2] != tuple(objects[n]["size_mm"])]:
+                self._sim_nodes.pop(name)[0].remove()
             for name, o in objects.items():
-                length, width, height = o["size_mm"]
+                length, width, height = size = tuple(o["size_mm"])
                 color = theme.rgb(theme.ACCENT if name == held else theme.WARN if o.get("tilt_deg", 0.0) >= 10 else theme.MUTED)
                 pos = (o["x_mm"] / 1000, o["y_mm"] / 1000, (o["z_mm"] + height / 2) / 1000)
                 if name not in self._sim_nodes:
                     node = scene.add_box(f"/sim_objects/{name}", color=color, dimensions=(length / 1000, width / 1000, height / 1000),
                                          position=pos, wxyz=_yaw(o["yaw_deg"]))
-                    self._sim_nodes[name] = (node, color)
+                    self._sim_nodes[name] = (node, color, size)
                     continue
-                node, old = self._sim_nodes[name]
+                node, old, _ = self._sim_nodes[name]
                 node.position, node.wxyz = pos, _yaw(o["yaw_deg"])
                 if old != color:
                     node.color = color
-                    self._sim_nodes[name] = (node, color)
+                    self._sim_nodes[name] = (node, color, size)
 
     def set_parts(self, scene_def) -> None:
         """장면 부품(결정 0043-4, REQ-040)을 그린다. 작업대 부품은 작업대 좌표에, 링크 부품은 그 링크 노드 아래에 두어 팔을 따라 움직이게 한다.
