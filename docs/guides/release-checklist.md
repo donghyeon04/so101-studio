@@ -7,8 +7,8 @@
 ## A. 레포 위생
 | 항목 | 기준 | 확인 |
 |---|---|---|
-| 브랜치 | 원격에 `main`, `planning-inbox`(기획 요청함), 기획 승인 대기 브랜치만. 합쳐진 `dev/*`는 지운다. 지우기 전에 그 브랜치를 쓰는 worktree 폴더를 `main`으로 돌리고, `gh pr merge --delete-branch`는 쓰지 않는다(`session-workflow.md` 2절) | |
-| 로컬 폴더 | 세션 폴더 넷 모두 `main`(또는 진행 중인 `dev/*`)이고 `git status`가 깨끗하다. 추적 안 한 결과 파일은 `runs/`로 옮기거나 지운다 | |
+| 브랜치 | 원격에 `main`, `planning-inbox`(기획 요청함), 기획 승인 대기 브랜치만. 합쳐진 `dev/*`는 지운다. 지우기 전에 그 브랜치를 쓰는 worktree 폴더를 `main`으로 돌리고, `gh pr merge --delete-branch`는 쓰지 않는다(`session-workflow.md` 2절) | 2026-11-19 정리(원격 dev/* 84 → 진행 중인 것만, 옛 기획 `claude/*` 둘은 남김) |
+| 로컬 폴더 | 세션 폴더 넷 모두 `main`(또는 진행 중인 `dev/*`)이고 `git status`가 깨끗하다. 추적 안 한 결과 파일은 `runs/`로 옮기거나 지운다 | 2026-11-19 바탕화면 so101 폴더 5개(세션 넷 + planning-inbox)로 줄임. 추적 안 한 것은 사용자 교시 기록 둘과 GUI `.claude/launch.json` |
 | git 제외 | `config/local.yaml`, `runs/`, `config/ultrasonic_baseline.json`, 캐시·빌드 산출물이 `.gitignore`에 있다 | |
 | PC별 값 | 공통 설정(`config/robot.yaml`)에 COM 번호 같은 PC별 값이 없다(`port: COM3`은 빠졌다. 포트는 보드 시리얼로 자동, 안 맞을 때만 `local.yaml`) | |
 | CAD 파일 | 3D·충돌에 쓰는 STL만 `assets/` 아래에 출처·라이선스와 함께 둔다. STEP 원본은 레포 밖(팀 드라이브)에 둔다 | |
