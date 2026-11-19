@@ -635,3 +635,17 @@ def test_layout_rejects_body_touching_bin_wall():
     z = next(iter(load_workspace().drop_zones.values()))
     assert bm._hits_zone(Box(z["x_mm"] + z["w_mm"] / 2 + 10, z["y_mm"], 0, 30, 100), z)  # 벽 두께 안으로 걸치는 막대
     assert not bm._hits_zone(Box(z["x_mm"], z["y_mm"] + 300, 0, 30, 100), z)
+
+
+def test_local_yaml_overlays_ultrasonic_yaml(tmp_path):
+    """ultrasonic.local.yaml이 같은 폴더에 있으면 키 단위로 겹치고(중첩 키 포함), 명시 인자가 가장 우선이다."""
+    import shutil
+
+    from so101_studio.perception.ultrasonic.model import load_config
+    cfg_path = tmp_path / "ultrasonic.yaml"
+    shutil.copy("config/ultrasonic.yaml", cfg_path)
+    assert load_config(cfg_path).servo.driver == "pwm"
+    (tmp_path / "ultrasonic.local.yaml").write_text("servo: {driver: dxl}\nport: COM9\nradar: {dip_mm: 77}\n", encoding="utf-8")
+    cfg = load_config(cfg_path)
+    assert cfg.servo.driver == "dxl" and cfg.port == "COM9" and cfg.radar.dip_mm == 77 and cfg.radar.merge_mm == 110
+    assert load_config(cfg_path, servo={"driver": "pwm"}).servo.driver == "pwm"

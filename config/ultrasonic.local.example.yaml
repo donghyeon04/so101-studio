@@ -1,0 +1,4 @@
+# config/ultrasonic.local.yaml로 복사해 쓴다. 이 PC에서만 필요한 값이라 git에 올리지 않는다(.gitignore). 없으면 ultrasonic.yaml만 쓴다.
+# ultrasonic.yaml의 같은 키를 덮어쓴다(중첩 키 단위로 겹친다).
+servo: {driver: dxl}   # 출력한 하드웨어는 OpenRB-150 + XL330(결정 0043). 기본은 pwm(MG90S)
+# port: COM5           # ESP32 시리얼 포트. 자동(auto)이 안 맞을 때만
