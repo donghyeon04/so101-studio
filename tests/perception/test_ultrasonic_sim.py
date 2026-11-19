@@ -448,6 +448,8 @@ def test_kin_reach_hover_band_reports_ik_fail():
     far, path = (215.2, 271.4), [(215.2, 271.4), (215.2, 150)]  # 팔 원점 (215.2, 21.4)에서 반경 250
     k = kin_reach()
     assert k.ok(far, 55) and not k.start_ok(far, 55)
+    kp = kin_reach(gripper="parallel")
+    assert not kp.ok((215.2, 141.4), 55 + 40) and kp.start_ok((215.2, 141.4), 55)  # 호버 40은 안 풀려도 35→…→10 중 하나가 풀리면 접근 가능(REQ-089)
     cfg = load_config()
 
     def run(**kw):

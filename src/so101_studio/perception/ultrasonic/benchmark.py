@@ -100,8 +100,8 @@ class KinReach:
         return self.cache[key]
 
     def start_ok(self, xy, z, yaw=90.0):
-        """경로 첫 점: 점 자체와 그 위 호버(z + hover_mm) 모두 풀려야 plan_goto의 접근이 된다."""
-        return self.ok(xy, z, yaw) and self.ok(xy, z + self.hover, yaw)
+        """경로 첫 점: 점 자체와 그 위 호버가 풀려야 plan_goto의 접근이 된다. 호버는 hover_mm부터 5mm씩 10mm까지 내려 처음 풀리는 것을 쓴다(REQ-089, 놓기 _heights()와 같은 규칙)."""
+        return self.ok(xy, z, yaw) and any(self.ok(xy, z + h, yaw) for h in (range(int(self.hover), 9, -5) if self.hover >= 10 else [self.hover]))
 
 
 _KIN = {}
