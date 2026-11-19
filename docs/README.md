@@ -103,6 +103,7 @@
 | `docs/decisions/0063-robonine-wrist-bracket-topview.md` | 결정 | 확정 | 그리퍼는 로보나인 병렬(교체 뒤 기본), 손목은 짧은 초음파 브래킷만(0°, 오프셋 {0.0, 66.5, 99.5}), 카메라는 탑뷰 하나, 실물·MuJoCo·초음파를 다시 맞추는 순서 |
 | `docs/decisions/0064-test-tiers.md` | 결정 | 확정 | 시험 네 층(빠른 묶음 / testmon 바뀐 곳 / 전체는 xdist 병렬 / 화면 비교는 GUI PR·배포 전만), 시험 포트 0, NiceGUI user 픽스처 기본, 허수 시험 정리, 측정 시험은 measure로 뺌 (0046 대체) |
 | `docs/decisions/0067-workbench-cad-values.md` | 결정 | 확정 | 작업대·팔·레이더 자리를 CAD 값으로(판 425×375, 팔 (215.2, 21.4), 레이더 (207.3, 405.5)·높이 23.2), 배출 구역은 오른쪽 귀퉁이 통 하나, 시연 방위 45~135° |
+| `docs/decisions/0074-simulation-comparison-before-1204.md` | 결정 | 확정 | 12/4 전 비교 실험은 시뮬레이션 둘: 초음파 벤치마크 고정 시나리오 씨앗 200(manual과 끝까지 시간), MuJoCo `collect_pick2` 30000~30199 규칙 기반 vs ACT v2. 카메라는 뺌, 실물이 오면 실물 열 추가 |
 | `docs/decisions/0073-rebuild-world-in-first-scope.md` | 결정 | 확정 | 세계 다시 짓기(`rebuild_world(suite, seed)`)와 GUI 정책 실행의 학습 배치·[다음 배치]·판정을 2차에서 1차로(#487) |
 | `docs/decisions/0072-ultrasonic-accuracy-first.md` | 결정 | 확정 | 카메라보다 초음파 정확도 먼저: 레이더 실측 → 규칙 보정(벤치마크·가상 ESP32) → 2차 지도학습 추정기, 팔 확인 위치 중앙 5·90% 10mm, ACT는 pick2_v2로 마무리 |
 | `docs/decisions/0071-act-second-collection.md` | 결정 | 확정 | ACT 2차 수집: 수집 전용 시작 자세(한계 15° 안쪽, 손목 카메라가 상자를 봄), 새 장면 300개→모자라면 600, 한계 자르기는 미룸, 11/23 3단계 기준 |
