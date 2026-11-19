@@ -829,5 +829,5 @@ p99 증가는 -0.04ms(기준 2ms 이하), time_lost_s 증가 0%(기준 1% 미만
 | **60k** | **25/50** | max_s 31, fault 17, joint_limit:gripper 2 |
 
 - **기준(15/50) 통과**: 60k가 25/50(50%)이다. 1차(시작 자세 radar_clear, 옛 장면)의 최고 4/50보다 크게 올랐다.
-- 60k 실패 25건 가운데 fault 13은 `overload:shoulder_pan` 11과 `overcurrent` 6이다(fault 17 전체 기준). 정책이 상자·통 벽을 밀어 과부하 감시가 멈췄다. max_s 12건(untouched 6, moved 5, toppled 1)과 joint_limit:gripper 0건이 나머지다. 60k의 placed_ok에도 끝난 이유가 joint_limit:gripper인 것이 2건 있다. 한계 거부가 실패의 절반을 넘지 않으므로 6.10 건은 올리지 않는다.
+- 60k 실패 25건: fault로 끝난 13건(moved 10, toppled 2, untouched 1)과 max_s 12건(untouched 6, moved 5, toppled 1). 한계 거부로 끝난 실패는 0건이다(joint_limit:gripper 2건은 이미 놓은 뒤라 placed_ok). fault 17건(성공 4 포함)의 원인은 `overload:shoulder_pan` 11, `overcurrent` 6이다. 정책이 상자·통 벽을 밀어 과부하 감시가 멈췄다. 한계 거부가 실패의 절반을 넘지 않으므로 6.10 건은 올리지 않는다.
 - 11/23 범위 점검 기준(15/50 이상이면 L3·L4를 시연에 넣는다)에 들어간다.
