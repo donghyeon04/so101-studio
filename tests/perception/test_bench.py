@@ -23,6 +23,16 @@ def test_benchmark_summary_has_accuracy_metrics():
     assert s["h_err_median_mm"] == 2.0 and s["h_err_p90_mm"] == 3.0  # REQ-035 높이 오차
 
 
+def test_cell_compares_with_manual_baseline():
+    """비교 실험 (가): 같은 배치를 정답 좌표(수동)로도 끝까지 돌려 행에 나란히 둔다. 수동은 인식이 없어 더 빠르다."""
+    from so101_studio.perception.ultrasonic.benchmark import _cell, summarize
+
+    row = _cell("demo", "optimistic", None, 1000, None, True, None, None, {})
+    assert row["manual_ok"] == 3 and row["checks"] >= row["ok"] and row["manual_s"] < row["total_s"]
+    s = summarize([row])
+    assert s["manual_pct"] == 100 and s["total_mean_s"] == row["total_s"] and s["checks_mean"] == row["checks"]
+
+
 def test_bench_run_once_against_fake_esp32():
     """bench.py가 7절 규약(gap 응답, once의 done)을 가상 ESP32와 맞게 주고받는다."""
     from so101_studio.perception.ultrasonic.bench import run_once
