@@ -27,6 +27,7 @@ class TaskRunner:
         self._trail: PoseTrail | None = None
         self._auto_zones: list[tuple[float, float, float]] = []  # 전에 소스에 넘긴 배출 구역(소스 고유 영역과 구별한다)
         self._warned_rescan_cfg = False
+        self._cand_ready = False  # check_candidate가 연결·확인 준비를 했는지
         self.wait_step: Callable[[], None] = lambda: None  # 단계별 모드에서 다음 단계를 기다리는 함수(CLI는 Enter, GUI는 step())
 
     def stop(self) -> None:
@@ -117,6 +118,16 @@ class TaskRunner:
             raise
         res = probe.result()
         return res, "ok" if res else getattr(probe, "status", "empty")
+
+    def check_candidate(self, cand):
+        """작업 실행 밖에서 CHECK 한 번(A1, ultrasonic-spec 8.6). (확정한 물체 또는 None, ok|empty|unreachable|aborted).
+        처음 부를 때 한 번 run()과 같은 순서로 connect()·_begin_checkable(). reachable() 거르기는 하지 않는다(집지 않고 확인 정확도만 잰다).
+        다 쓰면 부르는 쪽이 self._trail.detach()."""
+        if not self._cand_ready:
+            self.source.connect()
+            self._begin_checkable()
+            self._cand_ready = True
+        return self._check(cand)
 
     def _skip(self, obj, r) -> None:
         """다시 집어도 소용없는 이유(height_required)로 이 물체를 건너뛴다: 이유를 PICK 이벤트에 남기고 이번 작업에서는 다시 고르지 않는다 (GUI가 보인다)."""

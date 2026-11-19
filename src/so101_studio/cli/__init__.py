@@ -12,7 +12,7 @@ from ..core.config import ArmSelectionError, load_robot_ex, load_workspace
 from ..core.types import DetectedObject, JointState, ToolPose
 from ..service.arm_service import ArmService, plan_goto  # noqa: F401  plan_goto는 테스트가 이 경로로도 쓴다
 
-COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "keys", "powertest", "shaketest", "servoinfo", "linkwatch", "info", "record", "replay", "seq", "gui", "doctor", "find-port", "incident", "calibrate"]
+COMMANDS = ["status", "home", "park", "movej", "goto", "pick", "place", "gripper", "run", "keys", "powertest", "shaketest", "servoinfo", "linkwatch", "info", "record", "replay", "seq", "gui", "doctor", "find-port", "incident", "calibrate", "checktest"]
 
 
 MUJOCO_MISSING_TEXT = "MuJoCo가 설치되지 않았습니다. docs/guides/tooling-setup.md의 MuJoCo 줄로 설치하세요"
@@ -43,19 +43,96 @@ def run_task(svc: ArmService, a) -> str:
     from ..perception.manual import ManualSource
     from ..service.studio import Studio
 
+    k = getattr(a, "truth_layout", None)
+    sim = getattr(a, "sim", False)
+    if k is not None and getattr(a, "source", "manual") != "ultrasonic":
+        sys.exit("--truth-layout은 --source ultrasonic과 함께 쓴다")
+    boxes = None
+    if k is not None:  # I1 정답 기록 (ultrasonic-spec 8.6)
+        from ..service.check_test import i1_layout
+
+        boxes = i1_layout(k)
+        print(f"I1 배치 {k}:")
+        for i, b in enumerate(boxes, 1):
+            print(f"  P{i}: {b.width:g}x{b.length:g}x{b.height:g}mm, 중심 ({b.x:g}, {b.y:g}), 긴 축 {b.angle_deg % 180:g}°")
+        if not sim:
+            input("물체를 놓고 손을 뺀 뒤 Enter ")
     if getattr(a, "source", "manual") == "ultrasonic":
         from ..service.ultrasonic import make_ultrasonic_source
 
-        source = make_ultrasonic_source(svc, sim=getattr(a, "sim", False), port=getattr(a, "us_port", None))
+        source = make_ultrasonic_source(svc, sim=sim, port=getattr(a, "us_port", None),
+                                        boxes=None if boxes is None else list(boxes))  # 가상 ESP32는 집어 간 물체를 이 목록에서 지운다: 정답은 따로 둔다
     else:
         source = ManualSource()
+    run = None
+    if k is not None:
+        from ..perception.ultrasonic.truth import TruthRun
+
+        run = TruthRun("I1", source.cfg, sim=sim, note=f"log={getattr(svc.logger, 'dir', None)} {a.note}".strip())
+        source.record_dir = run.dir
     st = Studio(svc, source, dry_run=a.dry_run)
     st.bus.subscribe("task", lambda e: print(f"[{e.state}] {e.object_id or ''} {e.result or ''}".rstrip()))
     if a.step:
         st.task.wait_step = lambda: input("  (Enter: 다음 단계) ")
     svc.enable_torque()  # 잠겼으면 켜지 않고, 작업은 첫 동작에서 locked로 끝난다
-    res = st.start(step_mode=a.step, blocking=True)
+    try:
+        res = st.start(step_mode=a.step, blocking=True)
+    finally:
+        if run is not None:
+            from ..service.check_test import i1_truth
+
+            run.add(i1_truth(boxes), source.saved, 1)
+            run.close()
+            print(f"정답 기록: {run.dir}")
     return f"끝: {res['end']}  옮긴 물체 {len(res['picked'])}개 {res['picked']}  실패 {res['failed']}  사이클 {res['cycles']}"
+
+
+def run_checktest(svc: ArmService, a) -> None:
+    """checktest a1 (ultrasonic-spec 8.6): 정답 가까운 후보에서 CHECK만 12회. --sim이면 묻지 않고 가상 ESP32에 물체를 놓는다."""
+    from ..perception.ultrasonic.model import Box, load_config
+    from ..perception.ultrasonic.truth import TruthRun
+    from ..service.check_test import A1_N, a1_plan, a1_summary, run_a1
+    from ..service.studio import Studio
+    from ..service.ultrasonic import make_ultrasonic_source
+
+    if a.values[:1] != ["a1"]:
+        sys.exit("checktest: 하위 명령은 a1뿐이다 (so101 checktest a1)")
+    try:
+        obj = tuple(float(x) for x in a.obj.lower().split("x"))
+        assert len(obj) == 3
+    except (ValueError, AssertionError):
+        sys.exit("--obj는 폭x길이x높이(mm), 예: 40x80x40")
+    limit = load_config().check.max_object_height_mm
+    if obj[2] > limit:  # 확인 높이가 max_object_height_mm + clearance_mm로 고정이라 더 높은 물체에 닿는다
+        sys.exit(f"--obj 높이 {obj[2]:g}mm가 check.max_object_height_mm({limit:g})보다 크다: 센서가 물체에 닿는다")
+    svc.enable_torque()
+    src = make_ultrasonic_source(svc, sim=a.sim, port=a.us_port)
+    st = Studio(svc, src)
+    run = TruthRun("A1", src.cfg, sim=a.sim, note=a.note)
+    src.record_dir = run.dir
+
+    def place(item):
+        t = item["truth"]
+        if a.sim:
+            src.esp.boxes = [Box(t["x_mm"], t["y_mm"], t["angle_deg"] or 0.0, t["width_mm"], t["length_mm"], t["height_mm"])]
+            return t
+        print(f"{item['n']}/{A1_N}: {item['spot']} ({t['x_mm']}, {t['y_mm']})에 물체 중심, 긴 축 {t['angle_deg'] if t['angle_deg'] is not None else '-'}°. 놓고 손을 뺀 뒤 Enter")
+        while True:
+            s = input('(다르게 놓았으면 "x y 각도", q = 끝) ').strip()
+            if s.lower() == "q":
+                return None
+            if not s:
+                return t
+            try:
+                x, y, ang = (float(v) for v in s.split())
+            except ValueError:
+                print("  x y 각도 세 값을 띄어 쓴다")
+                continue
+            return {**t, "x_mm": x, "y_mm": y, "angle_deg": None if t["angle_deg"] is None else ang % 180}
+
+    res = run_a1(svc, st.task, src, run, place, a1_plan(a.seed, a.offset, obj, a.reps))
+    print(a1_summary(res))
+    print(f"기록: {run.dir}")
 
 
 def print_info(info: dict) -> None:
@@ -110,6 +187,12 @@ def main(argv=None) -> None:
     ap.add_argument("--velocity", type=int, default=200, help="calibrate --auto: 끝단 찾기 속도(steps/s, 기본 200)")
     ap.add_argument("--torque-limit", type=int, help="calibrate --auto: 토크 한계(0~1000, 기본 500=50%%)")
     ap.add_argument("--last", type=float, default=60.0, help="incident: 지금부터 거슬러 올라갈 초 (기본 60)")
+    ap.add_argument("--obj", default="40x80x40", help="checktest a1: 물체 폭x길이x높이 mm")
+    ap.add_argument("--offset", type=float, default=30.0, help="checktest a1: 후보를 정답에서 떨어뜨리는 최대 거리 mm")
+    ap.add_argument("--seed", type=int, default=0, help="checktest a1: 후보 씨앗")
+    ap.add_argument("--reps", type=int, default=1, help="checktest a1: 12회 묶음 수")
+    ap.add_argument("--note", default="", help="checktest a1·run --truth-layout: truth.json 메모")
+    ap.add_argument("--truth-layout", type=int, choices=range(1, 11), metavar="K", help="run --source ultrasonic: I1 정답 배치 K(1~10)를 기록 (ultrasonic-spec 8.6)")
     ap.add_argument("command", choices=COMMANDS)
     ap.add_argument("values", nargs="*", help="movej: 관절 6개 / goto: x y z yaw (z는 ToolPose 모델 z: 기준점 높이이고 턱 끝의 작업대 위 높이가 아니다. 턱 끝 높이로 보내려면 GUI 좌표 이동이나 keys 좌표 모드) / pick: x y 각도 폭 [높이](폭·높이 0이면 모름. 팔 방향과 어긋난 물체는 높이를 모르면 위 모서리를 칠 수 있다) / gripper: 값 / record·replay·seq: 이름")
     a = ap.parse_args(argv)
@@ -233,6 +316,8 @@ def main(argv=None) -> None:
             print(fmt(svc.place(a.place or ap.error("place: --place <구역 이름>이 필요하다"))))
         elif c == "run":
             print(run_task(svc, a))
+        elif c == "checktest":
+            run_checktest(svc, a)
         elif c == "powertest":
             from .powertest import run_powertest
 
