@@ -26,7 +26,7 @@ from ...arm.skills import SEEDS
 from ...arm.trajectory import LookaheadShape, fillet_path
 from ...core.config import load_robot, load_workspace
 from ...core.scene import BIN_WALL_T_MM
-from ...core.types import JointState
+from ...core.types import DetectedObject, JointState
 from ...service.targets import point_to_pose, tip_vector
 from ...task import policy
 from ..base import PoseSample
@@ -408,6 +408,21 @@ def run_cycle(src, arm, esp, place_s=5.0, drop=(355.0, 80.0), max_iter=12, resca
     return ok, recog, log
 
 
+def run_manual(boxes, arm, place_s=5.0, drop=(355.0, 80.0)):
+    """비교 기준(비교 실험 (가)): run --source manual 흉내. 정답 좌표를 바로 받아(인식 0초) run_cycle과 같은 DECIDE(policy.choose)·이동·놓기 시간으로
+    끝까지 간다. 고른 물체는 다 집은 것으로 본다. 돌려주는 값 = (집은 수, 끝까지 걸린 초)."""
+    clk, ws, t0 = arm.clk, load_workspace(), arm.clk.now_ns()
+    objs = [DetectedObject(f"m{i}", b.x, b.y, b.angle_deg % 180, b.width, b.length, 1.0, "manual", b.height) for i, b in enumerate(boxes)]
+    ok = 0
+    while (o := policy.choose(objs, ws)) is not None:
+        objs.remove(o)
+        ok += 1
+        arm.move((o.x_mm, o.y_mm), 55)
+        arm.move(drop, 55)
+        clk.sleep(max(place_s - math.dist((o.x_mm, o.y_mm), drop) / arm.travel, 0))
+    return ok, (clk.now_ns() - t0) / 1e9
+
+
 def _cell(name, model, radius, seed, rescan_home, report_failures, arm_kw, pair_gap, opts):
     """시나리오의 칸 하나(씨앗 하나): 배치를 만들어 사이클을 돌고 행을 돌려준다."""
     rng = random.Random(f"{name}-{radius}-{seed}")
@@ -419,10 +434,16 @@ def _cell(name, model, radius, seed, rescan_home, report_failures, arm_kw, pair_
     else:
         boxes = pair_layout(rng, pair_gap) if name == "pair" else random_layout(rng, name)
     n = len(boxes)
+    truth_boxes = [replace(b) for b in boxes]  # run_cycle이 집은 물체를 뺀다
     cfg, clk, esp, arm = build(boxes, seed=seed, model=model, arm_kw=arm_kw, **opts)
     src = make_source(cfg, clk, esp, arm)
+    t0 = clk.now_ns()
     ok, secs, log = run_cycle(src, arm, esp, rescan_home=rescan_home, report_failures=report_failures)
+    total = (clk.now_ns() - t0) / 1e9
+    *_, marm = build([], seed=seed, model=model, arm_kw=arm_kw, **opts)
+    m_ok, m_s = run_manual(truth_boxes, marm)
     return {"radius": radius, "seed": seed, "n": n, "ok": ok, "recog_s": secs, "left": len(esp.boxes), "log": log,
+            "total_s": total, "checks": sum(x["result"] == "pulls" for x in log), "manual_ok": m_ok, "manual_s": m_s,
             "radar_errs": [x["err"] for x in log if x["result"] == "radar"],
             "check_errs": [x["err"] for x in log if x["result"] in ("ok", "bad")],
             "angles": [x["angle"] for x in log if x["result"] in ("ok", "bad") and x["angle"] is not None],
@@ -476,10 +497,11 @@ class _Guard:
             self.proc.kill()
 
 
-def run_scenario(name, model, seeds, rescan_home=None, report_failures=True, arm_kw=None, pair_gap=None, kin_spec=None, seed_timeout=None, **opts):
-    """시나리오 하나: 씨앗값 0..seeds-1마다 배치를 만들어 사이클을 돈다. single은 반경 구간(SINGLE_RADII)마다 seeds번.
+def run_scenario(name, model, seeds, rescan_home=None, report_failures=True, arm_kw=None, pair_gap=None, kin_spec=None, seed_timeout=None, seed_start=0, **opts):
+    """시나리오 하나: 씨앗값 seed_start..seed_start+seeds-1마다 배치를 만들어 사이클을 돈다. single은 반경 구간(SINGLE_RADII)마다 seeds번.
     kin_spec=(호버, 그리퍼)와 seed_timeout(초)을 주면 칸마다 자식 프로세스에서 돌려 제한 시간을 넘는 칸은 실패로 적는다."""
-    cells = [(r, s) for r in SINGLE_RADII for s in range(seeds)] if name == "single" else [(None, s) for s in range(seeds)]
+    ss = range(seed_start, seed_start + seeds)
+    cells = [(r, s) for r in SINGLE_RADII for s in ss] if name == "single" else [(None, s) for s in ss]
     n = {"single": 1, "pair": 2}.get(name, SCENARIOS[name][0])
     guard = _Guard(kin_spec, seed_timeout) if kin_spec and seed_timeout else None
     try:
@@ -514,6 +536,11 @@ def summarize(rows) -> dict:
         out["angle_pct"] = 100 * sum(angles) / len(angles)
     if heights:
         out.update(h_err_median_mm=statistics.median(heights), h_err_p90_mm=heights[math.ceil(0.9 * len(heights)) - 1])
+    done = [r for r in rows if "total_s" in r]  # 시간 초과 칸은 끝까지 시간·수동 비교가 없다
+    if done:
+        tot = sorted(r["total_s"] for r in done)
+        out.update(checks_mean=statistics.mean(r["checks"] for r in done), total_mean_s=statistics.mean(tot), total_p90_s=tot[math.ceil(0.9 * len(tot)) - 1],
+                   manual_pct=100 * statistics.mean(r["manual_ok"] for r in done) / n, manual_mean_s=statistics.mean(r["manual_s"] for r in done))
     pulls = [n for r in rows for n in r.get("pulls", [])]
     if pulls:
         out.update(pull_mean=statistics.mean(pulls), pull_max=max(pulls), pull_stages=len(pulls))
@@ -546,6 +573,12 @@ def format_table(results: list[dict]) -> str:
                      f"{s.get('check_err_median_mm', float('nan')):.1f}·{s.get('check_err_p90_mm', float('nan')):.1f} (n={s['check_n']}) | "
                      f"{s.get('angle_pct', float('nan')):.0f} (n={s['angle_n']}) | "
                      f"{s.get('h_err_median_mm', float('nan')):.1f}·{s.get('h_err_p90_mm', float('nan')):.1f} |")
+    lines += ["", "| 시나리오 | 모델 | CHECK 평균 | 끝까지 평균·90%(초) | 수동(정답 좌표) 성공 % | 수동 끝까지 평균(초) |", "|---|---|---|---|---|---|"]
+    for r in results:
+        s = r["summary"]
+        if "total_mean_s" in s:
+            lines.append(f"| {r['scenario']} | {r['model']} | {s['checks_mean']:.2f} | {s['total_mean_s']:.0f}·{s['total_p90_s']:.0f} | "
+                         f"{s['manual_pct']:.0f}% | {s['manual_mean_s']:.0f} |")
     lines += ["", "| 시나리오 | 모델 | 단계당 다시 부른 횟수 평균 | 최대 | 단계 수 |", "|---|---|---|---|---|"]
     for r in results:
         s = r["summary"]
@@ -557,6 +590,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--scenario", default="all", help="spread90 | spread120 | demo | demo80(모서리 80mm 이상) | single | pair | all(pair·demo80 뺀 넷)")
     ap.add_argument("--seeds", type=int, default=20, help="시나리오마다 배치 수(8.5절: 20 이상). single은 반경 구간마다")
+    ap.add_argument("--seed-start", type=int, default=0, help="첫 씨앗값(앞 측정과 겹치지 않게 비교 실험에서 바꾼다)")
     ap.add_argument("--approach-line", action="store_true", help="T8: 첫 확인선을 팔 원점에서 후보로 가는 방향으로(check.approach_line)")
     ap.add_argument("--model", default="both", help="optimistic | pessimistic | both")
     ap.add_argument("--line-mm", type=int, help="확인 직선 길이(기본 설정값)")
@@ -597,7 +631,7 @@ def main(argv=None):
     results, sha = [], commit()
     cmd = "python -m so101_studio.perception.ultrasonic.benchmark " + " ".join(argv if argv is not None else __import__("sys").argv[1:])
     for name, model in itertools.product(names, models):
-        rows = run_scenario(name, model, a.seeds, rescan_home=rescan, report_failures=not a.no_note_failure, arm_kw=arm_kw, pair_gap=a.pair_gap, kin_spec=kin_spec, seed_timeout=seed_timeout, **opts)
+        rows = run_scenario(name, model, a.seeds, rescan_home=rescan, report_failures=not a.no_note_failure, arm_kw=arm_kw, pair_gap=a.pair_gap, kin_spec=kin_spec, seed_timeout=seed_timeout, seed_start=a.seed_start, **opts)
         results.append({"commit": sha, "command": cmd, "scenario": name, "model": model, "options": {**opts, "reach": a.reach, "hover_mm": a.hover_mm, "rescan_home": rescan, "note_failure": not a.no_note_failure}, "summary": summarize(rows),
                         "rows": [{k: v for k, v in r.items() if k != "log"} for r in rows]})
         print(f"  {name} {model}: 성공 {results[-1]['summary']['success_mean']:.2f}/{results[-1]['summary']['objects']}", flush=True)
