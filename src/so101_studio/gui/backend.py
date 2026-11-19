@@ -152,6 +152,7 @@ class Backend:
         cfg, self.arm_info = load_robot_ex(arm=arm_name, serials=serials)
         self._arm_option = arm_name
         self._first_report = first_report  # 팔을 연결하기 전에 포트를 열어 읽은 점검 결과
+        self.sim_notice: str | None = None  # 실물 팔에 연결하지 못해 시뮬레이션으로 켰을 때 화면 위에 띄우는 안내(app.main)
         self._linkwatching = False
         self.last_pick_approach: dict | None = None  # 마지막 직접 조작 집기가 고른 기울여 집기(arm 6.6.1 approach: beta·phi·gamma·face), 수직이면 None
         self._calibrating = False  # 캘리브레이션 측정 중(포트를 직접 연다, gui-spec 12.3)

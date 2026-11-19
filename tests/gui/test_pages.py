@@ -188,8 +188,9 @@ def test_main_binds_localhost_and_connects_the_real_arm_without_sim(monkeypatch)
     assert calls[-1][0].real["first_report"] is None
 
     monkeypatch.setattr(gui_app, "list_serial_ports", lambda: [{**board, "serial": "OTHER"}])  # 다른 보드로 추측해 연결하지 않는다
-    with pytest.raises(SystemExit, match="안 보인다"):
-        gui_app.main(argparse.Namespace(sim=False))
+    monkeypatch.setattr(gui_app.port_check, "so101_processes", list)
+    gui_app.main(argparse.Namespace(sim=False))  # 꺼지지 않고 시뮬레이션으로 켜며 이유를 화면에 남긴다(사용자 결정 2026-11-19)
+    assert calls[-1][0].real == {} and calls[-1][0].link.sim is True and "안 보인다" in calls[-1][0].sim_notice
 
 
 def test_brand_goes_to_start_page(backend):

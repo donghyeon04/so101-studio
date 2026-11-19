@@ -128,6 +128,10 @@ def make_root(backend: Backend):
                 actions = ui.row().classes("items-center gap-2")
             if path in DESCRIPTIONS:
                 ui.label(DESCRIPTIONS[path]).classes("page-body page-desc").mark("page-desc")
+            if backend.sim_notice:
+                with ui.row().classes("w-full items-center gap-1 no-wrap").mark("sim-notice"):
+                    ui.icon("warning", color="warning")
+                    ui.label(backend.sim_notice).classes("page-body")
             with ui.row().classes("w-full items-center gap-1 no-wrap").mark("lock-banner") as row:
                 ui.icon("lock", color="negative")
                 label = ui.label(f"움직이는 버튼이 꺼져 있습니다: {backend.move_lock()}").classes("page-body")
@@ -365,6 +369,11 @@ def real_arm_args(arm_name: str | None) -> dict:
     return {"real_driver": make_driver(False, cfg), "serials": serials, "port": port, "first_report": _first_report(arm_name, port)}
 
 
+def sim_fallback_text(error) -> str:
+    return (f"실물 팔에 연결하지 못해 시뮬레이션으로 켰습니다({error}). 실물 팔은 USB를 꽂고 전원을 켠 뒤 "
+            "프로그램을 다시 실행하면 연결됩니다.")
+
+
 def _first_report(arm_name: str | None, port: str) -> dict | None:
     """연결 전에만 포트를 열 수 있어 시작할 때 한 번 읽는다. PING/READ만 보낸다(decisions/0027). 실패해도 앱은 뜬다."""
     try:
@@ -392,25 +401,37 @@ def main(args) -> None:
     viser_port = getattr(args, "viser_port", None) or scene3d.DEFAULT_PORT
     if why := port_check.check_ports({web_port, viser_port, wd_port}, {wd_port + 1}, url=f"http://127.0.0.1:{web_port}"):  # 팔을 연결하기 전에: 이전 GUI가 남아 있으면 포트 오류로 죽었다
         sys.exit(why)
-    link = WatchdogLink(sim=sim, port=wd_port, stop_port=wd_port + 1)
+    arm_name = getattr(args, "arm", None)
+
+    def open_backend(sim_mode: bool):
+        link = WatchdogLink(sim=sim_mode, port=wd_port, stop_port=wd_port + 1)
+        try:
+            return link, Backend(
+                speed=getattr(args, "speed", None), link=link, viser_port=viser_port,
+                arm_name=arm_name, viser_host=host, share=share, web_port=web_port, **({} if sim_mode else real_arm_args(arm_name)),
+                **({"sim_engine": engine, "sim_viewer": viewer} if engine == "mujoco" else {}),
+            )
+        except BaseException:
+            link.stop()
+            raise
+
     try:
-        arm_name = getattr(args, "arm", None)
-        backend = Backend(
-            speed=getattr(args, "speed", None), link=link, viser_port=viser_port,
-            arm_name=arm_name, viser_host=host, share=share, web_port=web_port, **({} if sim else real_arm_args(arm_name)),
-            **({"sim_engine": engine, "sim_viewer": viewer} if engine == "mujoco" else {}),
-        )
+        link, backend = open_backend(sim)
     except ImportError:  # mujoco가 없다. 기구학 엔진으로 바꿔 띄우지 않는다
-        link.stop()
         if engine != "mujoco":
             raise
         print(MUJOCO_MISSING_TEXT, flush=True)
         sys.exit(2)
     except (RuntimeError, ValueError, ArmSelectionError, PortChoiceError) as e:  # ValueError: 병렬 그리퍼·물체 겹침·scene.yaml 오류(MuJoCo)
-        link.stop()
-        others = [] if sim else port_check.so101_processes()  # 시리얼 포트를 다른 so101 프로그램이 쥐고 있는 경우가 많다
-        hint = ("\n지금 켜진 SO-101 프로그램(이 중 하나가 팔 포트를 쓰고 있을 수 있습니다. 끈 뒤 다시 실행하세요):\n  " + "\n  ".join(others)) if others else ""
-        sys.exit(f"연결 실패: {e}{hint}")
+        if sim:
+            sys.exit(f"연결 실패: {e}")
+        # 실물 팔이 없거나 연결하지 못하면 앱을 끄지 않고 시뮬레이션으로 켠다(사용자 결정 2026-11-19, 실행 파일 하나). 이유는 화면 위에 계속 보인다
+        others = port_check.so101_processes()  # 시리얼 포트를 다른 so101 프로그램이 쥐고 있는 경우가 많다
+        hint = (" 지금 켜진 SO-101 프로그램이 팔 포트를 쓰고 있을 수 있습니다: " + ", ".join(others)) if others else ""
+        notice = sim_fallback_text(e) + hint
+        print(notice, flush=True)
+        link, backend = open_backend(True)
+        backend.sim_notice = notice
     link.start(backend.run_dir)  # 실행 폴더는 연결한 뒤에 생긴다
     app.on_startup(lambda: background_tasks.create(link.run(), name="watchdog heartbeat"))
     app.on_shutdown(backend.close)
