@@ -174,3 +174,9 @@ def test_camera_arm_is_cut_from_the_hand_mesh(tmp_path):
     import trimesh
 
     assert len(trimesh.load(out, force="mesh").faces) == kept == len(trimesh.load(mujoco_hand.NOCAM_STL, force="mesh").faces) and removed > 0
+
+
+@pytest.fixture(autouse=True)
+def _keep_real_runs(monkeypatch):
+    """시험이 만드는 실행 기록이 진짜 runs/의 보관 정리를 부르지 않게 한다(2026-11-19 test_cli_status_mujoco가 runs/train 체크포인트를 지웠다)."""
+    monkeypatch.setattr("so101_studio.core.logging.prune_runs", lambda *a, **k: [])

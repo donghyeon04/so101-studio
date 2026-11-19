@@ -144,3 +144,9 @@ def test_paths_are_relative_to_the_repo_root_and_manual_unknown_keys_are_value_e
     monkeypatch.setattr(sim_driver, "REPO_ROOT", tmp_path)
     with pytest.raises(ValueError, match="수동 물체"):
         make_sim_driver(CFG, WS, None)
+
+
+@pytest.fixture(autouse=True)
+def _keep_real_runs(monkeypatch):
+    """시험이 만드는 실행 기록이 진짜 runs/의 보관 정리를 부르지 않게 한다(2026-11-19 test_cli_status_mujoco가 runs/train 체크포인트를 지웠다)."""
+    monkeypatch.setattr("so101_studio.core.logging.prune_runs", lambda *a, **k: [])
