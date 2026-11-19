@@ -1,7 +1,7 @@
 """초음파 성능 벤치마크 (ultrasonic-spec 8.5절, 결정 0037): 가상 ESP32 + 가상 팔 위에서 실제 radar.py·check.py·source.py를 돌린다.
 성능 숫자는 이 도구로만 낸다. 새 아이디어(확인선 길이, 모드, 속도 등)는 옵션으로 붙인다.
 
-python -m so101_studio.perception.ultrasonic.benchmark [--scenario spread90|spread120|demo|single|all] [--seeds N] [--approach-line]
+python -m so101_studio.perception.ultrasonic.benchmark [--scenario spread90|spread120|demo|demo80|show80|single|all] [--seeds N] [--approach-line]
                                                        [--model optimistic|pessimistic|both] [--reach radius|kin] [--hover-mm N] [--tool-reach MIN,MAX] [--line-mm N] [--speed N] [--rescan-home on|off] [--max-fail N] [--empty-extra N] [--no-note-failure]
 """
 import argparse
@@ -51,9 +51,11 @@ SCENARIOS = {  # 이름: (물체 수, 반경 mm, 방위 °, 중심 간격 mm 이
     "spread120": (3, (120, 220), (45, 135), 120),
     "demo": (3, (120, 220), (45, 135), 120),
     "demo80": (3, (120, 220), (45, 135), 120),  # demo + 물체 모서리 사이 80mm 이상(설계서 6절 권장 배치, edge_gap)
+    "show80": (3, (150, 220), (45, 135), 120),  # demo80과 같되 반경 150~220(시연·I1, 사용자 결정 11-20, REQ-099)
     "single": (1, (100, 240), (25, 155), 0),
     "pair": (2, (120, 240), (25, 155), 0),  # 물체 둘, 모서리 사이 간격을 --pair-gap으로 정한다(이웃 물체를 따로 보는 최소 간격 재기)
 }
+EDGE80 = ("demo80", "show80")  # 모서리 80mm 이상 검사를 켜는 시나리오
 SINGLE_RADII = (100, 120, 140, 160, 180, 200, 220, 240)
 
 
@@ -272,7 +274,7 @@ def _hits_zone(b: Box, z: dict) -> bool:
 
 
 def random_layout(rng, name) -> list[Box]:
-    """8.5절 시나리오: 팔 원점 기준 반경·방위 범위 안, 중심 간격 이상(demo80은 모서리 간격 80 이상도), 판 안, 통 원 밖.
+    """8.5절 시나리오: 팔 원점 기준 반경·방위 범위 안, 중심 간격 이상(demo80·show80은 모서리 간격 80 이상도), 판 안, 통 원 밖.
     물체를 하나씩 뽑고 앞 물체와 조건이 안 맞으면 그 물체만 다시 뽑는다(200번 안에 안 되면 처음부터). 간격이 큰 배치에 치우친다.
     물체는 30x100·40x80·50x50, 방향 0/45/90/135° ±5°."""
     n, (r0, r1), (b0, b1), spacing = SCENARIOS[name]
@@ -285,7 +287,7 @@ def random_layout(rng, name) -> list[Box]:
                 r, th = rng.uniform(r0, r1), math.radians(rng.uniform(b0, b1))
                 w, length = rng.choice(OBJECT_SIZES)
                 b = Box(bx + r * math.cos(th), by + r * math.sin(th), rng.choice((0, 45, 90, 135)) + rng.uniform(-5, 5), w, length)
-                if on_plate(b, ws) and all(math.dist((a.x, a.y), (b.x, b.y)) >= spacing and (name != "demo80" or edge_gap(a, b) >= 80) for a in boxes):
+                if on_plate(b, ws) and all(math.dist((a.x, a.y), (b.x, b.y)) >= spacing and (name not in EDGE80 or edge_gap(a, b) >= 80) for a in boxes):
                     boxes.append(b)
                     break
             else:
@@ -588,7 +590,7 @@ def format_table(results: list[dict]) -> str:
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--scenario", default="all", help="spread90 | spread120 | demo | demo80(모서리 80mm 이상) | single | pair | all(pair·demo80 뺀 넷)")
+    ap.add_argument("--scenario", default="all", help="spread90 | spread120 | demo | demo80(모서리 80mm 이상) | show80(demo80, 반경 150~) | single | pair | all(pair·demo80·show80 뺀 넷)")
     ap.add_argument("--seeds", type=int, default=20, help="시나리오마다 배치 수(8.5절: 20 이상). single은 반경 구간마다")
     ap.add_argument("--seed-start", type=int, default=0, help="첫 씨앗값(앞 측정과 겹치지 않게 비교 실험에서 바꾼다)")
     ap.add_argument("--approach-line", action="store_true", help="T8: 첫 확인선을 팔 원점에서 후보로 가는 방향으로(check.approach_line)")
@@ -609,7 +611,7 @@ def main(argv=None):
     ap.add_argument("--set", action="append", default=[], metavar="KEY=VAL", help="check.<KEY>를 이번만 바꾼다(여러 번 가능, 예: --set yaw_deg=45 --set ring_r_mm=50 --set clearance_mm=40)")
     ap.add_argument("--out", default="runs/bench")
     a = ap.parse_args(argv)
-    names = [k for k in SCENARIOS if k not in ("pair", "demo80")] if a.scenario == "all" else [a.scenario]
+    names = [k for k in SCENARIOS if k not in ("pair", *EDGE80)] if a.scenario == "all" else [a.scenario]
     models = list(MODELS) if a.model == "both" else [a.model]
     opts = {k: v for k, v in (("line_mm", a.line_mm), ("speed_mm_s", a.speed), ("max_fail_per_run", a.max_fail)) if v is not None}
     opts.update({k: json.loads(v) for k, v in (kv.split("=", 1) for kv in a.set)})
