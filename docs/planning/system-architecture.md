@@ -158,7 +158,7 @@ assets/          URDF(단동식 so101_new_calib, 병렬 so101_parallel), 메쉬,
 tests/           하드웨어 없이 도는 시험 (tests/gui는 GUI, slow 표시는 긴 시험)
 runs/            실행 기록 (git 제외)
 docs/            README.md 색인 참고
-so101.cmd/.sh, 설치.cmd, 시뮬레이션 실행.cmd, 실물 팔 실행.cmd   런처(0040)
+so101.cmd/.sh, 설치.cmd, SO-101 Studio 실행.cmd, 제거.cmd   런처(0040, REQ-095)
 ```
 
 ## 10. 실행 기록
