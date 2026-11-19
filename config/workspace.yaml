@@ -7,4 +7,4 @@ drop_zones:
   right: {type: bin, x_mm: 355, y_mm: 80, w_mm: 110, h_mm: 110, wall_mm: 25}   # 결정 0067 시작값(오른쪽 앞 귀퉁이, 통 가운데 반경 약 152mm). H-6 실측으로 고친다
 safety_margin_mm: 10
 candidate_reach_margin_mm: 60   # 확인(CHECK) 전 레이더 후보는 reach_mm 최대 + 이 값까지 고른다(후보가 실제보다 멀게 보인다, REQ-065). CHECK로 확정한 위치와 수동 입력은 reach_mm 그대로
-reach_mm: {min: 90, max: 250}   # '집기 범위'(pick_reach_mm): 로봇 원점에서 수직 하강으로 집을 수 있는 반경. 손끝 방향이 자유로운 움직임 범위는 ArmService.reach_ranges가 계산한다. 근거 (measurements.md T6 사전 조사). 도달 밖 물체는 작업에서 제외
+reach_mm: {min: 100, max: 230}   # '집기 범위'(pick_reach_mm): 로봇 원점에서 수직 하강으로 집을 수 있는 반경(병렬·단동식 둘 다 되는 범위). 손끝 방향이 자유로운 움직임 범위는 ArmService.reach_ranges가 계산한다. 근거 measurements.md "H-2 뒤 집기 범위"(table_z -2.9 CAD 값 기준, H-6 실측 뒤 다시 계산). 도달 밖 물체는 작업에서 제외
