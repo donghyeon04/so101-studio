@@ -180,6 +180,7 @@ class UltrasonicSource:
                 self._record("checks", {"t_ns": self.clock.now_ns(), "candidate": dataclasses.asdict(cand), "status": status,
                                         "result": dataclasses.asdict(result) if result else None, "info": info or {},
                                         "segments": segs, "arm_raw": self._check_raw})
+        self._probe = None  # 다음 확인 기록에 이번 구간이 섞이지 않게
 
     def note_failure(self, x_mm: float, y_mm: float) -> None:
         """확인 실패(못 가서 못 잼)나 집기 실패를 작업 실행이 알린다. check.max_fail_per_run에 센다.

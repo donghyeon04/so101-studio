@@ -51,6 +51,8 @@ class TruthRun:
             return
         self._closed = True
         pl = self.data["placements"]
+        if not pl:  # 자리 하나도 못 남긴 실행은 색인에 안 올린다(폴더와 truth.json은 남는다)
+            return
         line = {"run": self.dir.as_posix(), "test": self.data["test"], "commit": self.data["commit"],
                 "objects": sum(len(p["objects"]) for p in pl), "placements": len(pl), "sim": self.data["sim"]}
         with (self.root / "index.jsonl").open("a", encoding="utf-8") as f:
