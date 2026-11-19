@@ -142,7 +142,9 @@ def test_gripper_value_and_width(backend):
     assert backend.gripper(50) is None
     assert backend.arm.status().joints.gripper == pytest.approx(50, abs=1)
     assert backend.gripper_width(54) is None
-    assert 20 < backend.arm.status().joints.gripper < 40
+    table = backend.arm.cfg.gripper_width_mm  # [값, 폭] 표는 그리퍼 종류마다 다르다(기본 병렬, REQ-098)
+    expected = np.interp(54, [w for _, w in table], [v for v, _ in table])
+    assert backend.arm.status().joints.gripper == pytest.approx(expected, abs=1.5)
 
 
 def test_set_speed_shows_in_readout(backend):
@@ -275,8 +277,10 @@ def test_joint_to_moves_one_joint_to_the_typed_angle(backend):
 def test_pick_place_moves_object_to_the_place_point(backend):
     """gui-spec 11절 B7: 집기 점에서 집어 놓기 점에 놓는다. 범위 밖이면 이유를 돌려준다."""
     backend.set_speed(100)
-    assert backend.pick_place((215, 160), 0, 30, 30, (215, 250)) is None  # 팔 정면(결정 0067 판). 놓기 점은 기본 수동 물체(반지름 50)와 겹치지 않게(#229부터 알려진 물체를 피한다)
-    assert backend.pick_place((215, 160), 0, 58, 58, (215, 250), height_mm=39) is None  # REQ-034 높이 칸
+    # 팔 정면(결정 0067 판)의 기본 수동 물체(215, 160)를 집는다. 놓기 점은 그 물체(반지름 50)와 겹치지 않게(#229부터 알려진 물체를 피한다)
+    # 반경 약 205: 병렬 손(기본, REQ-098)은 반경 220 넘는 곳에 놓으면 놓은 뒤 50mm를 못 올린다
+    assert backend.pick_place((215, 160), 0, 30, 30, (150, 215)) is None
+    assert backend.pick_place((215, 160), 0, 58, 58, None, height_mm=39) is None  # REQ-034 높이 칸. 58mm는 빈자리가 좁아 배출 구역에 놓는다
     assert "집기 점이 집기 범위 밖" in (backend.pick_place((215, 30), 0, 30, 30, None) or "")
 
 
