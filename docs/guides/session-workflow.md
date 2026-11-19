@@ -1,13 +1,13 @@
 # 세션 역할과 협업 방법
 
-상태: 확정 · 갱신 2026-11-17 기획 브랜치 이름(5·7절) · 2026-11-14 자율 진행·사후 보고(7절, 사용자 지시) · 2026-11-14 새 PC 절차 점검(2절 폴더·8절 캐시 복사·시험 순서·시작 프롬프트) · 2026-11-14 밤(세션별 모델) · 2026-11-14(합친 뒤 브랜치 지우기 순서) · 2026-11-06
+상태: 확정 · 갱신 2026-11-20 기획 세션을 로컬로(1·2·5·7·7a절, 사용자 지시) · 2026-11-17 기획 브랜치 이름(5·7절) · 2026-11-14 자율 진행·사후 보고(7절, 사용자 지시) · 2026-11-14 새 PC 절차 점검(2절 폴더·8절 캐시 복사·시험 순서·시작 프롬프트) · 2026-11-14 밤(세션별 모델) · 2026-11-14(합친 뒤 브랜치 지우기 순서) · 2026-11-06
 
 근거: `decisions/0024`, `0036`(로컬 세션 셋, GUI 세션 총괄). 요청 기록은 `docs/planning/session-requests.md`에 남긴다.
 
-## 1. 세션 다섯 개 (기획 1 + 로컬 4, MuJoCo 세션은 2026-11-12 추가)
+## 1. 세션 다섯 개 (기획 1 + 개발 4, 모두 이 PC의 로컬 세션. MuJoCo는 2026-11-12 추가, 기획은 2026-11-20 로컬로)
 | 세션 | 위치 | 하는 일 | 고칠 수 있는 곳 | 기준 문서 |
 |---|---|---|---|---|
-| 기획 (Fable) | 원격 (claude.ai) | 기획, 아키텍처, 레퍼런스 조사, 결정 기록, 설계서 | `docs/` | 전체 |
+| 기획 (Opus, 2026-11-20 로컬로) | 로컬, 폴더 `so101-studio-plan`, 세션 이름 "기획 세션" | 기획, 아키텍처, 레퍼런스 조사, 결정 기록, 설계서. 코드는 쓰지 않는다 | `docs/`, `README.md`, `CLAUDE.md` | 전체 |
 | 초음파 (Sonnet) | 로컬, 폴더 `so101-studio-us` | 초음파 인식 코드, 가상 ESP32, ESP32 펌웨어 | `src/so101_studio/perception/ultrasonic/`, `firmware/`, `tests/perception/`, `config/ultrasonic.yaml` | `planning/ultrasonic-spec.md` |
 | GUI (Opus, 로컬 총괄) | 로컬, 폴더 `so101-studio-gui` | GUI 앱과 시뮬레이션 화면. 총괄: 일 나누기, 요청 대장, Sonnet 세션 PR 검토, 기획 요청 모으기 | `src/so101_studio/gui/`, `tests/gui/`, `pyproject.toml`의 `[project.optional-dependencies] gui` 줄 | `planning/gui-spec.md` |
 | 팔 (Sonnet) | 로컬, 폴더 `so101-studio` | 팔, 서비스, 작업 실행, 인식, CLI | 그 밖의 `src/`, `config/`, `tests/`, `so101.cmd` | `planning/arm-software-spec.md`, `planning/system-architecture.md` |
@@ -21,7 +21,7 @@
 - 요청 대장 `planning/session-requests.md`는 GUI 세션(총괄)이 관리한다. 어느 세션 사이의 요청이든 총괄이 번호를 매기고 상태를 갱신한다. 압축 뒤에는 대장과 현황 문서로 진행 상황을 되살린다.
 - 사용자는 주로 총괄과 이야기한다. 총괄은 지시를 쪼개 각 세션에 보내고(3절 방법), 각 세션의 PR은 검토한 뒤 묻지 않고 합치고 사용자에게 사후 보고한다(7절).
 
-## 2. 폴더와 브랜치 (같은 PC에서 로컬 세션 넷)
+## 2. 폴더와 브랜치 (같은 PC에서 로컬 세션 다섯)
 여러 세션이 한 폴더에서 브랜치를 바꾸면 서로의 작업이 엉킨다. git worktree로 폴더를 나눈다(2026-11-14 새 PC 기준. 예전의 `dev/gui-shell`·`dev/us-sim` 시작 브랜치와 `PYTHONPATH`를 손으로 주는 방법은 쓰지 않는다).
 
 ```bash
@@ -30,7 +30,10 @@ git fetch origin
 git worktree add ../so101-studio-gui --detach origin/main
 git worktree add ../so101-studio-sim --detach origin/main
 git worktree add ../so101-studio-us  --detach origin/main
+git worktree add ../so101-studio-plan --detach origin/main   # 기획(문서만, 2026-11-20)
 ```
+
+- **기획 폴더 `so101-studio-plan`**(2026-11-20): 일마다 `git fetch origin && git switch -c claude/<주제> origin/main`으로 브랜치를 따서 문서만 고치고, 바꾼 파일만 이름으로 더해 커밋·푸시한다(`git add -A` 금지). 합치기는 총괄이 한다(기획이 PR을 열어도 된다). conda 환경과 `so101.cmd`는 쓰지 않는다.
 
 - **`main`은 팔 폴더 하나만 체크아웃한다.** 나머지 세 폴더에서 `git switch main`은 "already checked out"으로 실패한다. 세 폴더를 최신 main으로 돌릴 때는 `git fetch origin && git switch --detach origin/main`을 쓴다(팔 폴더는 `git switch main && git pull --ff-only`). 일을 시작할 때 `git switch -c dev/<작업> origin/main`으로 브랜치를 딴다.
 - **실행은 `so101.cmd`로 한다.** 런처가 그 폴더의 `src`를 `PYTHONPATH` 앞에 넣는다(#349). 그래서 editable 설치(`pip install -e .`)가 팔 폴더를 가리켜도 각 폴더의 코드가 돈다. `python -m so101_studio ...`를 직접 부를 때만 그 폴더에서 `PYTHONPATH=src`를 준다. 테스트(`python -m pytest`)는 `pyproject.toml`의 `pythonpath = ["src"]` 덕분에 그 폴더 코드를 쓴다.
@@ -76,12 +79,14 @@ git worktree add ../so101-studio-us  --detach origin/main
 남은 것·주의:
 ```
 
-## 5. 기획 세션으로 올리는 경우 (2026-11-06 개정)
-기존 API 변경, 새 모듈, 안전 정책 변경, 설계서와 다른 구현이 필요할 때는 로컬 세션이 멈추고 총괄(GUI 세션)에게 보낸다(7절). 기획 세션은 사용 한도 때문에 PR을 자동으로 보지 않는다. 흐름은 이렇다.
-1. 총괄이 아래 양식으로 모아 **기획 세션에 붙여 넣을 프롬프트**로 사용자에게 준다. 한 번에 여러 건을 묶어도 된다.
-2. 사용자가 그 프롬프트를 기획 세션에 붙여 넣는다.
-3. 기획 세션은 설계서·결정 기록을 고쳐 **승인 대기 브랜치**(기획 세션의 `claude/*` 브랜치, 2026-11-17 Opus 기획 세션부터 `claude/determined-meitner-44rxlf`(그 전 `claude/lucid-mendel-3truea`는 main에 다 합쳐졌다). 계정이나 기획 세션이 바뀌면 이름이 바뀌므로 새 기획 세션은 첫 답에 자기 브랜치 이름을 알린다)에 커밋·푸시하고, 무엇을 바꿨는지와 커밋을 사용자에게 답한다. 합치지 않는다. 총괄에게 넘길 답("[기획 → 총괄] … 합쳐 줘")은 사용자가 그대로 복사해 붙여 넣도록 **코드 블록 하나**에 담는다(2026-11-19 사용자 지시). 문서만 바꾼 답은 `claude/*` 브랜치에 커밋 첫 줄을 "[기획 → 총괄] …"로 해서 푸시해도 된다. 총괄이 매시 확인해 합친다(2026-11-20 사용자 승인).
-4. 사용자가 승인하면 총괄이 그 브랜치로 PR을 열어 `main`에 합치고, 해당 세션에 전한다. 사용자가 기획 세션에서 바로 합치라고 하면 기획 세션이 합친다.
+## 5. 기획 세션으로 올리는 경우 (2026-11-06 개정, 2026-11-20 기획 로컬로)
+기존 API 변경, 새 모듈, 안전 정책 변경, 설계서와 다른 구현이 필요할 때는 로컬 세션이 멈추고 총괄(GUI 세션)에게 보낸다(7절). 2026-11-20부터 기획도 이 PC의 로컬 세션("기획 세션", 폴더 `so101-studio-plan`)이라 **총괄과 기획은 `SendMessage`로 직접 주고받는다. 사용자가 프롬프트를 붙여 넣지 않는다.** 흐름은 이렇다.
+1. 총괄이 아래 양식으로 모아 `ListAgents`로 "기획 세션"을 찾아 `SendMessage`로 보낸다. 한 번에 여러 건을 묶어도 된다. 원문이 길면 `planning-inbox` `inbox/`에 파일로 두고 메시지에는 경로만 적는다.
+2. 기획 세션은 일마다 `origin/main`에서 `claude/<주제>` 브랜치를 따서 설계서·결정 기록을 고쳐 커밋·푸시한다. 커밋 첫 줄은 "[기획 → 총괄] …"로 쓴다(총괄이 git으로도 찾는다). 합치지 않는다(PR은 열어도 된다).
+3. 기획 세션은 `ListAgents`로 "총괄(GUI) 세션"을 찾아 `SendMessage`로 답한다. 답은 **코드 블록 하나**: 합칠 커밋(브랜치), 바꾼 것, 총괄이 볼 것(2026-11-19 사용자 지시의 형식 그대로).
+4. 문서만 바꾼 답은 총괄이 검토해 합친다(2026-11-20 사용자 승인). 새 결정 기록이나 설계와 다른 방향은 사용자 승인이 먼저다: 기획 세션은 질문을 모아 두고 사용자가 올 때까지 다른 일을 하며, 승인 뒤 총괄이 합치고 해당 세션에 전한다. 사용자가 기획 세션에서 바로 합치라고 하면 기획 세션이 합친다.
+- 하드웨어 질문은 사용자에게 하지 않고 "하드웨어 담당에게 물을 것"으로 모아 총괄에 보낸다(사용자는 하드웨어·전기전자 담당이 아니다).
+- 옛 흐름(2026-11-20 전, 기획이 원격 claude.ai 세션일 때): 총괄이 프롬프트를 사용자에게 주고 사용자가 기획에 붙여 넣었다. 승인 대기 브랜치는 `claude/determined-meitner-44rxlf`(11-17~)·`claude/confident-einstein-5pzss0`(11-19~)였다.
 
 요청함 PR #68은 2026-11-06까지의 기록으로 남긴다(합치지 않고 지우지 않음). 새 요청은 받지 않는다.
 ```
@@ -114,9 +119,9 @@ git worktree add ../so101-studio-us  --detach origin/main
 | `main`에 합치기 | 총괄이 사용자에게 묻지 않고 합친다. 조건: 그 브랜치를 받아 관련 시험(결정 0064)과 `python -m ruff check src tests`(화면·동작이면 `--sim`도)를 직접 다시 돌려 통과, `code-review`(medium 이상)에 꼭 고칠 것이 없음, 아래 "사용자에게 묻는 것"에 걸리지 않음. 고칠 것이 있으면 작성 세션에 돌려보낸다. 합친 뒤 사용자에게 사후 보고한다 |
 | 실제 하드웨어(팔 움직이기, ESP32 펌웨어 올리기, 서보·센서 전원 켜기) | 사용자가 옆에 있어야 한다. 총괄이 사용자에게 묻고 순서를 정한다 |
 | 지우기(브랜치, 기록), 구매, 비용 | 총괄이 사용자에게 묻는다 |
-| 설계서와 다른 구현, 새 API·모듈, 안전 정책 변경 | 총괄이 기획 세션에 붙여 넣을 프롬프트(5절)로 정리해 사용자에게 준다. 기획 세션의 승인 대기 브랜치는 사용자 승인 뒤 총괄이 PR로 합친다 |
+| 설계서와 다른 구현, 새 API·모듈, 안전 정책 변경 | 총괄이 [기획 요청](5절)으로 정리해 기획 세션에 `SendMessage`로 보낸다. 기획 브랜치는 사용자 승인 뒤 총괄이 PR로 합친다 |
 
-- 총괄은 사용자에게 보고하거나 승인을 묻기 전에 `git fetch origin && git merge origin/main`을 하고, 기획 승인 대기 브랜치(`git log origin/main..origin/claude/determined-meitner-44rxlf`, 이름은 5절)에 합치지 않은 기획 커밋이 있는지 본다. 이미 합쳐졌거나 답이 난 항목은 질문에서 뺀다.
+- 총괄은 사용자에게 보고하거나 승인을 묻기 전에 `git fetch origin && git merge origin/main`을 하고, 합치지 않은 기획 커밋이 있는지 본다(`git log --oneline --remotes='origin/claude/*' --not origin/main`). 이미 합쳐졌거나 답이 난 항목은 질문에서 뺀다.
 - 총괄은 사용자에게 물을 것을 모아 한 번에 묻는다. 번호를 매기고 항목마다 추천 답과 이유를 붙인다.
 - 사용자의 답은 총괄이 해당 세션에 전하고, 요청 대장이나 현황 문서에 남긴다.
 - Claude Code 앱이 띄우는 도구 권한 확인 창은 이 규칙과 별개다(앱 설정의 권한 모드로 정한다).
@@ -128,7 +133,8 @@ git worktree add ../so101-studio-us  --detach origin/main
 |---|---|---|
 | 요청(REQ) | `planning/session-requests.md` 행 + 그 일을 한 PR 본문에 REQ 번호 | 보내는 쪽이 행을 더하고, 받는 쪽이 상태를 고친다 |
 | 세션 → 총괄 보고 | PR 본문(한 것·시험 명령과 결과) + 자기 `*-dev-status.md` | 각 세션 |
-| 총괄 → 기획 보고·요청 | `planning-inbox` 브랜치 `inbox/YYYY-MM-DD-제목.md`. 사용자는 기획에 "[기획 요청] … 원문: inbox/…"만 붙여 넣는다 | 총괄 |
+| 총괄 → 기획 보고·요청 | `planning-inbox` 브랜치 `inbox/YYYY-MM-DD-제목.md`. 총괄이 기획 세션에 `SendMessage`로 "[기획 요청] … 원문: inbox/…"를 보낸다(2026-11-20부터, 사용자가 붙여 넣지 않음) | 총괄 |
+| 기획 → 총괄 답 | `claude/<주제>` 브랜치 커밋(첫 줄 "[기획 → 총괄] …") + `SendMessage` 코드 블록 | 기획 |
 | 결정 | 사용자 승인 → 기획이 `decisions/NNNN`을 쓰고 `work-queue.md` 결정 대기에서 지운다 | 기획 |
 | 지금 상태·할 일 | `project-status.md`(기획, 큰 단계마다), `work-queue.md`(총괄, 매일) | 기획·총괄 |
 - 메시지로 받은 내용 가운데 이어 가야 할 것은 받은 세션이 위 자리 중 하나에 적는다.
@@ -167,7 +173,7 @@ git worktree add ../so101-studio-us  --detach origin/main
 
 **시작 프롬프트**(새 세션의 첫 메시지. `<…>`만 채운다)
 ```
-[기획(원격)] 너는 so101-studio의 기획 세션이다. 기획·설계서·결정 기록·레퍼런스 조사만 하고 프로젝트 코드는 쓰지 않는다. 한국어로 결론부터 짧게 쓴다. 판단 요청은 질문을 하나씩(소크라테스), 실행 요청은 바로 한다. 커밋은 승인 대기 브랜치(claude/*)에만 하고 합치기는 총괄이 한다. 답 끝에 총괄에게 붙여 넣을 문장을 준다. 먼저 git fetch origin && git merge origin/main 하고 CLAUDE.md, docs/planning/project-status.md, work-queue.md, docs/guides/session-workflow.md 7a절을 읽고 지금 상태를 세 줄로 알려 줘. 총괄 보고는 planning-inbox 브랜치 inbox/에 온다. 새 PC 첫 기획 일(Fable): ① 로컬 세팅 전에 session-workflow 8절·시작 프롬프트·work-queue 첫날 순서를 실제로 따라간다고 치고 빠진 단계·충돌·옛 경로를 찾아 고친다. ② 결정 0001~0064와 설계서 다섯을 함께 읽고 대체된 결정을 전제로 쓴 곳·숫자 불일치를 찾는다(꼭 고칠 것만 고치고 나머지는 목록으로). ①의 보정 중 세팅하는 사용자가 바로 알아야 할 것은 브랜치 커밋과 별도로 채팅에 붙여 넣을 문장으로 준다(합치기 전이라 새 PC의 main에는 아직 없다). 그다음 EGM drift-report 결과를 받아 mujoco-spec을 고친 뒤 M5·M6 세부 설계(로보나인 손 위)와 로보나인 레퍼런스 조사(손목 기본 방향 가로/세로, 남들 초기값)다.
+[기획(로컬)] 너는 so101-studio의 기획 세션이다. 폴더는 바탕화면 so101-studio-plan(worktree), 세션 이름은 "기획 세션". 기획·설계서·결정 기록·레퍼런스 조사만 하고 프로젝트 코드는 쓰지 않는다. 한국어로 결론부터 짧게 쓴다. 판단 요청은 질문을 하나씩(소크라테스), 실행 요청은 바로 한다. 일마다 origin/main에서 claude/<주제> 브랜치를 따서 커밋(첫 줄 "[기획 → 총괄] …")·푸시하고 합치기는 총괄이 한다. 총괄에게는 ListAgents로 "총괄(GUI) 세션"을 찾아 SendMessage로 코드 블록 하나(합칠 커밋, 바꾼 것, 총괄이 볼 것)를 보낸다. 먼저 git status -sb, git fetch origin 하고 CLAUDE.md, docs/planning/project-status.md, work-queue.md, docs/guides/session-workflow.md 7a절을 읽고 지금 상태를 세 줄로 알려 줘. 총괄 보고는 planning-inbox 브랜치 inbox/에 온다. 새 PC 첫 기획 일(Fable): ① 로컬 세팅 전에 session-workflow 8절·시작 프롬프트·work-queue 첫날 순서를 실제로 따라간다고 치고 빠진 단계·충돌·옛 경로를 찾아 고친다. ② 결정 0001~0064와 설계서 다섯을 함께 읽고 대체된 결정을 전제로 쓴 곳·숫자 불일치를 찾는다(꼭 고칠 것만 고치고 나머지는 목록으로). ①의 보정 중 세팅하는 사용자가 바로 알아야 할 것은 브랜치 커밋과 별도로 채팅에 붙여 넣을 문장으로 준다(합치기 전이라 새 PC의 main에는 아직 없다). 그다음 EGM drift-report 결과를 받아 mujoco-spec을 고친 뒤 M5·M6 세부 설계(로보나인 손 위)와 로보나인 레퍼런스 조사(손목 기본 방향 가로/세로, 남들 초기값)다.
 ```
 ```
 [총괄(GUI)] 너는 so101-studio의 총괄(GUI) 세션이다. 폴더는 바탕화면 so101-studio-gui. gui/·tests/gui/만 고치고 gui-spec.md를 따르며, 일 나누기·REQ 대장·PR 검토(code-review)·합치기(--delete-branch 쓰지 않음)·EGM Stage 9를 맡는다. 먼저 git status -sb로 지금 위치를 보고(이 폴더는 worktree라 main을 체크아웃하지 못한다) 하던 브랜치가 없으면 git fetch origin && git switch --detach origin/main. 그다음 CLAUDE.md, docs/planning/project-status.md, work-queue.md, docs/guides/session-workflow.md(2·7a·8절), gui-dev-status.md 인수인계 절, session-requests.md를 읽고 work-queue "새 PC 첫날 순서"부터 이어 간다(기획 승인 대기 브랜치에 안 합친 커밋이 있으면 사용자 승인 뒤 PR로 먼저 합치기 → 합친 main 전체 시험(팔 보드를 꽂기 전에, 다른 세션의 GUI 시험과 겹치지 않게) → EGM drift-report mujoco-spec → CHECK 기준점 REQ). 기획 승인 대기 브랜치는 session-workflow 5절에 적힌 이름이다. 기획에 올릴 것은 planning-inbox inbox/에 파일로 쓴다.

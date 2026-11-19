@@ -68,7 +68,7 @@ SO-101 팔이 초음파로 물체를 찾아 집어 옮기는 시스템(12/4 시�
 ## 6. 세션과 폴더 (같은 PC, 같은 저장소의 worktree)
 | 세션 | 폴더(바탕화면) | 영역·기준 문서 |
 |---|---|---|
-| 기획(원격) | 원격 저장소 | 설계서·결정·조사. 코드 안 씀. 승인 대기 브랜치 `claude/*`에 커밋 |
+| 기획(로컬, 2026-11-20부터) | `so101-studio-plan` | 설계서·결정·조사. 코드 안 씀. 일마다 `claude/<주제>` 브랜치에 커밋, 총괄과는 `SendMessage` |
 | 총괄(GUI) | `so101-studio-gui` | `gui/`, `tests/gui/`, 일 나누기·REQ 대장·PR 검토·합치기·EGM. 실물 시험도 이 폴더의 `so101.cmd`로 한다 |
 | 팔 | `so101-studio` | 그 밖의 코드, `arm-software-spec.md` |
 | MuJoCo | `so101-studio-sim` | `arm/mujoco_*`, `assets/mujoco/`, `config/sim_scenarios/`, `tests/test_mujoco_*`, `mujoco-spec.md` |

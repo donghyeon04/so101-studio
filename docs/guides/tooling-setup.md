@@ -22,7 +22,8 @@
 - `/doctor prompt-audit`: CLAUDE.md, rules, skills의 모순과 낡은 지침 점검 (v2.1.283 이상)
 - `/context`: CLAUDE.md가 실제로 로드됐는지 확인
 
-### 클라우드 세션 참고
+### 클라우드 세션 참고 (2026-11-20부터 기획도 로컬이라 지금은 쓰는 세션이 없다)
+- 기획 세션은 이 PC의 로컬 세션(`so101-studio-plan` 폴더)이라 로컬 세션과 같은 플러그인·MCP를 쓴다. 아래는 클라우드(claude.ai 원격) 세션을 다시 쓸 때만 본다.
 - Context7과 Hugging Face는 **커넥터 버전**(claude.ai 커넥터)이 원격 세션에서 동작한다. 플러그인 버전은 프록시에 막혀 연결에 실패했으므로, 원격 세션에서는 커넥터를 쓴다.
 - 원문 확인이 필요한 도메인(arxiv.org, humanlayer.dev 등)은 환경 설정의 Network access → Allowed domains에 추가해야 열린다.
 
