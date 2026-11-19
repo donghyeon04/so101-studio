@@ -72,6 +72,7 @@
 - **결정 0073 세계 다시 짓기 1차**(사용자 결정, #487로 구현됨): `mujoco-spec.md` 13.10.4를 실제 모양 `rebuild_world(suite, seed)`에 맞추고, `gui-spec.md` 12.10 ③ 학습 배치·[다음 배치]·판정, `arm-software-spec.md` 6.10 `connect(fresh)`, `learning-platform.md` 3a 표를 1차로 옮겼다. 2차로 남는 것: GUI ② 수집 화면, 이어 쓰기, [일시 정지], L5.
 - **배포 문서 대조**(v0.1, REQ-095): README 빠른 시작·release-checklist B절은 실행 파일 셋과 맞았다. 옛 이름(`시뮬레이션 실행.cmd`·`실물 팔 실행.cmd`)이 남은 `system-architecture.md` 9절 폴더 표와 `gui-spec.md` 시작 화면 줄을 고쳤다. README "지금 상태"를 v0.1·ACT 15~17/50·결정 0072로, release-checklist에 ZIP 줄·v0.1 태그·E절(Setup.exe 최종 배포)을 더했다.
 - **ACT 11/23 기준 통과**(11-20, 기획 판단, #494): v2 100k 45/50 → 결정 0071 4항대로 L3·L4를 보조 시연에 넣는다(`learning-platform.md` 3a). 시연 문구는 새 씨앗 50개 값(MuJoCo 세션)으로, 15/50 미만이면 다시 본다. 필수 시연은 초음파(0072). README ACT 줄·평가 명령(`collect_pick2`, `--clock step`) 고침.
+- **R1 자리 (280,150)은 그대로**(11-20, 기획 판단, #497): R1은 무시 구역 없이 레이더 정확도를 재고, 통 옆 값으로 통 무시 반경 113mm를 줄일 수 있는지 본다. A1·I1 자리는 시연 배치 규칙(무시 원 둘레 50mm 밖)으로 고른다(`ultrasonic-spec.md` 11절). 8.4·10절·radar-bringup R1 명령은 `radar_check r1`로 고침.
 
 ## 11-19 (총괄, v0.1 릴리스)
 - 합침: #486 MuJoCo 시험 runs/ 정리 끄기, #487 GUI 정책 실행(세계 다시 짓기·다음 배치·판정), #488 REQ-094 `prune_runs`는 실행 폴더만, #489 REQ-095 실행 파일 하나·`제거.cmd`, #490 GUI 실물 팔 없으면 시뮬레이션으로, #491 ACT 2차 다시 학습 기록(60k 17/50), #492 GUI 시작 페이지 안내, #493 결정 0072. main c380492.
