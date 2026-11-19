@@ -137,7 +137,7 @@ def test_worker_keeps_going_on_error_and_restores_grip_force(tmp_path, monkeypat
 
     force0 = mujoco_hand.GRIP_FORCE_N
     monkeypatch.setattr(bench, "run_episode", boom)
-    row = bench._worker((bench.episodes(bench.load_suite("pick_smoke"))[0], str(bench.OVERRIDE), str(tmp_path), force0 + 23, False, bench.SETTLE_S, "wall"))
+    row = bench._worker((bench.episodes(bench.load_suite("pick_smoke"))[0], str(bench.OVERRIDE), str(tmp_path), force0 + 23, False, bench.SETTLE_S, "wall", None))
     assert row["outcome"] == "sim_fail" and "깨짐" in row["failed_reason"] and row["grip_force_n"] == force0 + 23
     assert mujoco_hand.GRIP_FORCE_N == force0
     assert bench.summarize([row])[0]["outcomes"] == {"sim_fail": 1}
@@ -210,3 +210,11 @@ def test_pick_grid_moves_the_right_column_off_the_bin_and_skips_two_cells():
     eps = bench.episodes(bench.load_suite("pick_grid"))
     ids = {e.id for e in eps}
     assert len(eps) == 223 and len(ids) == 223 and "pick_grid-0000-s0" in ids and "pick_grid-0224-s0" in ids
+
+
+def test_collect_pick2_start_pose_keeps_15_degrees_from_every_limit():
+    """결정 0071(REQ-087): 2차 수집 시작 자세는 모든 관절이 한계에서 15° 이상 안쪽이고 그리퍼는 약 50."""
+    s = bench.load_suite("collect_pick2")
+    cfg = bench.load_cfg(bench.suite_override(s, None, bench.BENCH_DIR))
+    q = dict(zip(cfg.joint_limits_deg, s["start_pose"]))
+    assert all(lo + 15 <= q[j] <= hi - 15 for j, (lo, hi) in cfg.joint_limits_deg.items() if j != "gripper") and q["gripper"] == 50
