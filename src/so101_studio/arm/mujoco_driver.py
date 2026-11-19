@@ -6,6 +6,7 @@ import math
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import numpy as np
 
@@ -72,6 +73,15 @@ class MuJoCoDriver:
         self._from, self._t_write = np.zeros(6), 0.0  # 목표가 바뀐 시각(시뮬레이션 시간): 액추에이터 목표를 다음 쓰기 간격(1/control_hz) 동안 선형으로 옮긴다(13.2)
 
     # -- 연결 --
+    def set_objects(self, objects) -> None:
+        """물체 목록(SimObject)을 바꾼다(mujoco-spec 13.10.4 세계 다시 짓기, REQ-092). 연결 중에 불러도 되지만 지금 세계는 그대로이고,
+        다음 connect()가 이 목록으로 모델을 다시 짓는다(connect가 먼저 disconnect한다). 두 물체의 바닥 사각형이 겹치면 ValueError(13.5, make_sim_driver와 같은 규칙)이고 목록은 바뀌지 않는다."""
+        from .sim_driver import _check_overlap
+
+        objs = list(objects)
+        _check_overlap(objs, Path("set_objects"))
+        self.objects = objs
+
     def connect(self, port: str = "sim", calibration_id: str = "sim") -> None:
         import mujoco
 
