@@ -920,3 +920,19 @@ p99 증가는 -0.04ms(기준 2ms 이하), time_lost_s 증가 0%(기준 1% 미만
 - 놓은 시각은 로그(`status.jsonl`, 10Hz로 가정)에서 "그리퍼를 닫아 든 뒤 통 쪽(x>300mm)에서 다시 90 이상 벌어진 첫 행"으로 잰 추정값이다. 규칙은 이 방식의 7.5초에 설정 1.0초가 더해져 `sim_s` 8.54와 맞는다. ACT가 놓기까지 규칙보다 0.3초(약 4%) 느리다.
 - 읽기: 성공한 에피소드는 속도가 거의 같고, 차이는 성공률(99.5% 대 83%)이다. 시뮬레이션 안의 값이고 부하 판정이 실물보다 예민한 상태 그대로다(위 "60k fault 원인").
 - 크기: bench 결과 폴더는 규칙 30MB, ACT 153MB다.
+
+## GUI 정책 실행이 벤치마크와 다르게 실패하는 원인: 속도 설정 (2026-11-20, 총괄 요청, 커밋 d0d6fbe, v2 100k, 씨앗 10000~10019)
+- 증상: GUI `/policy`에서 v2 100k가 씨앗 10000을 두 번 다 실패(상자를 건드리지 못함). 벤치마크(`--clock step`)에서는 성공하는 씨앗이다.
+- 시계는 원인이 아니다: 같은 씨앗 10000~10002를 `--clock wall --jobs 1`로 돌리면 3/3 placed_ok다(건너뜀 12, 추론 최대 59ms).
+- 원인(가장 큰 것): 학습 데이터와 벤치마크는 수집 프리셋(`collect_fast.yaml`: 속도 100%, `joint_v_max_deg_s` 150, `a_max_deg_s2` 400, 가속 한계·`servo_acceleration` 50 등, 데이터셋 `meta/collect.json`의 `preset_values`)로 돈다. GUI는 기본 설정(속도 30%, 90°/s, 120°/s², `servo_acceleration` 10)이라 `servo_joints` 한계가 `joint_v_max_deg_s × 속도/100` = 27°/s다. 정책의 25Hz 목표가 잘려 팔이 뒤처진다.
+- 같은 씨앗 20개(`--clock step --jobs 3`, 레포 밖 임시 묶음으로 설정만 바꿈):
+
+| 설정 | placed_ok | 비고 |
+|---|---|---|
+| 수집 프리셋(`collect_fast`, 벤치마크 그대로) | **20/20** | |
+| 속도 100% + `joint_v_max` 150(나머지 GUI 기본) | 17/20 | toppled 2, moved 1 |
+| 속도 100%만(나머지 GUI 기본) | 16/20 | moved 2, toppled 1, untouched 1, fault 4 |
+| GUI 기본(속도 30%, 90°/s) | **11/20** | toppled 8, untouched 1 |
+
+- 읽기: 속도·관절 속도 한계가 대부분을 설명하고(11 → 17), 나머지(17 → 20)는 가속·저크·`servo_acceleration` 쪽이다. GUI에서 본 "건드리지 못함"은 이 표에서는 toppled·untouched로 갈렸다(GUI 부하로 추론이 늦은 것이 겹쳤을 수 있다: 추론 최대 738~877ms, 건너뜀 19~25. 벤치마크는 `_warm_up`으로 첫 추론을 미리 돌리지만 GUI의 `PolicyRunner.start`에는 없다).
+- 고칠 곳: ① GUI 정책 실행 페이지(시뮬레이션 MuJoCo만): 체크포인트의 `collect.json` `preset_values`를 시작 전에 적용하고 끝나면 되돌린다. 실물 팔 설정은 건드리지 않는다. ② `PolicyRunner.start`에 첫 추론 미리 돌리기(`_warm_up` 상당).
