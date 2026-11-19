@@ -25,6 +25,7 @@ from ...arm.kinematics import Kinematics
 from ...arm.skills import SEEDS
 from ...arm.trajectory import LookaheadShape, fillet_path
 from ...core.config import load_robot, load_workspace
+from ...core.scene import BIN_WALL_T_MM
 from ...core.types import JointState
 from ...service.targets import point_to_pose, tip_vector
 from ...task import policy
@@ -46,10 +47,10 @@ MODELS = {
 DXL_LAG_DEG = 0.3  # XL330 가정: 4° 이동 약 7ms라 33ms 간격 안에 도착. 남는 지연(실측 전 가정)
 OBJECT_SIZES = ((30, 100), (40, 80), (50, 50))  # 폭 x 길이, 높이 40
 SCENARIOS = {  # 이름: (물체 수, 반경 mm, 방위 °, 중심 간격 mm 이상)
-    "spread90": (3, (100, 240), (25, 155), 90),
-    "spread120": (3, (100, 240), (25, 155), 120),
-    "demo": (3, (120, 220), (25, 155), 120),
-    "demo80": (3, (120, 220), (25, 155), 120),  # demo + 물체 모서리 사이 80mm 이상(설계서 6절 권장 배치, edge_gap)
+    "spread90": (3, (120, 220), (45, 135), 90),  # 결정 0067: 판 425x375에서 반경 220의 양 옆은 판 밖이라 방위 45~135°(정면 ±45°)
+    "spread120": (3, (120, 220), (45, 135), 120),
+    "demo": (3, (120, 220), (45, 135), 120),
+    "demo80": (3, (120, 220), (45, 135), 120),  # demo + 물체 모서리 사이 80mm 이상(설계서 6절 권장 배치, edge_gap)
     "single": (1, (100, 240), (25, 155), 0),
     "pair": (2, (120, 240), (25, 155), 0),  # 물체 둘, 모서리 사이 간격을 --pair-gap으로 정한다(이웃 물체를 따로 보는 최소 간격 재기)
 }
@@ -99,8 +100,8 @@ class KinReach:
         return self.cache[key]
 
     def start_ok(self, xy, z, yaw=90.0):
-        """경로 첫 점: 점 자체와 그 위 호버(z + hover_mm) 모두 풀려야 plan_goto의 접근이 된다."""
-        return self.ok(xy, z, yaw) and self.ok(xy, z + self.hover, yaw)
+        """경로 첫 점: 점 자체와 그 위 호버가 풀려야 plan_goto의 접근이 된다. 호버는 hover_mm부터 5mm씩 10mm까지 내려 처음 풀리는 것을 쓴다(REQ-089, 놓기 _heights()와 같은 규칙)."""
+        return self.ok(xy, z, yaw) and any(self.ok(xy, z + h, yaw) for h in (range(int(self.hover), 9, -5) if self.hover >= 10 else [self.hover]))
 
 
 _KIN = {}
@@ -228,7 +229,8 @@ def build(boxes, seed=0, model="optimistic", reach=REACH, arm_kw=None, esp_kw=No
 
 def make_source(cfg, clk, esp, arm, baseline_dir=None, calibrate=True):
     path = Path(baseline_dir or tempfile.mkdtemp()) / "baseline.json"
-    src = UltrasonicSource(Link(esp, clk), cfg, arm_origin_mm=arm.base, arm_links_fn=arm.links_at, baseline_path=path)
+    src = UltrasonicSource(Link(esp, clk), cfg, arm_origin_mm=arm.base, arm_links_fn=arm.links_at, baseline_path=path,
+                          ignore_zones=load_workspace().ignore_zones())  # 작업 실행과 같이 배출 구역(통)을 후보에서 뺀다
     src.connect()
     if calibrate:
         boxes, esp.boxes = esp.boxes, []  # 빈 작업대로 기준값
@@ -252,17 +254,43 @@ def angle_ok(est, true_deg):
     return min(d, 180 - d) <= 22.5
 
 
+def on_plate(b: Box, ws) -> bool:
+    """물체 테두리가 판(workspace table_mm, 원점은 판 모서리) 안이고 배출 구역 무시 원(반 대각선 + 벽 + safety_margin_mm, 설계서 6절) 밖이다."""
+    t = ws.table_mm
+    return (all(0 <= x <= t["x"] and 0 <= y <= t["y"] for x, y in _edge_pts(b))
+            and all(math.hypot(b.x - zx, b.y - zy) >= zr for zx, zy, zr in ws.ignore_zones())
+            and not any(_hits_zone(b, z) for z in ws.drop_zones.values()))
+
+
+def _hits_zone(b: Box, z: dict) -> bool:
+    """물체 몸체(테두리 점)가 배출 구역 사각형에 걸리는지(설계서 6절). 통은 벽 두께만큼 바깥까지 본다. 가운데만 보면 긴 막대가 벽에 걸린다."""
+    if "w_mm" not in z:
+        return False
+    t = BIN_WALL_T_MM if z.get("type") == "bin" else 0.0
+    hw, hh = z["w_mm"] / 2 + t, z["h_mm"] / 2 + t
+    return any(abs(x - z["x_mm"]) <= hw and abs(y - z["y_mm"]) <= hh for x, y in _edge_pts(b))
+
+
 def random_layout(rng, name) -> list[Box]:
-    """8.5절 시나리오: 팔 원점 기준 반경·방위 범위 안, 중심 간격 이상. 물체는 30x100·40x80·50x50, 방향 0/45/90/135° ±5°."""
+    """8.5절 시나리오: 팔 원점 기준 반경·방위 범위 안, 중심 간격 이상(demo80은 모서리 간격 80 이상도), 판 안, 통 원 밖.
+    물체를 하나씩 뽑고 앞 물체와 조건이 안 맞으면 그 물체만 다시 뽑는다(200번 안에 안 되면 처음부터). 간격이 큰 배치에 치우친다.
+    물체는 30x100·40x80·50x50, 방향 0/45/90/135° ±5°."""
     n, (r0, r1), (b0, b1), spacing = SCENARIOS[name]
     bx, by = arm_base()
-    for _ in range(10000):
+    ws = load_workspace()
+    for _ in range(1000):
         boxes = []
         for _ in range(n):
-            r, th = rng.uniform(r0, r1), math.radians(rng.uniform(b0, b1))
-            w, length = rng.choice(OBJECT_SIZES)
-            boxes.append(Box(bx + r * math.cos(th), by + r * math.sin(th), rng.choice((0, 45, 90, 135)) + rng.uniform(-5, 5), w, length))
-        if all(math.dist((a.x, a.y), (b.x, b.y)) >= spacing and (name != "demo80" or edge_gap(a, b) >= 80) for a, b in itertools.combinations(boxes, 2)):
+            for _ in range(200):
+                r, th = rng.uniform(r0, r1), math.radians(rng.uniform(b0, b1))
+                w, length = rng.choice(OBJECT_SIZES)
+                b = Box(bx + r * math.cos(th), by + r * math.sin(th), rng.choice((0, 45, 90, 135)) + rng.uniform(-5, 5), w, length)
+                if on_plate(b, ws) and all(math.dist((a.x, a.y), (b.x, b.y)) >= spacing and (name != "demo80" or edge_gap(a, b) >= 80) for a in boxes):
+                    boxes.append(b)
+                    break
+            else:
+                break
+        if len(boxes) == n:
             return boxes
     raise RuntimeError("배치를 못 만들었다")
 
@@ -311,7 +339,7 @@ def pair_layout(rng, gap_mm) -> list[Box]:
     raise RuntimeError("배치를 못 만들었다")
 
 
-def run_cycle(src, arm, esp, place_s=5.0, drop=(500.0, 150.0), max_iter=12, rescan_home=None, report_failures=True):
+def run_cycle(src, arm, esp, place_s=5.0, drop=(355.0, 80.0), max_iter=12, rescan_home=None, report_failures=True):
     """처음 scan()부터 물체가 다 없어질 때까지(작업 실행 흉내). 인식 시간 = 레이더 + 확인, 집기·놓기는 뺀다.
     판정(8.5절): 확인 결과 자리에 가장 가까운 실제 물체가 30mm 안이면 그 물체를 집은 것. 위치 오차 15mm 이하이고 방향까지 맞으면 성공(정사각형은 위치만).
     rescan_home(RESCAN, 기획 #77): 후보가 없으면 팔을 대기 자세로 옮겨 src.rescan()(4바퀴)을 한 번 하고, 후보가 있으면 계속, 또 없으면 끝낸다.

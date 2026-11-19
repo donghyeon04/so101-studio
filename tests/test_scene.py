@@ -10,11 +10,12 @@ def test_missing_file_is_empty_scene(tmp_path):
     assert s.parts == [] and s.margin_mm == 10.0
 
 
-def test_repo_scene_has_radar_box():
+def test_repo_scene_has_radar_station_cad_mesh():
     s = load_scene("config/scene.yaml")
     p = s.parts[0]
     assert p.name == "radar_station" and p.attach == "table" and p.collide
-    assert p.mesh.bounds[0][2] == pytest.approx(0) and p.mesh.bounds[1][2] == pytest.approx(20)  # 아래면이 원점
+    lo, hi = p.mesh.bounds  # 결정 0067 CAD(REQ-088): 서보 축 기준, 센서 앞면이 팔 쪽(-y) 48.7mm, 프로파일 위 판 면 아래 12.6mm부터
+    assert lo.tolist() == pytest.approx([-24.5, -48.7, -12.6], abs=0.1) and hi.tolist() == pytest.approx([24.5, 11.8, 39.3], abs=0.1)
     assert p.T[:3, 3] == pytest.approx([207.3, 405.5, 0])  # 결정 0067 레이더 서보 축
 
 

@@ -1,6 +1,7 @@
 """가상 ESP32: 7절 규약 그대로. 가상 시계(SimClock)를 따라 지연 계산하므로 스레드·실제 대기가 없다.
 transport 인터페이스(write, readlines)가 SerialTransport와 같아 Link가 구분하지 못한다."""
 import json
+import math
 import random
 from collections import deque
 
@@ -186,7 +187,8 @@ class FakeESP32:
             discs = [(x, y, self.DISC_R) for x, y in (self.arm_links_fn(t) if self.arm_links_fn else [])]
             angle = self._servo_deg if angle is None else angle
             az = r.heading_deg + (angle - 90 - direction * self.servo_lag_deg)
-            return radar_echo(r.station_mm.x, r.station_mm.y, az, self.boxes, discs, half, 1e9, self.max_incidence_deg,
+            f = math.radians(az)  # 빔은 서보 축이 아니라 송수신기 앞면에서 나간다. 거리도 앞면에서
+            return radar_echo(r.station_mm.x + r.face_offset_mm * math.cos(f), r.station_mm.y + r.face_offset_mm * math.sin(f), az, self.boxes, discs, half, 1e9, self.max_incidence_deg,
                               self.corner, self.rng)
         pose = self.arm_sensor_fn(t) if self.arm_sensor_fn else None
         return None if pose is None else arm_echo(*pose, self.boxes, self.wrist_beam_half_deg or half)

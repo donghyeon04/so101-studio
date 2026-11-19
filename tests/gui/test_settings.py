@@ -137,7 +137,7 @@ def test_workspace_text_keeps_comments_and_changes_values():
     assert (zone["x_mm"], zone["y_mm"]) == (520, 170)  # 사각형 구역이면 w_mm·h_mm·slot_mm도 남는다(아래 시험)
     assert (zone.get("type"), zone.get("wall_mm")) == ("bin", 25)  # 통 구역(결정 0067)은 type·벽 높이가 남는다
     assert data["safety_margin_mm"] == 12
-    assert data["reach_mm"] == {"min": 90, "max": 250}
+    assert data["reach_mm"] == {"min": 100, "max": 230}  # REQ-090: 새 받침의 집기 범위
 
 
 def test_save_workspace_writes_and_validates(clean, tmp_path, monkeypatch):

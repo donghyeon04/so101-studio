@@ -21,7 +21,7 @@ def test_sync_offset_and_wrap():
 
 
 def test_sweep_bounce_angles_and_timing():
-    clk, _esp, link = make([Box(300, 190, 0)], dropout=0)
+    clk, _esp, link = make([Box(207.3, 146.8, 0)], dropout=0)
     link.sync()
     link.send(cmd="sweep", sweeps=2, **SWEEP)
     clk.sleep(3.5)

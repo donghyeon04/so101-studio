@@ -30,7 +30,7 @@ THREE = [Box(140, 190, 0), Box(250, 160, 90), Box(340, 200, 45)]
 def test_radar_single_object_nine_spots(tmp_path):
     """R1 가상: 3x3 자리에서 후보가 정답 90mm 안 (합격 기준 95%)."""
     errs = []
-    for x in (240, 300, 360):
+    for x in (140, 195, 250):
         for y in (140, 180, 220):
             cfg, clk, esp, arm = build([Box(x, y, 0)], seed=int(x + y))
             src = make_source(cfg, clk, esp, arm, tmp_path)
@@ -79,11 +79,11 @@ def test_events(tmp_path):
 
 
 def test_square_object_has_no_angle(tmp_path):
-    cfg, clk, esp, arm = build([Box(300, 170, 0, width=40, length=40)])
+    cfg, clk, esp, arm = build([Box(215, 170, 0, width=40, length=40)])
     src = make_source(cfg, clk, esp, arm, tmp_path)
     obj, _, _ = do_check(src, arm, src.scan().objects[0])
     assert isinstance(obj, DetectedObject) and obj.angle_deg is None
-    assert math.dist((obj.x_mm, obj.y_mm), (300, 170)) < 10
+    assert math.dist((obj.x_mm, obj.y_mm), (215, 170)) < 10
 
 
 def test_unsafe_clearance_rejected(tmp_path):
@@ -119,14 +119,13 @@ def test_three_objects_end_to_end_time(tmp_path):
 
 
 def test_ring_is_one_follow_path_call(tmp_path):
-    """원(R)은 follow_path 한 번(연속 경로)이고, 물체당 4번(L1, L2, 원, L3+L4) 부른다."""
-    cfg, clk, esp, arm = build([Box(300, 200, 0)])
+    """원(R)은 follow_path 한 번(연속 경로)이다. 물체당 4번(L1, L2, 원, L3+L4) 부르고, 도달 범위(100~255)에 걸려 선이 끊기면 조각마다 더 부른다."""
+    cfg, clk, esp, arm = build([Box(215, 190, 0)])
     src = make_source(cfg, clk, esp, arm, tmp_path)
     do_check(src, arm, src.scan().objects[0])
-    assert len(arm.calls) == 4
+    assert len(arm.calls) >= 4
     lengths = sorted(L for L, _ in arm.calls)
-    assert any(abs(L - 2 * math.pi * cfg.check.ring_r_mm) < 3 for L in lengths)  # 원은 한 번
-    assert lengths[-1] > 2 * cfg.check.line_mm  # L3+L4는 한 번에 이어 간다(연결 구간 포함)
+    assert sum(abs(L - 2 * math.pi * cfg.check.ring_r_mm) < 3 for L in lengths) == 1  # 원은 한 번
 
 
 def test_link_lost_raises(tmp_path):
@@ -150,7 +149,7 @@ def test_arm_links_are_masked(tmp_path):
 
 
 def test_prefetch_makes_next_scan_instant(tmp_path):
-    cfg, clk, esp, arm = build([Box(300, 170, 0)])
+    cfg, clk, esp, arm = build([Box(215, 170, 0)])
     src = make_source(cfg, clk, esp, arm, tmp_path)
     src.prefetch(arm.links_at)
     clk.sleep(6)  # 놓는 동안
@@ -161,13 +160,13 @@ def test_prefetch_makes_next_scan_instant(tmp_path):
 
 def test_unreachable_segment_is_skipped_not_deleted(tmp_path):
     """바깥쪽 물체: 세로선(L2)이 도달 밖이면 그 구간을 건너뛰고(unreachable 기록) 나머지로 확정한다."""
-    cfg, clk, esp, arm = build([Box(250, 220, 0)], reach=STRICT_REACH)  # 센서 오프셋 66.5mm 때문에 옛 자리(300, 235)는 전부 도달 밖이 된다
+    cfg, clk, esp, arm = build([Box(250, 200, 0)], reach=STRICT_REACH)  # 새 팔 원점(215.2, 21.4)에서 L2가 반경 240 밖으로 나간다
     src = make_source(cfg, clk, esp, arm, tmp_path)
     cand = src.scan().objects[0]
     obj, probe, _ = do_check(src, arm, cand)
     assert "L2" in probe.info["unreachable"]
     assert obj is not None and probe.status == "ok"
-    assert math.dist((obj.x_mm, obj.y_mm), (250, 220)) < 15
+    assert math.dist((obj.x_mm, obj.y_mm), (250, 200)) < 15
     assert obj.confidence < 0.9  # 못 간 구간이 있으면 덜 믿는다
 
 
@@ -227,7 +226,7 @@ def test_origin_comes_from_workspace_config(tmp_path):
 
     clk, cfg = SimClock(), load_config()
     src = UltrasonicSource(Link(FakeESP32(clk, [], cfg), clk), cfg, baseline_path=tmp_path / "b.json")
-    assert src.arm_origin == (300.0, 50.0)  # config/workspace.yaml robot_base_in_table
+    assert src.arm_origin == (215.2, 21.4)  # config/workspace.yaml robot_base_in_table
 
 
 def test_unreachable_twice_is_dropped_until_next_cycle(tmp_path):
@@ -284,18 +283,18 @@ def _all_segments(src, arm, cand):
 
 def test_clip_to_reach_splits_and_limits_paths(tmp_path):
     """PR #71: 손끝이 tool_reach_mm 밖인 점은 건너뛰고, 끊기면 조각마다 따로 보낸다."""
-    cfg, clk, esp, arm = build([Box(300, 170, 0)], yaw_pivot_mm=0)  # yaw 고정 90
+    cfg, clk, esp, arm = build([Box(215, 170, 0)], yaw_pivot_mm=0)  # yaw 고정 90
     src = make_source(cfg, clk, esp, arm, tmp_path)
     probe = src.start_check(src.scan().objects[0])
-    # yaw 90이라 손끝 = 센서 + (66.5, -0.6). 센서 x 250이면 손끝 x 316.5라 원점(300,50) 반경 60 안(손끝 y -7.7~107.7)은 건너뛴다
-    pieces = probe._clip([(250, -70), (250, 170)])
+    # yaw 90이라 손끝 = 센서 + (66.5, -0.6). 센서 x 165.2면 손끝 x 231.7이라 원점(215.2, 21.4) 반경 100 안(손끝 y -77.2~120.0)은 건너뛴다
+    pieces = probe._clip([(165.2, -100), (165.2, 140)])
     assert len(pieces) == 2
-    assert pieces[0][-1][1] == pytest.approx(-7.7, abs=3) and pieces[1][0][1] == pytest.approx(107.7, abs=3)
+    assert pieces[0][-1][1] == pytest.approx(-77.2, abs=3) and pieces[1][0][1] == pytest.approx(120.0, abs=3)
     reach = cfg.check.tool_reach_mm
     probe, _obj, segs = _all_segments(src, arm, src.scan().objects[0])
     for seg in segs:
         for x, y in seg.points_mm:
-            assert reach.min - 1 <= math.hypot(x - 300, y - 50) <= reach.max + 1
+            assert reach.min - 1 <= math.hypot(x - 215.2, y - 21.4) <= reach.max + 1
 
 
 def test_inside_path_is_sent_whole(tmp_path):
@@ -420,7 +419,7 @@ def test_run_cycle_goes_to_wait_pose_only_first_and_after_failed_pick(tmp_path, 
     wait = ((300.0, 95.0), 320.0)
 
     def waits(rescan_home, fail_pick):
-        cfg, clk, esp, arm = build([Box(300, 170, 0)], arm_kw={"wait_pose": wait})
+        cfg, clk, esp, arm = build([Box(215, 170, 0)], arm_kw={"wait_pose": wait})
         src = make_source(cfg, clk, esp, arm, tmp_path)
         moves, move = [], arm.move
         arm.move = lambda to, z, speed=None: (moves.append(tuple(to)), move(to, z, speed))[1]
@@ -436,7 +435,7 @@ def test_run_cycle_goes_to_wait_pose_only_first_and_after_failed_pick(tmp_path, 
     n, _ = waits(True, False)
     assert n == 2  # 첫 scan 전 + 후보가 없을 때의 RESCAN
     n, moves = waits(False, True)
-    assert n >= 2 and (500.0, 150.0) not in moves  # 첫 scan 전 + 집기 실패마다(같은 자리 두 번째 실패면 3), 놓으러 가지 않는다
+    assert n >= 2 and (355.0, 80.0) not in moves  # 첫 scan 전 + 집기 실패마다(같은 자리 두 번째 실패면 3), 놓으러 가지 않는다
 
 
 def test_kin_reach_hover_band_reports_ik_fail():
@@ -445,13 +444,15 @@ def test_kin_reach_hover_band_reports_ik_fail():
     from so101_studio.perception.ultrasonic.fake_esp32 import SimClock
     from so101_studio.perception.ultrasonic.model import load_config
 
-    far, path = (300, 300), [(300, 300), (300, 150)]  # 팔 원점 (300, 50)에서 반경 250
+    far, path = (215.2, 271.4), [(215.2, 271.4), (215.2, 150)]  # 팔 원점 (215.2, 21.4)에서 반경 250
     k = kin_reach()
     assert k.ok(far, 55) and not k.start_ok(far, 55)
+    kp = kin_reach(gripper="parallel")
+    assert not kp.ok((215.2, 141.4), 55 + 40) and kp.start_ok((215.2, 141.4), 55)  # 호버 40은 안 풀려도 35→…→10 중 하나가 풀리면 접근 가능(REQ-089)
     cfg = load_config()
 
     def run(**kw):
-        arm = FakeArm(SimClock(), cfg, (300, 50), **kw)
+        arm = FakeArm(SimClock(), cfg, (215.2, 21.4), **kw)
         return arm, arm.follow_path(path, 55, 100)
 
     arm, poses = run()
@@ -551,12 +552,12 @@ def test_benchmark_seed_timeout_marks_seed_failed():
 
 
 def test_tool_reach_by_gripper():
-    """그리퍼별 도달 범위: 병렬은 75~250, 단동식·없음은 60~255(기본), 명시한 값이 가장 우선."""
+    """그리퍼별 도달 범위(REQ-090, 접근 높이 60 기준): 병렬은 95~230, 단동식·없음은 100~255(기본), 명시한 값이 가장 우선."""
     from so101_studio.perception.ultrasonic.model import load_config
 
-    assert load_config().check.tool_reach_mm == {"min": 60, "max": 255}
-    assert load_config(gripper="single_jaw").check.tool_reach_mm == {"min": 60, "max": 255}
-    assert load_config(gripper="parallel").check.tool_reach_mm == {"min": 75, "max": 250}
+    assert load_config().check.tool_reach_mm == {"min": 100, "max": 255}
+    assert load_config(gripper="single_jaw").check.tool_reach_mm == {"min": 100, "max": 255}
+    assert load_config(gripper="parallel").check.tool_reach_mm == {"min": 95, "max": 230}
     assert load_config(gripper="parallel", tool_reach_mm={"min": 50, "max": 265}).check.tool_reach_mm == {"min": 50, "max": 265}
 
 
@@ -564,12 +565,12 @@ def test_benchmark_gripper_flows_into_check_reach():
     """벤치마크 build(gripper=...)가 실제 CHECK와 같은 길(load_config)로 그리퍼별 값을 읽는다."""
     from so101_studio.perception.ultrasonic.benchmark import build
 
-    assert build([], gripper="parallel")[0].check.tool_reach_mm.min == 75
-    assert build([])[0].check.tool_reach_mm.min == 60
+    assert build([], gripper="parallel")[0].check.tool_reach_mm.min == 95
+    assert build([])[0].check.tool_reach_mm.min == 100
 
 
 @pytest.mark.slow  # 팔 서비스를 만들어 각 약 11초
-@pytest.mark.parametrize(("gripper", "lo", "hi"), [("single_jaw", 60, 255), ("parallel", 75, 250)])
+@pytest.mark.parametrize(("gripper", "lo", "hi"), [("single_jaw", 100, 255), ("parallel", 95, 230)])
 def test_make_ultrasonic_source_reads_reach_from_arm_gripper(gripper, lo, hi, tmp_path):
     """service/ultrasonic.py의 한 줄: 팔 cfg의 그리퍼 종류가 check.tool_reach_mm(그리퍼별)로 이어진다."""
     from so101_studio.arm.sim_driver import SimDriver
@@ -608,3 +609,42 @@ def test_clipped_ring_pieces_are_short(tmp_path):
     ring.append(ring[0])
     pieces = probe._clip([(x, y - 130) for x, y in ring])  # 팔 원점 쪽으로 내려 도달 범위에 걸치게
     assert pieces and all(len(pc) <= 37 for pc in pieces)
+
+
+def test_face_offset_polar_and_layout_on_plate():
+    """H-4: 거리는 송수신기 앞면에서 재니 위치는 서보 축 + (face_offset + 거리). 시연 배치는 방위 45~135°, 판 안."""
+    import random
+
+    from so101_studio.core.config import load_workspace
+    from so101_studio.perception.ultrasonic import benchmark as bm
+    from so101_studio.perception.ultrasonic import radar
+    cfg = bm.load_config()
+    x, y = radar.polar(cfg, 90, 100)  # 서보 90° = 정면(heading -90°, 팔 쪽)
+    assert (x, y) == pytest.approx((cfg.radar.station_mm.x, cfg.radar.station_mm.y - 100 - cfg.radar.face_offset_mm))
+    ws, (bx, by) = load_workspace(), bm.arm_base()
+    for seed in range(5):
+        for b in bm.random_layout(random.Random(seed), "spread90"):
+            assert bm.on_plate(b, ws) and 45 <= math.degrees(math.atan2(b.y - by, b.x - bx)) <= 135
+
+
+def test_layout_rejects_body_touching_bin_wall():
+    """설계서 6절: 중심이 통 무시 원 밖이어도 몸체(긴 막대)가 통 벽에 걸리면 거른다."""
+    from so101_studio.core.config import load_workspace
+    from so101_studio.perception.ultrasonic import benchmark as bm
+    z = next(iter(load_workspace().drop_zones.values()))
+    assert bm._hits_zone(Box(z["x_mm"] + z["w_mm"] / 2 + 10, z["y_mm"], 0, 30, 100), z)  # 벽 두께 안으로 걸치는 막대
+    assert not bm._hits_zone(Box(z["x_mm"], z["y_mm"] + 300, 0, 30, 100), z)
+
+
+def test_local_yaml_overlays_ultrasonic_yaml(tmp_path):
+    """ultrasonic.local.yaml이 같은 폴더에 있으면 키 단위로 겹치고(중첩 키 포함), 명시 인자가 가장 우선이다."""
+    import shutil
+
+    from so101_studio.perception.ultrasonic.model import load_config
+    cfg_path = tmp_path / "ultrasonic.yaml"
+    shutil.copy("config/ultrasonic.yaml", cfg_path)
+    assert load_config(cfg_path).servo.driver == "pwm"
+    (tmp_path / "ultrasonic.local.yaml").write_text("servo: {driver: dxl}\nport: COM9\nradar: {dip_mm: 77}\n", encoding="utf-8")
+    cfg = load_config(cfg_path)
+    assert cfg.servo.driver == "dxl" and cfg.port == "COM9" and cfg.radar.dip_mm == 77 and cfg.radar.merge_mm == 110
+    assert load_config(cfg_path, servo={"driver": "pwm"}).servo.driver == "pwm"

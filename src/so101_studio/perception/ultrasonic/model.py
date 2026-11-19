@@ -21,9 +21,19 @@ def _wrap(v):
     return Cfg({k: _wrap(x) for k, x in v.items()}) if isinstance(v, dict) else v
 
 
+def _merge(base: dict, over: dict) -> dict:
+    for k, v in over.items():
+        base[k] = _merge(base[k], v) if isinstance(v, dict) and isinstance(base.get(k), dict) else v
+    return base
+
+
 def load_config(path="config/ultrasonic.yaml", radar=None, servo=None, gripper=None, **check) -> Cfg:
-    """gripper(robot.yaml의 그리퍼 종류)가 check.tool_reach_by_gripper에 있으면 그 값이 check.tool_reach_mm이 된다. 명시한 check 값이 가장 우선."""
+    """gripper(robot.yaml의 그리퍼 종류)가 check.tool_reach_by_gripper에 있으면 그 값이 check.tool_reach_mm이 된다. 명시한 check 값이 가장 우선.
+    같은 폴더에 ultrasonic.local.yaml(PC별, git 제외, 예시: ultrasonic.local.example.yaml)이 있으면 키 단위로 겹친다."""
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    local = Path(path).with_name("ultrasonic.local.yaml")
+    if local.exists():
+        _merge(raw, yaml.safe_load(local.read_text(encoding="utf-8")) or {})
     raw.setdefault("servo", {"driver": "pwm"}).update(servo or {})
     by = raw["check"].get("tool_reach_by_gripper") or {}
     if gripper in by:

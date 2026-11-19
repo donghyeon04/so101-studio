@@ -79,9 +79,9 @@ def backend(monkeypatch):
     backend.close()
 
 
-def _extend(backend):
+def _extend(backend):  # 정면으로 펴면 레이더 받침(결정 0067, 정면 약 384mm)에 걸려 거부된다: 30° 돌려 편다
     q = backend.real.status().joints
-    assert backend.real.move_joints(JointState(0.0, 20.0, 20.0, q.wrist_flex, q.wrist_roll, q.gripper)).status == "ok"
+    assert backend.real.move_joints(JointState(30.0, 20.0, 20.0, q.wrist_flex, q.wrist_roll, q.gripper)).status == "ok"
 
 
 def _slow_move(backend):
