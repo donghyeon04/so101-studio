@@ -116,14 +116,29 @@ def test_old_format_runs_still_read(tmp_path):
 
 def test_retention_prunes_old_and_big_but_never_incidents(tmp_path):
     now = time.time()
-    for name, age, size in (("old", 40, 10), ("mid", 10, 1000), ("new", 1, 1000), ("incidents", 400, 10)):
+    old, mid, new = "20200101-000000", "20200201-000000-autocal", "20200301-000000-2"
+    for name, age, size in ((old, 40, 10), (mid, 10, 1000), (new, 1, 1000), ("incidents", 400, 10)):
         d = tmp_path / name
         d.mkdir()
         (d / "f").write_bytes(b"x" * size)
         os.utime(d / "f", (now - age * 86400,) * 2)
         os.utime(d, (now - age * 86400,) * 2)
     deleted = {p.name for p in prune_runs(tmp_path, max_age_days=30, max_bytes=1500, now=now)}
-    assert deleted == {"old", "mid"} and (tmp_path / "incidents").exists() and (tmp_path / "new").exists()
+    assert deleted == {old, mid} and (tmp_path / "incidents").exists() and (tmp_path / new).exists()
+
+
+def test_retention_never_touches_train_or_other_folders(tmp_path):
+    """REQ-094: 실행 폴더가 아닌 train·datasets·bench·archive는 아무리 오래되고 커도 지우지 않고 크기 합계에도 넣지 않는다."""
+    now = time.time()
+    for name, age, size in (("train", 400, 5000), ("datasets", 400, 10), ("bench_act", 400, 10), ("archive-1101", 400, 10),
+                            ("20991231-235959x", 400, 10), ("20200101-000000", 1, 100)):
+        d = tmp_path / name / "sub"
+        d.mkdir(parents=True)
+        (d / "f").write_bytes(b"x" * size)
+        for q in (d / "f", d, d.parent):
+            os.utime(q, (now - age * 86400,) * 2)
+    assert prune_runs(tmp_path, max_age_days=30, max_bytes=1000, now=now) == []  # train 5000바이트는 2GB 합계에 들지 않는다
+    assert all((tmp_path / n).exists() for n in ("train", "datasets", "bench_act", "archive-1101", "20991231-235959x", "20200101-000000"))
 
 
 def test_ring_buffer_keeps_ten_seconds():
