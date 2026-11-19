@@ -41,6 +41,22 @@ def start_pose_of(checkpoint: Path) -> list[float] | None:
     return [float(v) for v in pose] if pose and len(pose) == 6 else None
 
 
+def apply_training_preset(svc, info: dict) -> dict:
+    """학습 데이터를 모은 수집 프리셋(collect.json preset_values)을 시뮬레이션 서비스에 적용하고 바꾸기 전 값을 돌려준다.
+    GUI 기본(속도 30%, 90°/s)이면 정책 목표가 잘려 팔이 뒤처진다(11-20 measurements, 씨앗 10000~10019 11/20 → 20/20).
+    서비스에 없는 키와 gripper(MuJoCo 장면을 만들 때 정해져 바꿔도 손이 안 바뀐다)는 건너뛴다. servo_acceleration 같은 재연결 키는 다음 connect(세계 다시 짓기)에서 먹는다."""
+    values = {k: v for k, v in (info.get("preset_values") or {}).items() if k != "gripper"}
+    if "speed_pct_default" in values:
+        values["speed_pct"] = values.pop("speed_pct_default")
+    current = svc.get_params()
+    changes = {k: v for k, v in values.items() if k in current and current[k]["value"] != v}
+    if not changes:
+        return {}
+    before = {k: current[k]["value"] for k in changes}
+    svc.set_params(changes)
+    return before
+
+
 def result_lines(result: dict | None, rejects: int | None) -> list[str]:
     if not result:
         return ["아직 실행하지 않았습니다"]
@@ -79,21 +95,29 @@ def build(backend, client_id: str, actions) -> None:
         if running():  # 불러오는 동안 다시 눌러도 러너를 하나 더 만들지 않는다
             return
         judge = None
-        suite = training_info(Path(path)).get("suite")
-        if layout_on.value and suite and hasattr(svc.driver, "set_objects"):  # 학습 배치(mujoco-spec 13.10.4 세계 다시 짓기): 학습 때 묶음의 이 씨앗 자리에 상자를 놓고 끝나면 판정한다
-            try:
-                lay = await run.io_bound(backend.rebuild_world, suite, int(seed.value))
-            except ValueError as e:
-                ui.notify(str(e), type="warning")
-                return
-            from ...arm import (
-                mujoco_bench,  # MuJoCo가 없는 설치에서도 페이지가 열리게 여기서 부른다
-            )
-            judge = partial(mujoco_bench.judge, layout=lay)
-        backend.policy = runner = PolicyRunner(svc, svc.driver, checkpoint_dir=Path(path), max_s=MAX_S, judge=judge)
-        backend.policy_loading, backend.policy_cancel = True, False
-        started_ns[0] = time.time_ns()
+        info = training_info(Path(path))
+        suite = info.get("suite")
+        backend.policy_loading, backend.policy_cancel = True, False  # 프리셋 적용부터 불러오기까지: 그 사이 tick이 프리셋을 되돌리지 않게
         try:
+            try:  # 세계 다시 짓기(connect) 전에: 재연결 키도 이번 연결에 먹게. 끝나면 tick이 되돌린다
+                before = await run.io_bound(apply_training_preset, svc, info)
+            except ValueError as e:
+                ui.notify(f"수집 프리셋을 적용하지 못했습니다: {e}", type="warning")
+                return
+            if before and not backend.policy_saved_params:  # 앞 실행에서 되돌리기 전이면 처음 값을 지킨다
+                backend.policy_saved_params = before
+            if layout_on.value and suite and hasattr(svc.driver, "set_objects"):  # 학습 배치(mujoco-spec 13.10.4 세계 다시 짓기): 학습 때 묶음의 이 씨앗 자리에 상자를 놓고 끝나면 판정한다
+                try:
+                    lay = await run.io_bound(backend.rebuild_world, suite, int(seed.value))
+                except ValueError as e:
+                    ui.notify(str(e), type="warning")
+                    return
+                from ...arm import (
+                    mujoco_bench,  # MuJoCo가 없는 설치에서도 페이지가 열리게 여기서 부른다
+                )
+                judge = partial(mujoco_bench.judge, layout=lay)
+            backend.policy = runner = PolicyRunner(svc, svc.driver, checkpoint_dir=Path(path), max_s=MAX_S, judge=judge)
+            started_ns[0] = time.time_ns()
             if (pose := start_pose_of(Path(path))) is not None:  # 학습 때와 같은 자세에서 시작해야 정책이 상자를 본다(결정 0071)
                 r = await run.io_bound(svc.move_joints, JointState(*pose))
                 if r.status != "ok":
@@ -155,6 +179,9 @@ def build(backend, client_id: str, actions) -> None:
     async def tick() -> None:
         controls.refresh()
         busy = running()
+        if not busy and backend.policy_saved_params:  # 정책 실행이 끝나면 수집 프리셋 전 값으로(다른 페이지의 시뮬레이션 작업은 원래 속도로)
+            saved, backend.policy_saved_params = backend.policy_saved_params, {}
+            await run.io_bound(svc.set_params, saved)
         status.text = "불러오는 중" if backend.policy_loading else "실행 중" if busy else "멈춤"
         start_button.enabled = controls.allowed and not busy
         stop_button.enabled = controls.mine and busy
