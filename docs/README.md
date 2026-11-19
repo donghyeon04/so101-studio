@@ -27,6 +27,7 @@
 | `docs/planning/gui-spec.md` | 기획 | 확정 | GUI 설계서(1차 기본 골자): 원칙, 공통 틀, 13개 페이지, 디자인 기본값, 범위, 폴더 구조, 실행 구조, 작업 순서 G0~G10 |
 | `docs/planning/gui-dev-status.md` | 기획 | 초안 | GUI 개발 현황과 인수인계: 지금 상태, 실행, 알려진 함정, 설계 메모, 남은 GUI 일 |
 | `docs/planning/us-dev-status.md` | 기획 | 초안 | 초음파 개발 현황과 인수인계: 작업 진행(U0~U9), 측정, 보낸 요청 (초음파 세션이 처음 만든다) |
+| `docs/planning/mujoco-dev-status.md` | 기획 | 초안 | MuJoCo 개발 현황과 인수인계: 시험장 실행·묶음·지금 숫자·함정·남은 일 |
 | `docs/planning/session-requests.md` | 기획 | 초안 | 세션 간 요청 대장 (REQ 번호, 보냄·받음, 상태). 받은 세션이 갱신 |
 | `docs/planning/hardware.md` | 기획 | 초안 | 부품 구성(BOM), 보유 현황, 예상 비용, 전기적 주의사항 |
 | `docs/planning/comparison-experiment.md` | 기획 | 초안 | 초음파·카메라 인식 비교 실험의 통제 변인, 평가 기준, 환경 조건 가설 |
