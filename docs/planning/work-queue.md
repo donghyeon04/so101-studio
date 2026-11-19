@@ -68,11 +68,15 @@
 
 - **결정 0072 초음파 정확도 먼저**(11-19, 사용자): 레이더 조립 → B1~B4·R1 → 실측으로 규칙 보정(벤치마크·가상 ESP32 센서 모델) → 모자라면 2차 지도학습 추정기(R1·A1·I1에서 정답 쌍 기록, `ultrasonic-spec.md` 8.4). 팔 확인 위치 목표 중앙 5mm·90% 10mm(A1). ACT는 `pick2_v2`로 마무리, 카메라 ACT는 카메라 구매 뒤. M6는 2차 그대로.
 
+## 기획 결정 (11-19, 기획 `claude/confident-einstein-5pzss0`)
+- **결정 0073 세계 다시 짓기 1차**(사용자 결정, #487로 구현됨): `mujoco-spec.md` 13.10.4를 실제 모양 `rebuild_world(suite, seed)`에 맞추고, `gui-spec.md` 12.10 ③ 학습 배치·[다음 배치]·판정, `arm-software-spec.md` 6.10 `connect(fresh)`, `learning-platform.md` 3a 표를 1차로 옮겼다. 2차로 남는 것: GUI ② 수집 화면, 이어 쓰기, [일시 정지], L5.
+- **배포 문서 대조**(v0.1, REQ-095): README 빠른 시작·release-checklist B절은 실행 파일 셋과 맞았다. 옛 이름(`시뮬레이션 실행.cmd`·`실물 팔 실행.cmd`)이 남은 `system-architecture.md` 9절 폴더 표와 `gui-spec.md` 시작 화면 줄을 고쳤다. README "지금 상태"를 v0.1·ACT 15~17/50·결정 0072로, release-checklist에 ZIP 줄·v0.1 태그·E절(Setup.exe 최종 배포)을 더했다.
+
 ## 11-19 (총괄, v0.1 릴리스)
 - 합침: #486 MuJoCo 시험 runs/ 정리 끄기, #487 GUI 정책 실행(세계 다시 짓기·다음 배치·판정), #488 REQ-094 `prune_runs`는 실행 폴더만, #489 REQ-095 실행 파일 하나·`제거.cmd`, #490 GUI 실물 팔 없으면 시뮬레이션으로, #491 ACT 2차 다시 학습 기록(60k 17/50), #492 GUI 시작 페이지 안내, #493 결정 0072. main c380492.
 - **v0.1 릴리스**: 레포 공개, 전체 시험 1325 passed·화면 비교 56 passed. 실행 파일은 `설치.cmd`·`SO-101 Studio 실행.cmd`·`제거.cmd`.
 - 하드웨어 CAD는 모두 반영(결정 0067). 남은 것은 조립 뒤 H-6 실측.
-- 11-20(새 계정): REQ-096(정답 쌍) → 초음파. REQ-088~095를 대장에 뒤늦게 적었다. 설치 목록 맞춤: superpowers·claude-md-management·engineering 플러그인, context7·hf-mcp-server·excalidraw MCP(user), playwright-cli와 스킬.
+- 11-20(새 계정): REQ-096(정답 쌍) → 초음파. REQ-088~095를 대장에 뒤늦게 적었다. 설치 목록 맞춤: superpowers·claude-md-management·engineering 플러그인, context7·hf-mcp-server·excalidraw MCP(user), playwright-cli와 스킬. #494 ACT 밤샘 결과 합침: v2(시연 988개) 100k 45/50, 시연용 체크포인트 `runs/train/act_pick2v2_k0clip/checkpoints/100000`(새 씨앗 확인은 MuJoCo). #496 기획 0073·배포 문서.
 
 ## 11-16 밤~11-17 (총괄)
 - 합침: #410 REQ-067, #411 REQ-068, #412 REQ-069, #413 환경 파일(C-8 버전 고정), #414 기획(Stage 9 꼭 고칠 것 18건, 손목 카메라 값, 당기기 상한 측정 계획, 범위 안 3a, 하드웨어 질문 최종본). 하루 마감 전체 시험(1011f60) 1261 passed, 실패 0.

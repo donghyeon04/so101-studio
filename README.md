@@ -4,12 +4,13 @@
 
 *Pick-and-place with an SO-101 arm using two low-cost ultrasonic sensors instead of a camera, with a web GUI, a kinematic and a MuJoCo physics simulator. Windows, Python 3.12. Docs are in Korean.*
 
-## 지금 상태 (2026-11-19, 1차 배포 준비)
+## 지금 상태 (2026-11-19, v0.1)
 - 시뮬레이션에서는 처음부터 끝까지 돈다: 초음파 인식, 작업 실행(가까운 순으로 집어 배출 통에 놓기), GUI. 물리 시뮬레이션(MuJoCo)은 시험장·학습 데이터 수집·정책 평가까지 되고, 시뮬레이션 시계로 실시간의 약 10배 빠르게 돈다.
 - 하드웨어 담당 CAD를 반영했다: 판 425×375mm(40×80 프로파일 위), 새 J1 받침, 오른쪽 앞 귀퉁이의 배출 통, 레이더 받침(XL330 + OpenRB + HC-SR04)의 자리와 형상([`decisions/0067`](docs/decisions/0067-workbench-cad-values.md)). 판 높이·팔 원점은 CAD 값이라 실물 조립 뒤 실측으로 고친다.
 - 병렬(로보나인) 손은 높이를 알면 기울여 집을 수 있다(`grasp_approach: auto`, 기본은 수직).
 - 실물 팔로는 11-13까지 전원·자동 캘리브레이션·집기·놓기를 확인했다(옛 받침, 58mm 상자 5회 왕복 30%·50%에서 10/10). 새 작업대·레이더 조립과 실물 재확인은 다음 단계다.
-- 학습(ACT 모방학습)은 시뮬레이션에서 진행 중이다. 1차 4/50, 2차는 새 시작 자세로 다시 모으는 중([`decisions/0071`](docs/decisions/0071-act-second-collection.md)).
+- 학습(ACT 모방학습, 위·손목 카메라 + 관절)은 시뮬레이션에서 처음 보는 배치 50번 중 15~17번을 집어 놓는다(기준 15/50, [`decisions/0071`](docs/decisions/0071-act-second-collection.md)). 학습 씨앗에 따라 7~17/50로 흔들린다. GUI 정책 실행 화면에서 학습 배치를 놓고 돌려 볼 수 있다.
+- 다음은 초음파 정확도다: 레이더 조립 → 실측 → 보정([`decisions/0072`](docs/decisions/0072-ultrasonic-accuracy-first.md)). 카메라 학습은 카메라를 산 뒤 한다.
 - 현황 한 장은 [`docs/planning/project-status.md`](docs/planning/project-status.md), 진행 중인 일과 사용자 결정은 [`docs/planning/work-queue.md`](docs/planning/work-queue.md)에 있다.
 
 ## 무엇을 하나
@@ -45,6 +46,8 @@
    - 레포 폴더(`runs/`·`config/local.yaml` 포함)와 LeRobot 캘리브레이션 캐시는 지우지 않으므로 직접 지운다.
 
 `SO-101 Studio 실행.cmd`는 켤 때마다 `git pull --ff-only`를 하고(실패해도 지금 버전으로 계속), `so101.cmd gui`를 부른다. `so101.cmd`는 `C:\so101-tools\miniforge3`, `C:\miniforge3`, 사용자 폴더의 miniforge·miniconda에서 `so101` 환경을 찾는다(근거 [`decisions/0040`](docs/decisions/0040-team-local-install.md)).
+
+v0.1의 배포는 위 배치 파일 셋(`설치.cmd`, `SO-101 Studio 실행.cmd`, `제거.cmd`)이다. 설치 프로그램(Setup.exe, Windows 앱 목록에서 제거)은 최종 배포 때 만든다.
 
 직접 설치할 때는 `conda env create -f environment.yml` 뒤 `conda activate so101`을 한다. numpy는 conda 설치본을 쓰므로 `pip`로 다시 설치하지 않는다. MuJoCo는 선택이고, 설치 줄은 [`docs/guides/tooling-setup.md`](docs/guides/tooling-setup.md) C24에 있다.
 

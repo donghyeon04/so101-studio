@@ -37,7 +37,7 @@
 | `docs/guides/tooling-setup.md` | 가이드 | 확정 | 계정마다 설치할 플러그인, MCP, 스킬 |
 | `docs/guides/session-workflow.md` | 가이드 | 확정 | 세션 역할(기획 + 로컬 넷, GUI 세션 총괄), worktree와 브랜치(합친 뒤 지우기 순서), REQ 양식, 기획 요청, 보고 체계(7a), 새 계정·새 PC로 옮길 때와 세션별 시작 프롬프트(8) |
 | `docs/guides/radar-bringup.md` | 가이드 | 초안 | 레이더(XL330 + OpenRB + HC-SR04) 조립·배선·펌웨어·첫 켜기·측정(B1~B4·R1) 사용자 안내, VIN 전압 확인이 맨 앞 |
-| `docs/guides/release-checklist.md` | 가이드 | 초안 | 배포·공개 준비 점검표: 레포 위생(브랜치·폴더·git 제외·CAD 파일), 깨끗한 PC 설치 시험, 시험과 코드, 공개 문서(README·라이선스·개인 정보·버전 태그) |
+| `docs/guides/release-checklist.md` | 가이드 | 초안 | 배포·공개 준비 점검표: 레포 위생(브랜치·폴더·git 제외·CAD 파일), 깨끗한 PC 설치 시험(실행 파일 셋, ZIP), 시험과 코드, 공개 문서(README·라이선스·개인 정보·버전 태그), 최종 배포 설치 프로그램 |
 | `docs/decisions/0001-claude-md-authoring.md` | 결정 | 확정 | CLAUDE.md는 짧게, 절차는 skill로 |
 | `docs/decisions/0002-docs-structure.md` | 결정 | 확정 | 문서 유형 4종, 색인, 상태값, 조사 원문 비보관 |
 | `docs/decisions/0003-arm-control-stack.md` | 결정 | 확정 | LeRobot SOFollower + placo IK, MoveJ/L/P는 얇게 직접 구현 |
@@ -103,6 +103,7 @@
 | `docs/decisions/0063-robonine-wrist-bracket-topview.md` | 결정 | 확정 | 그리퍼는 로보나인 병렬(교체 뒤 기본), 손목은 짧은 초음파 브래킷만(0°, 오프셋 {0.0, 66.5, 99.5}), 카메라는 탑뷰 하나, 실물·MuJoCo·초음파를 다시 맞추는 순서 |
 | `docs/decisions/0064-test-tiers.md` | 결정 | 확정 | 시험 네 층(빠른 묶음 / testmon 바뀐 곳 / 전체는 xdist 병렬 / 화면 비교는 GUI PR·배포 전만), 시험 포트 0, NiceGUI user 픽스처 기본, 허수 시험 정리, 측정 시험은 measure로 뺌 (0046 대체) |
 | `docs/decisions/0067-workbench-cad-values.md` | 결정 | 확정 | 작업대·팔·레이더 자리를 CAD 값으로(판 425×375, 팔 (215.2, 21.4), 레이더 (207.3, 405.5)·높이 23.2), 배출 구역은 오른쪽 귀퉁이 통 하나, 시연 방위 45~135° |
+| `docs/decisions/0073-rebuild-world-in-first-scope.md` | 결정 | 확정 | 세계 다시 짓기(`rebuild_world(suite, seed)`)와 GUI 정책 실행의 학습 배치·[다음 배치]·판정을 2차에서 1차로(#487) |
 | `docs/decisions/0072-ultrasonic-accuracy-first.md` | 결정 | 확정 | 카메라보다 초음파 정확도 먼저: 레이더 실측 → 규칙 보정(벤치마크·가상 ESP32) → 2차 지도학습 추정기, 팔 확인 위치 중앙 5·90% 10mm, ACT는 pick2_v2로 마무리 |
 | `docs/decisions/0071-act-second-collection.md` | 결정 | 확정 | ACT 2차 수집: 수집 전용 시작 자세(한계 15° 안쪽, 손목 카메라가 상자를 봄), 새 장면 300개→모자라면 600, 한계 자르기는 미룸, 11/23 3단계 기준 |
 | `docs/decisions/0070-clock-injection-now.md` | 결정 | 확정 | 시계 주입(mujoco-spec 13.10.2)을 12/4 전에: 팔 Clock·WallClock → MuJoCo StepClock → 시험장·기록기·평가 연결, 빠른 모드 보기 창 |

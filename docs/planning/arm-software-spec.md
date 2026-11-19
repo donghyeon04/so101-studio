@@ -393,7 +393,8 @@ GUI에서 점 찍기는 `point_pose` → `preview_tool` → `move_tool` 순서�
 - 끝: `max_s`가 지나거나 `stop()`이면 끝난다. `servo_joints`가 `False`를 돌려주면(정지·E-STOP·fault·거부가 이어짐) 러너도 끝난다. 끝나고 1.0초 뒤 배치가 주어져 있으면 `judge`(13.10.4)를 불러 결과를 싣는다.
 - 이벤트: `ARM-POLICY-START`(kind `policy_start`, 체크포인트·fps), `ARM-POLICY-STOP`(kind `policy_stop`, `{reason, outcome}`), 추론 시간 평균·최대. CPU 추론이 한 주기(40ms)를 넘으면 그 주기는 건너뛰고 건너뛴 수를 `ARM-POLICY-STOP`에 적는다. 25Hz를 지키는지 `measurements.md`에 남기고, 못 지키면 총괄을 거쳐 앱 환경의 torch를 바꿀지 사용자에게 묻는다.
 - torch·lerobot을 못 불러오면 안내문으로 끝낸다(앱의 다른 기능은 그대로 돈다).
-- 2차(자르기를 올린 것, 지금은 만들지 않는다): `pause()`(추론을 멈추고 서보 목표를 지금 명령값으로, `ARM-POLICY-PAUSE`)와 `resume()`(`policy.reset()` 뒤 새 관측으로), `ArmService.connect(fresh=True)`(다시 연결할 때 `Skills` 기억을 넘기지 않음, 세계 다시 짓기용), 게임패드 입력 어댑터(6.7의 "나중", `teleop.py`).
+- `ArmService.connect(port=None, fresh=False)`: `fresh=True`면 다시 연결할 때 새 `Skills`에 집기·알려진 물체·놓은 물체 기억(`grip`·`placed`·`known_objects`와 높이·크기·각도·마지막 놓기 기억)을 넘기지 않는다. 세계 다시 짓기(`mujoco-spec.md` 13.10.4)용이고 1차로 옮겼다(결정 0073, REQ-093 #485). 기본 `False`는 지금 그대로다(11.3.3).
+- 2차(자르기를 올린 것, 지금은 만들지 않는다): `pause()`(추론을 멈추고 서보 목표를 지금 명령값으로, `ARM-POLICY-PAUSE`)와 `resume()`(`policy.reset()` 뒤 새 관측으로), 게임패드 입력 어댑터(6.7의 "나중", `teleop.py`).
 
 **시험**(팔, `tests/test_servo.py`·`tests/test_policy_runner.py`, `SimDriver`로)
 - 범위 밖 목표는 거부되고 제자리에 선다. 0.5초 끊기면 선다. 궤적 동작 중이면 `busy`다. 실제 팔 드라이버(가짜)면 거부한다.

@@ -1,6 +1,6 @@
 # MuJoCo 물리 시뮬레이션·시험장 설계서
 
-상태: 확정 · 2026-11-14 (`arm-software-spec.md` 13절에서 옮김. 13.1~13.9는 M1~M4로 구현됨, 13.10 시험장 계획은 결정 0062. 2026-11-14 drift-report(main fcdcb0f, #348~#357) 반영: 13.9 병렬·뷰어, 13.10 M5 판정·시험장 기준 설정. 2026-11-15 총괄 밤 보고 반영: 시나리오는 그리퍼별, M5 설계 입력, M5b 시계 주입 계획. 2026-11-16 M5·M5b 첫 단계·M6 세부 설계 13.10.1~13.10.3(초안, EGM Stage 9 전)) · 2026-11-16 13.10.4 카메라·렌더·에피소드 기록(결정 0066, 초안. 2026-11-16 밤 Stage 9 (가)(나) 꼭 고칠 것 반영: 13.10.1·13.10.2·13.10.4) · 2026-11-18 13.10.4 수집 다시 짜기(결정 0068) · 2026-11-18 작업대 CAD 반영·배출 통(결정 0067) · 2026-11-18 13.10.2 시계 주입 앞당김(결정 0070), Stage 9 꼭 고칠 것 9개 반영 · 2026-11-19 13.10.4 2차 수집·시작 자세(결정 0071)
+상태: 확정 · 2026-11-14 (`arm-software-spec.md` 13절에서 옮김. 13.1~13.9는 M1~M4로 구현됨, 13.10 시험장 계획은 결정 0062. 2026-11-14 drift-report(main fcdcb0f, #348~#357) 반영: 13.9 병렬·뷰어, 13.10 M5 판정·시험장 기준 설정. 2026-11-15 총괄 밤 보고 반영: 시나리오는 그리퍼별, M5 설계 입력, M5b 시계 주입 계획. 2026-11-16 M5·M5b 첫 단계·M6 세부 설계 13.10.1~13.10.3(초안, EGM Stage 9 전)) · 2026-11-16 13.10.4 카메라·렌더·에피소드 기록(결정 0066, 초안. 2026-11-16 밤 Stage 9 (가)(나) 꼭 고칠 것 반영: 13.10.1·13.10.2·13.10.4) · 2026-11-18 13.10.4 수집 다시 짜기(결정 0068) · 2026-11-18 작업대 CAD 반영·배출 통(결정 0067) · 2026-11-18 13.10.2 시계 주입 앞당김(결정 0070), Stage 9 꼭 고칠 것 9개 반영 · 2026-11-19 13.10.4 2차 수집·시작 자세(결정 0071) · 2026-11-19 13.10.4 세계 다시 짓기를 1차로(결정 0073, 구현 #484·#485·#487에 맞춤)
 
 로컬 세션이 MuJoCo 드라이버(M1~M4)와 시험장(M5~M9)을 구현하는 기준이다. 절 번호는 옮기기 전과 같다(13.x). 팔 쪽 기본 규약(타입, `ArmService`, 안전, 집기·놓기)은 `arm-software-spec.md`, GUI 쪽은 `gui-spec.md` 12.8이다. 근거 결정: 0053(MuJoCoDriver), 0062(시험장), 0037(주제마다 도구 하나).
 
@@ -543,8 +543,10 @@ spread: {xy_mm: 0, angle_deg: 0}           # 씨앗마다 자리·각도를 흔�
 - 평가는 `mujoco_bench --suite collect_pick --policy <체크포인트 폴더> --seed-start 10000 --seeds 50`이다(`PolicyRunner`를 GUI 없이 쓴다, `arm-software-spec.md` 6.10). 체크포인트는 손실이 아니라 이 50개의 `placed_ok` 비율로 고른다.
 - 한 번 추론으로 쓰는 스텝 수(`n_action_steps`)는 먼저 덩어리 전체(`chunk_size`와 같게)로 하고, 그다음 절반과 비교한다(레퍼런스 aviadarn: 덩어리 전체 실행이 25·50스텝마다 다시 계획보다 나았고, 시간 앙상블은 도움이 안 됐다). 학습 명령·스텝 수·성공률 표와 함께 `measurements.md`에 남긴다. 1차 묶음의 성공 기준은 위 "수집 다시 짜기"(결정 0068)이고, 넓힌 묶음에는 목표를 두지 않는다(결정 0066).
 
-**세계 다시 짓기**(2차: GUI 수집 화면과 정책 실행 화면의 [다음 배치]에만 필요하다)
-- `Backend.rebuild_world(seed)` 하나로 한다. 순서: ① `PolicyRunner.stop()`과 `EpisodeRecorder.stop(save=…)` ② `MuJoCoDriver.set_objects(layout.objects)`(13.5 겹침 검사 그대로) ③ `backend.sim.connect(fresh=True)`: 새 `Skills`에 `placed`·`known_objects`·`grip` 기억을 넘기지 않는다(지금 `connect`는 넘긴다) ④ 수동 물체 목록과 3D를 바꾼다. 팔은 ③에서 홈 자세로 놓인다.
-- `set_objects`는 MuJoCo 세션, `fresh` 인자는 팔 세션, `rebuild_world`는 GUI 세션이 만든다.
+**세계 다시 짓기**(1차, 2026-11-19 사용자 결정으로 2차에서 옮김(결정 0073). GUI 정책 실행 화면의 학습 배치·[다음 배치]에 쓴다. 구현: `set_objects` REQ-092 #484, `connect(fresh)` REQ-093 #485, `rebuild_world`·화면 #487)
+- `Backend.rebuild_world(suite, seed) -> Layout` 하나로 한다. 묶음 `suite`는 체크포인트의 학습 데이터 `meta/collect.json`(수집 때 `mujoco_bench`가 쓴 묶음·시작 자세)에서 온다. 순서: ① `PolicyRunner.stop()` ② `MuJoCoDriver.set_objects(layout(suite, seed).objects)`(13.5 겹침 검사 그대로) ③ `backend.sim.connect(fresh=True)`: 새 `Skills`에 `placed`·`known_objects`·`grip` 기억을 넘기지 않는다(기본 `fresh=False`는 지금처럼 넘긴다) ④ 수동 물체 목록과 3D를 같은 물체로 바꾸고 놓은 수를 0으로. 팔은 ③에서 홈 자세로 놓인다.
+- MuJoCo 엔진이 아니면(드라이버에 `set_objects`가 없으면) `ValueError("…MuJoCo 시뮬레이션에서만…")`, 겹치거나 다시 연결하지 못해도 `ValueError`(이유)다. 화면은 알림으로 보이고 시작하지 않는다.
+- `EpisodeRecorder.stop(save=…)`을 앞에 두는 것은 GUI ② 수집 화면(2차)이 생길 때 더한다.
+- `set_objects`는 MuJoCo 세션, `fresh` 인자는 팔 세션, `rebuild_world`는 GUI 세션이 만든다. 시험: `tests/gui/test_mujoco_gui.py`(배치대로 MuJoCo 물체·수동 물체 목록이 같이 바뀌고 기억이 비는지, MuJoCo가 아니면 거부), `tests/test_mujoco_driver.py`, `tests/test_service.py`.
 
 **강화학습 데모**(2차, L5, `so101-train` 환경): so101-nexus의 `MuJoCoPickLift-v1`과 그 예제 PPO 학습을 그대로 돌려 학습 곡선과 학습 전·후 영상을 남긴다. 우리 코드에 넣지 않고 `docs/guides/`에 실행 절차만 적는다. so101-nexus(`mujoco>=3.0`)가 우리 고정 버전 4.0.0과 도는지는 설치할 때 확인한다.
