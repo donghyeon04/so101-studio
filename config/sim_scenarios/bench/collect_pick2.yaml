@@ -1,0 +1,16 @@
+# 2차 수집 묶음(결정 0071, REQ-087): collect_pick1과 같은 배치(결정 0067 판·통 장면)에 시작 자세만 더한다.
+# start_pose: radar_clear(연결 뒤) → 이 자세로 옮긴 다음 기록·정책을 시작한다. 모든 관절이 한계에서 15° 이상 안쪽, 그리퍼 50.
+# 손목 카메라 첫 프레임에 상자(주황 50px 이상)가 보이는 비율: 씨앗 0~199 198/200(99%), 평가 씨앗 10000~10049 49/50(98%) (measurements.md).
+# 수집: mujoco_bench --suite collect_pick2 --record <이름> --seed-start 0 --seeds 300 --clock step --jobs N --viewer grid
+# 평가: mujoco_bench --suite collect_pick2 --policy <체크포인트> --seed-start 10000 --seeds 50 --clock step --jobs N --viewer grid
+name: collect_pick2
+robot: collect_fast.yaml
+settle_s: 0.3
+start_pose: [0, -30, 30, 75, 0, 50]
+sample:
+  size_mm: [58, 58, 39]
+  radius_mm: [150, 200]
+  bearing_deg: [-30, 30]
+  angle_deg: along
+place: {zone: right}
+task: pick the box and place it in the right zone

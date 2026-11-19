@@ -370,7 +370,7 @@ def judge_episode(result, samples: list, end: dict, truth: dict, target_xy, even
 
 
 def run_episode(ep: Episode, cfg, log_dir: Path, env: BenchEnv | None = None, samples_out: list | None = None, recorder=None, viewer: bool = False,
-                settle_s: float = SETTLE_S, clock: str = "wall") -> dict:
+                settle_s: float = SETTLE_S, clock: str = "wall", start_pose=None) -> dict:
     """실행기 A: reset → pick_and_place(그동안 표본) → settle_s 뒤 판정 → disconnect. 결과 한 줄(dict). samples_out에 표본을 붙인다(시험용).
     recorder(EpisodeRecorder)가 있으면 pick_and_place 직전부터 판정까지 기록하고, outcome이 placed_ok이고 realtime_lag가 없을 때만 저장한다(13.10.4, 결정 0068).
     settle_s: 수집 묶음은 suite의 settle_s(0.3초, 결정 0068)를 쓴다."""
@@ -385,6 +385,7 @@ def run_episode(ep: Episode, cfg, log_dir: Path, env: BenchEnv | None = None, sa
     result, failed = None, None
     drops0 = info["drops_at_connect"]
     try:
+        _go_start(svc, start_pose)
         if recorder is not None:
             recorder.svc, recorder.driver = svc, drv  # 에피소드마다 새 드라이버·ArmService
             recorder.start(clock=clk)
@@ -452,6 +453,16 @@ def _run_stepped(runner, clock) -> None:
     runner.finish(out["reason"])
 
 
+def _go_start(svc, start_pose) -> None:
+    """묶음의 start_pose(관절 6개, 결정 0071)가 있으면 연결 뒤 그 자세로 옮긴 다음 기록·정책을 시작한다(손목 카메라가 상자를 보게)."""
+    if start_pose:
+        from ..core.types import JointState
+
+        r = svc.move_joints(JointState(*map(float, start_pose)))
+        if r.status != "ok":
+            raise RuntimeError(f"시작 자세로 못 갔다: {r.status} {r.reason}")
+
+
 def run_policy_episode(ep: Episode, suite: dict, cfg, log_dir: Path, policy, max_s: float = POLICY_MAX_S, viewer: bool = False, clock: str = "wall") -> dict:
     """정책 평가 한 에피소드(13.10.4 학습과 평가): reset → PolicyRunner(GUI 없이) → 끝나고 judge(driver, layout). 한 줄(dict)."""
     from functools import partial
@@ -463,6 +474,7 @@ def run_policy_episode(ep: Episode, suite: dict, cfg, log_dir: Path, policy, max
     env.reset(options={"episode": ep, "log_dir": log_dir})
     feeder = _feeder(env.drv, ep.id, env.clock)
     try:
+        _go_start(env.svc, suite.get("start_pose"))
         runner = PolicyRunner(env.svc, env.drv, policy=policy, max_s=max_s, judge=partial(judge, layout=_layout_of(ep, suite)))
         if getattr(env.clock, "drives_status", False):
             _run_stepped(runner, env.clock)
@@ -491,7 +503,7 @@ def _commit() -> str:
 
 
 def _worker(job, recorder=None):
-    ep, override, out, grip_force, viewer, settle_s, clock = job
+    ep, override, out, grip_force, viewer, settle_s, clock, start_pose = job
     import os
 
     from . import mujoco_hand
@@ -502,7 +514,7 @@ def _worker(job, recorder=None):
         mujoco_hand.GRIP_FORCE_N = float(grip_force)
     try:
         cfg = load_cfg(override)
-        row = run_episode(ep, cfg, Path(out) / "episodes" / ep.id, recorder=recorder, viewer=viewer, settle_s=settle_s, clock=clock)
+        row = run_episode(ep, cfg, Path(out) / "episodes" / ep.id, recorder=recorder, viewer=viewer, settle_s=settle_s, clock=clock, start_pose=start_pose)
     except Exception as e:  # noqa: BLE001 한 에피소드가 깨져도 묶음은 계속 돈다: sim_fail 한 줄로 남긴다
         row = {"episode": ep.id, "seed": ep.seed, "gripper": None, "scene_parts": [], "truth": ep.truth, "given": None, "inject": ep.inject, "place": ep.place,
                "reported": {"status": None, "reason": None}, "picked": False, "placed": False, "outcome": "sim_fail", "agree": "match", "slip_mm": None,
@@ -613,7 +625,7 @@ def run(suite: str, seeds: int = 1, gripper: str | None = None, jobs: int = 1, o
     out = (out_root or REPO_ROOT / "runs" / "bench-mujoco") / f"{datetime.now():%Y%m%d-%H%M%S}-{commit}{tag}"
     out.mkdir(parents=True, exist_ok=True)
     override = suite_override(s, gripper, out)
-    jobs_list = [(e, str(override), str(out), grip_force, viewer, settle_s, clock) for e in eps]
+    jobs_list = [(e, str(override), str(out), grip_force, viewer, settle_s, clock, s.get("start_pose")) for e in eps]
     parted = bool(record) and jobs > 1
     rows = []
     with _grid(grid, jobs, s["name"]) as gq, (out / "results.jsonl").open("w", encoding="utf-8") as f:
