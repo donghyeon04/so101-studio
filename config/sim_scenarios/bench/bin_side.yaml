@@ -1,0 +1,14 @@
+# 통 옆 묶음(결정 0067 H-3 추가, 기획 #463 사용자 결정): 배출 통 바로 옆(팔 방위 −40°, 반경 210·240)에서 통 벽이 접근·하강·들기를 막는지 본다.
+# pick_grid(고정 묶음) 표와 섞지 않는다. 통(벽 포함)과 겹치는 칸 둘은 뺀다(30 → 28).
+name: bin_side
+objects:
+  size_mm: [[30, 30, 40], [58, 58, 39], [100, 30, 40], [80, 40, 40], [50, 50, 40]]   # pick_grid와 같은 크기
+  radius_mm: [210, 240]
+  bearing_deg: [-40]
+  angle_deg: [0, 45, 90]
+place: {zone: right}
+given: {}
+skip:
+  - {size_mm: [100, 30, 40], radius_mm: 210, bearing_deg: -40, angle_deg: 45}
+  - {size_mm: [100, 30, 40], radius_mm: 210, bearing_deg: -40, angle_deg: 90}
+spread: {xy_mm: 0, angle_deg: 0}
