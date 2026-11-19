@@ -58,12 +58,14 @@ def test_a1_summary_verdicts():
 
 
 @pytest.mark.slow  # 배치 하나에 10~40초(random_layout의 모서리 간격 계산)
-def test_i1_layouts_1_to_10_keep_demo_rules_after_rounding():
+def test_i1_layouts_1_to_10_keep_show80_rules_after_rounding():
     ws = load_workspace()
+    base = (ws.robot_base_in_table["x_mm"], ws.robot_base_in_table["y_mm"])
     for k in range(1, 11):
         boxes = i1_layout(k)
         assert len(boxes) == 3
         assert all(b.x % 5 == 0 and b.y % 5 == 0 and b.angle_deg % 5 == 0 and on_plate(b, ws) for b in boxes), k
+        assert all(150 <= math.dist((b.x, b.y), base) <= 220 for b in boxes), k  # show80 반경, 반올림 뒤에도
         assert all(edge_gap(a, b) >= 80 for i, a in enumerate(boxes) for b in boxes[i + 1:]), k
 
 
