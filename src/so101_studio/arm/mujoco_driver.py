@@ -27,6 +27,7 @@ VIEWER_SYNC_S = 1 / 15  # 뷰어에 복사본을 보내는 간격(30Hz는 렌더
 VIEW_CAMERA = "view"  # 보기 전용 자유 카메라 이름(render만, 모델 카메라가 아니다)
 VIEW_DISTANCE_M, VIEW_AZIMUTH_DEG, VIEW_ELEVATION_DEG = 0.5, 135.0, -30.0
 CATCHUP_MAX_S = 0.1  # 이 이상 밀리면 넘는 만큼 버린다
+LOAD_TAU_S = 0.2  # 부하·전류가 읽는 액추에이터 힘의 평균 시간. 시뮬레이션 kp(998)는 오차 0.17°에 힘이 한계에 붙어 25Hz 목표 흔들림에 ±100%로 튄다. 실물 서보(P16)는 같은 흔들림에 순간 힘이 이만큼 튀지 않아, 필요한 평균 토크(중력·접촉·관성)만 읽는다
 
 
 def _with_bin_walls(scene, ws):
@@ -71,6 +72,7 @@ class MuJoCoDriver:
         self._rdata, self._renderers = None, {}  # render(): 물리 데이터 복사본과 크기별 화면 밖 렌더러. connect·disconnect에서 버린다(모델이 새로 만들어진다)
         self._rpool: ThreadPoolExecutor | None = None  # 렌더 전용 스레드(처음 render 때 만든다)
         self._from, self._t_write = np.zeros(6), 0.0  # 목표가 바뀐 시각(시뮬레이션 시간): 액추에이터 목표를 다음 쓰기 간격(1/control_hz) 동안 선형으로 옮긴다(13.2)
+        self._f_ema = np.zeros(6)  # 액추에이터 힘의 부호 있는 이동 평균(N·m). 부하 %는 이것으로 읽는다(LOAD_TAU_S)
 
     # -- 연결 --
     def set_objects(self, objects) -> None:
@@ -95,6 +97,7 @@ class MuJoCoDriver:
             self._aid = [self.model.actuator(JOINT_MAP[j][0]).id for j in JOINTS]
             self._force0 = self.model.actuator_forcerange.copy()  # 부하 %의 분모(그리퍼 한계를 줄이기 전 값)
             self._failed = None
+            self._f_ema = np.zeros(6)
             self.torque_limit = 1000
             home = self._deg_to_rad(self.cfg.poses["home"])
             self.data.qpos[self._qadr] = home
@@ -230,12 +233,14 @@ class MuJoCoDriver:
             self._fail("관절값이 NaN")
             return
         t0 = time.perf_counter()
+        k = self.model.opt.timestep / LOAD_TAU_S
         try:
             for _ in range(n):
                 if self._torque:  # kp가 커서 목표가 계단으로 바뀌면 힘이 한계까지 튄다: 쓰기 간격 동안 선형으로 옮긴다(실물 서보의 내부 궤적 근사)
                     frac = min(1.0, (self.data.time - self._t_write) / (1.0 / self.cfg.control_hz))
                     self.data.ctrl[self._aid] = self._from + (self._target - self._from) * frac
                 self._mj.mj_step(self.model, self.data)
+                self._f_ema += k * (self.data.actuator_force[self._aid] - self._f_ema)
         except Exception as e:  # noqa: BLE001
             self._fail(f"스텝 예외 {e!r}"[:120])
             return
@@ -341,9 +346,9 @@ class MuJoCoDriver:
         return {m: {"Acceleration": self.acceleration} for m in JOINTS}
 
     def _load_pct(self) -> dict:
-        """13.2: 부하 % = |액추에이터 힘| / 원래 forcerange."""
+        """13.2: 부하 % = |힘의 이동 평균| / 원래 forcerange (평균은 LOAD_TAU_S)."""
         with self._lock:
-            return {m: float(abs(self.data.actuator_force[a]) / self._force0[a][1] * 100.0) if self._torque else 0.0 for m, a in zip(JOINTS, self._aid)}
+            return {m: float(abs(self._f_ema[i]) / self._force0[a][1] * 100.0) if self._torque else 0.0 for i, (m, a) in enumerate(zip(JOINTS, self._aid))}
 
     def read_health(self) -> dict:
         self._check()

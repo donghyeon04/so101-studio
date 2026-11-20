@@ -936,3 +936,19 @@ p99 증가는 -0.04ms(기준 2ms 이하), time_lost_s 증가 0%(기준 1% 미만
 
 - 읽기: 속도·관절 속도 한계가 대부분을 설명하고(11 → 17), 나머지(17 → 20)는 가속·저크·`servo_acceleration` 쪽이다. GUI에서 본 "건드리지 못함"은 이 표에서는 toppled·untouched로 갈렸다(GUI 부하로 추론이 늦은 것이 겹쳤을 수 있다: 추론 최대 738~877ms, 건너뜀 19~25. 벤치마크는 `_warm_up`으로 첫 추론을 미리 돌리지만 GUI의 `PolicyRunner.start`에는 없다).
 - 고칠 곳: ① GUI 정책 실행 페이지(시뮬레이션 MuJoCo만): 체크포인트의 `collect.json` `preset_values`를 시작 전에 적용하고 끝나면 되돌린다. 실물 팔 설정은 건드리지 않는다. ② `PolicyRunner.start`에 첫 추론 미리 돌리기(`_warm_up` 상당).
+
+## MuJoCo 부하·전류를 0.2초 평균 힘으로 읽기: ACT v2 servo:fault 줄이기 (2026-11-20, 총괄 요청, 같은 씨앗 30000~30199, `--clock step --jobs 3`)
+- 대상: 비교 실험 (나)에서 ACT v2 100k가 실패한 34건 중 `servo:fault` 16건. 이유는 `overcurrent` 9, `overload:shoulder_pan` 5, `grip_overload` 2였다. 앞 절("60k fault 원인")대로 시뮬레이션 액추에이터(kp 998)가 오차 0.17°에 힘이 한계에 붙어, 25Hz 목표 흔들림에 부하가 ±100%로 튄다. 성공한 에피소드도 상태 읽기에서 전류 합이 최대 6.0A까지 나왔고(문턱 4.0A), 걸릴지는 2Hz 건강 읽기와 겹치는 운이었다.
+- 고침(`arm/mujoco_driver.py`만): `read_health`·`read_power`의 부하 %를 순간 힘이 아니라 부호 있는 힘의 지수 이동 평균(`LOAD_TAU_S` = 0.2초)으로 읽는다. 중력·접촉·관성으로 필요한 평균 토크는 그대로고 stiff한 액추에이터의 튐만 걸러진다. 전류는 부하 %×10mA 그대로라 같이 낮아진다. 실물 문턱(`HealthMonitor`·`robot.yaml`)과 `sim_blocked`는 건드리지 않았다. 문턱을 올리는 쪽은 택하지 않았다(순간값이 계속 ±100%라 어느 문턱에서도 의미가 없다).
+
+| 같은 씨앗 30000~30199 | 전 | 후 |
+|---|---|---|
+| ACT v2 100k placed_ok | 166/200 | **167/200** |
+| 끝난 이유 `servo:fault` | 16 | **3**(모두 `grip_overload`) |
+| 실패 outcome | moved 12, untouched 11, toppled 11 | moved 8, untouched 9, toppled 16 |
+| 규칙 기반 placed_ok | 199/200(rejected 1) | 199/200(rejected 1) |
+| 규칙 기반 미끄러짐 | 중앙 2.79·최대 6.33mm | 중앙 2.79·최대 6.33mm |
+
+- 읽기: fault는 16 → 3으로 줄었지만 성공은 거의 그대로다(166 → 167, 새로 성공 8, 새로 실패 7). fault로 끊기던 에피소드가 `max_s`까지 가서 대부분 그냥 실패(moved·toppled)로 끝난다. 정책이 실제로 틀리는 건이 남은 실패 33건이다. 규칙 기반은 전/후가 완전히 같아 나빠지지 않았다.
+- 남은 fault 3건(30101·30130·30166, `grip_overload`)은 상자가 넘어진 건이다. 그리퍼 힘이 60% 문턱을 넘는 실제 조임이라 이 평균으로 줄지 않는다.
+- 시험: `tests/test_mujoco_*`·`test_blocked_mujoco` 빠른 묶음 78개, slow 14개 통과. 전/후 결과 폴더는 `runs/bench-mujoco/20261120-013749-91830c1-policy`(전)·`20261120-084729-658667b-policy`(후), 규칙 기반 `20261120-013418-91830c1`·`20261120-084400-658667b`.
