@@ -89,7 +89,7 @@ class KinReach:
         self.ws = load_workspace()
         self.kin = Kinematics(self.cfg.urdf, self.ws.base, self.cfg.joint_limits_deg)
         self.hover = self.cfg.approach_height_mm if hover_mm is None else hover_mm
-        home = JointState(*self.cfg.poses["home"])
+        home = JointState(*self.cfg.episode_start())  # 가상 팔 시작 자세(REQ-103: 병렬 home이 바뀌어도 숫자 그대로)
         self.seeds = [home, *(replace(sd, gripper=home.gripper) for sd in SEEDS)]
         self.cache = {}
 

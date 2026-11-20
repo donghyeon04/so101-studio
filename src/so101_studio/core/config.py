@@ -90,6 +90,11 @@ class RobotConfig:
     measured_on: str = ""  # 팔별 값을 잰 날짜
     calibration_checked: dict = field(default_factory=dict)  # so101 calibrate --verify-zero가 쓴 {date, sha256}. 캘리브레이션 파일과 맞지 않으면 움직이는 명령은 locked (decisions/0029)
 
+    def episode_start(self) -> list[float]:
+        """MuJoCo 에피소드(드라이버 시작·세계 다시 짓기·수집·정책 실행)와 초음파 벤치마크 가상 팔의 시작 자세: poses.episode_start, 없으면 home.
+        병렬은 home이 손목 90°라(REQ-103, 결정 피드백 F1) 옛 home(wrist_roll 0)을 episode_start로 둔다: ACT v2·비교 실험 숫자가 그 자세에서 시작했다."""
+        return self.poses.get("episode_start") or self.poses["home"]
+
 
 class ArmSelectionError(Exception):
     """팔을 하나로 고르지 못했다. candidates에 후보 팔 이름이 들어 있다."""
