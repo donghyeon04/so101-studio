@@ -83,6 +83,7 @@ def test_page_off_needs_confirmation_then_shows_red_badge(clean):
     async def check(user):
         assert await _until(lambda: clean.owner is not None)
         await user.should_not_see(marker="safety-off-badge")
+        assert "위쪽 제한은 없습니다" in _one(user, "safety-height-note").text  # 피드백 F9: 높이는 바닥 보호만
         _one(user, "safety-mode").value = "off"
         await user.should_see(marker="off-confirm")
         assert clean.get_safety()["mode"] == "normal"  # 확인 전에는 바뀌지 않는다

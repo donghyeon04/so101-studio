@@ -11,7 +11,14 @@ from nicegui import run, ui
 from ...core.logread import read_events
 from ...core.types import JointState
 from ...service.policy_runner import CAMERAS, PolicyRunner
-from .common import CAMERA_TITLES, Controls, camera_tile, scene_frame, watch_visibility
+from .common import (
+    CAMERA_TITLES,
+    Controls,
+    camera_tile,
+    mujoco_restart_hint,
+    scene_frame,
+    watch_visibility,
+)
 
 TRAIN_ROOT = Path("runs/train")
 NO_RENDER_TEXT = "학습한 정책 실행은 MuJoCo 시뮬레이션에서만 합니다"
@@ -97,6 +104,16 @@ def build(backend, client_id: str, actions) -> None:
     svc = backend.sim
     if not callable(getattr(svc.driver, "render", None)):  # 실제 팔·기구학 엔진에는 카메라가 없다
         ui.label(NO_RENDER_TEXT).classes("page-body").mark("policy-unavailable")
+        mujoco_restart_hint()
+        with ui.card().classes("w-full gap-1").mark("policy-checkpoints"):  # 엔진을 바꾸기 전에도 무엇을 돌릴 수 있는지 보인다(F10)
+            ui.label("이 PC의 학습한 체크포인트").classes("card-title")
+            found = checkpoints(TRAIN_ROOT, siblings=True)
+            for path in found[:10]:
+                info = training_info(Path(path))
+                extra = f" · 묶음 {info['suite']}" if info.get("suite") else ""
+                ui.label(f"{Path(path).parts[-4]} / {Path(path).parts[-2]}{extra}").classes("page-body")
+            if not found:
+                ui.label("없음 (runs/train/…/pretrained_model)").classes("page-body")
         return
     controls = Controls(backend, client_id)
     started_ns = [0]

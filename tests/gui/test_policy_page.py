@@ -41,6 +41,8 @@ def open_policy(backend, check) -> None:
 def test_without_render_shows_text_and_no_buttons(backend):
     async def check(user):
         await user.should_see(marker="policy-unavailable")
+        await user.should_see(marker="mujoco-hint")  # F10: MuJoCo로 다시 켜는 명령
+        await user.should_see(marker="policy-checkpoints")
         await user.should_not_see(marker="policy-start")
 
     open_policy(backend, check)

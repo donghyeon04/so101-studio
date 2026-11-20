@@ -5,7 +5,13 @@ from nicegui import ui
 
 from ...service.policy_runner import CAMERAS
 from .. import sensors
-from .common import CAMERA_TITLES, camera_tile, scene_frame, watch_visibility
+from .common import (
+    CAMERA_TITLES,
+    camera_tile,
+    mujoco_restart_hint,
+    scene_frame,
+    watch_visibility,
+)
 
 NO_RENDER_TEXT = "MuJoCo 시뮬레이션에서만 보입니다"
 
@@ -38,6 +44,8 @@ def build(backend, client_id: str, actions) -> None:
     def title(card, text: str) -> None:
         ui.label(text).classes("card-title cursor-pointer").mark(f"view-title-{text}").on("click", lambda: toggle(card))
 
+    if not can_render:
+        mujoco_restart_hint()  # 카메라 칸 위에 한 번(F10)
     with grid:
         for cam in CAMERAS:
             with tile(cam) as card:

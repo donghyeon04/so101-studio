@@ -411,3 +411,18 @@ def jog_pads(backend, gate: Controls, prefix: str = "") -> None:
                             on_end=lambda _e: end(), **opts).classes("jog-pad").mark(f"{prefix}pad-{key}")
                 ui.label(f"{label} (눌러 끌기)").classes("stat-label")
     ui.timer(0.1, keep)
+
+
+MUJOCO_COMMAND = "so101.cmd --sim --sim-engine mujoco gui"
+
+
+def mujoco_restart_hint() -> None:
+    """기구학 엔진이면 카메라·정책 실행 자리에 MuJoCo로 다시 켜는 법을 보인다(피드백 F10, 11-20). 엔진은 앱을 다시 시작해야 바뀐다."""
+    import importlib.util
+
+    with ui.card().classes("w-full gap-1").mark("mujoco-hint"):
+        ui.label("카메라와 학습한 정책 실행은 MuJoCo 물리 엔진에서 됩니다").classes("card-title")
+        ui.label("지금은 기구학 시뮬레이션이라 카메라가 없습니다. 앱을 끄고 아래 명령으로 다시 켜세요.").classes("page-body")
+        ui.code(MUJOCO_COMMAND, language="bash").classes("w-full")
+        if importlib.util.find_spec("mujoco") is None:
+            ui.label("MuJoCo가 설치돼 있지 않습니다. 설치.cmd를 다시 실행해 MuJoCo를 고르세요.").classes("page-body").mark("mujoco-missing")

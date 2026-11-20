@@ -41,6 +41,7 @@ def test_without_render_shows_text_and_other_tiles(backend):
     async def check(user):
         await user.should_see(marker="camera-unavailable-top")
         await user.should_see(marker="camera-unavailable-wrist")
+        await user.should_see(marker="mujoco-hint")  # F10
         await user.should_see(marker="us-mini")
         await user.should_see(marker="scene3d")
         await user.should_not_see(marker="camera-top")
