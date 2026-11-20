@@ -158,10 +158,12 @@ def test_ring_is_one_follow_path_call(tmp_path):
     """원(R)은 follow_path 한 번(연속 경로)이다. 물체당 4번(L1, L2, 원, L3+L4) 부르고, 도달 범위(100~255)에 걸려 선이 끊기면 조각마다 더 부른다."""
     cfg, clk, esp, arm = build([Box(215, 190, 0)])
     src = make_source(cfg, clk, esp, arm, tmp_path)
-    do_check(src, arm, src.scan().objects[0])
+    _, probe, _ = do_check(src, arm, src.scan().objects[0])
     assert len(arm.calls) >= 4
     lengths = sorted(L for L, _ in arm.calls)
-    assert sum(abs(L - 2 * math.pi * cfg.check.ring_r_mm) < 3 for L in lengths) == 1  # 원은 한 번
+    r = probe.info["ring_r"]  # 결정 0075: 반지름은 L1·L2 구간 길이로 정한다(ring_auto_mm)
+    assert 35 <= r <= 75 and r != cfg.check.ring_r_mm
+    assert sum(abs(L - 2 * math.pi * r) < 3 for L in lengths) == 1  # 원은 한 번
 
 
 def test_link_lost_raises(tmp_path):
@@ -518,9 +520,27 @@ def test_kin_reach_hover_band_reports_ik_fail():
 
 
 def _pull_probe(tmp_path, **check):
+    check.setdefault("line_yaw_alt_deg", [])  # 첫 점 당기기만 본다(결정 0075의 다른 yaw로 다시는 아래 시험)
     cfg, clk, esp, arm = build([Box(300, 235, 0)], **check)
     src = make_source(cfg, clk, esp, arm, tmp_path)
     return src.start_check(src.scan().objects[0])
+
+
+def test_ik_fail_tries_other_yaw_before_pull(tmp_path):
+    """결정 0075: ik_fail이면 첫 점을 당기기 전에 같은 센서 경로를 다른 yaw로 먼저 다시 낸다(점을 잃지 않는다). 다른 yaw가 다 떨어지면 당긴다."""
+    probe = _pull_probe(tmp_path, line_yaw_alt_deg=[-90, -45, 45, 90])
+    seg = probe.next_segment()
+    name, sensor = probe._cur[0], probe._cur[2]
+    alts = list(probe._yaw_alts)
+    assert alts  # 이 후보의 첫 선은 다른 yaw로도 도달 범위에 든다
+    for y in alts:
+        probe.feed([], "ik_fail")
+        again = probe.next_segment()
+        assert probe._cur[2] == sensor and again.yaw_deg == y != seg.yaw_deg and again.stage == name
+    assert "pulled" not in probe.info or all(p["mm"] == 0 for p in probe.info["pulled"])
+    probe.feed([], "ik_fail")
+    probe.next_segment()
+    assert probe.info["pulled"][-1]["mm"] == pytest.approx(2.0)  # 다른 yaw가 다 안 되면 첫 점 당기기
 
 
 def test_first_point_pull_on_ik_fail(tmp_path):
@@ -743,13 +763,13 @@ def _probe(cfg, cand_xy, origin=(215.0, 21.0)):
 
 def test_plan_splits_radial_line_over_two_yaws():
     """check.line_yaw_alt_deg: 팔 쪽을 향한 180mm 선은 손끝 도달 폭보다 길어 yaw 하나로는 한쪽 끝이 잘린다.
-    켜면 손목 각도 둘로 나눠 더 많이 덮고, 끄면 지금처럼 후보 yaw 하나로 자른다."""
+    기본(결정 0075, 켬)은 손목 각도 둘로 나눠 더 많이 덮고, 끄면([]) 후보 yaw 하나로 자른다."""
     from so101_studio.perception.ultrasonic.model import load_config
 
     line = [(215.0, 80.0), (215.0, 260.0)]  # 팔 원점(215, 21)에서 반경 59~239로 곧게 뻗은 선
-    off = _probe(load_config(gripper="parallel"), (215.0, 170.0))
+    off = _probe(load_config(gripper="parallel", line_yaw_alt_deg=[]), (215.0, 170.0))
     assert {y for _, y in off._plan(line)} == {off.yaw}
-    on = _probe(load_config(gripper="parallel", line_yaw_alt_deg=[-90, -45, 45, 90]), (215.0, 170.0))
+    on = _probe(load_config(gripper="parallel"), (215.0, 170.0))  # 결정 0075 기본(켬)
     plan = on._plan(line)
     assert len({y for _, y in plan}) == 2
     def covered(pl):
