@@ -88,28 +88,76 @@ def run_task(svc: ArmService, a) -> str:
 
 
 def run_checktest(svc: ArmService, a) -> None:
-    """checktest a1 (ultrasonic-spec 8.6): 정답 가까운 후보에서 CHECK만 12회. --sim이면 묻지 않고 가상 ESP32에 물체를 놓는다."""
+    """checktest a1 (ultrasonic-spec 8.6): 정답 가까운 후보에서 CHECK만 12회. checktest a0 (8.7): S1 막대 하나로 같은 후보 CHECK 5회, 센서 오프셋 고칠 값.
+    --sim이면 묻지 않고 가상 ESP32에 물체를 놓는다."""
     from ..perception.ultrasonic.model import Box, load_config
     from ..perception.ultrasonic.truth import TruthRun
-    from ..service.check_test import A1_N, a1_plan, a1_summary, run_a1
+    from ..service import ultrasonic
+    from ..service.check_test import (
+        A0_N,
+        A1_N,
+        a0_plan,
+        a0_summary,
+        a1_plan,
+        a1_summary,
+        run_a1,
+    )
     from ..service.studio import Studio
-    from ..service.ultrasonic import make_ultrasonic_source
 
-    if a.values[:1] != ["a1"]:
-        sys.exit("checktest: 하위 명령은 a1뿐이다 (so101 checktest a1)")
+    sub = a.values[0] if a.values else None
+    if sub not in ("a0", "a1"):
+        sys.exit("checktest: 하위 명령은 a0·a1뿐이다 (so101 checktest a0 | a1)")
+    text = a.obj or {"a0": "10x10x40", "a1": "40x80x40"}[sub]  # 하위 명령별 기본을 높이 검사보다 먼저
     try:
-        obj = tuple(float(x) for x in a.obj.lower().split("x"))
+        obj = tuple(float(x) for x in text.lower().split("x"))
         assert len(obj) == 3
     except (ValueError, AssertionError):
         sys.exit("--obj는 폭x길이x높이(mm), 예: 40x80x40")
     limit = load_config().check.max_object_height_mm
     if obj[2] > limit:  # 확인 높이가 max_object_height_mm + clearance_mm로 고정이라 더 높은 물체에 닿는다
         sys.exit(f"--obj 높이 {obj[2]:g}mm가 check.max_object_height_mm({limit:g})보다 크다: 센서가 물체에 닿는다")
+    if sub == "a0":
+        if obj[0] != obj[1]:
+            sys.exit(f"checktest a0: 막대는 폭 = 길이여야 한다(--obj {text}). 예: 10x10x40")
+        if any(getattr(a, k, None) is not None for k in ("seed", "offset", "reps")):
+            print("checktest a0: --seed·--offset·--reps는 쓰지 않는다(무시)")
     svc.enable_torque()
-    src = make_ultrasonic_source(svc, sim=a.sim, port=a.us_port)
+    src = ultrasonic.make_ultrasonic_source(svc, sim=a.sim, port=a.us_port)  # 모듈에서 찾는다(시험이 감싼 함수를 넣는다)
     st = Studio(svc, src)
-    run = TruthRun("A1", src.cfg, sim=a.sim, note=a.note)
+    run = TruthRun(sub.upper(), src.cfg, sim=a.sim, note=a.note)
     src.record_dir = run.dir
+
+    if sub == "a0":
+        kept = {}
+
+        def place0(item):  # 첫 회에만 묻고(--sim은 첫 회에만 놓고) 2~5회는 그 정답을 그대로 쓴다
+            if "t" in kept:
+                return kept["t"]
+            t = item["truth"]
+            if a.sim:
+                src.esp.boxes = [Box(t["x_mm"], t["y_mm"], 0.0, t["width_mm"], t["length_mm"], t["height_mm"])]
+            else:
+                print(f"막대를 {item['spot']} ({t['x_mm']}, {t['y_mm']})에 세우고 손을 뺀 뒤 Enter")
+                while True:
+                    s = input('(다르게 세웠으면 "x y", q = 끝) ').strip()
+                    if s.lower() == "q":
+                        return None
+                    if not s:
+                        break
+                    try:
+                        x, y = (float(v) for v in s.split())
+                    except ValueError:
+                        print("  x y 두 값을 띄어 쓴다")
+                        continue
+                    t = {**t, "x_mm": x, "y_mm": y}
+                    break
+            kept["t"] = t
+            return t
+
+        res = run_a1(svc, st.task, src, run, place0, a0_plan(obj), per_rep=A0_N)
+        print(a0_summary(res, src.cfg, src.arm_origin))
+        print(f"기록: {run.dir}")
+        return
 
     def place(item):
         t = item["truth"]
@@ -130,7 +178,7 @@ def run_checktest(svc: ArmService, a) -> None:
                 continue
             return {**t, "x_mm": x, "y_mm": y, "angle_deg": None if t["angle_deg"] is None else ang % 180}
 
-    res = run_a1(svc, st.task, src, run, place, a1_plan(a.seed, a.offset, obj, a.reps))
+    res = run_a1(svc, st.task, src, run, place, a1_plan(0 if a.seed is None else a.seed, 30.0 if a.offset is None else a.offset, obj, a.reps or 1))
     print(a1_summary(res))
     print(f"기록: {run.dir}")
 
@@ -191,11 +239,11 @@ def main(argv=None) -> None:
     ap.add_argument("--velocity", type=int, default=200, help="calibrate --auto: 끝단 찾기 속도(steps/s, 기본 200)")
     ap.add_argument("--torque-limit", type=int, help="calibrate --auto: 토크 한계(0~1000, 기본 500=50%%)")
     ap.add_argument("--last", type=float, default=60.0, help="incident: 지금부터 거슬러 올라갈 초 (기본 60)")
-    ap.add_argument("--obj", default="40x80x40", help="checktest a1: 물체 폭x길이x높이 mm")
-    ap.add_argument("--offset", type=float, default=30.0, help="checktest a1: 후보를 정답에서 떨어뜨리는 최대 거리 mm")
-    ap.add_argument("--seed", type=int, default=0, help="checktest a1: 후보 씨앗")
-    ap.add_argument("--reps", type=int, default=1, help="checktest a1: 12회 묶음 수")
-    ap.add_argument("--note", default="", help="checktest a1·run --truth-layout: truth.json 메모")
+    ap.add_argument("--obj", default=None, help="checktest: 물체 폭x길이x높이 mm (기본 a0 10x10x40 막대, a1 40x80x40)")
+    ap.add_argument("--offset", type=float, default=None, help="checktest a1: 후보를 정답에서 떨어뜨리는 최대 거리 mm (기본 30)")
+    ap.add_argument("--seed", type=int, default=None, help="checktest a1: 후보 씨앗 (기본 0)")
+    ap.add_argument("--reps", type=int, default=None, help="checktest a1: 12회 묶음 수 (기본 1)")
+    ap.add_argument("--note", default="", help="checktest a0·a1·run --truth-layout: truth.json 메모")
     ap.add_argument("--truth-layout", type=int, choices=range(1, 11), metavar="K", help="run --source ultrasonic: I1 정답 배치 K(1~10)를 기록 (ultrasonic-spec 8.6)")
     ap.add_argument("command", choices=COMMANDS)
     ap.add_argument("values", nargs="*", help="movej: 관절 6개 / goto: x y z yaw (z는 ToolPose 모델 z: 기준점 높이이고 턱 끝의 작업대 위 높이가 아니다. 턱 끝 높이로 보내려면 GUI 좌표 이동이나 keys 좌표 모드) / pick: x y 각도 폭 [높이](폭·높이 0이면 모름. 팔 방향과 어긋난 물체는 높이를 모르면 위 모서리를 칠 수 있다) / gripper: 값 / record·replay·seq: 이름")
