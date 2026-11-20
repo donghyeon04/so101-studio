@@ -24,6 +24,38 @@ LOG_LINES = 8
 ANSWER_WAIT_S = 600  # 0° 자세에서 [맞음]·[다름]을 기다리는 시간
 
 
+def gripper_rows(cfg) -> list[tuple[str, str, str]]:
+    """(그리퍼, 캘리브레이션 파일 id, 0° 확인 상태) 그리퍼별(arm-software-spec 7.1, 피드백 F8). 표가 없으면 지금 그리퍼 하나."""
+    by = dict(getattr(cfg, "calibration_id_by_gripper", None) or {}) or {cfg.gripper: cfg.calibration_id}
+    checked = getattr(cfg, "calibration_checked", None) or {}
+    return [(g, cid, "0° 확인됨" if cid in checked else "0° 확인 필요") for g, cid in by.items()]
+
+
+def gripper_card(backend, controls) -> None:
+    """그리퍼마다 캘리브레이션 파일이 따로다(기존 값은 단동식 것으로 그대로). 바꾸면 다음 실행부터 그 파일로 연다."""
+    from .policy import GRIPPER_TEXT
+
+    cfg = (backend.real or backend.arm).cfg
+    with ui.card().classes("w-full gap-1").mark("calib-gripper"):
+        ui.label("그리퍼별 캘리브레이션").classes("card-title")
+        ui.label(f"지금 그리퍼: {GRIPPER_TEXT.get(cfg.gripper, cfg.gripper)} · 파일 config/calibration/{cfg.calibration_id}.json").classes("page-body")
+        for g, cid, state in gripper_rows(cfg):
+            ui.label(f"{GRIPPER_TEXT.get(g, g)}: {cid} · {state}").classes("event-line").mark(f"calib-gripper-{g}")
+        info = backend.gripper_info()
+        if info and len(info["available"]) > 1:
+            with ui.row().classes("items-center gap-2"):
+                pick = ui.toggle({g: GRIPPER_TEXT.get(g, g) for g in info["available"]}, value=info["type"]).props("no-caps dense").mark("calib-gripper-pick")
+
+                async def change() -> None:
+                    if pick.value == info["type"]:
+                        return
+                    reason = await run.io_bound(backend.choose_gripper, pick.value)
+                    ui.notify(reason or "다음 실행부터 이 그리퍼와 그 캘리브레이션 파일로 엽니다. 앱을 다시 켜세요",
+                              type="negative" if reason else "positive")
+
+                controls.add(ui.button("이 그리퍼로 바꾸기", on_click=controls.guard(lambda *_: change())).props("outline no-caps").mark("calib-gripper-change"))
+
+
 def build(backend, client_id: str, actions) -> None:
     controls = Controls(backend, client_id, block_during_task=True)
     state: dict = {"step": 0, "report": None, "reason": None, "lines": [], "busy": False, "stop": threading.Event(),
@@ -33,6 +65,7 @@ def build(backend, client_id: str, actions) -> None:
         chips = [ui.label(text).classes("progress-step flex-1").mark(f"calib-step-{i}") for i, text in enumerate(STEPS)]
     guide = ui.label("").classes("page-body").mark("calib-guide")
     sim_note = ui.label("실제 팔이 연결됐을 때만 켜집니다. 시뮬레이션에서는 단계 설명만 볼 수 있습니다").classes("page-body").mark("calib-sim")
+    gripper_card(backend, controls)
 
     # 1 준비
     with ui.card().classes("w-full gap-2").mark("calib-prepare") as prepare:

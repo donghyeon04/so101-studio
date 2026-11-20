@@ -186,8 +186,15 @@ def build(backend, client_id: str, actions) -> None:
         if backend.policy is not None:
             await run.io_bound(backend.policy.stop)
 
+    async def toggle_pause() -> None:
+        """[일시 정지]↔[이어 하기] (피드백 F10, REQ-108): 멈춘 동안 팔은 마지막 자리에 서고 제한 시간은 가지 않는다."""
+        runner = backend.policy
+        if runner is not None and running():
+            await run.io_bound(runner.resume if runner.paused else runner.pause)
+
     with actions:
         stop_button = ui.button("정지", color="negative", on_click=stop).props("outline no-caps").mark("policy-stop")
+        pause_button = controls.add(ui.button("일시 정지", on_click=controls.guard(lambda *_: toggle_pause())).props("outline no-caps").mark("policy-pause"))
         start_button = controls.add(ui.button("시작", on_click=controls.guard(start)).props("no-caps").mark("policy-start"))
 
     with ui.row().classes("w-full items-center gap-3"):
@@ -220,9 +227,12 @@ def build(backend, client_id: str, actions) -> None:
         if not busy and backend.policy_saved_params:  # 정책 실행이 끝나면 수집 프리셋 전 값으로(다른 페이지의 시뮬레이션 작업은 원래 속도로)
             saved, backend.policy_saved_params = backend.policy_saved_params, {}
             await run.io_bound(svc.set_params, saved)
-        status.text = "불러오는 중" if backend.policy_loading else "실행 중" if busy else "멈춤"
+        paused = busy and backend.policy is not None and backend.policy.paused
+        status.text = "불러오는 중" if backend.policy_loading else "일시 정지" if paused else "실행 중" if busy else "멈춤"
         start_button.enabled = controls.allowed and not busy
         stop_button.enabled = controls.mine and busy
+        pause_button.enabled = controls.mine and busy and not backend.policy_loading
+        pause_button.text = "이어 하기" if paused else "일시 정지"
         result = None if backend.policy is None else backend.policy.result
         if result is not shown[0]:
             shown[0] = result
