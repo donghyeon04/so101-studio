@@ -516,7 +516,10 @@ class Skills:
             return r
         self._set_grip_torque(self.cfg.gripper_squeeze_torque)  # 조임 힘을 낮춰 얇은 물체가 미끄러져 빠지지 않게(RAM Torque_Limit, 결정 0033)
         try:
+            self._expect_grip(self.gripper_for_width(obj.width_mm) if obj.width_mm > 0 else None)  # 기구학 시뮬레이션만: 그 폭에서 멈춘다(폭 모름이면 지금처럼 끝까지)
             contact, r = self._close_until_contact(closing)  # 4. 닫으며 손을 같이 보낸다
+            if not contact:
+                self._expect_grip(None)
             qg = self._q()
             pg = self.kin.fk(qg)
             self.last_pick_info = {"tilted": bool(tilt_ok), "target_tip_h_mm": round(float(t), 1), "tool_z_mm": round(pg.z_mm, 1), "pitch_deg": round(pg.pitch_deg, 1),
@@ -568,6 +571,11 @@ class Skills:
         self._run([self._gripper(self.cfg.gripper_open)])  # 접근 높이까지 올라온 뒤에 연다(바닥에서는 열지 않는다): 턱 사이에 끼인 것을 푼다
         return MotionResult("no_object", r.duration_s, r.final_tool)
 
+    def _expect_grip(self, value: float | None) -> None:
+        """드라이버가 물체 막힘을 흉내 낼 수 있으면(SimDriver(object_grip=True)) 알려 준다. MuJoCo·실물 드라이버에는 이 함수가 없어 그대로다(REQ-114)."""
+        if (f := getattr(self.ctl.driver, "expect_grip", None)) is not None:
+            f(value)
+
     def _hold(self, obj: DetectedObject) -> None:
         """닫아 쥐었다: 손끝(TCP) 기준 물체 자세를 적고 ARM-HELD(held)를 낸다. 물체 중심 높이 = 면 + 높이/2(모르면 면)."""
         q = self._q()
@@ -580,6 +588,7 @@ class Skills:
 
     def _release(self, why: str, at: tuple[float, float] | None = None) -> None:
         """쥔 물체 기록을 비운다(놓기에서 벌리기 시작할 때·집기 실패·새 집기). 비울 것이 있을 때만 ARM-HELD(released, 이유, 놓은 자리)."""
+        self._expect_grip(None)
         if self.held is None:
             return
         oid, self.held = self.held["object"].id, None
