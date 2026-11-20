@@ -78,6 +78,42 @@ def test_events(tmp_path):
     assert {"us.sweep", "us.candidates", "us.check_path", "us.check_result"} <= set(got)
 
 
+def test_workspace_view_events(tmp_path):
+    """8.9절(REQ-109): us.sweep_progress를 한 바퀴 이으면 us.sweep 각도와 같다(빠짐·겹침 없음), 후보에 search_r_mm·values,
+    us.check_estimate가 L1·L2·R·L34 순서이고 마지막 center = us.check_result 위치, Probe가 낸 구간마다 stage가 있다."""
+    from so101_studio.core.events import EventBus
+
+    cfg, clk, esp, arm = build([Box(300, 170, 0)])
+    bus, ev = EventBus(), []
+    for t in ("us.sweep_progress", "us.sweep", "us.candidates", "us.check_estimate", "us.check_result"):
+        bus.subscribe(t, lambda p, t=t: ev.append((t, p)))
+    src = make_source(cfg, clk, esp, arm, tmp_path)
+    src.bus = bus
+    cand = src.scan().objects[0]
+    _, probe, _ = do_check(src, arm, cand)
+
+    acc, sweeps = [], 0
+    for t, p in ev:
+        if t == "us.sweep_progress":
+            assert {"pass", "total", "dir", "servo_deg", "t_ns", "angles", "d"} <= set(p) and len(p["angles"]) == len(p["d"])
+            acc += p["angles"]
+        elif t == "us.sweep":
+            assert acc == p["angles"] and p["angles"]
+            acc, sweeps = [], sweeps + 1
+    assert sweeps >= 1
+    c = next(p for t, p in ev if t == "us.candidates")
+    assert c["objects"][0]["search_r_mm"] == cfg.check.line_mm / 2 and isinstance(c["values"], dict) and c["values"]
+
+    est = [p for t, p in ev if t == "us.check_estimate"]
+    assert [e["stage"] for e in est] == ["L1", "L2", "R", "L34"]
+    keys = {"id", "stage", "center", "angle_deg", "strength", "size_mm", "spread_mm"}
+    assert all(set(e) == keys and e["id"] == cand.id for e in est)
+    res = next(p for t, p in ev if t == "us.check_result")["object"]
+    assert est[-1]["center"] == pytest.approx((res["x_mm"], res["y_mm"])) and est[-1]["spread_mm"] == 0
+    assert est[0]["angle_deg"] is None and est[2]["strength"] is not None
+    assert probe.segments and all(s["segment"].stage for s in probe.segments)
+
+
 def test_square_object_has_no_angle(tmp_path):
     cfg, clk, esp, arm = build([Box(215, 170, 0, width=40, length=40)])
     src = make_source(cfg, clk, esp, arm, tmp_path)

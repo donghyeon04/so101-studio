@@ -203,7 +203,7 @@ class Probe:
 
     def _seg_of(self, name, sensor_pts):
         seg = PathSegment(sensor_to_tip(sensor_pts, self.cfg, self.yaw), self.tool_z, self.cfg.check.speed_mm_s,
-                          self.yaw)
+                          self.yaw, stage=name)  # 단계 이름(8.9절 멈춤 고리): 잘린 조각·당겨 다시 내기도 같은 이름
         self._cur = (name, seg, sensor_pts)
         return seg
 
@@ -329,12 +329,18 @@ class Probe:
             u1 = (1.0, 0.0)
         h1 = yield from self._line(cand, u1, "L1")
         c1 = h1["xy"] if h1 else cand
+        self._estimate("L1", c1, spread=h1["extent"] / 2 if h1 else c.line_mm / 2)
         h2 = yield from self._line(c1, (-u1[1], u1[0]), "L2")
+        exts = [h["extent"] for h in (h1, h2) if h]
+        spread = max(exts) / 2 if exts else c.line_mm / 2
+        self._estimate("L2", h2["xy"] if h2 else c1, spread=spread)
         if not h1 and not h2:
             g = yield from self._grid(cand)
             if g is None:
+                self._estimate("none", None)
                 return None  # 레이더 오검출
-            c1 = g
+            c1, spread = g, 50
+            self._estimate("GRID", g, spread=spread)
         ctr = h2["xy"] if h2 else c1
 
         ring = [(ctr[0] + c.ring_r_mm * math.cos(2 * math.pi * k / c.ring_n),
@@ -354,6 +360,8 @@ class Probe:
         R = math.hypot(sx, cx) / len(th) if th else 0.0
         phi = (math.atan2(sx, cx) / 2) % math.pi if R > 0.3 else 0.0
         u3 = (math.cos(phi), math.sin(phi))
+        angle = math.degrees(phi) if R > 0.3 else None
+        self._estimate("R", ctr, angle=angle, strength=R, spread=spread)
 
         h3, h4 = yield from self._cross(ctr, u3)
         u4 = (-u3[1], u3[0])
@@ -377,6 +385,15 @@ class Probe:
         if self.info.get("unreachable"):
             conf -= 0.2  # 못 간 구간이 있어 덜 믿는다
         self.info.update(R=R, h_mm=statistics.median(h["h"] for h in hs) if hs else 0.0, stages=len(hs))
-        return DetectedObject(id=self.cand.id, x_mm=c4[0], y_mm=c4[1], angle_deg=math.degrees(phi) if R > 0.3 else None,
+        # L3·L4를 한 구간(L34)으로 갔으면 L34, 나뉘었으면 L4 뒤에 한 번(L3만 끝났을 때는 최종 중심이 없다)
+        self._estimate("L34" if self.info["stage_names"][-1] == "L34" else "L4", c4, angle=angle, strength=R,
+                       size=(size(h3), size(h4)), spread=0)
+        return DetectedObject(id=self.cand.id, x_mm=c4[0], y_mm=c4[1], angle_deg=angle,
                               width_mm=size(h4), length_mm=size(h3), confidence=conf, source="ultrasonic",
                               height_mm=self.info["h_mm"])
+
+    def _estimate(self, stage, center, angle=None, strength=None, size=None, spread=None):
+        """us.check_estimate(8.9절 표): 확인 단계가 끝날 때마다 하나. 열은 늘 다 있고 값이 없으면 None."""
+        if self.bus:
+            self.bus.publish("us.check_estimate", {"id": self.cand.id, "stage": stage, "center": center, "angle_deg": angle,
+                                                   "strength": strength, "size_mm": size, "spread_mm": spread})
