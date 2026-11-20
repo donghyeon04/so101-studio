@@ -65,6 +65,9 @@ def _link():
 
 @pytest.fixture
 def backend(monkeypatch):
+    # 실물 흉내 팔은 0° 확인 기록이 있는 단동식 캘리브레이션으로 연다: 기본(병렬) 파일은 확인 기록이 없어 잠긴다(REQ-107, 7.1)
+    real_load = backend_module.load_robot_ex
+    monkeypatch.setattr(backend_module, "load_robot_ex", lambda *a, **k: real_load(*a, **{"gripper": "single_jaw", **k}))
     backend = Backend(log_root=None, viser_port=0, real_driver=PulledPort(load_robot().poses.get("home")))
     backend.link = _link()
     backend.set_speed(30)
