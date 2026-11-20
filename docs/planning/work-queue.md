@@ -74,6 +74,7 @@
 - **결정 0073 세계 다시 짓기 1차**(사용자 결정, #487로 구현됨): `mujoco-spec.md` 13.10.4를 실제 모양 `rebuild_world(suite, seed)`에 맞추고, `gui-spec.md` 12.10 ③ 학습 배치·[다음 배치]·판정, `arm-software-spec.md` 6.10 `connect(fresh)`, `learning-platform.md` 3a 표를 1차로 옮겼다. 2차로 남는 것: GUI ② 수집 화면, 이어 쓰기, [일시 정지], L5.
 - **배포 문서 대조**(v0.1, REQ-095): README 빠른 시작·release-checklist B절은 실행 파일 셋과 맞았다. 옛 이름(`시뮬레이션 실행.cmd`·`실물 팔 실행.cmd`)이 남은 `system-architecture.md` 9절 폴더 표와 `gui-spec.md` 시작 화면 줄을 고쳤다. README "지금 상태"를 v0.1·ACT 15~17/50·결정 0072로, release-checklist에 ZIP 줄·v0.1 태그·E절(Setup.exe 최종 배포)을 더했다.
 - **ACT 11/23 기준 통과**(11-20, 기획 판단, #494): v2 100k 45/50 → 결정 0071 4항대로 L3·L4를 보조 시연에 넣는다(`learning-platform.md` 3a). 시연 문구는 새 씨앗 50개 값(MuJoCo 세션)으로, 15/50 미만이면 다시 본다. 필수 시연은 초음파(0072). README ACT 줄·평가 명령(`collect_pick2`, `--clock step`) 고침.
+- **시뮬레이션 GUI 피드백 F1~F10**(11-20, 총괄 경유): 계획은 `feedback-1120-plan.md`(1차 F1·F4·F5·F9·F6, 2차 F3·F10·F8, 3차 F2·F7은 `ultrasonic-spec.md` 8.9·`gui-spec.md` 12.11 Stage 9 뒤). 사용자 질문 6개는 그 문서 3절.
 - **사용자 결정 11-20 아침**(총괄 경유, 결정 기록 없음): ① 사용자에게 날짜·일정·하드웨어 질문을 하지 않는다(`project-status.md` 9.7은 소프트웨어·제품 선택만, 9.1은 "하드웨어 담당 확인 필요"). ② 시연·I1 최소 반경 120 → 150(`ultrasonic-spec.md` 6절·8.5 `show80`·8.6, 구현은 총괄이 REQ로). ③ 기본 그리퍼를 U5 전에 `parallel`로 앞당김(결정 0063 상태 줄, REQ-098 → 팔). ④ Astryx(GUI 디자인 값)는 보류.
 - **R1 자리 (280,150)은 그대로**(11-20, 기획 판단, #497): R1은 무시 구역 없이 레이더 정확도를 재고, 통 옆 값으로 통 무시 반경 113mm를 줄일 수 있는지 본다. A1·I1 자리는 시연 배치 규칙(무시 원 둘레 50mm 밖)으로 고른다(`ultrasonic-spec.md` 11절). 8.4·10절·radar-bringup R1 명령은 `radar_check r1`로 고침.
 

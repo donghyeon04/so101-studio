@@ -16,6 +16,7 @@
 | `docs/planning/overview.md` | 기획 | 초안 | 기획서: 한 줄 정의, 일정·평가, 산출물, 역할, 기획 진행 순서, 범위, 주간 일정 |
 | `docs/planning/project-status.md` | 기획 | 초안 | 총정리(새 세션은 여기부터): 한 줄, 부분별 상태, 큰 결정, 다음 순서, 문서 지도와 읽는 순서, 세션과 폴더, git 밖 파일 |
 | `docs/planning/work-queue.md` | 기획 | 초안 | 작업 대기열: 지금 순서, 사용자 결정 대기, 세션별 다음 일, 실물로만 할 일, 열린 PR. 압축·세션 교체 뒤 여기부터 읽는다 |
+| `docs/planning/feedback-1120-plan.md` | 기획 | 초안 | 시뮬레이션 GUI 사용 피드백 F1~F10(2026-11-20) 계획: 항목별 무엇·영역·크기·설계 변경·순서, 사용자에게 물을 것. F2·F7 설계는 ultrasonic-spec 8.9·gui-spec 12.11 |
 | `docs/planning/features.md` | 기획 | 초안 | 기능명세서와 메뉴트리, 시연 시나리오, 기능별 범위 층 |
 | `docs/planning/system-architecture.md` | 기획 | 확정 | 시스템 구성, 모듈 경계, 공통 타입, 인식 규격, 작업 실행 상태 머신, ESP32 통신 틀, 폴더 구조, 0~2단계 작업 순서 |
 | `docs/planning/arm-software-spec.md` | 기획 | 확정 | 팔 모듈 계층 구조, 데이터 타입, 모듈 API, 설정·출력 형식, 안전·막힘 감지, 집기·놓기(11.3), 구현 작업 순서. MuJoCo(13절)는 `mujoco-spec.md`로 옮김 |
