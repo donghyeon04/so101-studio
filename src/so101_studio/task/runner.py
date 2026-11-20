@@ -29,6 +29,9 @@ class TaskRunner:
         self._warned_rescan_cfg = False
         self._cand_ready = False  # check_candidate가 연결·확인 준비를 했는지
         self.wait_step: Callable[[], None] = lambda: None  # 단계별 모드에서 다음 단계를 기다리는 함수(CLI는 Enter, GUI는 step())
+        # 멈춤 고리(ultrasonic-spec 8.9): pace(단계, 확인 단계 이름). 기본은 아무것도 안 한다. 기다리기는 GUI가 만든 함수가 하고 runner는 부르기만 한다
+        self.pace: Callable[[str, str | None], None] = lambda step, stage: None
+        self.prefetch_enabled = True  # False면 PLACE에서 prefetch를 부르지 않는다(설명 모드: 다음 SCAN이 실시간으로 돈다)
 
     def stop(self) -> None:
         self._stop = True
@@ -101,12 +104,19 @@ class TaskRunner:
         self.source.begin_cycle()
         self._trail = getattr(self.arm, "trail", None) or PoseTrail(self.arm)  # 가상 ESP32가 쓰는 기록이 있으면 그것을 같이 쓴다
         self._trail.attach()
+        self.source._links_fn = self._trail.links_at  # 레이더 팔 지우기를 늘 이번 실행 기록으로(실물은 실행마다 새 기록이라 조건을 달면 옛 기록으로 지운다, 8.9)
 
     def _check(self, cand):
         """(확정한 물체 또는 None, 상태). 상태: ok | empty | unreachable | aborted. aborted면 정지·fault라 작업을 끝내야 한다."""
-        probe = self.source.start_check(cand)
+        probe, last = self.source.start_check(cand), ...  # 첫 구간은 늘 pace를 부른다(stage가 None이어도)
         try:
             while (seg := probe.next_segment()) is not None:
+                if seg.stage != last:  # 단계당 한 번(잘린 조각·당겨 다시 내기는 같은 이름이라 안 부른다)
+                    last = seg.stage
+                    self.pace("check", seg.stage)
+                    if self._stop or getattr(self.arm.ctl, "state", None) in ("stopped", "fault"):  # 기다리는 동안 누른 정지·감시 정지
+                        probe.abort()
+                        return None, "aborted"
                 poses = self.arm.follow_path(seg.points_mm, seg.tool_z_mm, seg.speed_mm_s, seg.yaw_deg)
                 if self.arm.last_path.status not in ("ok", "ik_fail", "out_of_bounds"):  # stopped·fault·locked 등: ESP32에 stop을 보내고 끊는다
                     probe.abort()
@@ -144,6 +154,7 @@ class TaskRunner:
         if status == "aborted":
             return None, (self._end("STOPPED") if self._stopped() else self._fault("check"))
         self._emit("CHECK", obj.id, result=status, duration_s=time.time() - t0, reason="height_recheck")
+        self.pace("check_done", None)
         return res, None
 
     def run(self, step_mode: bool = False) -> dict:
@@ -176,6 +187,7 @@ class TaskRunner:
             self._emit("SCAN")
             scan = self.source.scan()
             self._tell_known(scan.objects)
+            self.pace("scan", None)
             dropped, rescanned = set(), False  # dropped: 이번 스캔에서 확인에 실패해 뺀 후보
             while True:
                 if chk and self.source.give_up:
@@ -194,6 +206,7 @@ class TaskRunner:
                         if self._wait_pose(chk).status != "ok":  # 확인하러 갔던 팔이 레이더 정면을 가리지 않게 PREPARE와 같은 자세로
                             return self._fault("radar_clear")
                         scan, dropped = self.source.rescan(), set()
+                        self.pace("scan", None)
                         continue
                     self._emit("DONE", result="no_objects")
                     return self._end("no_objects")
@@ -210,12 +223,14 @@ class TaskRunner:
                 if res is not None and not reachable(res, self.ws):  # 확정 위치가 집기 범위 밖: 집지 않는다
                     res, status = None, "unreachable"
                 self._emit("CHECK", obj.id, result=status, duration_s=time.time() - t0)
+                self.pace("check_done", None)
                 if res is not None:
                     obj = res
                     break
                 dropped.add(obj.id)  # 물체가 없거나 못 갔다: 이 후보를 빼고 남은 후보로 다시 DECIDE
             self.cycles += 1
             self._emit("PICK", obj.id)
+            self.pace("pick", None)  # 기다리는 동안 누른 정지를 집기 전에 본다
             if self._stopped():
                 return self._end("STOPPED")
             r = self.skills.pick(obj, self.skills.place_targets(zone=self.zone))
@@ -254,7 +269,7 @@ class TaskRunner:
             if self._stopped():
                 return self._end("STOPPED")
             self._emit("PLACE", obj.id)
-            if chk:
+            if chk and self.prefetch_enabled:
                 self.source.prefetch(self._trail.links_at)  # 놓는 동안 레이더가 다음 후보를 미리 찾는다
             r = self.skills.place(self.zone)
             if r.status != "ok":
