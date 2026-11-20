@@ -143,3 +143,122 @@ def test_sim_run_truth_layout_records_answer_and_summary_reads_it(tmp_path, monk
     assert len(idx) == 1 and idx[0]["test"] == "I1" and idx[0]["objects"] == 3
     s = i1_summary([str(d)])
     assert s.startswith("I1 1회:") and "summary 1/1회" in s, s
+
+
+# ---- A0 센서 오프셋 보정 (ultrasonic-spec 8.7, REQ-101)
+def test_a0_delta_recovers_an_offset_change_from_the_arm_sensor_position(tmp_path):
+    """팔 좌표계와 식이 맞는지: ψ = 100° 수직 아래 자세에서 오프셋을 (3, -4, 2) 바꿨을 때 sensor_position 차이로 (3, -4)를 되찾는다."""
+    from so101_studio.core.types import ToolPose
+    from so101_studio.service.check_test import a0_delta
+
+    svc = _svc(tmp_path)
+    try:
+        q = svc.skills._ik(ToolPose(189.0, 169.0, CFG.table_z_mm + 80, 100.0, -90.0))
+        assert q is not None and abs(svc.kin.fk(q).yaw_deg - 100.0) < 1.0  # IK 자세 가중치 0.1
+        o = {"x": 0.0, "y": 30.0, "z": 55.0}
+        svc.set_sensor_offset(o)
+        reported = svc.sensor_position(q)
+        svc.set_sensor_offset({"x": 3.0, "y": 26.0, "z": 57.0})
+        actual = svc.sensor_position(q)
+    finally:
+        svc.disconnect()
+    e = (actual[0] - reported[0], actual[1] - reported[1])  # 막대(실제 센서 아래) - 팔이 보고한 위치
+    dx, dy = a0_delta(e, 100.0)
+    assert dx == pytest.approx(3.0, abs=1e-3) and dy == pytest.approx(-4.0, abs=1e-3) and actual[2] - reported[2] == pytest.approx(2.0)
+
+
+def _a0_rows(deltas, status="ok"):
+    """식(a0_delta의 역)으로 만든 가짜 행: δ를 넣으면 a0_offsets가 그 δ를 낸다."""
+    from so101_studio.perception.ultrasonic.check import pick_yaw
+    from so101_studio.perception.ultrasonic.model import load_config
+
+    cfg, origin = load_config(), (215.2, 21.4)
+    psi = math.radians(pick_yaw(cfg, (189, 169), origin))
+    u, v = (math.cos(psi), math.sin(psi)), (-math.sin(psi), math.cos(psi))
+    rows = []
+    for dx, dy, dz in deltas:
+        e = (-dx * u[0] + dy * v[0], -dx * u[1] + dy * v[1])
+        rows.append({"status": status, "x_mm": 189 - e[0], "y_mm": 169 - e[1], "height_mm": 40 - dz, "truth_xy": (189, 169), "truth_height_mm": 40, "cand_xy": (189, 169)})
+    return rows, cfg, origin
+
+
+def test_a0_summary_four_cases():
+    from so101_studio.service.check_test import a0_offsets, a0_summary
+
+    rows, cfg, origin = _a0_rows([(0.5, -0.5, 1.0)] * 5)
+    assert a0_offsets(rows, cfg, origin)[0] == pytest.approx((0.5, -0.5, 1.0), abs=1e-6)
+    assert a0_summary(rows, cfg, origin).startswith("A0: 합격")
+    assert a0_summary(rows[:4] + [{**rows[4], "status": "empty", "x_mm": None}], cfg, origin) == "A0: 미완료(ok 4/5회)"
+    shaky, _, _ = _a0_rows([(0, 0, 0), (5, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0)])
+    assert "불안정" in a0_summary(shaky, cfg, origin) and "arm_sensor_offset_mm" not in a0_summary(shaky, cfg, origin)
+    fix, _, _ = _a0_rows([(3, -4, 2)] * 5)
+    off = cfg.arm_sensor_offset_mm
+    assert a0_summary(fix, cfg, origin).endswith(f"arm_sensor_offset_mm: {{x: {round(off.x + 3, 1):g}, y: {round(off.y - 4, 1):g}, z: {round(off.z + 2, 1):g}}}")
+
+
+def test_checktest_a0_refuses_a_non_square_bar(tmp_path, monkeypatch):
+    monkeypatch.setattr(truth, "ROOT", tmp_path / "truth")
+    with pytest.raises(SystemExit, match="폭 = 길이"):
+        run_checktest(types.SimpleNamespace(), _args(values=["a0"], obj="10x20x40"))
+
+
+def _new_offset(out: str):
+    import re
+
+    m = re.search(r"arm_sensor_offset_mm: \{x: ([-\d.]+), y: ([-\d.]+), z: ([-\d.]+)\}", out)
+    return None if m is None else tuple(map(float, m.groups()))
+
+
+@pytest.mark.slow
+def test_sim_checktest_a0_passes_with_five_checks(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(truth, "ROOT", tmp_path / "truth")
+    svc = _svc(tmp_path)
+    try:
+        run_checktest(svc, _args(values=["a0"], obj=None, seed=None, offset=None, reps=None))
+    finally:
+        svc.disconnect()
+    _d, data, idx = _one_run(tmp_path / "truth")
+    assert len(data["placements"]) == 5 and all(len(p["checks"]) == 1 for p in data["placements"]) and idx[0]["test"] == "A0"
+    out = capsys.readouterr().out
+    print(out)
+    assert "A0: 합격" in out, out
+
+
+@pytest.mark.slow
+def test_sim_checktest_a0_finds_an_injected_offset_error(tmp_path, monkeypatch, capsys):
+    """가상 센서를 팔이 보고한 위치보다 손 좌표 (3, -4)·위 2mm에 두면 고칠 값이 설정 + (3, -4, 2)에서 성분마다 1.5mm 안이다."""
+    import numpy as np
+
+    from so101_studio.perception.ultrasonic.model import load_config
+    from so101_studio.service import ultrasonic
+
+    monkeypatch.setattr(truth, "ROOT", tmp_path / "truth")
+    orig = ultrasonic.make_ultrasonic_source
+
+    def wrapped(arm, **kw):
+        from so101_studio.perception.ultrasonic.check import pick_yaw
+
+        src = orig(arm, **kw)
+        base = src.esp.arm_sensor_fn
+        psi = math.radians(pick_yaw(src.cfg, (189, 169), src.arm_origin))  # CHECK 동안 손은 수직 아래·yaw ψ 고정: 손 x축 (-cos, -sin), y축 (-sin, cos)
+        axes = np.array([[-math.cos(psi), -math.sin(psi)], [-math.sin(psi), math.cos(psi)]]).T  # 열 = 손 x·y축(kin을 다른 스레드에서 부르지 않는다)
+        d = axes @ np.array([3.0, -4.0])
+
+        def shifted(t):
+            p = base(t)
+            return None if p is None else (p[0] + d[0], p[1] + d[1], p[2] + 2.0)
+
+        src.esp.arm_sensor_fn = shifted
+        return src
+
+    monkeypatch.setattr(ultrasonic, "make_ultrasonic_source", wrapped)
+    svc = _svc(tmp_path)
+    try:
+        run_checktest(svc, _args(values=["a0"], obj=None, seed=None, offset=None, reps=None))
+    finally:
+        svc.disconnect()
+    out = capsys.readouterr().out
+    print(out)
+    got, off = _new_offset(out), load_config().arm_sensor_offset_mm
+    assert got is not None, out
+    assert got == pytest.approx((off.x + 3, off.y - 4, off.z + 2), abs=1.5), out

@@ -18,11 +18,14 @@ from ..perception.ultrasonic.benchmark import (
     on_plate,
     random_layout,
 )
+from ..perception.ultrasonic.check import pick_yaw
 from ..perception.ultrasonic.model import Box
 
 A1_SPOTS = (("S1", 189, 169), ("S2", 125, 177), ("S3", 270, 224))
 A1_ANGLES = (0, 45, 90, 135)
 A1_N = len(A1_SPOTS) * len(A1_ANGLES)  # 한 묶음 12회
+A0_SPOT = ("S1", 189, 169)  # 센서 오프셋 보정(8.7): 막대 하나, 같은 후보로 5회
+A0_N = 5
 
 
 def a1_plan(seed: int = 0, offset_mm: float = 30.0, obj=(40, 80, 40), reps: int = 1) -> list[dict]:
@@ -41,32 +44,36 @@ def a1_plan(seed: int = 0, offset_mm: float = 30.0, obj=(40, 80, 40), reps: int 
     return out
 
 
-def run_a1(svc, runner, src, run, place, plan) -> list[dict]:
-    """회마다 radar_clear → place(item)(정답 dict, None이면 끝) → check_candidate → run.add. aborted·radar_clear 실패면 멈춘다."""
+def run_a1(svc, runner, src, run, place, plan, per_rep: int = A1_N) -> list[dict]:
+    """회마다 radar_clear → place(item)(정답 dict, None이면 끝) → check_candidate → run.add. aborted·radar_clear 실패면 멈춘다.
+    per_rep: 한 묶음 회 수(표시 n/per_rep, a0는 A0_N). 행에 결과 x_mm·y_mm·height_mm(ok 아니면 None)·truth_xy·truth_height_mm·cand_xy(8.7)."""
     res = []
     try:
         for item in plan:
+            c = item["cand"]
             row = {"n": item["n"], "rep": item["rep"], "spot": item["spot"], "err_mm": math.inf, "angle_ok": None,
-                   "square": item["truth"]["angle_deg"] is None, "check_s": None}
+                   "square": item["truth"]["angle_deg"] is None, "check_s": None, "x_mm": None, "y_mm": None, "height_mm": None,
+                   "cand_xy": (c.x_mm, c.y_mm)}
             if runner._wait_pose(True).status != "ok":
                 res.append({**row, "status": "radar_clear"})
-                print(f"  {item['n']}/{A1_N}: radar_clear 이동 실패, 멈춘다")
+                print(f"  {item['n']}/{per_rep}: radar_clear 이동 실패, 멈춘다")
                 break
             t = place(item)
             if t is None:
                 break
-            row["square"] = t["angle_deg"] is None
+            row.update(square=t["angle_deg"] is None, truth_xy=(t["x_mm"], t["y_mm"]), truth_height_mm=t["height_mm"])
             before, t0 = len(src.saved), time.time()
             obj, status = runner.check_candidate(item["cand"])
             row.update(status=status, check_s=round(time.time() - t0, 2))
             run.add([t], src.saved[before:], item["rep"])
             if status == "ok" and obj is not None:
+                row.update(x_mm=obj.x_mm, y_mm=obj.y_mm, height_mm=obj.height_mm)
                 row["err_mm"] = math.dist((obj.x_mm, obj.y_mm), (t["x_mm"], t["y_mm"]))
                 row["angle_ok"] = None if row["square"] else angle_ok(obj.angle_deg, t["angle_deg"])
             res.append(row)
             err = "-" if math.isinf(row["err_mm"]) else f"{row['err_mm']:.1f}mm"
             ang = "-" if row["angle_ok"] is None else ("맞음" if row["angle_ok"] else "틀림")
-            print(f"  {item['n']}/{A1_N} {item['spot']}: {status}, 위치 오차 {err}, 방향 {ang}, 확인 {row['check_s']:.1f}초")
+            print(f"  {item['n']}/{per_rep} {item['spot']}: {status}, 위치 오차 {err}, 방향 {ang}, 확인 {row['check_s']:.1f}초")
             if status == "aborted":
                 break
     finally:
@@ -93,6 +100,51 @@ def a1_summary(res: list[dict]) -> str:
             verdict = "합격" if med <= 5 and near >= 11 and (square or ang >= 10) else "불합격"
         lines.append(f"A1 {rep}묶음: {verdict}  {text}")
     return "\n".join(lines)
+
+
+def a0_plan(obj=(10, 10, 40)) -> list[dict]:
+    """a1_plan과 같은 모양 A0_N개(rep 1): 정답 = S1의 막대(정사각형, 각도 None), 후보 = 막대 자리 그대로(오프셋 0)."""
+    w, length, h = obj
+    spot, x, y = A0_SPOT
+    return [{"n": n, "rep": 1, "spot": spot, "truth": truth.obj(x, y, None, w, length, h, id="P1"),
+             "cand": DetectedObject(f"a0-{n}", x, y, None, 0.0, 0.0, 0.3, "ultrasonic")} for n in range(1, A0_N + 1)]
+
+
+def a0_delta(e, psi_deg: float) -> tuple[float, float]:
+    """막대 자리 - 확인 중심 e를 손 좌표 오프셋 차이 (δx, δy)로(8.7): 수직 아래 손은 거울이라 δx = -(e·u), δy = e·v, u = (cosψ, sinψ), v = (-sinψ, cosψ)."""
+    c, s = math.cos(math.radians(psi_deg)), math.sin(math.radians(psi_deg))
+    return -(e[0] * c + e[1] * s), -e[0] * s + e[1] * c
+
+
+def a0_offsets(res: list[dict], cfg, origin) -> list[tuple[float, float, float]]:
+    """ok인 회마다 δ = (δx, δy, δz). ψ = CHECK가 쓴 손목 각도 pick_yaw(cfg, 후보 자리, origin). δz = 막대 높이 - 확인 높이."""
+    out = []
+    for r in res:
+        if r.get("status") != "ok" or r.get("x_mm") is None:
+            continue
+        e = (r["truth_xy"][0] - r["x_mm"], r["truth_xy"][1] - r["y_mm"])
+        dx, dy = a0_delta(e, pick_yaw(cfg, r["cand_xy"], origin))
+        out.append((dx, dy, r["truth_height_mm"] - (r["height_mm"] or 0.0)))
+    return out
+
+
+def a0_summary(res: list[dict], cfg, origin) -> str:
+    """5회 모두 ok여야 계산. 성분별 중앙값·퍼짐(최대-최소). 퍼짐 x·y > 4 또는 z > 6이면 불안정(값 없음).
+    |중앙 x|·|중앙 y| <= 2, |중앙 z| <= 3이면 합격, 아니면 고칠 값(설정 + 중앙값, 0.1mm) 한 줄. 설정 파일은 쓰지 않는다."""
+    ok = sum(r.get("status") == "ok" for r in res)
+    if ok < A0_N:
+        return f"A0: 미완료(ok {ok}/{A0_N}회)"
+    ds = a0_offsets(res, cfg, origin)
+    med = [statistics.median(d[i] for d in ds) for i in range(3)]
+    spread = [max(d[i] for d in ds) - min(d[i] for d in ds) for i in range(3)]
+    text = "δ 중앙 ({:+.1f}, {:+.1f}, {:+.1f})mm, 퍼짐 ({:.1f}, {:.1f}, {:.1f})mm".format(*med, *spread)
+    if spread[0] > 4 or spread[1] > 4 or spread[2] > 6:
+        return f"A0: 불안정(막대·브래킷 흔들림, 메아리 끊김)  {text}. 값을 내지 않는다"
+    if abs(med[0]) <= 2 and abs(med[1]) <= 2 and abs(med[2]) <= 3:
+        return f"A0: 합격: 지금 값 그대로  {text}"
+    off = cfg.arm_sensor_offset_mm
+    new = [round(v + m, 1) for v, m in zip((off.x, off.y, off.z), med, strict=True)]
+    return f"A0: 고칠 값  {text}\narm_sensor_offset_mm: {{x: {new[0]:g}, y: {new[1]:g}, z: {new[2]:g}}}"
 
 
 def i1_layout(k: int) -> list[Box]:

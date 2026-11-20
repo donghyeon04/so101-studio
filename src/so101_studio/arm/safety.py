@@ -8,6 +8,7 @@ from ..core.config import WorkspaceConfig
 from ..core.types import JointState
 
 MODES = ("normal", "free", "off")
+LIMIT_EPS_DEG = 1e-6  # 관절 한계 비교 여유: IK가 한계에 딱 맞춘 해가 궤적 계산의 부동소수 오차로 한계 + 1e-14°가 되어 거부되던 것(REQ-101 A0, 두 번에 한 번)을 막는다
 
 
 @dataclass
@@ -75,7 +76,7 @@ class Safety:
         for name, (lo, hi) in self.limits.items():
             if ref is not None:
                 lo, hi = min(lo, getattr(ref, name)), max(hi, getattr(ref, name))
-            if not lo <= getattr(q, name) <= hi:
+            if not lo - LIMIT_EPS_DEG <= getattr(q, name) <= hi + LIMIT_EPS_DEG:
                 return f"joint_limit:{name}"
         return self._workspace(q, ref) or self._scene(q, ref)
 

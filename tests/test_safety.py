@@ -258,3 +258,12 @@ def test_xy_check_lets_the_tip_return_from_outside_the_table_but_not_go_further_
     assert s.check_goal(mid, out) is None  # 밖에서 덜 바깥으로는 허용
     assert s.check_goal(out, mid) == "workspace"  # 밖에서 더 바깥은 거부
     assert s.check_goal(out, HOME) == "workspace"  # 안에서 밖은 거부(ref가 안이면 지금과 같다)
+
+
+def test_joint_limit_allows_float_noise_at_the_limit_but_not_beyond():
+    """REQ-101: IK가 한계에 딱 맞춘 해가 궤적 계산 오차로 한계 + 1e-14°가 되어 거부되던 것(A0 CHECK가 두 번에 한 번 out_of_bounds)."""
+    s = Safety(CFG.joint_limits_deg)
+    hi = CFG.joint_limits_deg["wrist_flex"][1]
+    q = JointState(0.0, -90.0, 85.0, hi + 1e-12, 0.0, 3.0)
+    assert s.check_goal(q) is None
+    assert s.check_goal(JointState(0.0, -90.0, 85.0, hi + 1e-3, 0.0, 3.0)) == "joint_limit:wrist_flex"
