@@ -35,6 +35,7 @@ class RobotConfig:
     joint_v_max_deg_s: float = 90
     tool_v_max_mm_s: float = 100
     approach_height_mm: float = 80
+    home_lift_mm: float = 80  # 홈 바로 가기가 막히면 TCP를 작업대 면 위 이 높이까지 수직으로 올린 뒤 홈으로(REQ-104, 위에서부터 10mm씩 낮춰 처음 되는 높이)
     grasp_height_mm: float = 15
     table_z_mm: float = 0.0
     tip_floor_mm: float = 4.0
