@@ -9,7 +9,7 @@ from pathlib import Path
 from ..perception.ultrasonic.benchmark import random_layout
 from ..perception.ultrasonic.fake_esp32 import FakeESP32
 from ..perception.ultrasonic.link import Link, SerialTransport
-from ..perception.ultrasonic.model import RealClock, load_config
+from ..perception.ultrasonic.model import load_config
 from ..perception.ultrasonic.source import UltrasonicSource
 from ..task.trail import PoseTrail
 
@@ -43,12 +43,13 @@ def make_ultrasonic_source(arm, *, sim: bool, port: str | None = None, radar: di
             raise SystemExit("초음파 포트를 모른다: --us-port COMx 로 지정한다")
         return UltrasonicSource(Link(SerialTransport(port, cfg.baud)), cfg)  # 배출 구역(ignore_zones)은 TaskRunner가 실행을 시작할 때 넘긴다 (REQ-045)
     boxes = boxes if boxes is not None else random_layout(random.Random("demo-None-0"), "show80")  # 시연 배치 규칙(반경 150~220, REQ-102)
-    trail, clk = PoseTrail(arm), RealClock()
+    trail, clk = PoseTrail(arm), arm.clock  # 팔 자세 기록(PoseTrail)이 팔 시계로 남으므로 레이더도 같은 시계(8.9)
     arm.trail = trail  # TaskRunner가 이 기록에 팔 자세를 남긴다
     esp = FakeESP32(clk, boxes, cfg, arm_sensor_fn=trail.sensor_at, arm_links_fn=trail.links_at)
-    src = SimUltrasonicSource(Link(esp, clk), cfg, esp=esp, baseline_path=Path(tempfile.mkdtemp()) / "baseline.json")
+    src = SimUltrasonicSource(Link(esp, clk), cfg, esp=esp, arm_links_fn=trail.links_at, baseline_path=Path(tempfile.mkdtemp()) / "baseline.json")
     src.connect()
-    arm.skills.radar_clear()  # 기준값에 팔이 찍히지 않게 대기 자세에서 잰다(실제도 같은 자세에서 재야 한다)
+    if (r := arm.skills.radar_clear()).status != "ok":  # 기준값에 팔이 찍히지 않게 대기 자세에서 잰다. 못 가면 재지 않는다
+        raise RuntimeError(f"대기 자세(radar_clear)로 가지 못해 기준값을 재지 않았다: {r.status} {r.reason or ''}".strip())
     esp.boxes = []  # 빈 작업대로 기준값
     src.calibrate()
     esp.boxes = boxes
