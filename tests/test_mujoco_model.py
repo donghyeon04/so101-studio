@@ -144,9 +144,9 @@ def test_new_j1_mount_replaces_the_old_base_plate():
 
 
 def test_radar_split_into_base_and_head_loads_as_two_fixed_bodies(tmp_path):
-    stl = __import__("pathlib").Path(__file__).resolve().parents[1].as_posix() + "/assets/scene/radar_station.stl"
-    (tmp_path / "scene.yaml").write_text(f"parts:\n  - {{name: radar_base, file: {stl}, attach: table, xyz_mm: [207.3, 405.5, 0], collide: true}}\n"
-                                         f"  - {{name: radar_head, file: {stl}, attach: table, xyz_mm: [207.3, 405.5, 0], collide: true}}\n", encoding="utf-8")
+    d = __import__("pathlib").Path(__file__).resolve().parents[1].as_posix() + "/assets/scene"  # REQ-112: radar_station.stl을 둘로 나눔
+    (tmp_path / "scene.yaml").write_text(f"parts:\n  - {{name: radar_base, file: {d}/radar_base.stl, attach: table, xyz_mm: [207.3, 405.5, 0], collide: true}}\n"
+                                         f"  - {{name: radar_head, file: {d}/radar_head.stl, attach: table, xyz_mm: [207.3, 405.5, 0], collide: true, spin: radar}}\n", encoding="utf-8")
     m, _ = load_model(load_scene(tmp_path / "scene.yaml"), [], base=WS.base, table_z_mm=CFG.table_z_mm)
     for n in ("radar_base", "radar_head"):
         b = m.body(f"scene:{n}")

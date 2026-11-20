@@ -17,6 +17,7 @@ class ScenePart:
     collide: bool = True
     color: str | None = None
     gripper: str | None = None  # parallel | single_jaw. None = 어느 그리퍼든 쓴다 (REQ-069)
+    spin: str | None = None  # "radar"면 GUI가 레이더 서보 각도로 z축 둘레를 돌려 그린다(ultrasonic-spec 8.9). 충돌·MuJoCo는 정면 형상 그대로
 
 
 @dataclass
@@ -83,5 +84,5 @@ def load_scene(path: str | Path = "config/scene.yaml", ws=None) -> Scene:
             raise ValueError(f"장면 부품 이름이 비었거나 겹친다: {name!r}")
         seen.add(name)
         parts.append(ScenePart(name, str(spec.get("attach", "table")), _transform(spec.get("xyz_mm", [0, 0, 0]), spec.get("rpy_deg", [0, 0, 0])),
-                               _mesh(spec, root, name), bool(spec.get("collide", True)), spec.get("color"), spec.get("gripper")))
+                               _mesh(spec, root, name), bool(spec.get("collide", True)), spec.get("color"), spec.get("gripper"), spec.get("spin")))
     return Scene(float(data.get("margin_mm", 10.0)), parts + bin_walls(ws))

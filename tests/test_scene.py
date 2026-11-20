@@ -10,11 +10,14 @@ def test_missing_file_is_empty_scene(tmp_path):
     assert s.parts == [] and s.margin_mm == 10.0
 
 
-def test_repo_scene_has_radar_station_cad_mesh():
+def test_repo_scene_has_radar_base_and_spinning_head_cad_mesh():
     s = load_scene("config/scene.yaml")
-    p = s.parts[0]
-    assert p.name == "radar_station" and p.attach == "table" and p.collide
-    lo, hi = p.mesh.bounds  # 결정 0067 CAD(REQ-088): 서보 축 기준, 센서 앞면이 팔 쪽(-y) 48.7mm, 프로파일 위 판 면 아래 12.6mm부터
+    base, head = s.parts[:2]
+    assert (base.name, head.name) == ("radar_base", "radar_head") and all(p.attach == "table" and p.collide for p in (base, head))
+    assert base.spin is None and head.spin == "radar"
+    assert head.T[:3, 3] == pytest.approx(base.T[:3, 3])
+    p = base
+    lo, hi = np.minimum(base.mesh.bounds[0], head.mesh.bounds[0]), np.maximum(base.mesh.bounds[1], head.mesh.bounds[1])  # 두 부품을 합친 값  # 결정 0067 CAD(REQ-088): 서보 축 기준, 센서 앞면이 팔 쪽(-y) 48.7mm, 프로파일 위 판 면 아래 12.6mm부터
     assert lo.tolist() == pytest.approx([-24.5, -48.7, -12.6], abs=0.1) and hi.tolist() == pytest.approx([24.5, 11.8, 39.3], abs=0.1)
     assert p.T[:3, 3] == pytest.approx([207.3, 405.5, 0])  # 결정 0067 레이더 서보 축
 
@@ -43,8 +46,8 @@ def _cfg(tmp_path, gripper):
 
 def test_for_gripper_filters_parts():
     s = load_scene("config/scene.yaml")
-    assert {p.name for p in s.for_gripper("parallel").parts} == {"radar_station", "wrist_hcsr04", "wrist_bracket"}
-    assert [p.name for p in s.for_gripper("single_jaw").parts] == ["radar_station"]  # 키 없는 부품은 늘 쓴다
+    assert {p.name for p in s.for_gripper("parallel").parts} == {"radar_base", "radar_head", "wrist_hcsr04", "wrist_bracket"}
+    assert [p.name for p in s.for_gripper("single_jaw").parts] == ["radar_base", "radar_head"]  # 키 없는 부품은 늘 쓴다
 
 
 @pytest.mark.parametrize("gripper, wrist", [("parallel", {"wrist_hcsr04", "wrist_bracket"}), ("single_jaw", set())])

@@ -116,7 +116,7 @@ def test_service_scene_and_reload(tmp_path):
     (tmp_path / "scene.yaml").write_text("margin_mm: 5\nparts:\n  - {name: wall, box_mm: [10, 10, 10], xyz_mm: [1, 1, 0]}\n", encoding="utf-8")
     svc = ArmService(SimDriver(CFG.poses["home"]), CFG, WS, speed_pct=100, log_root=str(tmp_path / "runs"))
     assert svc.connect()[0]
-    assert [p.name for p in svc.scene.parts] == ["radar_station"] and svc.safety.collision.scene is svc.scene
+    assert [p.name for p in svc.scene.parts] == ["radar_base", "radar_head"] and svc.safety.collision.scene is svc.scene
     svc.reload_workspace(tmp_path / "workspace.yaml")
     assert [p.name for p in svc.scene.parts] == ["wall"] and svc.safety.collision.scene is svc.scene
     svc.disconnect()
