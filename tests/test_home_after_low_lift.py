@@ -10,7 +10,7 @@ from so101_studio.core.config import load_robot, load_workspace
 from so101_studio.core.types import JointState
 from so101_studio.service.arm_service import ArmService
 
-CFG = replace(load_robot("config/robot.yaml", arm="so101_follower_01"), table_z_mm=LEGACY_TABLE_Z_MM)
+CFG = replace(load_robot("config/robot.yaml", arm="so101_follower_01", gripper="single_jaw"), table_z_mm=LEGACY_TABLE_Z_MM)  # 단동식 기하 시험 (REQ-098: 기본은 parallel)
 WS = load_workspace("tests/workspace_600x400.yaml")
 
 
