@@ -408,6 +408,18 @@ class Scene3D:
             position=((x0 + x1) / 2000, (y0 + y1) / 2000, (z0 + z1) / 2000),
         )
 
+    def show_pick_place(self, pick: tuple | None, place: tuple | None) -> None:
+        """직접 조작 "집어 옮기기"의 집기 점(주황)·놓기 점(초록)과 둘을 잇는 선(작업대 좌표 mm, F6). 둘 다 None이면 지운다."""
+        scene = self.server.scene
+        scene.remove_by_name("/marks/pp")
+        pts = {"pick": (pick, theme.WARN), "place": (place, theme.OK)}
+        for name, (p, color) in pts.items():
+            if p is not None:
+                scene.add_icosphere(f"/marks/pp/{name}", radius=0.007, position=(p[0] / 1000, p[1] / 1000, 0.004), color=theme.rgb(color))
+        if pick is not None and place is not None:
+            seg = np.array([[[pick[0] / 1000, pick[1] / 1000, 0.004], [place[0] / 1000, place[1] / 1000, 0.004]]])
+            scene.add_line_segments("/marks/pp/line", seg, theme.rgb(theme.WARN), thickness=2.0, thickness_units="screen")
+
     def show_reach(self, ranges: dict | None) -> None:
         """REQ-037 두 범위를 팔 앞쪽 반원 호로 그린다. 집기 범위(작업대 면, 초록)와 고른 손끝 각도의 높이별 움직임 범위(강조색).
         ranges는 ArmService.reach_ranges 결과이고 None이면 지운다. 반경은 팔 원점(어깨 회전축) 기준이다."""
