@@ -89,7 +89,8 @@ class RobotConfig:
     arm_name: str = ""  # 고른 팔 파일 이름(config/arms/<이름>.yaml). 비어 있으면 팔 파일 없이 robot.yaml만 읽은 것 (decisions/0027)
     board_serial: str = ""  # 이 팔의 USB 시리얼 보드 시리얼 번호
     measured_on: str = ""  # 팔별 값을 잰 날짜
-    calibration_checked: dict = field(default_factory=dict)  # so101 calibrate --verify-zero가 쓴 {date, sha256}. 캘리브레이션 파일과 맞지 않으면 움직이는 명령은 locked (decisions/0029)
+    calibration_id_by_gripper: dict = field(default_factory=dict)  # 그리퍼 종류 -> 캘리브레이션 id(arm-software-spec 7.1 그리퍼별 캘리브레이션, REQ-107). load_robot이 calibration_id를 바꾼다
+    calibration_checked: dict = field(default_factory=dict)  # so101 calibrate --verify-zero가 쓴 {<id>: {date, sha256}}(옛 형식 {date, sha256}은 팔 파일 calibration_id의 기록). 캘리브레이션 파일과 맞지 않으면 움직이는 명령은 locked (decisions/0029)
 
     def episode_start(self) -> list[float]:
         """MuJoCo 에피소드(드라이버 시작·세계 다시 짓기·수집·정책 실행)와 초음파 벤치마크 가상 팔의 시작 자세: poses.episode_start, 없으면 home.
@@ -209,6 +210,12 @@ def load_robot_ex(path: str | Path = "config/robot.yaml", arm: str | None = None
         merged |= _read_yaml(gfile)
         files.append(str(gfile))
     merged["gripper"] = gtype
+    checked = merged.get("calibration_checked") or {}
+    if "sha256" in checked:  # 옛 형식 {date, sha256}: 팔 파일 calibration_id의 기록으로 읽는다(7.1)
+        merged["calibration_checked"] = {str(merged.get("calibration_id", "")): checked}
+    by = merged.get("calibration_id_by_gripper") or {}
+    if by.get(gtype):  # 그리퍼를 정한 뒤 calibration_id를 그 그리퍼 파일로. 이 뒤로는 모든 곳이 cfg.calibration_id만 본다
+        merged["calibration_id"] = by[gtype]
     if local_path.exists():
         files.append(str(local_path))
     merged |= {k: v for k, v in local.items() if k != "arm"}

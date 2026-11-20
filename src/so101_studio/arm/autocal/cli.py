@@ -6,7 +6,7 @@ from pathlib import Path
 from .engine import AutoCalibrationError
 from .measure import GUIDE, compare, format_table, measure_only
 from .repeat import progress_line, repeat_status
-from .save import latest_measure, save_calibration
+from .save import latest_measure, save_calibration, sync_other_grippers
 
 USAGE = "calibrate는 --auto --measure-only(측정만), --save(합격한 측정 결과를 저장), --verify-zero(0° 자세 확인) 중 하나와 함께 쓴다"
 
@@ -112,6 +112,8 @@ def _save(a, cfg, input_fn, out, opener, now, repo_path, runs_dir) -> int:
     try:
         report = _choose(a, cfg, runs_dir, _old_calibration(robot, repo_path), out, input_fn, now)
         save_calibration(robot.bus, report, cache_path=Path(robot.calibration_fpath), repo_path=repo_path, runs_dir=runs_dir, now=now(), out=out)
+        sync_other_grippers(cfg, report["measured"], config_dir=repo_path.parent.parent, cache_dir=Path(robot.calibration_fpath).parent,
+                            arm_file=repo_path.parent.parent / "arms" / f"{cfg.arm_name}.yaml" if getattr(cfg, "arm_name", "") else None, now=now(), out=out)
     finally:
         robot.bus.disconnect(disable_torque=False)
     from ...doctor import doctor  # 저장한 뒤 서보 값과 파일을 doctor로 다시 대조한다

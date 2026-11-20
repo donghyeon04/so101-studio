@@ -289,14 +289,15 @@ def test_verify_zero_moves_at_20_percent_asks_a_human_and_records_the_hash(tmp_p
     finally:
         svc.disconnect()
     arm_file = conf / "arms" / "test_arm.yaml"
-    rec = yaml.safe_load(arm_file.read_text(encoding="utf-8"))["calibration_checked"]
+    recs = yaml.safe_load(arm_file.read_text(encoding="utf-8"))["calibration_checked"]
+    rec = recs["test_arm"]  # id별 기록(그리퍼별 캘리브레이션, REQ-107)
     assert code == 0 and speeds == [20] and str(rec["date"]) == "2026-11-05" and rec["sha256"] == calibration_sha256(find_calibration("test_arm", conf)[0])
     q = svc.driver.read_joints()
     assert (q.shoulder_pan, q.shoulder_lift, q.elbow_flex, q.wrist_flex, q.wrist_roll) == (0, 0, 0, 0, 0) and q.gripper == pytest.approx(verify.GRIPPER_ZERO)
     text = "\n".join(said)
     assert "3D" in text and "URDF" in text and "클램프" in text and "전원 스위치" in text  # 실물과 3D 0° 자세를 비교하라는 안내
     assert "# 시험 팔" in arm_file.read_text(encoding="utf-8")  # 다른 줄과 주석은 그대로
-    reloaded = dataclasses.replace(CFG0, calibration_checked=rec)
+    reloaded = dataclasses.replace(CFG0, calibration_checked=recs)
     assert zero_check(reloaded, conf)["state"] == "checked"  # 다음 연결부터 움직인다
 
 

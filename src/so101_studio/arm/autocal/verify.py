@@ -85,7 +85,7 @@ def run_verify_zero(svc, cfg, *, input_fn=input, out=print, config_dir: Path | N
             out("캘리브레이션 파일을 찾지 못해 기록하지 않았다")
             return 1
         arm_file = config_dir / "arms" / f"{cfg.arm_name}.yaml"
-        record_checked(arm_file, sha, today())
+        record_checked(arm_file, sha, today(), cfg.calibration_id)  # id별(그리퍼별 캘리브레이션, 7.1)
         out(f"기록했다: {arm_file} calibration_checked (캘리브레이션 파일 해시 {sha[:12]}…). 다음에 연결할 때부터 움직인다. 팔은 0° 자세(작업대 밖으로 뻗음)로 남아 있으니 so101 home으로 돌아간다")
         result["recorded"] = True
         return 0

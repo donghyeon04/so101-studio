@@ -3,6 +3,9 @@
 board_serial: "5B8E114816"   # USB 시리얼 보드(CH343 1A86:55D3)의 시리얼 번호. so101 doctor가 연결된 보드와 이 값으로 팔을 고른다
 measured_on: "2026-11-01"     # 캘리브레이션을 한 날 (measurements.md T0)
 calibration_id: so101_follower_01
+calibration_id_by_gripper:  # 그리퍼별 캘리브레이션(arm-software-spec 7.1, REQ-107). 서보 6 범위·영점이 그리퍼마다 다르다. 병렬 파일은 단동식 파일 복사본이고 서보 6은 로보나인 교체 뒤 runbook 2-10으로 다시 잰다(그 전까지 0° 확인 기록이 없어 실물은 locked)
+  single_jaw: so101_follower_01
+  parallel: so101_follower_01_parallel
 joint_offsets_deg:         # 영점 보정(도). 읽은 값 = 모터 값 - offset. pan: 정면에서 오른쪽으로 약 1.5° 틀어져 있어 왼쪽으로 맞춤 (2026-11-01 사용자 육안, 1.5°, 그 뒤 0.5°씩 세 번 더)
   shoulder_pan: -3.0
 joint_limits_deg:          # physical_limits_deg(새 캘리브레이션 실제 범위)에서 안쪽으로 1° 줄인 값 (REQ-054, 사용자 결정 2026-11-11). 손목 한계로 먼 곳에서 대칭 V자 놓기가 안 되던 것을 넓힘

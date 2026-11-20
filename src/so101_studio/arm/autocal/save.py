@@ -88,3 +88,27 @@ def save_calibration(bus, report: dict, *, cache_path: Path, repo_path: Path, ru
     out("캘리브레이션 파일이 바뀌었으므로 0° 자세를 다시 확인해야 움직인다: so101 calibrate --verify-zero")
     out("팔 파일 physical_limits_deg 제안(자동으로 바꾸지 않는다, 사람이 확인해 고친다):\n" + "\n".join(f"  {n}: {v}" for n, v in suggestion.items()))
     return record
+
+
+def sync_other_grippers(cfg, measured: dict[str, dict], *, config_dir: Path, cache_dir: Path, arm_file: Path | None, now: datetime | None = None, out=print) -> list[str]:
+    """그리퍼별 캘리브레이션(arm-software-spec 7.1): 방금 저장한 id 말고 같은 팔의 다른 그리퍼 파일(calibration_id_by_gripper)의 서보 1~5를 같은 값으로 고친다.
+    파일마다 .bak.json을 남기고(레포 사본 옆), 서보 6(gripper)은 그 그리퍼 값 그대로 둔다. 고친 id들의 0° 확인 기록(calibration_checked)은 지운다. 고친 id 목록."""
+    from ...core.calibration import forget_checked
+
+    stamp = (now or datetime.now()).strftime("%Y%m%d-%H%M")
+    changed = []
+    for other in sorted(set((getattr(cfg, "calibration_id_by_gripper", None) or {}).values()) - {cfg.calibration_id}):
+        paths = [p for p in (cache_dir / f"{other}.json", config_dir / "calibration" / f"{other}.json") if p.is_file()]
+        if not paths:
+            continue
+        for p in paths:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            (config_dir / "calibration" / f"{other}.{stamp}{'' if p.parent == config_dir / 'calibration' else '.cache'}.bak.json").write_text(json.dumps(data, indent=4), encoding="utf-8")
+            data.update({n: {k: c[k] for k in ("id", "drive_mode", "homing_offset", "range_min", "range_max")} for n, c in measured.items() if n != "gripper"})
+            p.write_text(json.dumps(data, indent=4), encoding="utf-8")
+        changed.append(other)
+        out(f"다른 그리퍼 파일 {other}의 서보 1~5도 같은 값으로 고쳤다(.bak.json 남김, 서보 6은 그대로)")
+    if changed and arm_file is not None and arm_file.is_file():
+        forget_checked(arm_file, changed)
+        out(f"{', '.join(changed)}의 0° 확인 기록을 지웠다: 그 그리퍼로 쓸 때 calibrate --verify-zero를 다시 한다")
+    return changed
