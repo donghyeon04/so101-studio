@@ -75,6 +75,7 @@ class Skills:
         self.opening_skipped: list[dict] = []  # 건너뛰었거나 못 쓴 여는 경로와 이유 (11.3.3)
         self.last_pick_info: dict | None = None  # 마지막 집기가 닫힌 자세(목표 높이·기울기·관절): PICK 기록에 붙는다
         self.last_pick_tilted: bool | None = None  # 마지막 pick이 기울여 집으려 했는지(수직 집기 no_object를 작업 실행이 알아본다, 결정 0052)
+        self.held: dict | None = None  # 쥔 물체(REQ-106, 피드백 F3): {object, tool(닫을 때 손끝 ToolPose), obj_in_tool_mm, obj_yaw_in_tool_deg}. 기구학 엔진 GUI가 손끝에 붙여 그린다
         self.grip: dict | None = None  # 집기 기억(11.3.2): tilted(집기의 tilt_ok), tip_h(낮은 턱 끝 높이 t_g, mm), obj_h(물체 높이, 0=모름). 놓기가 끝나면·집기가 실패하면·새 집기를 시작하면 지운다
         self._box_after_low_lift = None  # low_lift로 멈춘 뒤 방금 놓은 상자(center·box_w·obj_h): home 경로 검사에 쓴다
         self._place_ctx: dict | None = None  # 지금 놓기의 자세 정보(_opening_path가 읽는다)
@@ -477,6 +478,7 @@ class Skills:
         self.placed_angle = {k: v for k, v in self.placed_angle.items() if math.hypot(k[0] - obj.x_mm, k[1] - obj.y_mm) > 40.0}
         self.placed_size = {k: v for k, v in self.placed_size.items() if math.hypot(k[0] - obj.x_mm, k[1] - obj.y_mm) > 40.0}
         self.grip = None
+        self._release("new_pick")  # 앞 집기가 놓지 못하고 끝났으면 여기서 비운다
         yaw = self._pick_yaw(obj)
         lo_g = self.cfg.joint_limits_deg["gripper"][0]  # 턱 축이 물체 긴 변에 수직이 되도록 (spec 6.6: 물체 각도 + 90°)
         m = (math.cos(math.radians(yaw)), math.sin(math.radians(yaw)))
@@ -543,6 +545,7 @@ class Skills:
                 self.known_objects.remove(near)
             self.ctl.hold_gripper(max(lo_g, self._q().gripper - self.cfg.grip_preload_units))
             self._set_grip_torque(self.cfg.gripper_hold_torque)
+            self._hold(obj)
         else:
             self._restore_grip_torque()
         d = appr.d if appr is not None else 0.0  # 기운 접근은 같은 β·φ로 든다(fk의 pitch·yaw로 다시 만들면 손목이 돈다, 6.6.1)
@@ -554,14 +557,33 @@ class Skills:
             up = self._line_rolled(self._q(), replace(here, z_mm=here.z_mm + self.cfg.approach_height_mm), d)
         if up is None:
             self.grip = None  # 집기 실패: 기억을 지운다 (11.3.2)
+            self._release("pick_failed")
             return fail
         r = self._run([up])
         if r.status != "ok":
             self.grip = None
+            self._release("pick_failed")
         if contact or r.status != "ok":
             return r
         self._run([self._gripper(self.cfg.gripper_open)])  # 접근 높이까지 올라온 뒤에 연다(바닥에서는 열지 않는다): 턱 사이에 끼인 것을 푼다
         return MotionResult("no_object", r.duration_s, r.final_tool)
+
+    def _hold(self, obj: DetectedObject) -> None:
+        """닫아 쥐었다: 손끝(TCP) 기준 물체 자세를 적고 ARM-HELD(held)를 낸다. 물체 중심 높이 = 면 + 높이/2(모르면 면)."""
+        q = self._q()
+        tool, R = self.kin.fk(q), self.kin.tool_axes(q)
+        p = np.array([obj.x_mm, obj.y_mm, self.cfg.table_z_mm + (obj.height_mm or 0.0) / 2.0]) - np.array([tool.x_mm, tool.y_mm, tool.z_mm])
+        self.held = {"object": obj, "tool": tool, "obj_in_tool_mm": [round(float(v), 2) for v in R.T @ p],
+                     "obj_yaw_in_tool_deg": round(float((obj.angle_deg or 0.0) - tool.yaw_deg), 2)}
+        self.ctl._emit("held", "INFO", "ARM-HELD", {"state": "held", "id": obj.id, "obj_in_tool_mm": self.held["obj_in_tool_mm"],
+                                                    "obj_yaw_in_tool_deg": self.held["obj_yaw_in_tool_deg"]})
+
+    def _release(self, why: str, at: tuple[float, float] | None = None) -> None:
+        """쥔 물체 기록을 비운다(놓기에서 벌리기 시작할 때·집기 실패·새 집기). 비울 것이 있을 때만 ARM-HELD(released, 이유, 놓은 자리)."""
+        if self.held is None:
+            return
+        oid, self.held = self.held["object"].id, None
+        self.ctl._emit("held", "INFO", "ARM-HELD", {"state": "released", "id": oid, "reason": why, "at": None if at is None else [round(float(v), 1) for v in at]})
 
     def _carry_lift(self) -> float:
         """집은 뒤 수직 상승 높이(mm): 쥔 물체 바닥(작업대 위에 있었으니 상승량과 같다)이 남은 물체 가운데 가장 높은 것보다 LIFT_MARGIN_MM 위가 되게. 남은 물체가 없으면 approach_height_mm."""
@@ -812,6 +834,8 @@ class Skills:
         try:
             self._restore_grip_torque()
             self.grip = None  # 벌림을 시작한다 (11.3.2)
+            held_before = self.held
+            self._release("placed", (x_mm, y_mm))
             self.last_place_yaw_deg, self.last_place_xy, self.last_place_correction_mm = yaw, (x_mm, y_mm), None
             held = self._gap_mm(self._q().gripper)
             cap = self._gap_mm(self.cfg.joint_limits_deg["gripper"][1])
@@ -822,7 +846,7 @@ class Skills:
             q = self._q()
             opened = self._gap_mm(q.gripper)
             if held < cap - 1.0 and opened <= held + 1.0:  # 쥔 것이 있었는데 틈이 넓어지지 않았다: 놓지 못했다(거짓 성공 막기, 6.6 쥠 확인과 같은 생각)
-                self.grip = grip  # 아직 쥐고 있다: 사람이 정하거나 다시 놓는다
+                self.grip, self.held = grip, held_before  # 아직 쥐고 있다: 사람이 정하거나 다시 놓는다
                 self.ctl._emit("place_not_released", "ERROR", "ARM-PLACE-NOT-RELEASED", {"held_mm": round(held, 1), "gap_mm": round(opened, 1)})
                 return MotionResult("stopped", 0.0, ToolPose(0, 0, 0, 0), reason=f"bin_not_released: 통 위에서 열었는데 틈이 {held:.0f}mm에서 {opened:.0f}mm로 넓어지지 않았다(물체를 쥔 채일 수 있다)")
             p = self.kin.fk(self._rolled(q, -d))
@@ -1080,6 +1104,7 @@ class Skills:
         try:
             self._restore_grip_torque()  # 놓는다: 예압 고정을 풀고 조임 한계를 원래 값으로(이후 닫는 일이 없다)
             self.grip = None  # 벌림을 시작한다: 집기 기억은 여기서 지운다 (11.3.2)
+            self._release("placed", (x_mm, y_mm))
             held_gap = self._gap_mm(self._q().gripper)
             trajs = self._opening_path()  # 열리는 동안 손을 같이 보내 물체 위치를 지킨다
             if trajs is None:  # ④ 못 풀면 제자리에서 그냥 연다: 조용히 넘어가지 않고 이유를 남긴다 (REQ-036, 11.3)
