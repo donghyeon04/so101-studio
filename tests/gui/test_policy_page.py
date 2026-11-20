@@ -195,3 +195,47 @@ def test_checkpoint_list_includes_sibling_folders(tmp_path, monkeypatch):
     root = Path("runs/train")
     assert [Path(s).parts[-4] for s in policy_page.checkpoints(root)] == ["a"]
     assert [Path(s).parts[-4] for s in policy_page.checkpoints(root, siblings=True)] == ["b", "a"]
+
+
+def test_pause_button_pauses_and_resumes_the_runner(backend, monkeypatch, tmp_path):
+    """피드백 F10(REQ-108): 실행 중 [일시 정지]는 러너를 멈추고 [이어 하기]로 바뀐다. 다시 누르면 이어 간다."""
+    driver = backend.sim.driver
+    monkeypatch.setattr(driver, "render", lambda camera, width=320, height=240: np.zeros((height, width, 3), np.uint8), raising=False)
+    monkeypatch.setattr(policy_runner, "load_act", lambda path: HomePolicy(backend.sim.cfg.episode_start()))
+    ckpt = tmp_path / "run1" / "checkpoints" / "last" / "pretrained_model"
+    ckpt.mkdir(parents=True)
+    monkeypatch.setattr(policy_page, "TRAIN_ROOT", tmp_path)
+    backend.policy = None
+
+    async def check(user):
+        await user.should_see(marker="camera-top")
+        user.find(marker="policy-start").click()
+        for _ in range(200):
+            if backend.policy is not None and backend.policy._thread is not None and not backend.policy_loading:
+                break
+            await asyncio.sleep(0.05)
+        pause = user.find(marker="policy-pause").elements.pop()
+        for _ in range(40):
+            if pause.enabled:
+                break
+            await asyncio.sleep(0.05)
+        user.find(marker="policy-pause").click()
+        for _ in range(40):
+            if backend.policy.paused and pause.text == "이어 하기":
+                break
+            await asyncio.sleep(0.05)
+        assert backend.policy.paused and pause.text == "이어 하기"
+        user.find(marker="policy-pause").click()
+        for _ in range(40):
+            if not backend.policy.paused:
+                break
+            await asyncio.sleep(0.05)
+        assert not backend.policy.paused
+        user.find(marker="policy-stop").click()
+
+    try:
+        open_policy(backend, check)
+    finally:
+        if backend.policy is not None:
+            backend.policy.stop()
+        backend.policy = None

@@ -273,4 +273,33 @@ def test_replay_mode_reaches_the_arm_and_fit_is_previewed(backend, monkeypatch):
             assert await _until(lambda: calls)
 
     asyncio.run(go())
-    assert calls[0][0] == NAME and calls[0][-1] == "fitted"
+    assert calls[0][0] == NAME and calls[0][4] == "fitted" and calls[0][5] is False  # 모드, 다른 그리퍼 재생 아님
+
+
+def test_other_gripper_record_asks_before_replaying(backend, monkeypatch):
+    """REQ-113·피드백 F5: 다른 그리퍼로 남긴 기록은 거부 문장을 확인 창으로 보이고, [그래도 재생]을 눌러야 any_gripper로 다시 부른다.
+    목록 요약에는 기록의 그리퍼가 보인다."""
+    from so101_studio.gui.backend import REASON_TEXT
+
+    calls = []
+
+    def replay(*a):
+        calls.append(a)
+        return None if a[5] else REASON_TEXT["gripper_mismatch"].format("wave는 single_jaw 그리퍼로 기록했고 지금은 parallel")
+
+    monkeypatch.setattr(backend, "replay", replay)
+
+    async def go():
+        async with user_simulation(gui_app.make_root(backend)) as user:
+            await user.open("/teach")
+            _one(user, "sequence").value = NAME
+            assert await _until(lambda: "그리퍼" in _one(user, "summary").text)
+            assert await _until(lambda: _one(user, "play").enabled)
+            user.find(marker="play").click()
+            await user.should_see(marker="gripper-confirm")
+            assert [c[5] for c in calls] == [False]  # 확인 전에는 다시 부르지 않는다
+            user.find(marker="gripper-anyway").click()
+            assert await _until(lambda: len(calls) == 2)
+
+    asyncio.run(go())
+    assert calls[1][5] is True

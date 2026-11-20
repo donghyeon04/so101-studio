@@ -191,3 +191,24 @@ def test_lower_home_resumes_after_a_stop_and_uses_arm_home(backend, real_like, m
     assert backend.calibration_home() is None and calls == ["resume", "home"]
     monkeypatch.setattr(backend.sim, "home", lambda: MotionResult("locked", 0.0, ToolPose(0, 0, 0, 0)))
     assert "홈으로 가지 못했습니다" in backend.calibration_home()
+
+
+def test_gripper_card_lists_one_calibration_file_per_gripper(backend):
+    """피드백 F8(REQ-107): 그리퍼마다 캘리브레이션 파일이 따로고, 0° 확인 상태를 보인다. 표가 없으면 지금 그리퍼 하나."""
+    from types import SimpleNamespace
+
+    from so101_studio.gui.pages.calibration import gripper_rows
+
+    cfg = SimpleNamespace(gripper="parallel", calibration_id="arm_parallel",
+                          calibration_id_by_gripper={"single_jaw": "arm", "parallel": "arm_parallel"}, calibration_checked={"arm": {}})
+    assert gripper_rows(cfg) == [("single_jaw", "arm", "0° 확인됨"), ("parallel", "arm_parallel", "0° 확인 필요")]
+    assert gripper_rows(SimpleNamespace(gripper="parallel", calibration_id="x", calibration_id_by_gripper={}, calibration_checked={})) == [
+        ("parallel", "x", "0° 확인 필요")]
+
+    async def go():
+        async with user_simulation(gui_app.make_root(backend)) as user:
+            await user.open("/calibration")
+            await user.should_see(marker="calib-gripper", retries=30)
+            await user.should_see("그리퍼별 캘리브레이션")
+
+    asyncio.run(go())

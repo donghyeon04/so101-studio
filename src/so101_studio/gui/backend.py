@@ -90,7 +90,9 @@ REASON_TEXT = {  # 팔이 reason 앞에 붙이는 이름 -> 원인과 할 일 (a
     "drop_zone_full": "배출 구역 칸이 모두 차서 놓지 않았습니다({}). 물체를 쥔 채이니 배출 구역을 비운 뒤 다시 하세요",
     "known_object": "놓을 자리가 알려진 물체와 겹칩니다({}). 놓기 점을 물체에서 떼거나 그 물체를 치우세요",
     # 결정 0059: 막힘 감지 뒤 팔은 idle이라 정지 해제가 필요 없다. 문턱이 잠정값이라 오탐이면 문턱을 올린다
-    "home_blocked": "홈으로 가는 길이 방금 놓은 물체를 쓸고 지나가 가지 않았습니다({}). 직접 조작에서 손을 먼저 위로 올린 뒤 다시 홈을 누르세요",  # 팔 #309
+    # 팔 #309(방금 놓은 물체를 쓸고 지나감)와 #536(위로 올려 돌아가는 길도 막힘) 둘 다
+    "home_blocked": "홈으로 가는 길이 막혀 가지 않았습니다({}). 직접 조작에서 손을 먼저 위로 올린 뒤 다시 홈을 누르세요",
+    "gripper_mismatch": "이 기록은 다른 그리퍼로 남겨 재생하지 않았습니다({})",  # REQ-113: 화면은 확인 창으로 [그래도 재생]을 묻는다
     "blocked": "막힘 감지로 멈췄습니다({}). 무엇에 닿았으면 치우고 다시 하세요. 닿은 것이 없는데 자꾸 멈추면 설정 > 파라미터의 막힘 감지 문턱을 올리세요",
 }
 
@@ -1235,9 +1237,10 @@ class Backend:
         return teach.max_s if teach.truncated else None
 
     def replay(self, name: str, speed: float, until_limit: bool = False, segment_speeds: dict[int, float] | None = None,
-               mode: str = "original") -> str | None:
-        """mode: original(기록 그대로) | fitted(속도·가속 한도에 맞게 늦춘 변환본, REQ-034)."""
-        reason = self._dispatch(lambda arm: arm.replay(name, speed, until_limit, segment_speeds, mode), f"{name} 재생")
+               mode: str = "original", any_gripper: bool = False) -> str | None:
+        """mode: original(기록 그대로) | fitted(속도·가속 한도에 맞게 늦춘 변환본, REQ-034).
+        any_gripper: 다른 그리퍼로 남긴 기록도 재생한다(REQ-113, 화면 확인 창 뒤에만)."""
+        reason = self._dispatch(lambda arm: arm.replay(name, speed, until_limit, segment_speeds, mode, any_gripper=any_gripper), f"{name} 재생")
         advice = "기록에 허용 범위 밖 자세가 있어 재생하지 않았습니다(첫 자세까지는 이동합니다). 한계 앞까지만 재생을 켜 보세요"
         if reason == EDGE_TEXT and not until_limit:  # EDGE_TEXT로 시작하면 화면이 가장자리 검사를 끌지 묻는다
             return f"{EDGE_TEXT}. {advice}"

@@ -5,13 +5,15 @@ import asyncio
 from nicegui import run, ui
 
 from .. import theme
-from ..backend import EDGE_TEXT, JOINT_TEXT
+from ..backend import EDGE_TEXT, JOINT_TEXT, REASON_TEXT
 from ..programs import DEFAULTS as PROGRAM_DEFAULTS
 from .common import Controls, meta_number, offer_free_edge, scene_frame
+from .policy import GRIPPER_TEXT
 
 SEGMENT_FACTORS = {0.5: "0.5", 1.0: "1", 2.0: "2"}
 RECORD_STEPS = ("홈으로 이동", "팔 잡기", "카운트다운", "기록")
 COUNTDOWN_S = 3
+GRIPPER_MISMATCH = REASON_TEXT["gripper_mismatch"].split("(")[0]  # 거부 문장의 앞부분(REQ-113)
 
 
 def expected_seconds(segments: list[dict], factors: dict[int, float], speed: float) -> float:
@@ -58,13 +60,28 @@ def build(backend, client_id: str, actions) -> None:
     state: dict = {"data": None, "factors": {}, "counting": False}
     speed_needs: list = []  # 배속 칸 (12.7.4: 허용 밖이면 [재생]을 끈다)
 
-    async def play() -> None:
+    async def play(any_gripper: bool = False) -> None:
         data = state["data"]
         if data is None:
             return
         reason = await run.io_bound(
-            backend.replay, select.value, float(speed.value), bool(until_limit.value), dict(state["factors"]) or None, replay_mode.value
+            backend.replay, select.value, float(speed.value), bool(until_limit.value), dict(state["factors"]) or None, replay_mode.value,
+            any_gripper,
         )
+        if reason and reason.startswith(GRIPPER_MISMATCH) and not any_gripper:  # REQ-113: 다른 그리퍼 기록은 확인한 뒤에만 재생한다
+            with ui.dialog() as dialog, ui.card().mark("gripper-confirm"):
+                ui.label(reason).classes("page-body")
+                ui.label("그리퍼마다 벌림 폭과 손 모양이 달라 기록과 다르게 움직이거나 부딪힐 수 있습니다").classes("page-body")
+                with ui.row():
+                    ui.button("취소", on_click=dialog.close).props("outline no-caps").mark("gripper-cancel")
+
+                    async def anyway() -> None:
+                        dialog.close()
+                        await play(any_gripper=True)
+
+                    ui.button("그래도 재생", on_click=anyway).props("no-caps").mark("gripper-anyway")
+            dialog.open()
+            return
         if reason and reason.startswith(EDGE_TEXT):
             offer_free_edge(backend, play)
             return
@@ -72,7 +89,7 @@ def build(backend, client_id: str, actions) -> None:
 
     with actions:
         ui.button("정지", color="negative", on_click=lambda: run.io_bound(backend.stop_all)).props("outline no-caps").mark("stop")
-        play_button = controls.add(ui.button("재생", on_click=controls.guard(play, needs=speed_needs)).props("no-caps").mark("play"), needs=speed_needs)
+        play_button = controls.add(ui.button("재생", on_click=controls.guard(lambda *_: play(), needs=speed_needs)).props("no-caps").mark("play"), needs=speed_needs)
 
     def update_expected() -> None:
         if state["data"]:
@@ -120,7 +137,8 @@ def build(backend, client_id: str, actions) -> None:
             summary.text = "불러오는 중"
             state["data"] = await run.io_bound(backend.sequence, name)
             info = state["data"]["info"]
-            summary.text = f"{info['duration_s']:.1f}초 · 표본 {info['points']}개 · 최대 {info['max_deg_s']:.0f}°/s · 구간 {len(info['segments'])}개"
+            grip = GRIPPER_TEXT.get(info.get("gripper"), info.get("gripper")) or "모름"  # 피드백 F5: 어떤 그리퍼로 남긴 기록인가
+            summary.text = f"{info['duration_s']:.1f}초 · 표본 {info['points']}개 · 최대 {info['max_deg_s']:.0f}°/s · 구간 {len(info['segments'])}개 · 그리퍼 {grip}"
             update_expected()
         segment_panel.refresh()
         chart_panel.refresh()
