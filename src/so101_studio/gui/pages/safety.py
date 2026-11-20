@@ -123,7 +123,7 @@ def build(backend, client_id: str, actions) -> None:
                         fields[axis, i] = meta_number("safety.box.z" if axis == "z" else "safety.box.xy", value, label=f"상자 {name} {text}",
                                                       mark=f"box-{axis}-{'min' if i == 0 else 'max'}", add=controls.add)
                         metas.append(fields[axis, i])
-                ui.label("비워 두면 기본 범위를 씁니다. 3D의 반투명 상자가 지금 적용되는 범위입니다").classes("page-body")
+                ui.label("비워 두면 기본 범위를 씁니다. 3D의 파란 선 상자가 지금 적용되는 범위입니다").classes("page-body")
             with ui.card().classes("w-full gap-1"):
                 ui.label("항상 켜진 검사").classes("card-title")
                 ui.label(f"한 주기 이동량 {current['max_step_deg']:.0f}° 이하").classes("event-line")
