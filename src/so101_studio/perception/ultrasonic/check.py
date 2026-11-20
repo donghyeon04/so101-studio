@@ -11,11 +11,17 @@ from .model import beam_radius
 UNREACHABLE = object()  # 제너레이터에 보내는 표시: 그 구간을 팔이 못 갔다
 
 
+def sensor_offset_xy(cfg, yaw_deg):
+    """손끝 -> 센서 작업대 xy 오프셋. 팔(ArmService.sensor_position = tool_axes(q) @ off)과 같은 규약이다:
+    아래를 보는 자세에서 도구 x축은 yaw 회전의 거울이라 R(yaw) @ (-off.x, off.y)가 된다(yaw 90에서 x축 = (0, -1))."""
+    off, a = cfg.arm_sensor_offset_mm, math.radians(yaw_deg)
+    return -off.x * math.cos(a) - off.y * math.sin(a), -off.x * math.sin(a) + off.y * math.cos(a)
+
+
 def sensor_to_tip(pts, cfg, yaw_deg=None):
     """센서가 지날 선 -> 손끝 xy 경로. 이 변환은 여기 한 곳뿐이다(설계서 8.2절).
-    arm_sensor_offset_mm를 경로 동안 고정한 yaw(기본 check.yaw_deg)로 돌려 센서 점에서 뺀다."""
-    off, a = cfg.arm_sensor_offset_mm, math.radians(cfg.check.yaw_deg if yaw_deg is None else yaw_deg)
-    ox, oy = off.x * math.cos(a) - off.y * math.sin(a), off.x * math.sin(a) + off.y * math.cos(a)
+    arm_sensor_offset_mm를 경로 동안 고정한 yaw(기본 check.yaw_deg)로 돌려(sensor_offset_xy) 센서 점에서 뺀다."""
+    ox, oy = sensor_offset_xy(cfg, cfg.check.yaw_deg if yaw_deg is None else yaw_deg)
     return [(x - ox, y - oy) for x, y in pts]
 
 
@@ -31,7 +37,7 @@ def pick_yaw(cfg, cand_xy, origin):
     L = math.hypot(off.x, off.y)
     dx, dy = cand_xy[0] - origin[0], cand_xy[1] - origin[1]
     c = max(-L, min(L, math.hypot(dx, dy) - pivot))
-    delta, th, base = math.acos(c / L), math.atan2(dy, dx), math.atan2(off.y, off.x)
+    delta, th, base = math.acos(c / L), math.atan2(dy, dx), math.atan2(off.y, -off.x)  # yaw 0일 때 오프셋 방향(sensor_offset_xy 규약)
     sols = [math.degrees(th + sg * delta - base) for sg in (1, -1)]
     wrap = lambda a: (a + 180) % 360 - 180
     return min(sols, key=lambda y: abs(wrap(y - cfg.check.yaw_deg)))
@@ -80,6 +86,8 @@ class Probe:
         self._res: DetectedObject | None = None
         self.status = "running"  # ok | empty(물체 없음, 후보 삭제) | unreachable(팔이 못 가서 못 재었다, 후보는 지우지 않는다)
         self._t0 = src.clock.now_ns()
+        self._lyaw = self.yaw  # 지금 단계(follow_path 호출)의 손목 각도. check.line_yaw_alt_deg가 없으면 늘 self.yaw
+        self._yaw_alts: list = []  # ik_fail 때 같은 조각을 다시 낼 손목 각도(_alt_yaws)
 
     # --- CheckProbe ---
     def next_segment(self) -> PathSegment | None:
@@ -96,7 +104,11 @@ class Probe:
         log = {"stage": name, "segment": seg, "sensor_pts": sensor_pts, "status": status, "poses": poses, "points": []}  # 변환은 기록할 때만
         self.segments.append(log)
         if not poses:
-            self._retry = self._pulled(sensor_pts) if status == "ik_fail" else None
+            if status == "ik_fail" and self._yaw_alts:  # 다른 손목 각도로 같은 조각을 먼저 다시 낸다(점을 잃지 않는다)
+                self._lyaw, self._retry = self._yaw_alts.pop(0), list(sensor_pts)
+                self.info.setdefault("yaw_retry", []).append(name)
+            else:
+                self._retry = self._pulled(sensor_pts) if status == "ik_fail" else None
             if self._retry is None:
                 self.info.setdefault("unreachable", []).append(name)
             self._publish_path(name, seg, [], phase="end", unreachable=True)
@@ -137,25 +149,69 @@ class Probe:
                 self._publish_path(*self._cur[:2], [], phase="start")
 
     # --- 경로 ---
-    def _inside(self, sensor_p) -> bool:
-        tip = sensor_to_tip([sensor_p], self.cfg, self.yaw)[0]
+    def _inside(self, sensor_p, yaw=None) -> bool:
+        tip = sensor_to_tip([sensor_p], self.cfg, self.yaw if yaw is None else yaw)[0]
         r = math.hypot(tip[0] - self.origin[0], tip[1] - self.origin[1])
         reach = self.cfg.check.tool_reach_mm
         return reach.min <= r <= reach.max
 
-    def _clip(self, pts):
-        """PR #71: 손끝이 도달 범위(tool_reach_mm) 밖인 점을 건너뛴다. 끊기면 조각마다 따로 follow_path를 부른다.
-        전부 범위 안이면 원래 꼭짓점 그대로 한 구간이다."""
+    @staticmethod
+    def _dense(pts):
         dense = []
         for a, b in itertools.pairwise(pts):
             n = max(1, math.ceil(math.dist(a, b) / 2))  # 2mm 간격으로 판정
             dense += [(a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n) for k in range(n)]
-        dense.append(pts[-1])
-        if all(self._inside(p) for p in dense):
+        return [*dense, pts[-1]]
+
+    def _plan(self, pts):
+        """경로 -> [(조각, 손목 yaw)]. 후보 yaw로 다 들거나 check.line_yaw_alt_deg가 없으면 _clip 그대로(후보 yaw 하나).
+        아니면 후보 yaw와 거기에 alt를 더한 각도 가운데 아직 못 덮은 점을 가장 많이 덮는 yaw를 두 번까지 골라 점마다 맡기고,
+        같은 yaw가 이어지는 점끼리 조각을 만든다. 센서가 손끝 옆 66.5mm라 손목을 돌리면 같은 센서 선을 다른 손끝 자리로 지난다:
+        팔 쪽을 향한 긴 선은 손끝 도달 폭(95~230)보다 길어 yaw 하나로는 한쪽 끝이 잘린다."""
+        alts = self.cfg.check.get("line_yaw_alt_deg") or []
+        dense = self._dense(pts)
+        if not alts or all(self._inside(p, self.yaw) for p in dense):
+            return [(pc, self.yaw) for pc in self._clip(pts, self.yaw)]
+        yaws = [self.yaw] + [(self.yaw + a + 180) % 360 - 180 for a in alts]
+        owner = [None] * len(dense)
+        for _ in range(2):
+            free = [i for i, o in enumerate(owner) if o is None]
+            best = max(yaws, key=lambda y: (sum(self._inside(dense[i], y) for i in free), y == self.yaw))
+            gain = [i for i in free if self._inside(dense[i], best)]
+            if not gain:
+                break
+            for i in gain:
+                owner[i] = best
+        out, run, ry = [], [], None
+        for p, o in zip([*dense, None], [*owner, None]):
+            if p is not None and o is not None and o == ry:
+                run.append(p)
+                continue
+            if ry is not None and len(run) >= 2:
+                out.append(([run[0], run[-1]] if len(pts) == 2 else _straighten(run), ry))
+            run, ry = ([p], o) if p is not None and o is not None else ([], None)
+        return out
+
+    def _alt_yaws(self, piece, yaw):
+        """ik_fail일 때 같은 조각을 다시 낼 다른 손목 각도들: 조각이 도달 범위(tool_reach_mm) 안에 다 드는 것만, 지금 yaw에 가까운 순.
+        도달 범위는 손끝 반경만 보고 yaw에 따른 손목 자세는 모른다: 기구학이 거절하면 이것부터 해 보고, 다 안 되면 첫 점 당기기."""
+        alts = self.cfg.check.get("line_yaw_alt_deg") or []
+        if not alts:
+            return []
+        dense = self._dense(piece)
+        ys = {(self.yaw + a + 180) % 360 - 180 for a in [0, *alts]} - {yaw}
+        ok = [y for y in ys if all(self._inside(p, y) for p in dense)]
+        return sorted(ok, key=lambda y: abs((y - yaw + 180) % 360 - 180))
+
+    def _clip(self, pts, yaw=None):
+        """PR #71: 손끝이 도달 범위(tool_reach_mm) 밖인 점을 건너뛴다. 끊기면 조각마다 따로 follow_path를 부른다.
+        전부 범위 안이면 원래 꼭짓점 그대로 한 구간이다."""
+        dense = self._dense(pts)
+        if all(self._inside(p, yaw) for p in dense):
             return [pts]
         pieces, run = [], []
         for p in [*dense, None]:
-            if p is not None and self._inside(p):
+            if p is not None and self._inside(p, yaw):
                 run.append(p)
                 continue
             if len(run) >= 2:  # 2mm 간격 점이 둘 이상. 닫힌 원은 처음과 끝이 같으니 끝점 거리로 거르지 않는다
@@ -166,14 +222,15 @@ class Probe:
     def _follow(self, name, sensor_pts):
         """경로를 도달 범위로 자른 조각마다 구간 하나씩 내고, 받은 점을 모두 돌려준다. 하나도 못 가면 UNREACHABLE.
         self._pieces에 마지막으로 보낸 조각들을 남긴다."""
-        self._pieces = self._clip(sensor_pts)
+        plan = self._plan(sensor_pts)
+        self._pieces = [pc for pc, _ in plan]
         self.info.setdefault("stage_names", []).append(name)  # 벤치마크가 단계당 다시 부른 횟수를 셀 때 쓴다
         if not self._pieces:
             self.info.setdefault("unreachable", []).append(name)  # 전부 도달 밖이라 호출 자체를 안 한다
             return UNREACHABLE
         got, ok = [], False
-        for pc in self._pieces:
-            self._pull_mm = 0.0
+        for pc, self._lyaw in plan:
+            self._pull_mm, self._yaw_alts = 0.0, self._alt_yaws(pc, self._lyaw)
             pts = yield self._seg_of(name, pc)
             while pts is UNREACHABLE and self._retry:  # ik_fail: feed가 첫 점을 당겨 둔 경로로 다시
                 self._retry, retry = None, self._retry
@@ -202,8 +259,8 @@ class Probe:
         return pts
 
     def _seg_of(self, name, sensor_pts):
-        seg = PathSegment(sensor_to_tip(sensor_pts, self.cfg, self.yaw), self.tool_z, self.cfg.check.speed_mm_s,
-                          self.yaw, stage=name)  # 단계 이름(8.9절 멈춤 고리): 잘린 조각·당겨 다시 내기도 같은 이름
+        seg = PathSegment(sensor_to_tip(sensor_pts, self.cfg, self._lyaw), self.tool_z, self.cfg.check.speed_mm_s,
+                          self._lyaw, stage=name)  # 단계 이름(8.9절 멈춤 고리): 잘린 조각·당겨 다시 내기·다른 yaw로 다시도 같은 이름
         self._cur = (name, seg, sensor_pts)
         return seg
 
@@ -343,8 +400,13 @@ class Probe:
             self._estimate("GRID", g, spread=spread)
         ctr = h2["xy"] if h2 else c1
 
-        ring = [(ctr[0] + c.ring_r_mm * math.cos(2 * math.pi * k / c.ring_n),
-                 ctr[1] + c.ring_r_mm * math.sin(2 * math.pi * k / c.ring_n)) for k in range(c.ring_n)]
+        ring_r = c.ring_r_mm
+        auto = c.get("ring_auto_mm")  # [최소, 최대]: L1·L2 구간 길이 평균의 절반으로 원 반지름을 정한다(짧은 축과 긴 축 끝 사이를 지나게)
+        if auto and h1 and h2:
+            ring_r = max(auto[0], min(auto[1], (h1["extent"] + h2["extent"]) / 4))
+        self.info["ring_r"] = ring_r
+        ring = [(ctr[0] + ring_r * math.cos(2 * math.pi * k / c.ring_n),
+                 ctr[1] + ring_r * math.sin(2 * math.pi * k / c.ring_n)) for k in range(c.ring_n)]
         if self._pos is not None:  # 지금 위치에서 가장 가까운 점부터 한 바퀴
             k0 = min(range(len(ring)), key=lambda k: math.dist(ring[k], self._pos))
             ring = ring[k0:] + ring[:k0]
@@ -352,9 +414,9 @@ class Probe:
         got = yield from self._follow("R", ring)
         got = [] if got is UNREACHABLE else got
         # 칸(sample_mm 호 길이)마다 한 번만 센다: 팔이 멈칫하며 같은 자리를 여러 번 재도 방향 평균이 쏠리지 않게
-        cells = {round((math.atan2(y - ctr[1], x - ctr[0]) % (2 * math.pi)) * c.ring_r_mm / c.sample_mm)
+        cells = {round((math.atan2(y - ctr[1], x - ctr[0]) % (2 * math.pi)) * ring_r / c.sample_mm)
                  for x, y, z, d in got if z - d > c.hit_mm}
-        th = [i * c.sample_mm / c.ring_r_mm for i in sorted(cells)]
+        th = [i * c.sample_mm / ring_r for i in sorted(cells)]
         sx = sum(math.sin(2 * t) for t in th)
         cx = sum(math.cos(2 * t) for t in th)
         R = math.hypot(sx, cx) / len(th) if th else 0.0

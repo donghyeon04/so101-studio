@@ -138,7 +138,8 @@ class FakeArm:
     def _sensor(self, xy, z):
         a = math.radians(self.yaw)
         x, y, oz = self.off0
-        return xy[0] + x * math.cos(a) - y * math.sin(a), xy[1] + x * math.sin(a) + y * math.cos(a), z + oz
+        # 팔 sensor_position(tool_axes(q) @ off)과 같이: 아래를 보는 손에서 도구 x축은 yaw 회전의 거울(yaw 90에서 (0, -1))
+        return xy[0] - x * math.cos(a) - y * math.sin(a), xy[1] - x * math.sin(a) + y * math.cos(a), z + oz
 
     def _tick(self, xy, z):
         self.clk.sleep(DT)

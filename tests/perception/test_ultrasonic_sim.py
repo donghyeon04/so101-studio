@@ -226,14 +226,34 @@ def test_yaw_rotates_sensor_offset(tmp_path, yaw):
 
 
 def test_sensor_to_tip_default_yaw_90():
-    """기본 yaw 90: 도구 프레임 오프셋 (0.6, 66.5)가 작업대 좌표 (-66.5, 0.6)으로 돌아간다(센서 = 손끝 + 돌린 오프셋)."""
+    """기본 yaw 90: 도구 프레임 오프셋 (0.6, 66.5)가 작업대 좌표 (-66.5, -0.6)으로 간다(센서 = 손끝 + 오프셋, 팔 tool_axes 규약: x축이 거울)."""
     from so101_studio.perception.ultrasonic.check import sensor_to_tip
     from so101_studio.perception.ultrasonic.model import load_config
 
     cfg = load_config()
     assert cfg.check.yaw_deg == 90
     (tip,) = sensor_to_tip([(100.0, 100.0)], cfg)
-    assert tip == pytest.approx((166.5, 99.4))
+    assert tip == pytest.approx((166.5, 100.6))
+
+
+def test_sensor_offset_matches_arm_tool_axes():
+    """check.sensor_offset_xy가 팔 ArmService.sensor_position의 변환(kin.tool_axes(q) @ off)과 같다. off.x를 30으로 키워 거울 차이가 보이게 한다."""
+    import numpy as np
+
+    from so101_studio.perception.ultrasonic import benchmark as bm
+    from so101_studio.perception.ultrasonic.check import sensor_offset_xy
+    from so101_studio.perception.ultrasonic.model import load_config
+
+    kr = bm.kin_reach(None, "parallel")
+    cfg = load_config(gripper="parallel")
+    cfg.arm_sensor_offset_mm.x = 30.0
+    off = cfg.arm_sensor_offset_mm
+    for yaw in (0, 45, 90, 135):
+        tip = bm.tip_vector(kr.kin, -90.0, yaw, kr.seeds[0].gripper, "tip")
+        pose = bm.point_to_pose(212, 200, 75, yaw, "table", kr.ws.base, kr.cfg.table_z_mm, tip)
+        q = next(q for sd in kr.seeds if (q := kr.kin.ik(pose, sd)) is not None)
+        d = kr.kin.tool_axes(q) @ np.array([off.x, off.y, 0.0])
+        assert sensor_offset_xy(cfg, yaw) == pytest.approx((d[0], d[1]), abs=0.5)
 
 
 def test_pick_yaw_puts_sensor_outward_for_far_and_inward_for_near():
@@ -709,3 +729,31 @@ def test_radar_check_lag_matches_fake_servo_lag(tmp_path):
     src = make_source(cfg, clk, esp, arm, tmp_path)
     res = lag_deg(src, 6)
     assert res["지연"] == pytest.approx(3.0, abs=1.0)
+
+
+def _probe(cfg, cand_xy, origin=(215.0, 21.0)):
+    from so101_studio.perception.ultrasonic.check import Probe
+    from so101_studio.perception.ultrasonic.fake_esp32 import SimClock
+
+    class Src:
+        clock = SimClock()
+
+    return Probe(Src(), DetectedObject("c", *cand_xy, None, 0, 0, 0.3, "ultrasonic"), cfg, origin)
+
+
+def test_plan_splits_radial_line_over_two_yaws():
+    """check.line_yaw_alt_deg: 팔 쪽을 향한 180mm 선은 손끝 도달 폭보다 길어 yaw 하나로는 한쪽 끝이 잘린다.
+    켜면 손목 각도 둘로 나눠 더 많이 덮고, 끄면 지금처럼 후보 yaw 하나로 자른다."""
+    from so101_studio.perception.ultrasonic.model import load_config
+
+    line = [(215.0, 80.0), (215.0, 260.0)]  # 팔 원점(215, 21)에서 반경 59~239로 곧게 뻗은 선
+    off = _probe(load_config(gripper="parallel"), (215.0, 170.0))
+    assert {y for _, y in off._plan(line)} == {off.yaw}
+    on = _probe(load_config(gripper="parallel", line_yaw_alt_deg=[-90, -45, 45, 90]), (215.0, 170.0))
+    plan = on._plan(line)
+    assert len({y for _, y in plan}) == 2
+    def covered(pl):
+        return sum(math.dist(pc[0], pc[-1]) for pc, _ in pl)
+    assert covered(plan) >= covered(off._plan(line)) + 10  # 152 -> 170mm
+    alts = on._alt_yaws(plan[0][0], plan[0][1])  # ik_fail 때 다시 낼 각도: 조각이 도달 범위에 다 드는 것만, 가까운 순
+    assert plan[0][1] not in alts and alts == sorted(alts, key=lambda y: abs((y - plan[0][1] + 180) % 360 - 180))
