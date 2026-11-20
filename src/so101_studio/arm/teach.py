@@ -210,14 +210,34 @@ class Teach:
                 q[:, i] = np.clip(q[:, i], lo, hi)
         return q
 
+    def recorded_gripper(self, name: str) -> str | None:
+        """기록한 그리퍼(meta.gripper). REQ-105 전 기록은 None = 모름."""
+        data = json.loads((self.dir / f"{name}.json").read_text(encoding="utf-8"))
+        return (data.get("meta") or {}).get("gripper")
+
+    def gripper_refusal(self, name: str, any_gripper: bool = False) -> MotionResult | None:
+        """재생 전 그리퍼 대조(REQ-113, 피드백 F5): 기록 그리퍼가 지금과 다르면 움직이지 않는 stopped(gripper_mismatch). any_gripper면 무시.
+        모름(None)이면 WARN 이벤트(ARM-REPLAY-GRIPPER-UNKNOWN)만 남기고 None. 그리퍼 값 0~100은 그리퍼마다 벌림이 달라서다."""
+        rec = self.recorded_gripper(name)
+        if rec is None:
+            self.ctl._emit("replay_gripper_unknown", "WARN", "ARM-REPLAY-GRIPPER-UNKNOWN", {"name": name, "current": self.cfg.gripper})
+            return None
+        if rec != self.cfg.gripper and not any_gripper:
+            return MotionResult("stopped", 0.0, ToolPose(0, 0, 0, 0),
+                                reason=f"gripper_mismatch: {name}은 {rec} 그리퍼로 기록했고 지금은 {self.cfg.gripper}다(그리퍼 값의 벌림이 다르다). 그래도 재생하려면 --any-gripper")
+        return None
+
     def replay(self, name: str, speed: float = 1.0, until_limit: bool = False, segment_speeds: dict[int, float] | None = None,
-               mode: str = "original") -> MotionResult:
+               mode: str = "original", any_gripper: bool = False) -> MotionResult:
         """기록을 다듬어 재생한다. 시작 전에 첫 자세로 MoveJ(저속)로 간 뒤 시간에 맞춰 따라간다.
         한계·작업 영역 밖이면 움직이지 않고 거부한다(execute의 안전 검사).
         mode="fitted"면 한 주기 이동량·가속 한도를 넘는 구간만 늦춘 시각으로 재생한다(info의 fit이 미리 보여 준다). "original"(기본)은 기록 시각 그대로이고, 한 주기 이동량 검사는 두 방식 모두 그대로 있다.
+        기록 그리퍼가 지금과 다르면 움직이지 않고 stopped(gripper_mismatch), any_gripper=True면 무시(gripper_refusal).
         segment_speeds={구간 번호: 배율}이면 그 구간만 빠르게/느리게 한다(구간은 info로 본다). 배율은 0.1~5, 적용 뒤 속도가 220°/s를 넘으면 ValueError."""
         if mode not in ("original", "fitted"):
             raise ValueError(f"mode는 original 또는 fitted: {mode!r}")
+        if (refused := self.gripper_refusal(name, any_gripper)) is not None:
+            return refused
         q, t = self.load(name)
         factors = segment_speeds or {}
         segs = self._analyze(q, t)["segments"]

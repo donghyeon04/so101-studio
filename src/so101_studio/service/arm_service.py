@@ -875,10 +875,13 @@ class ArmService:
         return path
 
     def replay(self, name: str, speed: float = 1.0, until_limit: bool = False, segment_speeds: dict[int, float] | None = None,
-               mode: str = "original") -> MotionResult:
+               mode: str = "original", any_gripper: bool = False) -> MotionResult:
+        """교시 재생. 기록 그리퍼가 지금과 다르면 토크도 켜지 않고 stopped(gripper_mismatch)로 거부한다(any_gripper=True면 재생, REQ-113). GUI는 확인 창 뒤 any_gripper=True로 부른다."""
+        if (refused := self.teach.gripper_refusal(name, any_gripper)) is not None:
+            return self._done("replay", refused, name=name, any_gripper=any_gripper)
         self.enable_torque()
-        return self._done("replay", self.teach.replay(name, speed, until_limit, segment_speeds, mode), name=name, speed=speed,
-                          until_limit=until_limit, segment_speeds=segment_speeds, mode=mode)
+        return self._done("replay", self.teach.replay(name, speed, until_limit, segment_speeds, mode, any_gripper=True), name=name, speed=speed,
+                          until_limit=until_limit, segment_speeds=segment_speeds, mode=mode, any_gripper=any_gripper)
 
     def run_sequence(self, name: str) -> MotionResult:
         return self.replay(name, 1.0)
