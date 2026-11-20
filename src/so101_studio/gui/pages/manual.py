@@ -1,5 +1,6 @@
 """직접 조작 페이지 (gui-spec 3절): 3D, 조그, 좌표 이동(미리보기 -> 이동), 그리퍼, 속도, 홈·파크."""
 
+import math
 import time
 
 from nicegui import run, ui
@@ -25,6 +26,7 @@ from .common import (
 STEPS = {0: "누르기", 1: "1", 5: "5", 10: "10"}
 DEFAULT_TARGET = {"x": 300.0, "y": 200.0, "h": 40.0, "yaw": 90.0, "pitch": -90.0}
 UNDO_MAX = 50  # 되돌리기로 기억하는 목표 좌표 수
+OBJECT_SNAP_MM = 40  # 3D에서 집기 점을 찍을 때 이 거리 안의 수동 물체는 그 물체 가운데로 맞춘다(F6)
 
 
 def build(backend, client_id: str, actions) -> None:
@@ -190,9 +192,26 @@ def build(backend, client_id: str, actions) -> None:
                 pick_text = ui.label("집기 점: 없음").classes("page-body").mark("pp-pick")
                 place_text = ui.label("놓기 점: 배출 구역").classes("page-body").mark("pp-place")
 
-                def set_point(kind: str) -> None:
-                    points[kind] = (target["x"], target["y"])
-                    (pick_text if kind == "pick" else place_text).text = f'{"집기" if kind == "pick" else "놓기"} 점: x {target["x"]:.0f}, y {target["y"]:.0f}'
+                def set_point(kind: str, xy: tuple | None = None) -> None:
+                    points[kind] = xy or (target["x"], target["y"])
+                    x, y = points[kind]
+                    (pick_text if kind == "pick" else place_text).text = f'{"집기" if kind == "pick" else "놓기"} 점: x {x:.0f}, y {y:.0f}'
+                    if backend.scene:
+                        backend.scene.show_pick_place(points["pick"], points["place"])
+
+                # F6(11-20 사용자): 켜 둔 동안 3D 클릭이 좌표 칸 대신 그 점을 바로 정한다. 집기 점 다음엔 놓기 점으로 넘어간다
+                click_mode = ui.toggle({"off": "끔", "pick": "집기 점", "place": "놓기 점"}, value="off").props("dense no-caps").mark("pp-click")
+                click_mode.tooltip("3D에서 찍기: 고른 점을 3D 클릭으로 정합니다. 수동 물체를 찍으면 그 물체의 크기·각도를 칸에 채웁니다")
+
+                def picked_in_3d(x: float, y: float) -> None:
+                    kind = click_mode.value
+                    obj = min(backend.objects(), key=lambda o: math.dist((o.x_mm, o.y_mm), (x, y)), default=None)
+                    if kind == "pick" and obj is not None and math.dist((obj.x_mm, obj.y_mm), (x, y)) <= OBJECT_SNAP_MM:
+                        x, y = obj.x_mm, obj.y_mm  # 물체 가운데로 맞추고 크기를 채운다
+                        for field, v in ((obj_w, obj.width_mm), (obj_l, obj.length_mm), (obj_a, obj.angle_deg or 0.0), (obj_h, obj.height_mm or 0.0)):
+                            field.set(round(float(v), 1), quiet=True)
+                    set_point(kind, (round(x, 1), round(y, 1)))
+                    click_mode.value = "place" if kind == "pick" else "off"
 
                 with ui.row().classes("w-full no-wrap gap-2"):
                     control(ui.button("지금 좌표를 집기 점으로", on_click=guarded(lambda: set_point("pick"), needs=coords))
@@ -232,9 +251,12 @@ def build(backend, client_id: str, actions) -> None:
 
     async def refresh_plan() -> None:
         seq, x, y, h = backend.scene.picked
-        if seq != plan_state["seq"]:  # 3D에서 고른 점을 입력칸에 옮긴다. 알림은 띄우지 않는다: 손잡이를 끄는 동안 수십 번 쌓여 화면을 가린다(입력칸과 닿는지 줄이 바로 바뀐다)
+        if seq != plan_state["seq"] and click_mode.value != "off":  # 집어 옮기기 점 찍기(F6): 좌표 칸은 그대로 둔다
             plan_state["seq"] = seq
-            point = {"x": round(x, 1), "y": round(y, 1), "h": round(h, 1)}
+            picked_in_3d(x, y)
+        elif seq != plan_state["seq"]:  # 3D에서 고른 점을 입력칸에 옮긴다. 알림은 띄우지 않는다: 손잡이를 끄는 동안 수십 번 쌓여 화면을 가린다(입력칸과 닿는지 줄이 바로 바뀐다)
+            plan_state["seq"] = seq
+            point ={"x": round(x, 1), "y": round(y, 1), "h": round(h, 1)}
             inside = all(fields[k]._ok(v) for k, v in point.items())
             if inside:  # 셋 다 넣거나 하나도 넣지 않는다 (12.7.4)
                 remember()  # 3D에서 끌어 옮긴 점도 되돌릴 수 있게

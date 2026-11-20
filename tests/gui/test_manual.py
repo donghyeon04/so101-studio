@@ -200,6 +200,28 @@ def test_picked_point_from_3d_fills_the_inputs(backend, monkeypatch):
     in_app(backend, check)
 
 
+def test_pick_and_place_points_are_set_by_clicking_3d(backend):
+    """F6(11-20 사용자): [3D에서 찍기]를 켜면 3D 클릭이 집기 점 → 놓기 점을 차례로 정한다. 수동 물체를 찍으면 그 가운데로 맞추고 크기를 채운다.
+    좌표 칸은 그대로이고 3D에 두 점과 선이 그려진다."""
+    obj = backend.objects()[0]
+    handles = backend.scene.server.scene._handle_from_node_name
+
+    async def check(user):
+        assert await _until(lambda: _one(user, "reach").text != "계산 중")
+        x_before = _one(user, "target-x").value
+        _one(user, "pp-click").value = "pick"
+        backend.scene.pick(obj.x_mm + 15, obj.y_mm - 10, 0.0)
+        assert await _until(lambda: f"x {obj.x_mm:.0f}, y {obj.y_mm:.0f}" in _one(user, "pp-pick").text)
+        assert _one(user, "pp-width").value == obj.width_mm and _one(user, "pp-length").value == obj.length_mm
+        assert _one(user, "pp-click").value == "place"
+        backend.scene.pick(300.0, 200.0, 0.0)
+        assert await _until(lambda: "x 300, y 200" in _one(user, "pp-place").text)
+        assert _one(user, "pp-click").value == "off" and _one(user, "target-x").value == x_before
+        assert {"/marks/pp/pick", "/marks/pp/place", "/marks/pp/line"} <= set(handles)
+
+    in_app(backend, check)
+
+
 def test_target_undo_restores_typed_and_picked_points_without_moving(backend):
     """목표 좌표 되돌리기(Ctrl+Z·[되돌리기], 사용자 11-14): 입력칸으로 바꾼 값과 3D에서 고른 점을 차례로 되돌리고, 팔은 움직이지 않는다. 3D 밑에 현재 좌표가 보인다."""
     async def check(user):
