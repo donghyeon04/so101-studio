@@ -15,3 +15,10 @@ grasp_approach: vertical                # vertical(수직) | auto(6.6.1, 결정 
 grasp_approach_tilts_deg: [0, 20, 35, 50]
 grasp_contact_tilt_max_deg: 20          # 시작값(실측 근거 없음). 58mm 상자의 높이 규칙과 같은 값
 grasp_approach_tilt_pref_deg: 35
+# 자세(REQ-103, 피드백 F1): home은 손목 90°로 두 턱이 양옆으로 나란히 보이게. 설정 겹은 키 단위로 통째로 바꾸므로 park·radar_clear도 robot.yaml 값 그대로 함께 적는다.
+# episode_start = 옛 home(wrist_roll 0): MuJoCo 시작·다시 짓기·수집·정책 실행과 초음파 벤치마크 가상 팔이 쓴다(ACT v2·비교 실험이 이 자세에서 시작).
+poses:
+  home: [0, -90, 93, 0, 90, 3]
+  park: [0, -90, 93, 0, 0, 3]
+  radar_clear: [0, -90, 85, -90, 0, 3]
+  episode_start: [0, -90, 93, 0, 0, 3]

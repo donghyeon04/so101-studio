@@ -99,7 +99,7 @@ class MuJoCoDriver:
             self._failed = None
             self._f_ema = np.zeros(6)
             self.torque_limit = 1000
-            home = self._deg_to_rad(self.cfg.poses["home"])
+            home = self._deg_to_rad(self.cfg.episode_start())  # 에피소드 시작 자세(REQ-103)
             self.data.qpos[self._qadr] = home
             self._target = self._from = home
             self.data.ctrl[self._aid] = home

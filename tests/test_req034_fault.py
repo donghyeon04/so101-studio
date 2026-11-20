@@ -8,7 +8,7 @@ from so101_studio.arm.trajectory import move_j
 from so101_studio.core.config import load_robot
 from so101_studio.core.types import JointState
 
-CFG = load_robot("config/robot.yaml")
+CFG = load_robot("config/robot.yaml", gripper="single_jaw")  # 홈 wrist_roll 0(병렬 홈은 90, REQ-103)에서 shoulder_pan만 움직이는 시험
 HOME = JointState(*CFG.poses["home"])
 
 
