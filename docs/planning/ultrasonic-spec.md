@@ -1,6 +1,6 @@
 # 초음파 인식 설계서 (레이더 + 팔 확인)
 
-상태: 확정 · 2026-11-05 · 2026-11-14 로보나인·짧은 브래킷 반영(1절 기준, 3.3, 결정 0063) · 2026-11-14 결정 대조(3.6 손목 브래킷, 6절 원 반지름, 8.3 설정 예, B1 높이, 0035 참조) · 2026-11-15 CHECK yaw를 후보 반경별로(결정 0065: 1절, 6절, 8.3), 벤치마크 재실행 값(1절 표), 최종 재실행 값(main 3fba261)·병렬 손 실제 기구학 두 열(U16)·그리퍼별 `tool_reach_mm`(병렬 75~250)·기준 100초, 확인 전 후보 거르기 여유(5절), 모서리 간격(6절) · 2026-11-16 U16 첫 점 당기기(6절·8.2·8.3), drift-report 반영(1·5·6절) · 2026-11-16 밤 병렬 표를 구현된 첫 점 당기기 값 한 열로, 당기기 상한 측정 계획 · 2026-11-17 당기기 상한 85mm 확정(REQ-074 #417·총괄 재실행: 1절 병렬 표, 6절, 8.3) · 2026-11-18 결정 0067 CAD 값(3.1 자리·높이, 8.3 `face_offset_mm`), 시연 방위 45~135°(6절) · 2026-11-19 결정 0072(A1 위치 10mm, 8.4 정답 쌍 기록) · 2026-11-20 8.4 정답 쌍 폴더·형식(REQ-096 #497), 10절 R1 명령, 11절 R1 자리와 통 · 2026-11-20 밤 8.6 A1 도구·I1 정답 기록(초안, Stage 9 전), 10절 A1 10mm, drift-report 반영(1절 표를 H-4 6bba117 값으로, 도달 범위 H-2 뒤 95~230·100~255, 8.5 시나리오·호버 규칙, 시연 배치 규칙 하나로(6절·11절), R1 기준값은 통을 둔 채) · 2026-11-20 8.6 Stage 9 꼭 고칠 것 8건(연결·I1 판정·A1 판정 규칙·배치 변환·확인 높이·TruthRun·고칠 파일·후보 뜻), 1절·10절 표기 · 2026-11-20 8.6 i1_layout 다시 뽑기(최대 20번)·배치 1~10 표·I1 인식 시간 뜻(REQ-097 #512) · 2026-11-20 시연·I1 최소 반경 120 → 150(사용자 승인: 6절 규칙, 8.5 `show80`, 8.6 `i1_layout`·배치 표는 구현 PR이 다시) · 2026-11-20 1절 표를 비교 실험 (가) 값으로(씨앗 200, 확인 위치·방향 칸 채움), 8.7 A0 도구 `checktest a0`(초안, Stage 9 전), 8.8 2차 추정기 준비(초안) · 2026-11-20 8.9 작업 공간 인식 보여 주기(F2·F7 소스·이벤트·멈춤 고리, 초안, Stage 9 전) · 2026-11-20 8.7 Stage 9 꼭 고칠 것 7건(δ 식을 도구 축 거울로, 시험은 sensor_position으로, ψ는 후보 자리, 정답 크기 --obj·첫 회 값 유지, per_rep, 시험 patch·CLI 기본 순서, 성분별 절댓값 판정·--sim 근거) · 2026-11-20 8.9 Stage 9 꼭 고칠 것 12건(정답 목록과 작업 소스 나눔, 가상 소스 만들 때 스레드·실물 차단, 이벤트 순서, check_estimate 단계 표, pace 자리·대기·step_mode, prefetch, sweep_progress 값, 번호, 레이더 머리 나누기) · 2026-11-20 8.9 Stage 9 v2 꼭 고칠 것 11건(arm.clock, 설명 모드 단계 실행, select_perception·잠금·radar_clear 실패, 버스 바꿔 달기, arm_links_fn, PathSegment.stage, esp.boxes 다시 채우기, 실물 포트·기준값, check_estimate L4·필드 확정, STL 성분 나누기 규칙)
+상태: 확정 · 2026-11-05 · 2026-11-14 로보나인·짧은 브래킷 반영(1절 기준, 3.3, 결정 0063) · 2026-11-14 결정 대조(3.6 손목 브래킷, 6절 원 반지름, 8.3 설정 예, B1 높이, 0035 참조) · 2026-11-15 CHECK yaw를 후보 반경별로(결정 0065: 1절, 6절, 8.3), 벤치마크 재실행 값(1절 표), 최종 재실행 값(main 3fba261)·병렬 손 실제 기구학 두 열(U16)·그리퍼별 `tool_reach_mm`(병렬 75~250)·기준 100초, 확인 전 후보 거르기 여유(5절), 모서리 간격(6절) · 2026-11-16 U16 첫 점 당기기(6절·8.2·8.3), drift-report 반영(1·5·6절) · 2026-11-16 밤 병렬 표를 구현된 첫 점 당기기 값 한 열로, 당기기 상한 측정 계획 · 2026-11-17 당기기 상한 85mm 확정(REQ-074 #417·총괄 재실행: 1절 병렬 표, 6절, 8.3) · 2026-11-18 결정 0067 CAD 값(3.1 자리·높이, 8.3 `face_offset_mm`), 시연 방위 45~135°(6절) · 2026-11-19 결정 0072(A1 위치 10mm, 8.4 정답 쌍 기록) · 2026-11-20 8.4 정답 쌍 폴더·형식(REQ-096 #497), 10절 R1 명령, 11절 R1 자리와 통 · 2026-11-20 밤 8.6 A1 도구·I1 정답 기록(초안, Stage 9 전), 10절 A1 10mm, drift-report 반영(1절 표를 H-4 6bba117 값으로, 도달 범위 H-2 뒤 95~230·100~255, 8.5 시나리오·호버 규칙, 시연 배치 규칙 하나로(6절·11절), R1 기준값은 통을 둔 채) · 2026-11-20 8.6 Stage 9 꼭 고칠 것 8건(연결·I1 판정·A1 판정 규칙·배치 변환·확인 높이·TruthRun·고칠 파일·후보 뜻), 1절·10절 표기 · 2026-11-20 8.6 i1_layout 다시 뽑기(최대 20번)·배치 1~10 표·I1 인식 시간 뜻(REQ-097 #512) · 2026-11-20 시연·I1 최소 반경 120 → 150(사용자 승인: 6절 규칙, 8.5 `show80`, 8.6 `i1_layout`·배치 표는 구현 PR이 다시) · 2026-11-20 1절 표를 비교 실험 (가) 값으로(씨앗 200, 확인 위치·방향 칸 채움), 8.7 A0 도구 `checktest a0`(초안, Stage 9 전), 8.8 2차 추정기 준비(초안) · 2026-11-20 8.9 작업 공간 인식 보여 주기(F2·F7 소스·이벤트·멈춤 고리, 초안, Stage 9 전) · 2026-11-20 8.7 Stage 9 꼭 고칠 것 7건(δ 식을 도구 축 거울로, 시험은 sensor_position으로, ψ는 후보 자리, 정답 크기 --obj·첫 회 값 유지, per_rep, 시험 patch·CLI 기본 순서, 성분별 절댓값 판정·--sim 근거) · 2026-11-20 8.9 Stage 9 꼭 고칠 것 12건(정답 목록과 작업 소스 나눔, 가상 소스 만들 때 스레드·실물 차단, 이벤트 순서, check_estimate 단계 표, pace 자리·대기·step_mode, prefetch, sweep_progress 값, 번호, 레이더 머리 나누기) · 2026-11-20 8.9 Stage 9 v2 꼭 고칠 것 11건(arm.clock, 설명 모드 단계 실행, select_perception·잠금·radar_clear 실패, 버스 바꿔 달기, arm_links_fn, PathSegment.stage, esp.boxes 다시 채우기, 실물 포트·기준값, check_estimate L4·필드 확정, STL 성분 나누기 규칙) · 2026-11-20 8.9 Stage 9 v3 Major 6건(pace는 GUI가 만들고 paused로 대기 가름·실행마다 다시 넣기·_step.clear, 실물 팔 지우기 늘 넣기, 기준값 안내는 radar_check, 실물 포트 connected·close·[연결] 끔, check_estimate id·None, STL 스크립트 경로·NOTICE·원점), 구현 근거
 
 근거 결정: `decisions/0034`(레이더 + 팔 확인), `0043`(스캔 서보 OpenRB-150 + XL330, 서보 전원 5V. 0035의 스캔 서보·전원을 대체), `0063`(손목은 팀 CAD 짧은 브래킷, 0035의 손목 브래킷을 대체), `0038`(확인 모드 하나), `0039`·`0041`(대기 자세 `radar_clear`), `0036`(로컬 세션 셋), `0004`(인식 공통 출력), `0006`(ESP32 1개 + HC-SR04 2개), `0013`(작업대 좌표계, 높이는 작업대 면 기준), `0015`(안전 설정), `0026`(E-STOP). 비교 근거는 기획 세션의 가상 센서 시뮬레이션이다(조사 원문은 커밋하지 않는다). 숫자는 실측 전 값이라 10절 B1·B2 실측 뒤 다시 계산한다.
 
@@ -562,19 +562,20 @@ def a0_summary(res, cfg, origin) -> str: ...                               # 중
 - **자리(초음파 세션)**: `perception/ultrasonic/learn/`의 `dataset.py`(`truth.pairs` → 표, `index.jsonl`로 실행 고르기), `fit.py`, `evaluate.py`(`truth_report`의 짝짓기·`p90` 재사용). 작업 실행에 붙이는 설정(`check.estimator: rule|learned`)은 채택된 뒤에 정한다.
 - 밖: 레이더 추정기, 작업 실행 연결, 실물 데이터 수집(R1·A1·I1이 남긴다).
 
-### 8.9 작업 공간 인식 보여 주기: 소스·이벤트·멈춤 고리 (피드백 F2·F7, 2026-11-20, 초안: 재검토 통과 뒤 구현)
-사용자 피드백 F2·F7(`feedback-1120-plan.md`)의 데이터 쪽이다. 화면은 `gui-spec.md` 12.11이다. GUI 작업 공간에서 실제 작업 실행(`TaskRunner`)이 초음파 소스로 돌 때 단계마다 무엇이 보였는지를 이벤트로 낸다. 인식 계산은 바꾸지 않고 이벤트 내기만 더한다.
+### 8.9 작업 공간 인식 보여 주기: 소스·이벤트·멈춤 고리 (피드백 F2·F7, 2026-11-20, Stage 9 v3 반영: 구현 근거)
+사용자 피드백 F2·F7(`feedback-1120-plan.md`)의 데이터 쪽이다. 화면은 `gui-spec.md` 12.11이다. GUI 작업 공간에서 실제 작업 실행(`TaskRunner`)이 초음파 소스로 돌 때 단계마다 무엇이 보였는지를 이벤트로 낸다. 인식 계산은 바꾸지 않고 이벤트 내기만 더한다. 예외 하나: 팔 지우기(`arm_links_fn`)를 빠짐없이 켜므로 첫 SCAN 결과가 지금과 조금 다를 수 있다.
 
 **이름**
 - 확인 단계(6절): L1·L2 직선, 원 단계(R), L3·L4 긴 축·짧은 축(기본 설정에서는 한 구간 `L34`, 도달 범위로 잘리면 `L3`·`L4`로 나뉜다), L1·L2가 다 비면 `GRID`(±50mm 격자).
 - 1차 중심 = L1·L2(또는 `GRID`)로 정한 중심. φ = 원 단계가 정한 긴 축 각도. 방향 강도 `R`(0~1). `extent` = 직선 하나에서 메아리가 이어진 구간의 길이(`check.py`의 `hit["extent"]`).
-- `src` = `backend.perception_source`. `_tell_known` = SCAN 뒤 이미 아는 물체를 소스에 알려 주는 러너 함수(`runner.py`).
+- `src` = `backend.perception_source`. `_tell_known` = SCAN 뒤 찾은 물체를 팔 스킬(`Skills.known_objects`·`known_height`)에 알려 주는 러너 함수(`runner.py`).
 - 흐름 단계(원 번호는 이것에만 쓴다): ① 레이더 회전·원자료 ② 거르기·예상 범위 ③ 팔 확인 ④ 좁히기·위치 ⑤ 집기. 초음파 화면의 겹은 이름으로 쓴다(바닥 원자료, 팔 원자료, 바닥 거른 데이터, 팔 후보별 원자료, 합치기, 최종 위치, `gui-spec.md` 12.11).
 
 **소스 고르기**(GUI 백엔드, 실행 중이 아닐 때만)
 - `backend.source`는 늘 `ManualSource`(정답 목록)다. `objects()`와 물체 편집 함수는 이것만 쓴다.
 - 작업 소스는 `backend.perception_source`(`ManualSource` 또는 `UltrasonicSource`)다. 바꾼 뒤 `_make_studio()`를 부르고, `_make_studio()`는 `Studio(self.arm, self.perception_source, …)`로 만든다. 재연결 때도 같다.
-- 고르기는 `backend.select_perception(kind)`(kind = `manual` | `us_sim` | `us_real`)이다. 페이지가 `await run.io_bound(backend.select_perception, kind)`로 부른다. 이벤트 루프에서 부르면 감시 heartbeat(1초)가 끊긴다. `_dispatch`는 결과의 `.status`를 읽는 함수라 이 길에 쓰지 않는다.
+- 고르기는 `backend.select_perception(kind)`(kind = `manual` | `us_sim` | `us_real`)이다. 페이지가 `await run.io_bound(backend.select_perception, kind)`로 부른다. 이벤트 루프에서 부르면 감시 heartbeat(0.2초마다, 끊김 한계 1초)가 끊긴다. `_dispatch`는 결과의 `.status`를 읽는 함수라 이 길에 쓰지 않는다.
+- `select_perception`은 새 소스를 만들기 전에, 지금 `perception_source`가 `backend.source`가 아니면 `close()`한다(실물 소스는 `close()` 때까지 포트를 쥔다).
 - 수동: `perception_source = backend.source`(지금과 같다).
 - 초음파(가상):
   - `backend.real is None`일 때만 켠다. 실물 팔은 시작할 때 한 번 정해지므로 이 조건으로 충분하다.
@@ -586,9 +587,10 @@ def a0_summary(res, cfg, origin) -> str: ...                               # 중
   - Box 변환은 `demo_boxes`(`ultrasonic_view.py`)에 높이 `o.height_mm or 40`을 더해 함께 쓰고, 목록은 복사해 넘긴다.
   - `src.esp.boxes`는 소스를 만들 때와 사용자가 정답 목록을 고칠 때만 다시 채운다. `start_task` 직전에는 채우지 않는다(집혀 빠진 물체가 되살아난다). 처음 배치로 돌리려면 정답 목록을 고치거나 소스를 다시 고른다.
 - 초음파(실물):
-  - `board_of(backend).port`가 있고 가상 포트(`SIM_PORT`)가 아닐 때 켜진다. 고르면 `board.disconnect()`를 부른 뒤 그 포트로 `make_ultrasonic_source(arm, sim=False, port=…)`를 연다(같은 포트를 두 번 열지 않는다).
-  - 실물 소스는 만든 직후 `baseline`이 None이다. 고를 때 `config/ultrasonic_baseline.json`이 없으면 막고 [기준값 재기]를 안내한다. 있으면 `src.baseline = radar.Baseline.load(src.baseline_path)`로 읽어 둔다.
-  - 팔 지우기: `_begin_checkable`에서 `_links_fn`이 None이면 `self._trail.links_at`을 넣는다.
+  - `board.connected`가 참이고 `board.port != SIM_PORT`일 때 켜진다(`board = board_of(backend)`, `Board.port`는 끊겨도 비워지지 않으므로 `connected`를 본다). 고르면 포트 이름을 받아 둔 뒤 `board.disconnect()`를 부르고, 그 포트로 `make_ultrasonic_source(arm, sim=False, port=…)`를 연다.
+  - 초음파(실물)가 작업 소스인 동안 ESP32 페이지의 [연결]을 끄고 "작업 공간 초음파(실물)가 사용 중"이라고 보인다.
+  - 실물 소스는 만든 직후 `baseline`이 None이다. 고를 때 `config/ultrasonic_baseline.json`이 없으면 막고 "기준값 파일이 없습니다. 빈 작업대에서 팔을 대기 자세(`radar_clear`)에 두고 `python -m so101_studio.perception.ultrasonic.radar_check --port <포트> calibrate`로 잽니다"를 띄운다. GUI의 실물 기준값 버튼은 이번에 만들지 않는다. 있으면 `src.baseline = radar.Baseline.load(src.baseline_path)`로 읽어 둔다.
+  - 팔 지우기: `_begin_checkable`은 새 `PoseTrail`을 만든 뒤 늘 `self.source._links_fn = self._trail.links_at`을 넣는다(실물 팔에는 `arm.trail`이 없어 실행마다 새 기록이 생기므로, 조건을 달면 두 번째 실행부터 끝난 기록으로 지운다). 가상 소스는 `arm.trail`과 같은 객체라 결과가 같다.
 
 **이벤트**(`Studio.bus`, 화면은 이것만 보고 그린다)
 
@@ -613,8 +615,9 @@ def a0_summary(res, cfg, origin) -> str: ...                               # 중
 | `GRID` | 격자 중심 | None | None | None | 50 |
 | `R` | 1차 중심 | φ(R ≤ 0.3이면 None) | R | None | 직전 행(L2 또는 GRID)의 값 |
 | `L34`(나뉘면 `L4`. `L3` 뒤에는 내지 않는다) | 최종 중심(= 결과 `x_mm`·`y_mm`) | 최종 각도 | R | (길이, 폭) | 0 |
-| `none` | 없음 | None | None | None | 없음(오검출, `_run`이 None) |
+| `none`(오검출, `_run`이 None) | None | None | None | None | None |
 
+- 모든 행에 `id`(후보 id, `us.check_path`의 `id`와 같다)와 위 열이 늘 있다. 값이 없으면 키를 빼지 않고 None을 넣는다. `center`는 `(x_mm, y_mm)`이다.
 - 후보 단계 값은 이벤트로 내지 않는다. 화면은 `us.candidates`의 `search_r_mm`을 쓴다. 최종 중심은 L3·L4를 다 받은 뒤에 셈하므로 `L3`만 끝났을 때는 낼 값이 없다.
 - 화면 쪽 `on_event`는 예외를 내지 않는다(`EventBus.publish`는 콜백 예외를 작업 스레드로 올린다).
 
@@ -636,21 +639,22 @@ def a0_summary(res, cfg, origin) -> str: ...                               # 중
   - `"pick"`: `_emit("PICK")`과 `_stopped()` 사이(기다리는 동안 누른 정지를 집기 전에 본다).
   - `check_candidate`·`_recheck_height` 경로도 `_check`를 거치므로 같이 불린다.
 - 이벤트 순서: 다음 구간의 `us.check_path` phase=`start`는 `Probe.feed()`가 내므로 `pace("check")`보다 먼저 온다. 화면은 이것으로 다음 단계 이름을 캡션에 띄운다. phase=`end`와 팔 이동은 `pace` 뒤다.
-- 기다리기:
-  - 0.1초마다 `task._stop`과 `arm.ctl.state in ("stopped", "fault")`를 본다. 둘 중 하나면 바로 돌아온다. `time.sleep`은 쓰지 않는다.
-  - 단계 실행: `Studio._step.wait(0.1)`을 되풀이하고, 참이면 `clear()`하고 돌아온다.
-  - 자동 실행: 기다리는 Event 없이 같은 고리로 2초 쉰다.
+- 기다리기: 고리는 GUI 세션(`gui/backend.py`)이 만드는 `pace`다. runner는 부르기만 한다.
+  - 들어올 때 `Studio._step.clear()`를 한다(팔이 움직이는 동안 누른 [다음]이 남아 다음 `pace`를 그냥 지나가지 않게).
+  - 0.1초마다 `task._stop`, `arm.ctl.state in ("stopped", "fault")`, `backend.paused`를 다시 읽는다. 앞의 둘 중 하나면 바로 돌아온다. `time.sleep`은 쓰지 않는다.
+  - `paused`가 참이면 `_step.wait(0.1)`이 참이 될 때 돌아온다([다음] 대기).
+  - 거짓이면 들어온 뒤 `EXPLAIN_PAUSE_S`(2초)가 지나면 돌아온다.
   - 감시 프로세스의 정지(`StopListener` → `arm.estop()`)도 이렇게 풀린다. 정지 처리는 그대로다: GUI 정지는 STOPPED, 감시 정지는 FAULT로 끝난다.
 - `pace`는 `source.scan()` 안에서 부르지 않는다(바퀴 중간에는 쉬지 않는다).
-- GUI가 넣는 것(`gui-spec.md` 12.11 "모드"):
-  - 빠른 모드: `pace`를 비운다. 빠른 모드의 단계 실행([한 단계])은 지금처럼 `step_mode=True`다.
-  - 설명 모드: `start_task`가 `task.pace`와 `task.prefetch_enabled = False`를 넣고 `studio.start(step_mode=False)`를 부른다. `studio.pause()`는 부르지 않는다(`step_mode`가 다시 켜진다).
+- GUI가 넣는 것(`gui-spec.md` 12.11 "모드"): `TaskRunner`는 Studio를 만들 때 한 번만 생기므로 `start_task`가 실행마다 두 값을 다시 넣는다.
+  - 빠른 모드: `task.pace` = 아무것도 하지 않는 함수, `task.prefetch_enabled = True`. 빠른 모드의 단계 실행([한 단계])은 지금처럼 `step_mode=True`다.
+  - 설명 모드: `task.pace` = 위 고리, `task.prefetch_enabled = False`, `studio.start(step_mode=False)`. 설명 모드의 `toggle_pause`는 `backend.paused`만 뒤집고 `studio.pause()`·`resume()`을 부르지 않는다(`step_mode`가 다시 켜져 `pace`와 겹친다).
 - **prefetch**: `TaskRunner.prefetch_enabled = False`면 PLACE에서 `prefetch`를 부르지 않는다. 그래야 다음 SCAN이 실시간으로 돈다. 빠른 모드는 지금 그대로이고, 미리 돈 바퀴는 다음 `scan()` 때 몰아서 온다(PLACE 동안 아무도 `_service()`를 부르지 않기 때문이다).
 
 **레이더 머리**(팔 세션)
 - `radar_station.stl`(바이너리)은 면마다 꼭짓점이 따로라 `split()`이 2473조각을 낸다(쓸 수 없다). 꼭짓점을 합치면(`merge_vertices(digits_vertex=2)`) 연결 성분이 14개다(2026-11-20 총괄 trimesh 실측, 원점 = 서보 축, mm). 원본 CAD 바디 27개와 1:1이 아니다(볼록 껍질끼리 붙음).
 - 나누기 규칙(변환 스크립트에 고정): 머리 = 성분 12(센서 브래킷으로 보임, x −24.5~24.5, y −38.5~8.2, z 11.2~35.2)와 성분 13(HC-SR04 둘로 보임, y −48.7~−31.8, z 13.2~39.3), 그리고 bounds가 z 11mm 이상이면서 xy가 12·13의 xy 상자를 합친 안에 다 들어가는 성분(나사·스페이서). 받침 = 나머지(몸체 상자 0, XL330으로 보이는 5 등).
-- 스크립트는 성분마다 번호·bounds·꼭짓점 수와 머리/받침 판정을 표로 출력한다. 성분 수가 14가 아니거나 12·13의 bounds가 위 값과 1mm 넘게 다르면 멈춘다. 그때는 팔 세션이 받아 둔 원본 CAD에서 머리 바디(센서 브래킷·HC-SR04·나사)와 받침 바디를 따로 같은 변환(x = −z_cad, y = 380 − x_cad, z = y_cad + 1, 바디마다 볼록 껍질)으로 내보낸다. 그동안 `radar_station.stl` 하나로 두고 머리는 돌리지 않는다.
+- 스크립트는 성분마다 번호·bounds·꼭짓점 수와 머리/받침 판정을 표로 출력한다. 성분 수가 14가 아니거나 12·13의 bounds가 위 값과 1mm 넘게 다르면 멈춘다. 그때는 팔 세션이 받아 둔 원본 CAD에서 머리 바디(센서 브래킷·HC-SR04·나사)와 받침 바디를 따로 같은 변환(x = −z_cad, y = 380 − x_cad, z = y_cad + 1, 바디마다 볼록 껍질)으로 내보내고, 이어서 서보 축 (207.3, 405.5, 0)을 빼 원점으로 둔다(NOTICE 5행과 같다). 그동안 `radar_station.stl` 하나로 두고 머리는 돌리지 않는다.
 - 결과는 `radar_base.stl`·`radar_head.stl`이고 `radar_station.stl`을 지운다. shortcut: 서보 혼(성분 6일 수 있음)의 판정은 규칙대로 둔다. 모양만 보이는 것이라 틀려도 그대로 둔다.
 - `core/scene.py`의 `ScenePart`에 `spin: str | None`을 더하고 `load_scene`이 읽는다. `config/scene.yaml`의 머리 부품에 `spin: radar`를 단다.
 - GUI `set_parts`는 `getattr(part, "spin", None)`으로 읽고(시험이 `spin` 없는 객체를 넘긴다) spin 부품 핸들을 따로 둔다. wxyz를 z축 (`servo_deg` − 90)°로 바꾼다(위에서 보아 반시계가 +, `radar.py`와 같다). 충돌 검사는 정면(90°) 형상 하나만 쓴다(`scene.yaml` 주석의 shortcut 그대로). MuJoCo는 `radar_head`를 정면 고정 body로 두고 `spin`을 무시한다.
@@ -664,16 +668,17 @@ def a0_summary(res, cfg, origin) -> str: ...                               # 중
 | 초음파 | `perception/base.py` | 고침: `PathSegment.stage` |
 | 초음파 | `perception/ultrasonic/source.py` | 고침: `us.sweep_progress`(`_total`), 후보 `search_r_mm`·`values`(`scan`·`rescan` 둘) |
 | 초음파 | `perception/ultrasonic/check.py` | 고침: `_seg_of`가 `stage`를 채움, `us.check_estimate` |
-| 팔 | `task/runner.py` | 고침: `pace`(`last` 비교), `prefetch_enabled`, `_begin_checkable`의 `_links_fn` |
+| 팔 | `task/runner.py` | 고침: `pace` 부르기(`last` 비교), `prefetch_enabled`, `_begin_checkable`이 늘 `_links_fn`을 넣음 |
 | 팔 | `service/ultrasonic.py` | 고침: `arm.clock` 쓰기, `arm_links_fn=trail.links_at`, `radar_clear` 실패면 `RuntimeError` |
-| 팔 | `core/scene.py`, `config/scene.yaml`, 변환 스크립트, `assets/scene/radar_base.stl`·`radar_head.stl` | 고침·만들기, `radar_station.stl` 지우기 |
+| 팔 | `core/scene.py`, `config/scene.yaml`, `tools/split_radar_station.py`(새로 만듦, trimesh만 씀), `assets/scene/radar_base.stl`·`radar_head.stl`, `assets/scene/NOTICE.txt` | 고침·만들기, `radar_station.stl` 지우기. NOTICE 5행은 두 파일 기준으로 고친다(같은 CAD 출처, 성분 나누기 규칙) |
 | 팔·MuJoCo | `tests/test_scene.py`, `tests/test_scene_collision.py`, `tests/test_mujoco_model.py` | 고침(부품 이름·bounds) |
-| GUI | `gui/backend.py`, `gui/pages/workspace.py`, `gui/scene3d.py`, `gui/sensors/ultrasonic_view.py`, `gui/pages/esp32.py`, `gui/pages/operator.py` | 고침: `gui-spec.md` 12.11 "고칠 파일" |
+| GUI | `gui/backend.py`(`pace` 고리 포함), `gui/pages/workspace.py`, `gui/scene3d.py`, `gui/sensors/ultrasonic_view.py`, `gui/pages/esp32.py`, `gui/pages/operator.py`, `gui/theme.py` | 고침: `gui-spec.md` 12.11 "고칠 파일" |
 
 - 초음파 시험(`tests/perception/`): 한 바퀴의 `us.sweep_progress` `angles[]`를 이으면 `us.sweep`의 각도 목록과 같다(빠짐·겹침 없음). 물체 하나 확인에서 `us.check_estimate`의 stage가 L1, L2, R, L34 순서이고 마지막 center가 `us.check_result`의 (`x_mm`, `y_mm`)와 같다. `Probe`가 내는 구간마다 `stage`가 있다.
 - 팔 시험:
   - `pace`가 위 자리에서 위 순서로 불리고 단계당 한 번이다(잘린 조각·당겨 다시 내기에서는 안 불림).
   - `pace` 중 GUI 정지면 STOPPED다.
+  - 팔 시험은 위 고리를 흉내 내는 시험용 `pace`를 넣는다.
   - `pace("check")` 대기 중 `arm.estop()`만 불러도(감시 정지) 0.2초 안에 `pace`가 돌아오고, 실행은 `end == "FAULT"`이며 팔이 더 움직이지 않는다.
   - `prefetch_enabled = False`면 PLACE에서 `prefetch`를 부르지 않고, 두 번째 SCAN에서 팔 링크 자리가 후보가 되지 않는다.
   - `radar_clear`가 실패하면 `make_ultrasonic_source`가 `RuntimeError`를 내고 기준값을 재지 않는다.

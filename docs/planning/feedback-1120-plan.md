@@ -1,6 +1,6 @@
 # 시뮬레이션 GUI 사용 피드백 계획 (2026-11-20)
 
-상태: 초안 · 2026-11-20 기획(총괄 경유 사용자 피드백 F1~F10, 노트북에서 공개 레포로 시뮬레이션 GUI를 써 본 뒤) · 2026-11-20 F2·F7 Stage 9 꼭 고칠 것 12건을 8.9·12.11에 반영 · 2026-11-20 3절 사용자 답(모두 추천)
+상태: 초안 · 2026-11-20 기획(총괄 경유 사용자 피드백 F1~F10, 노트북에서 공개 레포로 시뮬레이션 GUI를 써 본 뒤) · 2026-11-20 F2·F7 Stage 9 꼭 고칠 것 12건을 8.9·12.11에 반영 · 2026-11-20 3절 사용자 답(모두 추천) · 2026-11-20 F2·F7 Stage 9 v3 반영, REQ 나누기 안(F2-a~f)
 
 사용자가 노트북에서 공개 레포를 받아 시뮬레이션 GUI를 써 보고 준 피드백 10건을 일로 나눈 계획이다. 항목마다 무엇을, 어느 영역에서, 얼마나 크게, 어떤 순서로 할지와 설계를 바꾸는지 적는다. 큰 두 건(F2·F7)의 설계 초안은 `ultrasonic-spec.md` 8.9(데이터·이벤트)와 `gui-spec.md` 12.11(화면)에 있다. 지금 진행 중인 일(A0·A1·I1 도구, 비교 실험)은 그대로 두고 이 계획은 그 옆에서 돈다.
 
@@ -93,7 +93,21 @@
   - GUI가 인식 소스를 "수동 / 초음파(가상) / 초음파(실물)"로 고른다. 초음파(가상)은 CLI `run --sim --source ultrasonic`과 같은 `make_ultrasonic_source(sim=True, boxes=수동 물체)`다. 수동 물체 목록은 "가상 작업대에 놓인 정답"이 되고, 레이더와 팔 확인이 실제 코드로 그 물체를 찾는다.
   - 3D에서 레이더 머리가 돌고, 빔·원자료 점·후보 범위·팔 확인 경로·좁혀지는 범위·결과가 겹으로 보인다.
   - 설명 모드는 단계마다 멈추고 캡션을 띄운다. 빠른 모드는 지금처럼 쉬지 않는다. 자동 실행과 단계 실행 모두 된다.
-  - F7 초음파 화면은 같은 이벤트 기록으로 ①~⑥ 단계를 겹 고르기·타임라인으로 보인다. 소스가 수동일 때는 지금 "가상으로 돌리기" 화면을 그대로 둔다.
+  - F7 초음파 화면은 같은 이벤트 기록으로 겹 여섯 개(바닥 원자료 … 최종 위치)를 고르기·타임라인으로 보인다. 소스가 수동일 때는 지금 "가상으로 돌리기" 화면을 그대로 둔다.
+- Stage 9 세 번(v1 12건, v2 11건, v3 Major 6건)을 반영해 두 절이 구현 근거가 되었다(2026-11-20).
+- **REQ 나누기 안**(고칠 파일 표 기준, 세션 영역을 넘지 않게):
+
+  | REQ | 세션 | 내용 | 먼저 끝나야 할 것 |
+  |---|---|---|---|
+  | F2-a | 초음파 | `perception/base.py` `PathSegment.stage`, `check.py` `_seg_of`가 `stage`를 채움·`us.check_estimate`, `source.py` `us.sweep_progress`(`_total`·`dir`)·후보 `search_r_mm`·`values`, `tests/perception` 시험 | 없음 |
+  | F2-b | MuJoCo | `tests/test_mujoco_model.py`가 `radar_station` 하나 또는 `radar_base`·`radar_head` 둘을 다 받게 고침(F2-d가 main을 깨지 않게) | 없음 |
+  | F2-c | 팔 | `task/runner.py` `pace` 부르기(`last` 비교, 뒤 정지 검사)·`prefetch_enabled`·`_begin_checkable`이 늘 `_links_fn`을 넣음, `service/ultrasonic.py` `arm.clock`·`arm_links_fn`·`radar_clear` 실패면 `RuntimeError`, 시험용 `pace`로 팔 시험 | F2-a(`seg.stage`) |
+  | F2-d | 팔 | `tools/split_radar_station.py`, `radar_base.stl`·`radar_head.stl`, `NOTICE.txt`, `core/scene.py` `spin`, `config/scene.yaml`, `tests/test_scene.py`·`test_scene_collision.py`. 성분표가 규칙과 다르면 멈추고 총괄에 보고 | F2-b |
+  | F2-e | GUI | 소스 고르기·잠금·`close()`, 실물 포트, `us_log`·버스 바꿔 달기, 모드·`pace` 고리·`paused`·속도 되돌리기, [스캔] 끄기, operator 제목, 작업 공간 위 줄·캡션 | F2-a, F2-c |
+  | F2-f | GUI | 3D `/recognition/` 겹과 레이더 머리 spin, 초음파 화면(F7) 겹 여섯·그래프·타임라인, `theme.py`, 화면 비교 | F2-e, F2-d |
+
+  - 동시에 낼 수 있는 것: F2-a와 F2-b. 그다음 F2-c와 F2-d를 함께 낸다(팔 세션이 차례로 PR 둘).
+  - GUI는 F2-e → F2-f 차례다. F2-e만 합쳐도 설명 모드가 2D 작은 화면과 캡션으로 돈다.
 
 ## 3. 사용자에게 물을 것 (소프트웨어·제품 선택만, 추천 답과 함께)
 **사용자 답(2026-11-20, 총괄 경유): 여섯 모두 추천대로.** F8 설계는 `arm-software-spec.md` 7.1 "그리퍼별 캘리브레이션", F10 범위는 `gui-spec.md` 12.10 범위 줄에 적었다.

@@ -1,6 +1,6 @@
 # GUI 설계서
 
-상태: 확정 · 2026-11-02 (1차: 기본 골자) · 2026-11-07 사용자 사용 후 개정(11절), 결정 0044 구조(12절), 코드 대조 보완·다른 기기 보기(12절, 결정 0047) · 2026-11-12 숫자 입력(12.7 초안, 결정 0055) · 2026-11-13 MuJoCo(12.8, M4) · 2026-11-14 12.8 확정 · 2026-11-16 학습 화면(12.10 초안, 결정 0066) · 2026-11-16 밤 12.10 Stage 9 (나) 반영 · 2026-11-19 12.10 ③ 학습 배치·[다음 배치]·판정을 1차로(결정 0073, #487), 시작 화면 실행 파일 이름(REQ-095) · 2026-11-20 12.11 작업 공간 인식 흐름과 초음파 화면(F2·F7, 초안, Stage 9 전) · 2026-11-20 12.11 Stage 9 꼭 고칠 것 12건 반영(정답 목록·작업 소스, 단계 번호와 겹 이름, 데이터 받는 길, 설명 모드 상수·prefetch, 시험) · 2026-11-20 12.10 범위: [일시 정지] 1차로, 기구학 엔진 안내(피드백 F10, 사용자 답) · 2026-11-20 12.11 Stage 9 v2 반영(설명 모드 [다음]·일시정지, 고르기 잠금, 스캔 끄기·3D 물체·operator 제목, 버스 바꿔 달기, 시험은 실제 시간)
+상태: 확정 · 2026-11-02 (1차: 기본 골자) · 2026-11-07 사용자 사용 후 개정(11절), 결정 0044 구조(12절), 코드 대조 보완·다른 기기 보기(12절, 결정 0047) · 2026-11-12 숫자 입력(12.7 초안, 결정 0055) · 2026-11-13 MuJoCo(12.8, M4) · 2026-11-14 12.8 확정 · 2026-11-16 학습 화면(12.10 초안, 결정 0066) · 2026-11-16 밤 12.10 Stage 9 (나) 반영 · 2026-11-19 12.10 ③ 학습 배치·[다음 배치]·판정을 1차로(결정 0073, #487), 시작 화면 실행 파일 이름(REQ-095) · 2026-11-20 12.11 작업 공간 인식 흐름과 초음파 화면(F2·F7, 초안, Stage 9 전) · 2026-11-20 12.11 Stage 9 꼭 고칠 것 12건 반영(정답 목록·작업 소스, 단계 번호와 겹 이름, 데이터 받는 길, 설명 모드 상수·prefetch, 시험) · 2026-11-20 12.10 범위: [일시 정지] 1차로, 기구학 엔진 안내(피드백 F10, 사용자 답) · 2026-11-20 12.11 Stage 9 v2 반영(설명 모드 [다음]·일시정지, 고르기 잠금, 스캔 끄기·3D 물체·operator 제목, 버스 바꿔 달기, 시험은 실제 시간) · 2026-11-20 12.11 Stage 9 v3 반영(pace 고리·paused·실행마다 다시 넣기, 실물 포트, 구현 근거)
 
 근거 결정: `decisions/0020`(API 동결과 GUI 첫 작업), `0023`(NiceGUI 앱 틀 + Viser 3D, 센서별 화면), `0024`(GUI 세션과 팔 세션 분리, 요청서), `0025`(화면 확인과 디자인 기준. 0022 디자인 도구를 대체), `0026`(E-STOP 감시 프로세스), `0027`(팔 파일과 local.yaml, doctor), `0030`(블랙박스 기록), `0031`(XY 복귀 허용, 포트 빠짐 시험), `0034`·`0038`(초음파 레이더 + 팔 확인, 모드 하나). 팀 검토(2026-11-02): 기본 골자를 먼저 만들고 기능은 나중에 붙일 수 있게 확장성을 둔다. 화면 구성의 모티브는 PIPER Studio(WeGo-Robotics/wego-piper-web)이다.
 
@@ -504,22 +504,24 @@ G0~G4가 기본 골자의 핵심이다. G12~G16은 11절의 1차다. 막히는 R
 1. 시점 화면: 관절 하나를 30° 넘게 움직인 전·후에 두 카메라 칸 그림의 픽셀 차이 평균이 0보다 크다. 기구학 엔진에서는 안내 문장이 보인다.
 2. 정책 실행 화면: `render`가 없는 드라이버면 버튼이 없다. 가짜 정책(늘 홈 자세를 내는 것, `PolicyRunner(policy=…)`)으로 [시작] → [정지]가 되고 `ARM-POLICY-START`·`ARM-POLICY-STOP`이 남는다.
 
-### 12.11 작업 공간 인식 흐름과 초음파 화면 (피드백 F2·F7, 2026-11-20, 초안: 재검토 통과 뒤 구현)
+### 12.11 작업 공간 인식 흐름과 초음파 화면 (피드백 F2·F7, 2026-11-20, Stage 9 v3 반영: 구현 근거)
 사용자 피드백 F2·F7(`feedback-1120-plan.md`, 이 문서 10절·`features.md`의 F 번호와 다르다)이다. 데이터·이벤트·멈춤 고리·이름 정의는 `ultrasonic-spec.md` 8.9다. 지금은 작업 공간이 수동 소스뿐이라 물체가 처음부터 놓여 있고 [스캔]이 바로 다 찾는다. 바꾸면 같은 화면 한 곳에서 흐름 단계 다섯이 보인다: ① 레이더 회전·원자료 ② 거르기·예상 범위 ③ 팔 확인 ④ 좁히기·위치 ⑤ 집기. 원 번호는 이 흐름 단계에만 쓰고, 초음파 화면의 겹은 이름으로 쓴다.
 
 **작업 공간 위 줄**(실행 중에는 못 바꾼다)
 - 인식: [수동 | 초음파(가상) | 초음파(실물)]. 바꾸면 페이지가 `await run.io_bound(backend.select_perception, kind)`를 부른다.
   - 초음파(가상)은 실물 팔이 없을 때만 켜진다. 고르면 확인 창 뒤 팔이 대기 자세로 가서 기준값을 잰다(기준값 3바퀴 약 4.4초 + 대기 자세 이동). 그동안 `move_lock()`이 "기준값 재는 중"을 돌려주어 조그·작업 시작·스캔이 막힌다. `radar_clear`가 실패하거나 예외가 나면 수동으로 돌아가고 이유를 알린다.
-  - 초음파(실물)은 ESP32 페이지에서 연결한 실제 포트(`board_of(backend).port`, 가상 포트가 아님)가 있을 때만 켜진다. 고르면 ESP32 페이지 연결을 닫고 그 포트로 연다. 기준값 파일이 없으면 막고 [기준값 재기]를 안내한다.
+  - 초음파(실물)은 ESP32 페이지에서 연결한 실제 포트(`board_of(backend).port`, 가상 포트가 아님)가 있을 때만 켜진다. 켜는 조건은 `board.connected`이고 가상 포트가 아닐 때다. 고르면 ESP32 페이지 연결을 닫고 그 포트로 연다. 초음파(실물)가 작업 소스인 동안 ESP32 페이지의 [연결]을 끄고 "작업 공간 초음파(실물)가 사용 중"이라고 보인다. 기준값 파일이 없으면 막고 `radar_check --port <포트> calibrate`로 재라고 안내한다(GUI 실물 기준값 버튼은 만들지 않는다). 소스를 바꿀 때 앞 소스가 수동이 아니면 `close()`한다.
   - 초음파(가상)에서 수동 물체 목록의 제목은 "가상 작업대에 놓인 물체(정답)"으로 바뀐다. 목록 편집은 지금처럼 된다(정답 목록은 늘 `backend.source`). 목록을 고치면 가상 작업대(`src.esp.boxes`)도 다시 채운다. 실행을 시작할 때는 다시 채우지 않는다(집혀 빠진 물체가 되살아나지 않게).
   - 초음파 소스에서는 [스캔]을 끈다(작업 실행으로만 본다).
   - operator 화면 제목의 "인식: …"은 `perception_source`를 읽는다.
 - 모드: [빠른 | 설명]. 백엔드는 `backend.explain: bool`로 안다.
   - 빠른 모드: 지금처럼 쉬지 않는다. 단계 실행([한 단계])은 지금처럼 상태마다 멈춘다(`step_mode=True`).
-  - 설명 모드: `start_task`가 `studio.task.pace`와 `studio.task.prefetch_enabled = False`를 넣고 `studio.start(step_mode=False)`를 부른다. 흐름 단계마다 멈추고 캡션을 띄운다. prefetch를 끄는 것은 다음 SCAN의 레이더 회전이 실시간으로 보이게 하려는 것이다.
-  - 설명 모드 자동 실행: `pace`가 2초 쉰다.
+  - 실행마다 다시 넣기: `TaskRunner`는 Studio를 만들 때 한 번만 생기므로 `start_task`가 실행마다 `studio.task.pace`와 `studio.task.prefetch_enabled`를 넣는다. 빠른 모드는 아무것도 하지 않는 함수와 `True`, 설명 모드는 아래 고리와 `False`다.
+  - 설명 모드: `studio.start(step_mode=False)`로 시작한다. 흐름 단계마다 멈추고 캡션을 띄운다. prefetch를 끄는 것은 다음 SCAN의 레이더 회전이 실시간으로 보이게 하려는 것이다.
+  - `pace` 고리는 `gui/backend.py`가 만든다(runner는 부르기만 한다, `ultrasonic-spec.md` 8.9 "기다리기"). 들어올 때 `Studio._step.clear()`를 하고, 0.1초마다 정지와 `backend.paused`를 다시 읽는다. `paused`가 참이면 [다음]을 기다리고, 거짓이면 `EXPLAIN_PAUSE_S`(2초) 뒤 돌아온다.
+  - 설명 모드 자동 실행: `paused = False`라 2초씩 쉰다.
   - 설명 모드 단계 실행: `backend.paused = True`로 두어 [한 단계] 버튼이 실행 중에도 켜져 있게 하고, 버튼 글자를 [다음]으로 바꾼다. 누르면 `step_task()`가 `studio.step()`을 부르고, `pace`의 `Studio._step` 대기가 풀린다.
-  - 설명 모드의 [일시정지]는 `pace`를 2초 쉬기에서 [다음] 대기로 바꾸고, [계속]은 되돌린다. `studio.pause()`는 부르지 않는다(`step_mode`가 다시 켜져 `pace`와 겹친다).
+  - 설명 모드의 [일시정지]·[계속](`toggle_pause`)은 `backend.paused`만 뒤집는다(2초 쉬기 ↔ [다음] 대기). `studio.pause()`·`resume()`은 부르지 않는다(`step_mode`가 다시 켜져 `pace`와 겹친다).
   - 설명 모드 속도(`gui/backend.py` 상수 `EXPLAIN_SPEED_PCT = 30`, `EXPLAIN_PAUSE_S = 2.0`):
     - 설명 모드로 시작할 때만 `start_task`가 지금 속도를 `self._speed_before`에 두고 `set_speed(EXPLAIN_SPEED_PCT)`한다.
     - `_on_task`가 DONE·STOPPED·FAULT를 받으면 되돌린다. 실행 중 사용자가 속도를 바꾸면 그 값을 되돌릴 값으로 삼는다.
@@ -553,7 +555,7 @@ G0~G4가 기본 골자의 핵심이다. G12~G16은 11절의 1차다. 막히는 R
   1. `self.perception_source.bus = self.studio.bus`를 넣는다(`_begin_checkable`은 버스가 None일 때만 넣으므로, 재연결·다시 고르기 때 옛 버스로 나가는 것을 막는다).
   2. `us_log.clear()` 뒤 새 버스에 attach한다. EventBus에는 구독 해제가 없으므로 Studio를 다시 만들 때마다 새 버스에 붙인다.
   3. `set_baseline(src.baseline.d)`를 부른다. 기준값은 소스를 만들 때 버스 없이 재므로 이벤트로 오지 않는다. 실물이면 소스를 고를 때 `src.baseline = radar.Baseline.load(src.baseline_path)`로 먼저 읽어 두었다(`ultrasonic-spec.md` 8.9).
-- `UltrasonicLog`의 모듈 상수 `TOPICS`에 `us.sweep_progress`·`us.check_estimate`를 더한다. 필드도 더한다: `passes`(이번 실행의 바퀴 목록), `progress`(이번 바퀴의 진행 값), `estimates`(후보 id → 단계별 `us.check_estimate` 목록), `runs`(지난 실행 하나). `on_event`는 예외를 내지 않는다(콜백 예외가 작업 스레드로 올라간다).
+- `UltrasonicLog`의 모듈 상수 `TOPICS`에 `us.sweep_progress`·`us.check_estimate`를 더한다. 필드도 더한다: `passes`(이번 실행의 바퀴 목록), `progress`(이번 바퀴의 진행 값), `estimates`(후보 id → 단계별 `us.check_estimate` 목록. 이벤트의 `id`로 묶고, 값이 None인 키도 늘 있다), `runs`(지난 실행 하나). `on_event`는 예외를 내지 않는다(콜백 예외가 작업 스레드로 올라간다).
 - 작업 공간 3D, `mini_view`, 초음파 화면은 모두 `snapshot()`만 읽는다(타이머: 작업 공간 0.2초, 초음파 화면 0.25초, `mini_view` 0.5초). `us.*`는 작업 스레드에서 나오므로, 버스 콜백에서 Viser·NiceGUI를 바로 부르지 않는다.
 - 소스가 수동이면 지금 Demo 로그를 읽는다.
 
@@ -581,4 +583,4 @@ G0~G4가 기본 골자의 핵심이다. G12~G16은 11절의 1차다. 막히는 R
 - 겹 고르기: `radar_overlay(cfg, snap, …, layers={"바닥 원자료"})` 단위 시험으로 SVG에 원자료 점만 있는지 본다.
 - 화면 비교 `tests/gui_visual`: 작업 공간(초음파(가상), 설명 모드 단계 실행의 `pace("check", "L34")`에서 멈춘 뒤)과 초음파 화면 한 장씩.
 
-**고칠 파일(GUI 세션)**: `gui/backend.py`(`perception_source`, `select_perception`, `_us_building`·`move_lock`, `explain`·`paused`·`pace`·속도 되돌리기, `us_log`와 버스 바꿔 달기, 상수), `gui/pages/workspace.py`(위 줄, [다음] 글자, 캡션, [스캔] 끄기), `gui/scene3d.py`(`/recognition/` 겹, 레이더 머리 spin 핸들), `gui/sensors/ultrasonic_view.py`(`UltrasonicLog` 필드·TOPICS, `radar_overlay` 겹 인자, `demo_boxes` 높이, 타임라인), `gui/pages/esp32.py`(포트 넘기기·연결 닫기), `gui/pages/operator.py`(인식 제목), `gui/theme.py`(겹 색, 캡션 크기). 순서는 `ultrasonic-spec.md` 8.9의 초음파·팔 쪽이 먼저다.
+**고칠 파일(GUI 세션)**: `gui/backend.py`(`perception_source`, `select_perception`과 앞 소스 `close()`, `_us_building`·`move_lock`, `explain`·`paused`·`pace`·속도 되돌리기, `us_log`와 버스 바꿔 달기, 상수), `gui/pages/workspace.py`(위 줄, [다음] 글자, 캡션, [스캔] 끄기), `gui/scene3d.py`(`/recognition/` 겹, 레이더 머리 spin 핸들), `gui/sensors/ultrasonic_view.py`(`UltrasonicLog` 필드·TOPICS, `radar_overlay` 겹 인자, `demo_boxes` 높이, 타임라인), `gui/pages/esp32.py`(포트 넘기기·연결 닫기, 실물 사용 중 [연결] 끔), `gui/pages/operator.py`(인식 제목), `gui/theme.py`(겹 색, 캡션 크기). 순서는 `ultrasonic-spec.md` 8.9의 초음파·팔 쪽이 먼저다.
