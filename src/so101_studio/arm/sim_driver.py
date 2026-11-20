@@ -70,10 +70,12 @@ def make_sim_driver(cfg, ws, scene=None, scenario=None, viewer=False):
 
 
 class SimDriver:
-    def __init__(self, home: list[float] | None = None, grip_block: float | None = None):
+    def __init__(self, home: list[float] | None = None, grip_block: float | None = None, object_grip: bool = False):
         self._q = JointState(*(home or [0.0] * 6))
         self._torque = False
         self.grip_block = grip_block  # 물체가 있는 것처럼 그리퍼가 이 값 아래로는 닫히지 않는다 (시험용)
+        self.object_grip = object_grip  # True면 집기가 알려 준 물체 폭(expect_grip)에서 그리퍼가 멈춘다(GUI 기구학 엔진: 쥔 물체를 손끝에 그린다, REQ-114). grip_block이 있으면 그것이 먼저
+        self._expected: float | None = None
         self.connected = False
         self.acceleration = 10
         self.simulated = True
@@ -94,9 +96,14 @@ class SimDriver:
     def read_joints(self) -> JointState:
         return replace(self._q)
 
+    def expect_grip(self, value: float | None) -> None:
+        """집기가 닫기 전에 그 물체 폭의 그리퍼 값을 알려 준다(None = 비움). object_grip일 때만 막힘을 흉내 낸다."""
+        self._expected = value
+
     def write_joints(self, q: JointState) -> None:
-        if self.grip_block is not None and q.gripper < self.grip_block:
-            q = replace(q, gripper=self.grip_block)
+        block = self.grip_block if self.grip_block is not None else (self._expected if self.object_grip else None)
+        if block is not None and q.gripper < block:
+            q = replace(q, gripper=block)
         self._q = replace(q)
 
     def read_health(self) -> dict:
