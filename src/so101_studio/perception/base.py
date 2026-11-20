@@ -25,6 +25,7 @@ class PathSegment:  # 작업대 좌표, 손끝은 수직 아래 (ultrasonic-spec
     tool_z_mm: float  # 작업대 면 위 손끝 높이
     speed_mm_s: float  # 실제 속도 = min(이 값, tool_v_max_mm_s × 속도%)
     yaw_deg: float | None = None  # 경로 동안 고정할 손목 각도. None = 지금 값 유지
+    stage: str | None = None  # 확인 단계 이름(L1·L2·R·L34·L3·L4·GRID, check.Probe가 채운다). 작업 실행의 멈춤 고리(pace)가 본다(ultrasonic-spec 8.9)
 
 
 @dataclass

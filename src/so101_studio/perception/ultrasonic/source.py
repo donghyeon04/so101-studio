@@ -1,5 +1,5 @@
 """UltrasonicSource: PerceptionSource + 확인 기능(CheckableSource). 레이더로 후보를 찾고, 팔 확인(check.py)으로 확정한다.
-이벤트(Studio.bus): us.sweep(한 방향 회전마다), us.candidates, us.check_path(구간·점), us.check_result."""
+이벤트(Studio.bus): us.sweep_progress(회전 중 100ms마다), us.sweep(한 방향 회전마다), us.candidates, us.check_path(구간·점), us.check_estimate(확인 단계마다), us.check_result."""
 import dataclasses
 import json
 import math
@@ -32,6 +32,7 @@ class UltrasonicSource:
         self.baseline: radar.Baseline | None = None
         self.ignore_zones = list(ignore_zones)  # (x, y, 반경): 배출 구역처럼 후보에서 뺄 곳
         self._passes: list[radar.Pass] = []
+        self._total, self._dir, self._prog_i, self._prog_t, self._servo_deg = 0, 1, 0, 0, None  # us.sweep_progress(_start_sweep가 다시 정한다)
         self._cur: list = []
         self._cur_shift: dict = {}
         self._arm_buf: list = []  # (t_ns, d)
@@ -96,8 +97,7 @@ class UltrasonicSource:
             self._passes = first + self._passes
             objs, raw = self._candidates()
         if self.bus:
-            self.bus.publish("us.candidates", {"objects": [dataclasses.asdict(o) for o in objs], "arcs": raw["arcs"],
-                                               "masked": raw["masked"]})
+            self.bus.publish("us.candidates", self._candidates_event(objs, raw))
         self._record_scan("scan", objs, raw)
         return ScanResult(objs, (self.clock.now_ns() - t0) / 1e9, raw)
 
@@ -111,10 +111,16 @@ class UltrasonicSource:
         self._run_passes(self.cfg.radar.prefetch_sweeps)
         objs, raw = self._candidates()
         if self.bus:
-            self.bus.publish("us.candidates", {"objects": [dataclasses.asdict(o) for o in objs], "arcs": raw["arcs"],
-                                               "masked": raw["masked"], "rescan": True})
+            self.bus.publish("us.candidates", {**self._candidates_event(objs, raw), "rescan": True})
         self._record_scan("rescan", objs, raw)
         return ScanResult(objs, (self.clock.now_ns() - t0) / 1e9, raw)
+
+    def _candidates_event(self, objs, raw) -> dict:
+        """us.candidates(8.9절): 후보마다 search_r_mm(첫 십자 직선이 닿는 반경 = line_mm/2), values = {각도: 합친 거리}(없으면 None)."""
+        r = self.cfg.check.line_mm / 2
+        vals = raw.get("values")
+        return {"objects": [{**dataclasses.asdict(o), "search_r_mm": r} for o in objs], "arcs": raw["arcs"],
+                "masked": raw["masked"], "values": dict(vals) if vals is not None else None}
 
     @property
     def give_up(self) -> bool:
@@ -255,15 +261,20 @@ class UltrasonicSource:
             t = m.get("t")
             if t == "r":
                 self._cur.append((m["t_ns"], m["a"], m["d"]))
+                self._servo_deg = m.get("ang", m["a"])
                 if "ang" in m:
                     self._cur_shift.setdefault(m["a"], []).append(m["ang"] - m["a"])
+                if self.clock.now_ns() - self._prog_t > 100_000_000:
+                    self._progress()
             elif t == "end":
+                self._progress()  # 남은 값을 먼저 내고 us.sweep
+                self._dir = -self._dir if self.cfg.radar.sweep.bounce else 1
                 self._passes.append(radar.Pass(m["dir"], self._cur, {a: sum(v) / len(v) for a, v in self._cur_shift.items()} or None))
                 if self.bus:
                     self.bus.publish("us.sweep", {"pass": len(self._passes), "dir": m["dir"], "t_ns": m["t_ns"],
                                                   "angles": [a for _, a, _ in self._cur],
                                                   "d": [d for _, _, d in self._cur]})
-                self._cur, self._cur_shift = [], {}
+                self._cur, self._cur_shift, self._prog_i = [], {}, 0
             elif t == "a":
                 self._arm_buf.append((m["t_ns"], m["d"]))
                 if self.record_dir and self._checking:
@@ -281,9 +292,21 @@ class UltrasonicSource:
                 raise UltrasonicLinkError("ESP32 데이터가 시간 안에 오지 않았다")
             self.clock.sleep(0.005)
 
+    def _progress(self) -> None:
+        """us.sweep_progress(8.9절): 마지막으로 낸 뒤 들어온 r 값만 {pass, total, dir, servo_deg, t_ns, angles, d}로 낸다."""
+        self._prog_t = self.clock.now_ns()
+        new = self._cur[self._prog_i:]
+        if not new or not self.bus:
+            return
+        self._prog_i = len(self._cur)
+        self.bus.publish("us.sweep_progress", {"pass": len(self._passes) + 1, "total": self._total, "dir": self._dir,
+                                               "servo_deg": self._servo_deg, "t_ns": new[-1][0],
+                                               "angles": [a for _, a, _ in new], "d": [d for _, _, d in new]})
+
     def _start_sweep(self, n: int) -> None:
         self._service()
         self._passes, self._cur, self._cur_shift = [], [], {}
+        self._total, self._dir, self._prog_i, self._prog_t = n, 1, 0, self.clock.now_ns()  # us.sweep_progress 셈
         s = self.cfg.radar.sweep
         self.link.send(cmd="sweep", sweeps=n, max_mm=self.cfg.radar.max_mm, bounce=s.bounce,
                        **{"from": s.from_deg, "to": s.to_deg, "step": s.step_deg})
