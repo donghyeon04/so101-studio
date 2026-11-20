@@ -1,6 +1,6 @@
 # 로봇팔 소프트웨어 설계서
 
-상태: 확정 · 갱신 2026-11-02 · 2026-11-14 13절을 mujoco-spec.md로 옮김 · 11.3 놓기 동작 모양 2026-11-07, 대칭 V자 개정 2026-11-10, 상승 최소·상자 폭·높이 모름 집기 2026-11-11, 13 MuJoCo 2026-11-11 · 2026-11-13 drift-report(main ec9fd73) 반영, 막힘 감지 문턱 속도별(결정 0061, 11-14), MuJoCo 시험장 계획(13.10 초안, 11-14), 집기 기울기 기본값 equal_tips(결정 0060), 막힘 감지(결정 0059, 6.5), M4 GUI는 `gui-spec.md` 12.8(13절 M4 부분은 초안, gui-spec 12.8과 함께 확정) · 2026-11-16 6.10 정책 실행(결정 0066, 초안) · 2026-11-16 밤 6.10 Stage 9 (나) 반영 · 2026-11-17 6.6 쥠 확인(닫힌 폭이 벌린 폭 − `grip_min_close_mm`보다 넓으면 `no_object`, M5 거짓 성공) · 2026-11-18 6.6.1 접근 각도 후보 고르기(결정 0069, 초안) · 2026-11-18 6.6.1 Stage 9 반영(11.3.3·11.3.5 함께) · 2026-11-18 6.6.1 wrist_roll 보정 부호(90° − φ)·FK 확인 결과(#444) · 2026-11-18 11.3.5 통 구역(결정 0067) · 2026-11-20 기본 그리퍼 `parallel`(7.1 그리퍼 종류 고르기, 결정 0063 앞당김) · 2026-11-20 11.3.5 놓기 반경 상한(병렬 약 220, 칸 격자를 다시 쓸 때)
+상태: 확정 · 갱신 2026-11-02 · 2026-11-14 13절을 mujoco-spec.md로 옮김 · 11.3 놓기 동작 모양 2026-11-07, 대칭 V자 개정 2026-11-10, 상승 최소·상자 폭·높이 모름 집기 2026-11-11, 13 MuJoCo 2026-11-11 · 2026-11-13 drift-report(main ec9fd73) 반영, 막힘 감지 문턱 속도별(결정 0061, 11-14), MuJoCo 시험장 계획(13.10 초안, 11-14), 집기 기울기 기본값 equal_tips(결정 0060), 막힘 감지(결정 0059, 6.5), M4 GUI는 `gui-spec.md` 12.8(13절 M4 부분은 초안, gui-spec 12.8과 함께 확정) · 2026-11-16 6.10 정책 실행(결정 0066, 초안) · 2026-11-16 밤 6.10 Stage 9 (나) 반영 · 2026-11-17 6.6 쥠 확인(닫힌 폭이 벌린 폭 − `grip_min_close_mm`보다 넓으면 `no_object`, M5 거짓 성공) · 2026-11-18 6.6.1 접근 각도 후보 고르기(결정 0069, 초안) · 2026-11-18 6.6.1 Stage 9 반영(11.3.3·11.3.5 함께) · 2026-11-18 6.6.1 wrist_roll 보정 부호(90° − φ)·FK 확인 결과(#444) · 2026-11-18 11.3.5 통 구역(결정 0067) · 2026-11-20 기본 그리퍼 `parallel`(7.1 그리퍼 종류 고르기, 결정 0063 앞당김) · 2026-11-20 11.3.5 놓기 반경 상한(병렬 약 220, 칸 격자를 다시 쓸 때) · 2026-11-20 7.1 그리퍼별 캘리브레이션(피드백 F8, 사용자 승인)
 
 로컬 개발 세션이 이 문서만 보고 팔 모듈을 구현할 수 있도록, 구조·인터페이스·출력값·작업 순서를 정한다. 범위는 개발 0~2단계(구동 점검, 동작 라이브러리, 작업 공간 확정)다. 인식 모듈과 GUI는 팔 모듈과 맞닿는 인터페이스만 정한다.
 
@@ -422,14 +422,23 @@ GUI에서 점 찍기는 `point_pose` → `preview_tool` → `move_tool` 순서�
 | 파일 | 내용 | git |
 |---|---|---|
 | `config/robot.yaml` | 모든 SO-101 공통 기본값(속도, 궤적, 집기 방식, 교시, 자세) | 올림 |
-| `config/arms/<팔 이름>.yaml` | 팔별 값: `board_serial`, `calibration_id`, `joint_offsets_deg`, `joint_limits_deg`, `physical_limits_deg`, `table_z_mm`, `gripper_width_mm`, `grasp_bias_mm`, 잰 날짜 | 올림. 새 팔은 `arms/_template.yaml`을 복사 |
+| `config/arms/<팔 이름>.yaml` | 팔별 값: `board_serial`, `calibration_id`(그리퍼별이면 `calibration_id_by_gripper`), `joint_offsets_deg`, `joint_limits_deg`, `physical_limits_deg`, `table_z_mm`, `gripper_width_mm`, `grasp_bias_mm`, 잰 날짜 | 올림. 새 팔은 `arms/_template.yaml`을 복사 |
 | `config/grippers/<종류>.yaml` | 그리퍼 종류별 값(폭 대응표, 조임 값 등). 팔 파일의 폭 표·조임 값은 단동식을 잰 것이라, 다른 종류에서는 이 파일이 이긴다 | 올림 |
 | `config/local.yaml` | PC별 값: `port`, `arm`, `gripper`, 그 밖에 이 PC에서만 덮을 값 | 제외(`.gitignore`). `local.example.yaml`을 올림 |
-| `config/calibration/<calibration_id>.json` | LeRobot 캘리브레이션 | 올림(지금과 같음) |
+| `config/calibration/<calibration_id>.json` | LeRobot 캘리브레이션. 그리퍼별 파일은 아래 "그리퍼별 캘리브레이션" | 올림(지금과 같음) |
 | 그 밖 | `workspace.yaml`(작업대·배출 구역), `scene.yaml`(장면 부품), `manual_objects.yaml`(수동 입력 물체), `sim_scenarios/`(MuJoCo 시나리오, 13.5), `ultrasonic.yaml`(초음파), `presets/`(파라미터 프리셋, 6.9.1), `sequences/`(교시) | 올림 |
 
 - 읽는 순서는 `robot.yaml` → 팔 파일 → `grippers/<종류>.yaml` → `local.yaml`이고, 뒤가 앞을 덮는다(키 단위로 통째로). `local.yaml`이 없으면 지금과 똑같이 동작해야 한다.
 - 그리퍼 종류 고르기: `local.yaml`의 `gripper` → 팔 파일의 `gripper` → `robot.yaml` → 기본값. 기본값은 `parallel`이다(2026-11-20 사용자 지시로 U5 교체 전에 앞당김, REQ-098. 그 전에는 `single_jaw`). 아직 단동식이 달린 실물 팔은 `local.yaml`에 `gripper: single_jaw`를 적는다. 모르는 종류면 ValueError다. 종류는 다시 연결(재시작)해야 바뀐다.
+- **그리퍼별 캘리브레이션**(피드백 F8, 2026-11-20 사용자 승인. `feedback-1120-plan.md`): 그리퍼 서보(6)의 범위·영점은 그리퍼마다 다르다. 그래서 캘리브레이션 파일을 그리퍼별로 둔다.
+  - 키: 팔 파일에 `calibration_id_by_gripper: {single_jaw: so101_follower_01, parallel: so101_follower_01_parallel}`. 없거나 지금 그리퍼가 표에 없으면 지금처럼 `calibration_id` 하나를 쓴다.
+  - 고르기: `load_robot`이 그리퍼 종류를 정한 뒤 `cfg.calibration_id`를 이 표로 바꾼다. 그 뒤로는 모든 곳이 `cfg.calibration_id`만 본다: 드라이버 연결(`SO101FollowerConfig(id=…)`, LeRobot 캐시 `<id>.json`), `doctor` 대조, `calibrate --auto --measure-only`·`--save`의 측정 묶음과 저장 파일, `calibrate --verify-zero`.
+  - 파일 위치: 지금처럼 `config/calibration/<id>.json`이고 파일 하나에 서보 1~6이 다 있다(LeRobot 형식 그대로). 기존 `so101_follower_01.json`은 단동식 것으로 그대로 둔다. 병렬 파일은 구현 PR이 기존 파일을 복사해 만들고, 서보 6은 로보나인 교체(U5) 뒤 runbook 2-10 "캘리브레이션 그리퍼 범위 다시"로 잰 값으로 바꾼다. 그 전까지 병렬 파일은 확인 안 됨이다(아래 잠금).
+  - 잠금 대조: `calibration_checked`를 id별로 둔다(`{<id>: {date, sha256}}`). 옛 형식(`{date, sha256}` 하나)은 `calibration_id`의 기록으로 읽는다. 지금 그리퍼 id의 기록이 없거나 해시가 다를 때, 또는 서보 EEPROM 값이 고른 파일과 다를 때 움직이는 명령은 지금 규칙대로 `locked`다. 그리퍼를 바꾸면 EEPROM의 서보 6 값이 고른 파일과 달라 잠기고, 그 그리퍼 파일로 `calibrate --save`를 하면 풀린다. 실물 EEPROM 쓰기는 사람이 실물 앞에서 한다(CLAUDE.md 캘리브레이션 절).
+  - 관절 1~5를 다시 재서 `--save`하면 같은 팔의 다른 그리퍼 파일도 서보 1~5를 같은 값으로 고친다(파일마다 `.bak.json`을 남기고, 그 id들의 `calibration_checked`는 지운다).
+  - 관절 한계의 `gripper` 값(`joint_limits_deg`, `physical_limits_deg`)은 0~100 눈금이라 그대로 둔다(범위는 파일이 정한다).
+  - `doctor`와 GUI 캘리브레이션 마법사는 지금 그리퍼와 고른 파일 이름을 보인다. 그리퍼 바꾸기는 지금처럼 장치 › 팔(다시 시작)이다.
+  - 시험: 표가 있는 팔 파일 + `gripper: parallel`이면 `cfg.calibration_id`가 `…_parallel`, 표가 없으면 그대로, 옛 `calibration_checked` 형식을 읽는다, `--save`가 다른 그리퍼 파일의 1~5를 고친다(임시 폴더).
 - 팔 고르기: `--arm` → `local.yaml`의 `arm` → 보드 시리얼이 같은 팔 파일 → 팔 파일이 하나뿐이면 그것 → 못 고르면 멈추고 묻는다.
 - 포트 고르기: `--port` → `local.yaml`의 `port` → VID·PID와 시리얼로 자동 → 여러 개면 묻는다 → 못 찾으면 `so101 find-port`(USB를 뺐다 꽂아 전후 목록 비교, LeRobot 방식).
 - 안전: 보드 시리얼은 맞는데 서보 캘리브레이션 값이 팔 파일과 다르면 움직이는 명령을 막는다(읽기만). 팔 파일이 없는 새 팔도 같다.
