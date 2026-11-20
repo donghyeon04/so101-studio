@@ -186,6 +186,8 @@ class Scene3D:
         self._objects_root = None
         self._sim_root = None  # MuJoCo 물리 물체(gui-spec 12.8). 계획 쪽 /objects와 따로 둔다
         self._sim_nodes: dict = {}  # 이름 -> (상자 노드, 지금 색, 크기 mm)
+        self._held_id: str | None = None  # 기구학 엔진에서 손끝을 따라 그리는 쥔 물체(F3)
+        self._held_node = self._held_last = None
         self.plan_opacity = 1.0  # MuJoCo면 Backend가 0.4로 둔다: 계획 물체는 흐리게, 물리 물체는 진하게
         marks = scene.add_frame("/marks", show_axes=False)
         parts = scene.add_frame("/parts", show_axes=False)
@@ -286,17 +288,46 @@ class Scene3D:
                 node.visible = visible
 
     def set_objects(self, objects, chosen: str | None = None) -> None:
-        """물체 목록을 다시 그린다. objects는 DetectedObject들이고, chosen은 강조한다."""
+        """물체 목록을 다시 그린다. objects는 DetectedObject들이고, chosen은 강조한다. 쥐고 있는 물체는 손끝 쪽(show_held)에만 그린다."""
         scene = self.server.scene
+        held_id = self._held_id
         with self.server.atomic():
             scene.remove_by_name("/objects")
             self._objects_root = scene.add_frame("/objects", show_axes=False, visible=self.layers["objects"])
-            for o in objects:
+            for o in (o for o in objects if o.id != held_id):
                 scene.add_box(
                     f"/objects/{o.id}", color=theme.rgb(theme.ACCENT if o.id == chosen else theme.MUTED),
                     dimensions=(o.length_mm / 1000, o.width_mm / 1000, OBJECT_H_M),
                     position=(o.x_mm / 1000, o.y_mm / 1000, OBJECT_H_M / 2), wxyz=_yaw(o.angle_deg or 0.0), opacity=self.plan_opacity,
                 )
+
+    def show_held(self, obj, center_mm, yaw_deg: float) -> None:
+        """기구학 엔진에서 쥔 물체를 손끝을 따라 그린다(피드백 F3, REQ-106). center_mm = 작업대 좌표 물체 중심. 원래 자리 상자는 숨긴다."""
+        scene = self.server.scene
+        h = (obj.height_mm or OBJECT_H_M * 1000) / 1000
+        if self._held_id != obj.id:
+            self._held_id = obj.id
+            scene.remove_by_name(f"/objects/{obj.id}")
+            self._held_node = scene.add_box("/held", color=theme.rgb(theme.ACCENT), dimensions=(obj.length_mm / 1000, obj.width_mm / 1000, h),
+                                            position=tuple(v / 1000 for v in center_mm), wxyz=_yaw(yaw_deg), visible=self.layers["objects"])
+        else:
+            self._held_node.position, self._held_node.wxyz = tuple(v / 1000 for v in center_mm), _yaw(yaw_deg)
+        self._held_last = (obj, center_mm, yaw_deg)
+
+    def drop_held(self) -> None:
+        """놓았다: 손끝을 따라오던 상자를 그 자리 바닥(작업대 면)에 내려 둔다. [처음 물체로]까지 남는다."""
+        if self._held_id is None:
+            return
+        scene = self.server.scene
+        obj, (x, y, _z), yaw = self._held_last
+        h = (obj.height_mm or OBJECT_H_M * 1000) / 1000
+        scene.remove_by_name("/held")
+        scene.add_box(f"/placed/{obj.id}", color=theme.rgb(theme.MUTED), dimensions=(obj.length_mm / 1000, obj.width_mm / 1000, h),
+                      position=(x / 1000, y / 1000, h / 2), wxyz=_yaw(yaw), visible=self.layers["objects"])
+        self._held_id = None
+
+    def clear_placed(self) -> None:
+        self.server.scene.remove_by_name("/placed")
 
     def set_sim_objects(self, objects: dict, held: str | None) -> None:
         """MuJoCo 물리 물체(sim_state()의 objects, gui-spec 12.8). 상자는 처음 한 번 만들고 뒤로는 자리·방향·색만 바꾼다. 기울기는 그리지 않는다.

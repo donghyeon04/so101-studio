@@ -220,3 +220,32 @@ def test_saved_workspace_is_redrawn_without_restart(backend3d):
     finally:
         scene.set_workspace(ws)
     assert tuple(scene._real_root.position) == pytest.approx(before)
+
+
+def test_held_box_follows_the_tool_and_is_left_where_dropped(backend, monkeypatch):
+    """피드백 F3: 기구학 엔진에서 쥔 물체(ArmService.held)는 원래 자리 상자를 숨기고 손끝을 따라 그린다. 비면 그 자리 면 위에 내려 둔다."""
+    from types import SimpleNamespace
+
+    obj = backend.objects()[0]
+    handles = backend.scene.server.scene._handle_from_node_name
+    held = {"object": obj, "obj_in_tool_mm": [0.0, 0.0, -20.0], "obj_yaw_in_tool_deg": 0.0}
+    monkeypatch.setattr(type(backend.sim), "held", property(lambda self: held_box[0]))
+    held_box = [held]
+    status = SimpleNamespace(joints=backend.sim.status().joints)
+    try:
+        backend._on_held(status)
+        assert "/held" in handles and f"/objects/{obj.id}" not in handles
+        backend._changed_objects()  # 목록을 다시 그려도 쥔 물체는 원래 자리에 다시 나타나지 않는다
+        assert f"/objects/{obj.id}" not in handles
+        tool = backend.sim.kin.fk(status.joints)
+        want = np.array([tool.x_mm, tool.y_mm, tool.z_mm]) + backend.sim.kin.tool_axes(status.joints) @ np.array([0.0, 0.0, -20.0])  # 손끝 축 기준
+        assert np.asarray(handles["/held"].position) * 1000 == pytest.approx(want, abs=1.0)
+        held_box[0] = None
+        backend._on_held(status)
+        assert "/held" not in handles and f"/placed/{obj.id}" in handles
+        backend.reset_objects()
+        assert f"/placed/{obj.id}" not in handles
+    finally:
+        held_box[0] = None
+        backend.scene._held_id = None
+        backend.reset_objects()

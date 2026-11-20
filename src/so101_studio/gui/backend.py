@@ -12,6 +12,8 @@ import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+import numpy as np
+
 from ..arm.kinematics import Kinematics
 from ..arm.sim_driver import SimDriver, make_sim_driver
 from ..core import logread
@@ -207,6 +209,8 @@ class Backend:
             if self._physical():
                 self.scene.plan_opacity = 0.4
                 self.sim.status_stream(self._on_sim_objects)
+            else:  # 기구학 엔진은 물리가 없다: 쥔 물체를 손끝에 붙여 그린다(피드백 F3)
+                self.sim.status_stream(self._on_held)
             self.scene.set_objects(self.objects())
             self.scene.set_parts(getattr(self.arm, "scene", None))  # 장면 부품(REQ-040). 팔이 아직 모르면 그리지 않는다
             self.arm.status_stream(self.scene.update_status)
@@ -230,6 +234,19 @@ class Backend:
 
     def physics_failed(self) -> str | None:
         return failed_reason(self.sim)
+
+    def _on_held(self, status) -> None:
+        """기구학 엔진: ArmService.held(REQ-106)가 있으면 손끝 자세 + 손끝 기준 물체 자리로 3D 상자를 옮기고, 비면 놓은 자리에 내려 둔다."""
+        held = self.sim.held
+        if self.scene is None:
+            return
+        if held is None:
+            self.scene.drop_held()
+            return
+        q = status.joints
+        tool, R = self.sim.kin.fk(q), self.sim.kin.tool_axes(q)
+        center = np.array([tool.x_mm, tool.y_mm, tool.z_mm]) + R @ np.array(held["obj_in_tool_mm"])
+        self.scene.show_held(held["object"], tuple(float(v) for v in center), tool.yaw_deg + held["obj_yaw_in_tool_deg"])
 
     def _on_sim_objects(self, _status) -> None:
         """MuJoCo 물체 자리를 3D에 옮긴다. 물리가 멈췄거나 연결 전이면 읽지 않는다."""
@@ -808,6 +825,8 @@ class Backend:
                 self.source.remove(obj.id)  # 이미 옮겨 scan에 안 보이는 물체
             self.source.add(obj)
         self.state.placed = 0
+        if self.scene:
+            self.scene.clear_placed()  # 기구학 엔진에서 놓아 둔 상자(F3)도 지운다
         self._changed_objects()
 
     # ---- 설정
