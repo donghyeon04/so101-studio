@@ -161,6 +161,7 @@ class Teach:
         path = self.dir / f"{name}.json"
         meta = self._analyze(np.array(self._rows, float), np.array(self._t, float))
         meta["recorded_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        meta["gripper"] = self.cfg.gripper  # 그리퍼 값 0~100은 그리퍼마다 폭이 달라 기록한 그리퍼를 남긴다(REQ-105, 피드백 F5)
         path.write_text(json.dumps({"hz": self.hz, "t": self._t, "joints": self._rows, "meta": meta}, ensure_ascii=False), encoding="utf-8")
         if torque_error is not None:
             raise RuntimeError(f"기록은 {path}에 저장했지만 토크를 켜지 못했다: {torque_error}") from torque_error
@@ -183,11 +184,13 @@ class Teach:
                 "added_s": round(float(t_fit[-1] - t_fit[0] - (t[-1] - t[0])), 3) if len(t) > 1 else 0.0}
 
     def info(self, name: str, speed: float = 1.0, segment_speeds: dict[int, float] | None = None) -> dict:
-        """기록의 길이·속도 요약과 구간 목록. 요약이 없는 옛 파일은 지금 계산한다. fit: 이 배율로 재생할 때 한 주기 이동량·가속 한도 안에 드는지와
+        """기록의 길이·속도 요약과 구간 목록, 기록한 그리퍼(gripper, 옛 기록은 None = 모름). 요약이 없는 옛 파일은 지금 계산한다. fit: 이 배율로 재생할 때 한 주기 이동량·가속 한도 안에 드는지와
         변환 재생(mode="fitted")이 늦추는 구간 수·늘어나는 시간(GUI가 미리 보여 준다)."""
         data = json.loads((self.dir / f"{name}.json").read_text(encoding="utf-8"))
         q, t = self.load(name)
-        info = {**self._analyze(q, t), **({"recorded_at": data["meta"]["recorded_at"]} if "meta" in data and "recorded_at" in data["meta"] else {})}
+        meta = data.get("meta", {})
+        info = {**self._analyze(q, t), **({"recorded_at": meta["recorded_at"]} if "recorded_at" in meta else {}),
+                "gripper": meta.get("gripper")}  # None = 모름(REQ-105 전 기록)
         t_play = retime(t, info["segments"], segment_speeds or {}, speed)
         info["fit"] = self.fit_report(self._clamp(smooth(q)), t_play)
         return info
