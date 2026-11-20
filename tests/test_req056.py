@@ -12,7 +12,7 @@ from so101_studio.core.config import load_robot, load_workspace
 from so101_studio.core.types import DetectedObject, MotionResult, ToolPose
 from so101_studio.service.arm_service import ArmService
 
-CFG = replace(load_robot("config/robot.yaml"), table_z_mm=LEGACY_TABLE_Z_MM)
+CFG = replace(load_robot("config/robot.yaml", gripper="single_jaw"), table_z_mm=LEGACY_TABLE_Z_MM)  # 단동식 규칙(height_required 등) 시험 (REQ-098)
 WS = load_workspace("tests/workspace_600x400.yaml")
 TABLE = sorted((mm, v) for v, mm in CFG.gripper_width_mm)
 POINT = (300.0, 200.0)

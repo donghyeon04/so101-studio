@@ -211,7 +211,7 @@ def test_source_without_check_runs_as_before():
 
 
 # ---- --sim 팔 + FakeESP32 (실제 시간으로 돈다: 레이더 회전과 팔 이동)
-CFG = replace(load_robot("config/robot.yaml"), table_z_mm=LEGACY_TABLE_Z_MM)
+CFG = replace(load_robot("config/robot.yaml", gripper="single_jaw"), table_z_mm=LEGACY_TABLE_Z_MM)  # 옛 받침·단동식 기하로 잡은 배치 (REQ-098)
 # 모서리 간격 50·55mm(설계 조건 안). 옛 배치 [(420,190,0),(330,250,90),(330,150,0)]는 간격 14·35mm라 센서 높이 154.5mm에서 이웃이 합쳐 보였다 (REQ-065)
 SPREAD = [(180, 170, 0), (330, 270, 90), (330, 150, 0)]  # 팔 원점(300, 50) 기준. 대기 자세 팔 끝(300, 269)이 레이더 정면을 가려서 가운데(방위 90°) 물체는 못 찾는다: 비켜 둔다
 

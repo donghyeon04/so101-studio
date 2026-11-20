@@ -1,5 +1,5 @@
 """초음파 인식 소스 만들기 (run --source ultrasonic, REQ-025). 인식 모듈은 팔을 모르므로 여기서 이어 준다.
---sim: 가상 ESP32(FakeESP32)가 벤치마크 배치(demo, 반경 120~220mm·간격 120mm 이상)의 물체를 작업대에 놓고, 팔 링크·센서 위치는 SimDriver가 보낸 관절 기록(PoseTrail)에서 읽는다.
+--sim: 가상 ESP32(FakeESP32)가 시연 배치(show80: 반경 150~220mm·중심 간격 120mm·모서리 80mm 이상)의 물체를 작업대에 놓고, 팔 링크·센서 위치는 SimDriver가 보낸 관절 기록(PoseTrail)에서 읽는다.
 실제: 시리얼 포트의 ESP32."""
 import math
 import random
@@ -42,7 +42,7 @@ def make_ultrasonic_source(arm, *, sim: bool, port: str | None = None, radar: di
         if port in (None, "auto"):
             raise SystemExit("초음파 포트를 모른다: --us-port COMx 로 지정한다")
         return UltrasonicSource(Link(SerialTransport(port, cfg.baud)), cfg)  # 배출 구역(ignore_zones)은 TaskRunner가 실행을 시작할 때 넘긴다 (REQ-045)
-    boxes = boxes if boxes is not None else random_layout(random.Random("demo-None-0"), "demo")  # 벤치마크 demo 배치 그대로
+    boxes = boxes if boxes is not None else random_layout(random.Random("demo-None-0"), "show80")  # 시연 배치 규칙(반경 150~220, REQ-102)
     trail, clk = PoseTrail(arm), RealClock()
     arm.trail = trail  # TaskRunner가 이 기록에 팔 자세를 남긴다
     esp = FakeESP32(clk, boxes, cfg, arm_sensor_fn=trail.sensor_at, arm_links_fn=trail.links_at)
