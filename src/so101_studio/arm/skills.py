@@ -303,10 +303,33 @@ class Skills:
             if gap < BOX_GAP_MM:
                 self.ctl._emit("home_blocked", "WARN", "ARM-HOME-BLOCKED", {"gap_mm": round(gap, 1), "box_center": [held.center.x_mm, held.center.y_mm]})
                 return MotionResult("stopped", 0.0, ToolPose(0, 0, 0, 0), reason=f"home_blocked: 방금 놓은 물체와 {gap:.1f}mm로 지나간다(간격 {BOX_GAP_MM:.0f}mm 미만). 먼저 직접 조작으로 위로 빼 주세요")
-        r = self._run([self._joint_move(goal)])
+        q0 = self._q()
+        if (why := self.ctl.safety.check_path(cfg_move_j(self.cfg, q0, goal, self.speed))) is None:
+            r = self._run([self._joint_move(goal)])
+        elif (lift := self._home_detour(q0, goal)) is None:
+            return MotionResult("stopped", 0.0, self.kin.fk(q0), reason=f"home_blocked: 홈으로 바로 가는 길이 막혔고({why}) 위로 올려 돌아가는 길도 없다. 먼저 직접 조작으로 위로 빼 주세요")
+        else:
+            traj, h = lift
+            self.ctl._emit("home_detour", "INFO", "ARM-HOME-DETOUR", {"lift_to_mm": h, "first_reason": why})
+            r = self._run([traj])
+            r = self._run([self._joint_move(goal)]) if r.status == "ok" else r
         if r.status == "ok":
             self._box_after_low_lift = None
         return r
+
+    def _home_detour(self, q0: JointState, goal: JointState):
+        """홈 바로 가기가 막혔을 때(REQ-104, 피드백 F4): 손 자세 그대로 TCP를 작업대 면 위 home_lift_mm까지 수직으로 올리고 거기서 홈으로 관절 이동.
+        올리는 직선과 그 끝에서 홈까지가 둘 다 안전 검사(check_path: 범위 밖에서 출발했으면 돌아오는 방향은 허용)를 지나는 첫 높이를 위에서부터 10mm씩 고른다.
+        (올리는 궤적, 높이 mm) 또는 None. 안전 검사는 끄지 않는다."""
+        p0 = self.kin.fk(q0)
+        for h in np.arange(self.cfg.home_lift_mm, p0.z_mm - self.cfg.table_z_mm + 10.0 - 1e-6, -10.0):
+            up = self._line(q0, replace(p0, z_mm=self.cfg.table_z_mm + float(h)))
+            if up is None or self.ctl.safety.check_path(up):
+                continue
+            q1 = up.sample(up.duration_s)
+            if self.ctl.safety.check_path(cfg_move_j(self.cfg, q1, goal, self.speed)) is None:
+                return up, float(h)
+        return None
 
     def park(self) -> MotionResult:
         return self._run([self._joint_move(JointState(*self.cfg.poses["park"]))])
