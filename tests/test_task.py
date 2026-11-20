@@ -16,7 +16,7 @@ from so101_studio.perception.manual import ManualSource
 from so101_studio.task.policy import choose, reachable
 from so101_studio.task.runner import TaskRunner
 
-CFG = load_robot("config/robot.yaml")
+CFG = load_robot("config/robot.yaml", gripper="single_jaw")  # 단동식 기하 시험 (REQ-098: 기본은 parallel)
 WS = load_workspace("tests/workspace_600x400.yaml")
 OK = MotionResult("ok", 0.0, ToolPose(0, 0, 0, 0))
 

@@ -56,7 +56,7 @@ def test_bin_walls_are_collision_parts_of_the_service_scene():
 
 @pytest.mark.slow
 def test_pick_and_drop_into_the_bin_opens_above_the_wall_and_leaves_no_placed_object():
-    cfg = load_robot("config/robot.yaml")
+    cfg = load_robot("config/robot.yaml", gripper="single_jaw")  # 단동식 기대값(연 뒤 40mm 상승). 병렬은 같은 자리에서 24mm만 오른다(REQ-102 보고)
     d, ctl, sk = rig(cfg)
     try:
         obj = DetectedObject("a", 215.0, 160.0, 0.0, 30.0, 100.0, 1.0, "manual", 40.0)  # config/manual_objects.yaml 첫 물체
@@ -79,7 +79,7 @@ def test_pick_and_drop_into_the_bin_opens_above_the_wall_and_leaves_no_placed_ob
 
 
 def test_bin_unreachable_is_ik_fail_and_keeps_the_grip():
-    _d, ctl, sk = rig(load_robot("config/robot.yaml"))
+    _d, ctl, sk = rig(load_robot("config/robot.yaml", gripper="single_jaw"))  # 단동식 기대값 (REQ-098)
     try:
         sk.grip = {"tilted": False, "tip_h": 20.0, "obj_h": 40.0, "obj_w": 30.0, "obj_l": 100.0, "held_gap": 30.0, "yaw": 90.0, "angle": 0.0}
         sk._bin_plan = lambda *a: None

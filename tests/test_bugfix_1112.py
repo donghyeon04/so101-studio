@@ -11,7 +11,7 @@ from so101_studio.core.config import load_robot, load_workspace
 from so101_studio.core.types import DetectedObject, JointState
 from so101_studio.service.arm_service import ArmService
 
-CFG = replace(load_robot("config/robot.yaml"), table_z_mm=LEGACY_TABLE_Z_MM)
+CFG = replace(load_robot("config/robot.yaml", gripper="single_jaw"), table_z_mm=LEGACY_TABLE_Z_MM)  # 단동식 기울여 집기 재현 (REQ-098: 기본은 parallel)
 WS = load_workspace("tests/workspace_600x400.yaml")
 TABLE = sorted((mm, v) for v, mm in CFG.gripper_width_mm)
 GUI_KNOWN = [(300.0, 190.0, 50.0), (250.0, 210.0, 50.0), (350.0, 200.0, 50.0)]  # obj-1 자신 포함  # GUI 자동 실행이 넘기는 기본 수동 물체(집는 obj-1 자신 포함, 길이 100 -> 반지름 50)

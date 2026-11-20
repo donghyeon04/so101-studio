@@ -7,7 +7,7 @@ from so101_studio.core.config import load_robot, load_workspace
 from so101_studio.core.types import DetectedObject, JointState
 from so101_studio.service.arm_service import ArmService
 
-CFG = load_robot("config/robot.yaml", arm="so101_follower_01") if __import__("pathlib").Path("config/arms/so101_follower_01.yaml").exists() else load_robot("config/robot.yaml")
+CFG = load_robot("config/robot.yaml", arm="so101_follower_01", gripper="single_jaw") if __import__("pathlib").Path("config/arms/so101_follower_01.yaml").exists() else load_robot("config/robot.yaml", gripper="single_jaw")  # 단동식 기하 시험 (REQ-098: 기본은 parallel)
 WS = load_workspace("tests/workspace_600x400.yaml")
 TABLE = sorted((mm, v) for v, mm in CFG.gripper_width_mm)
 
