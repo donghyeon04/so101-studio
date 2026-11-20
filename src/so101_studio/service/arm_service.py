@@ -761,6 +761,11 @@ class ArmService:
         """움직이지 않고 거부한다. 이유는 MotionResult.reason."""
         return self._done(kind, MotionResult("out_of_bounds", 0.0, ToolPose(0, 0, 0, 0), reason=reason), **info)
 
+    @property
+    def held(self) -> dict | None:
+        """쥔 물체(REQ-106): Skills.held. 집기가 닫아 쥘 때 채우고 놓기가 벌리기 시작할 때 비운다. 기구학 엔진 GUI가 손끝에 붙여 그린다(MuJoCo는 물리)."""
+        return self.skills.held if self.skills else None
+
     def pick_and_place(self, obj: DetectedObject, zone: str | None = None, place_at: tuple[float, float] | None = None) -> MotionResult:
         """집은 물체를 배출 구역(zone) 또는 작업대 점(place_at = (x_mm, y_mm))에 놓는다. 둘 다 없으면 집기만.
         집기 점과 놓을 점이 집기 범위 밖이면 아무것도 움직이지 않고 out_of_bounds + reason으로 돌려준다 (REQ-031)."""
