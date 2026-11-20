@@ -51,7 +51,7 @@ def test_without_render_shows_text_and_no_buttons(backend):
 def test_start_then_stop_with_a_fake_policy(backend, monkeypatch, tmp_path):
     driver = backend.sim.driver
     monkeypatch.setattr(driver, "render", lambda camera, width=320, height=240: np.zeros((height, width, 3), np.uint8), raising=False)
-    monkeypatch.setattr(policy_runner, "load_act", lambda path: HomePolicy(backend.sim.cfg.poses["home"]))
+    monkeypatch.setattr(policy_runner, "load_act", lambda path: HomePolicy(backend.sim.cfg.episode_start()))
     monkeypatch.setattr(policy_runner, "JUDGE_DELAY_S", 0.0)
     events = []
     monkeypatch.setattr(backend.sim, "log_event", lambda kind, data=None, level="INFO", code=None: events.append(code))
@@ -66,13 +66,13 @@ def test_start_then_stop_with_a_fake_policy(backend, monkeypatch, tmp_path):
     async def check(user):
         await user.should_see(marker="camera-top")
         user.find(marker="policy-start").click()
-        for _ in range(50):
+        for _ in range(200):  # 홈(병렬 손목 90°)에서 학습 시작 자세로 옮기는 데 몇 초 걸린다(REQ-103)
             if backend.policy is not None and backend.policy._thread is not None:
                 break
             await asyncio.sleep(0.05)
         await asyncio.sleep(0.3)
         user.find(marker="policy-stop").click()
-        for _ in range(60):
+        for _ in range(200):
             if backend.policy.result is not None:
                 break
             await asyncio.sleep(0.05)
@@ -106,7 +106,7 @@ def test_stop_while_loading_cancels_and_second_click_makes_no_second_runner(back
     def slow_load(path):
         made.append(path)
         time.sleep(0.6)
-        return HomePolicy(backend.sim.cfg.poses["home"])
+        return HomePolicy(backend.sim.cfg.episode_start())
 
     monkeypatch.setattr(policy_runner, "load_act", slow_load)
     (tmp_path / "run1" / "checkpoints" / "last" / "pretrained_model").mkdir(parents=True)

@@ -96,7 +96,7 @@ def test_mujoco_cameras_change_when_the_arm_moves(backend, monkeypatch):
     mj = MuJoCoDriver(svc.cfg, svc.ws, scene=load_scene(), realtime=False)
     mj.connect()
     monkeypatch.setattr(svc.driver, "render", mj.render, raising=False)
-    home = list(svc.cfg.poses["home"])
+    home = list(svc.cfg.episode_start())  # MuJoCo는 에피소드 시작 자세에서 돈다(병렬 home은 손목 90°, REQ-103)
 
     async def frames(user, previous=None) -> dict:
         """두 칸 모두 그림이 있고(처음 Renderer를 만드는 데 0.5초쯤 걸린다) previous와 다를 때까지, 10초까지 기다린다."""
