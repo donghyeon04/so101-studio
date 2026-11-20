@@ -135,9 +135,13 @@ def run_checktest(svc: ArmService, a) -> None:
     print(f"기록: {run.dir}")
 
 
+GRIPPER_NAMES = {"parallel": "병렬", "single_jaw": "단동식", None: "모름"}
+
+
 def print_info(info: dict) -> None:
     print(f"길이 {info['duration_s']:.1f}초, 점 {info['points']}개, 기록 주기 {info['hz_effective']:.1f}Hz, "
-          f"평균 속도 {info['mean_deg_s']:.0f}°/s, 최대 {info['max_deg_s']:.0f}°/s" + (f", 기록 {info['recorded_at']}" if info.get("recorded_at") else ""))
+          f"평균 속도 {info['mean_deg_s']:.0f}°/s, 최대 {info['max_deg_s']:.0f}°/s" + (f", 기록 {info['recorded_at']}" if info.get("recorded_at") else "")
+          + f", 그리퍼 {GRIPPER_NAMES.get(info.get('gripper'), info.get('gripper'))}")
     for s in info["segments"]:
         print(f"  구간 {s['index']}: {s['start_s']:5.1f}~{s['end_s']:5.1f}초  {s['label']}  평균 {s['mean_deg_s']:4.0f}°/s  최대 {s['max_deg_s']:4.0f}°/s")
 

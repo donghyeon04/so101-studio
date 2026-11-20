@@ -320,7 +320,7 @@ def test_replay_validates_segment_speeds_and_info_works_on_files_without_meta(tm
     q, t = _slow_pause_fast()
     (tmp_path / "mix.json").write_text(json.dumps({"hz": 20, "t": t.tolist(), "joints": q.tolist()}), encoding="utf-8")
     info = teach.info("mix")  # 요약이 없는 파일도 지금 계산한다
-    assert [s["label"] for s in info["segments"]] == ["느림", "멈춤", "빠름"]
+    assert [s["label"] for s in info["segments"]] == ["느림", "멈춤", "빠름"] and info["gripper"] is None  # 옛 기록은 그리퍼 모름(REQ-105)
     with pytest.raises(ValueError):
         teach.replay("mix", segment_speeds={9: 1.0})  # 없는 구간
     with pytest.raises(ValueError):
@@ -341,6 +341,7 @@ def test_recording_saves_summary_and_segments(tmp_path):
     meta = json.loads(path.read_text(encoding="utf-8"))["meta"]
     ctl.close()
     assert meta["points"] > 5 and meta["duration_s"] > 0.5 and "segments" in meta and meta["recorded_at"]
+    assert meta["gripper"] == CFG.gripper == "single_jaw" and teach.info("sum")["gripper"] == "single_jaw"  # REQ-105: 기록한 그리퍼
 
 
 def test_record_stop_saves_the_recording_even_if_turning_torque_on_fails(tmp_path):
