@@ -346,7 +346,10 @@ def test_doctor_shows_the_last_autocal_save(reference, tmp_path, monkeypatch):
     monkeypatch.setattr(ports_mod, "list_serial_ports", list)
     assert dr.doctor(probe=False, config_path=config)["autocal"] is None
     (tmp_path / "runs").mkdir()
-    (tmp_path / "runs" / f"autocal-save-{CAL_ID}.json").write_text(json.dumps({"saved_at": "2026-11-04T09:30:00", "rows": [1, 2, 3, 4, 5, 6], "backup": "x.bak.json"}), encoding="utf-8")
+    from so101_studio.core.config import load_robot
+
+    cid = load_robot(config).calibration_id  # 지금 그리퍼가 고른 파일(그리퍼별 캘리브레이션, REQ-107)
+    (tmp_path / "runs" / f"autocal-save-{cid}.json").write_text(json.dumps({"saved_at": "2026-11-04T09:30:00", "rows": [1, 2, 3, 4, 5, 6], "backup": "x.bak.json"}), encoding="utf-8")
     res = dr.doctor(probe=False, config_path=config)
     assert res["autocal"]["saved_at"] == "2026-11-04T09:30:00" and any(c["name"] == "자동 캘리브레이션" and c["state"] == "ok" for c in res["checks"])
     json.dumps(res)

@@ -167,7 +167,8 @@ def doctor(cfg=None, probe: bool = True, port: str | None = None, progress=None,
                          "실물에 단동식이 달려 있으면 config/local.yaml에 gripper: single_jaw" if cfg_now.gripper == "parallel" else ""))
 
     cal, cal_path = (find_calibration(cfg_now.calibration_id, config_dir) if cfg_now.calibration_id else (None, ""))
-    checks.append(_check("캘리브레이션 파일", "ok" if cal else "fail", f"{cfg_now.calibration_id}: {cal_path}" if cal else f"{cfg_now.calibration_id or '(id 없음)'} 파일을 못 찾았다",
+    gsel = f" (그리퍼 {cfg_now.gripper})"  # 그리퍼별 캘리브레이션(7.1): 지금 그리퍼가 고른 파일
+    checks.append(_check("캘리브레이션 파일", "ok" if cal else "fail", f"{cfg_now.calibration_id}{gsel}: {cal_path}" if cal else f"{cfg_now.calibration_id or '(id 없음)'}{gsel} 파일을 못 찾았다",
                          "" if cal else "lerobot-calibrate --robot.type=so101_follower --robot.port=<포트> --robot.id=<id> (모터에 쓰고 움직이니 직접 실행한다)"))
 
     zero = zero_check(cfg_now, config_dir) if cfg_now.calibration_id else {"state": "needed", "reason": "캘리브레이션 id가 없다", "date": None, "sha256": None}
