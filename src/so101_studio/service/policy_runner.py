@@ -1,5 +1,5 @@
 """정책 실행 1차 (arm-software-spec 6.10): fps마다 관측을 모아 정책에 넣고 나온 절대 관절 목표를 servo_joints로 흘려 넣는다.
-일시 정지·이어 하기는 2차라 없다. 12/4 전에는 MuJoCo 엔진(driver.render가 있는 드라이버)에서만 시작한다(결정 0066 4항)."""
+일시 정지·이어 하기는 pause()/resume()(gui-spec 12.10, REQ-108). 12/4 전에는 MuJoCo 엔진(driver.render가 있는 드라이버)에서만 시작한다(결정 0066 4항)."""
 import threading
 import time
 from dataclasses import astuple
@@ -55,6 +55,7 @@ class PolicyRunner:
         self._thread: threading.Thread | None = None
         self._infer: list[float] = []  # 걸음마다 추론 걸린 초(벽시계)
         self._t0, self._skipped, self._sent, self._rejected = 0.0, 0, 0.0, None  # 시작 시각, 건너뛴 걸음, 마지막으로 보낸 시각, 안전 거부가 시작된 시각(제어 시계)
+        self._paused_at: float | None = None  # 일시 정지한 시각(제어 시계). None이면 돌고 있다
 
     def start(self) -> str | None:
         """벽시계 스레드로 시작한다. 시작하면 None, 못 하면 사람이 읽을 이유."""
@@ -79,7 +80,7 @@ class PolicyRunner:
         self._quit.clear()
         self.result = None
         self._t0 = self._sent = self.svc.clock.now()
-        self._infer, self._skipped, self._rejected = [], 0, None
+        self._infer, self._skipped, self._rejected, self._paused_at = [], 0, None, None
         self.svc.log_event("policy_start", {"checkpoint": None if self.checkpoint_dir is None else str(self.checkpoint_dir), "fps": self.fps, **log},
                            code="ARM-POLICY-START")
         return None
@@ -87,14 +88,35 @@ class PolicyRunner:
     def due_stop(self, slow: bool = True) -> str | None:
         """지금 끝내야 하면 이유: max_s(제어 시계로 max_s 지남), stop(stop() 불림), too_slow(slow이고 SLOW_S 동안 아무 목표도 못 보냄). 아니면 None.
         slow=False는 시계로 돌릴 때다(추론 지연이 시뮬레이션 시간 0이라 too_slow가 없다)."""
+        if self._quit.is_set():  # 멈춘 중에도 stop()은 바로 끝낸다
+            return "stop"
+        if self._paused_at is not None:  # 멈춘 동안은 max_s·too_slow 시계가 가지 않는다
+            return None
         now = self.svc.clock.now()
         if now - self._t0 >= self.max_s:
             return "max_s"
-        if self._quit.is_set():
-            return "stop"
         if slow and now - self._sent > SLOW_S:
             return "too_slow"
         return None
+
+    @property
+    def paused(self) -> bool:
+        return self._paused_at is not None
+
+    def pause(self) -> None:
+        """목표를 그만 보낸다. 팔은 마지막 목표 자리에 선다(서보 흐름이 끊기면 컨트롤러가 그 자리를 지킨다). 이미 멈췄으면 그대로."""
+        if self._paused_at is None:
+            self._paused_at = self.svc.clock.now()
+            self.svc.log_event("policy_pause", {}, code="ARM-POLICY-PAUSE")
+
+    def resume(self) -> None:
+        """이어 한다. 멈춘 시간만큼 시작·마지막 보낸·거부 시각을 미뤄 max_s·too_slow·REJECT_S가 멈춘 시간을 빼고 센다."""
+        if self._paused_at is None:
+            return
+        d = self.svc.clock.now() - self._paused_at
+        self._t0, self._sent, self._paused_at = self._t0 + d, self._sent + d, None
+        self._rejected = None if self._rejected is None else self._rejected + d
+        self.svc.log_event("policy_resume", {"paused_s": round(d, 3)}, code="ARM-POLICY-RESUME")
 
     def stop(self, timeout: float = 3.0) -> None:
         self._quit.set()
@@ -110,7 +132,9 @@ class PolicyRunner:
     def step(self, skip_after_s: float | None = None) -> str | None:
         """한 걸음: 관측 -> 추론 -> servo_joints. 끝내야 하면 이유(servo:<이유> | error: ...), 아니면 None (mujoco-spec 13.10.2).
         skip_after_s: 추론이 이보다 오래 걸리면 낡은 목표라 보내지 않는다(벽시계 실행만. StepClock에서는 추론 지연이 0이라 None).
-        안전 거부는 REJECT_S(제어 시계) 동안 이어질 때만 끝낸다. infer_ms는 벽시계로 잰다."""
+        안전 거부는 REJECT_S(제어 시계) 동안 이어질 때만 끝낸다. infer_ms는 벽시계로 잰다. 일시 정지 중이면 아무것도 하지 않는다."""
+        if self._paused_at is not None:
+            return None
         try:
             obs = self._observe()
             a0 = time.perf_counter()

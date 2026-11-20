@@ -181,3 +181,43 @@ def test_clock_driven_run_begin_step_finish():
     assert why == "max_s" and n == 25 and len(svc.sent) == 25
     assert [c for c, _ in svc.codes] == ["ARM-POLICY-START", "ARM-POLICY-STOP"] and svc.codes[0][1]["clock"] == "step"
     assert r.result["reason"] == "max_s" and r.result["steps"] == 25 and r.result["skipped"] == 0
+
+
+def test_pause_sends_nothing_and_max_s_and_too_slow_skip_the_paused_time(tmp_path):
+    """REQ-108(gui-spec 12.10 [일시 정지]): 멈춘 동안 목표를 안 보내고 팔은 그 자리, max_s·too_slow는 멈춘 시간을 빼고 센다."""
+    s = make(tmp_path, CamSim(HOME))
+    try:
+        pol = HomePolicy()
+        r = PolicyRunner(s, s.driver, policy=pol, max_s=1.0)
+        assert r.start() is None
+        time.sleep(0.3)
+        r.pause()
+        assert r.paused
+        time.sleep(0.1)
+        n, q = pol.calls, s.driver.read_joints()
+        time.sleep(1.5)  # max_s(1.0)와 SLOW_S(1.0)를 넘게 멈춘다
+        assert r._thread.is_alive() and r.result is None and pol.calls == n and s.driver.read_joints() == q
+        r.resume()
+        assert not r.paused
+        time.sleep(0.3)
+        assert pol.calls > n and r.result is None  # 이어서 돌고, 멈춘 시간 때문에 too_slow·max_s로 끝나지 않았다
+        r._thread.join(2)
+        assert r.result["reason"] == "max_s"
+        codes = [e["code"] for e in policy_events(s)]
+        assert codes == ["ARM-POLICY-START", "ARM-POLICY-PAUSE", "ARM-POLICY-RESUME", "ARM-POLICY-STOP"]
+    finally:
+        s.disconnect()
+
+
+def test_stop_while_paused_ends_at_once(tmp_path):
+    s = make(tmp_path, CamSim(HOME))
+    try:
+        r = PolicyRunner(s, s.driver, policy=HomePolicy(), max_s=10)
+        assert r.start() is None
+        time.sleep(0.2)
+        r.pause()
+        t0 = time.monotonic()
+        r.stop()
+        assert not r._thread.is_alive() and time.monotonic() - t0 < 0.5 and r.result["reason"] == "stop"
+    finally:
+        s.disconnect()
