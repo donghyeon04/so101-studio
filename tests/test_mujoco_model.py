@@ -70,7 +70,8 @@ def test_objects_and_scene_parts_are_in_the_world_and_names_must_differ(model):
     box = model.body("obj:box")
     x, y, h = model_to_table_mm(*(model.body_pos[box.id] * 1000.0), WS.base, CFG.table_z_mm)
     assert (x, y) == pytest.approx((300.0, 200.0), abs=1e-6) and h == pytest.approx(19.5)  # 상자 가운데 높이 = 39/2
-    assert model.body("scene:radar_station").id > 0
+    radar = [n for n in ("radar_station", "radar_base", "radar_head") if mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, f"scene:{n}") >= 0]  # 레이더 받침은 STL 하나(radar_station) 또는 둘(radar_base·radar_head, F2-d). 둘 다 고정 body다
+    assert radar in (["radar_station"], ["radar_base", "radar_head"])
     with pytest.raises(ValueError):
         load_model(None, [SimObject("a", 1, 1), SimObject("a", 2, 2)], base=WS.base, table_z_mm=CFG.table_z_mm)
 
@@ -140,3 +141,13 @@ def test_new_j1_mount_replaces_the_old_base_plate():
     bottom = m.geom_pos[g][2] - m.geom_size[g][2]
     assert abs(bottom * 1000 - (-2.9)) < 0.01 and m.geom("base_mount_visual").contype == 0
     assert mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, "base_box") >= 0
+
+
+def test_radar_split_into_base_and_head_loads_as_two_fixed_bodies(tmp_path):
+    stl = __import__("pathlib").Path(__file__).resolve().parents[1].as_posix() + "/assets/scene/radar_station.stl"
+    (tmp_path / "scene.yaml").write_text(f"parts:\n  - {{name: radar_base, file: {stl}, attach: table, xyz_mm: [207.3, 405.5, 0], collide: true}}\n"
+                                         f"  - {{name: radar_head, file: {stl}, attach: table, xyz_mm: [207.3, 405.5, 0], collide: true}}\n", encoding="utf-8")
+    m, _ = load_model(load_scene(tmp_path / "scene.yaml"), [], base=WS.base, table_z_mm=CFG.table_z_mm)
+    for n in ("radar_base", "radar_head"):
+        b = m.body(f"scene:{n}")
+        assert m.body_dofnum[b.id] == 0 and m.body_jntadr[b.id] < 0  # 돌리지 않는 고정 body
