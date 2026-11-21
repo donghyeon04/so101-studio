@@ -1,6 +1,6 @@
 # 세션 간 요청 대장
 
-상태: 초안 · 갱신 2026-11-20
+상태: 초안 · 갱신 2026-11-20 · 2026-11-21 기획: REQ-096 완료, REQ-097~114 채움(PR 제목 기준)
 
 절차와 양식은 `docs/guides/session-workflow.md`에 있다. GUI 세션(총괄)이 번호를 매기고 행과 상태를 관리한다(`decisions/0036`). 자세한 내용은 요청 메시지와 PR에 두고, 여기에는 한 줄만 남긴다.
 
@@ -103,4 +103,22 @@
 | REQ-093 | `ArmService.connect(fresh=)`: 새 연결에 앞 연결의 기억을 넘기지 않기 | 총괄 → 팔(2026-11-19) | 추가 | 완료 | #485 | GUI `rebuild_world` |
 | REQ-094 | `prune_runs`는 실행 폴더 이름만 지우고, 시험은 진짜 `runs/`를 정리하지 않기(runs/train 삭제 사고) | 총괄 → 팔(2026-11-19) | 버그 수정 | 완료 | #488 | MuJoCo 쪽 #486 |
 | REQ-095 | 배포 v0.1: `SO-101 Studio 실행.cmd` 하나, `제거.cmd`, `설치.cmd` 바로가기·MuJoCo 물음 | 총괄 → 팔(2026-11-19) | 추가 | 완료 | #489 | 팔 없으면 시뮬레이션은 GUI #490 |
-| REQ-096 | 실측 정답 쌍(`ultrasonic-spec.md` 8.4, 결정 0072): R1·A1·I1 실행마다 `truth.json`을 `scans/`·`checks/`와 짝짓고 `runs/ultrasonic-truth/index.jsonl`에 한 줄. 형식·보관 방법(실행 폴더는 2GB 정리 대상)은 초음파가 R1 전에 정함 | 총괄 → 초음파(2026-11-20) | 추가 | 요청 | - | `--sim` R1 한 번으로 시험 |
+| REQ-096 | 실측 정답 쌍(`ultrasonic-spec.md` 8.4, 결정 0072): R1·A1·I1 실행마다 `truth.json`을 `scans/`·`checks/`와 짝짓고 `runs/ultrasonic-truth/index.jsonl`에 한 줄. 형식·보관 방법(실행 폴더는 2GB 정리 대상)은 초음파가 R1 전에 정함 | 총괄 → 초음파(2026-11-20) | 추가 | 완료 | #497 | `--sim` R1 한 번으로 시험 |
+| REQ-097 | A1 도구 `checktest a1`·I1 정답 기록 `run --truth-layout K`(`ultrasonic-spec.md` 8.6) | 총괄 → 팔(2026-11-20) | 추가 | 완료 | #512 | i1_layout 다시 뽑기 기획 #513 |
+| REQ-098 | 기본 그리퍼를 병렬(`parallel`)로(결정 0063 앞당김, 사용자 지시) | 총괄 → 팔(2026-11-20) | 변경 | 완료 | #515 | GUI 시험 맞춤 #547 |
+| REQ-099 | 벤치마크 시나리오 `show80`(demo80 + 반경 150~220, 시연·I1 배치) | 총괄 → 초음파(2026-11-20) | 추가 | 완료 | #516 |  |
+| REQ-100 | `i1_layout`이 `show80`을 쓰고 반올림 뒤 반경 150 확인 | 총괄 → 팔(2026-11-20) | 변경 | 완료 | #517 |  |
+| REQ-101 | A0 도구 `checktest a0`(8.7), 관절 한계 비교 여유 `LIMIT_EPS_DEG` | 총괄 → 팔(2026-11-20) | 추가 | 완료 | #548 | --sim δ 중앙 (+0.4, +0.2, 0)mm |
+| REQ-102 | `--sim` 초음파 기본 배치를 `show80`으로, #515 뒤 slow 시험 단동식 명시 | 총괄 → 팔(2026-11-20) | 변경 | 완료 | #529 |  |
+| REQ-103 | 그리퍼별 `poses.home`(병렬 wrist_roll 90), `poses.episode_start`(피드백 F1) | 총괄 → 팔(2026-11-20) | 변경 | 완료 | #535 | MuJoCo·벤치마크는 episode_start |
+| REQ-104 | 극한 자세 [홈] 우회: 수직으로 올린 뒤 홈, `home_lift_mm`(피드백 F4) | 총괄 → 팔(2026-11-20) | 추가 | 완료 | #536 | ARM-HOME-DETOUR |
+| REQ-105 | 교시 기록 `meta.gripper`(피드백 F5) | 총괄 → 팔(2026-11-20) | 추가 | 완료 | #538 |  |
+| REQ-106 | `ArmService.held`·`ARM-HELD`(피드백 F3) | 총괄 → 팔(2026-11-20) | 추가 | 완료 | #545 | GUI #553 |
+| REQ-107 | 그리퍼별 캘리브레이션 파일 `calibration_id_by_gripper`(피드백 F8) | 총괄 → 팔(2026-11-20) | 추가 | 완료 | #546 | GUI #552 |
+| REQ-108 | `PolicyRunner` 일시 정지·이어 하기(피드백 F10) | 총괄 → 팔(2026-11-20) | 추가 | 완료 | #543 | GUI #552 |
+| REQ-109 | F2-a: `PathSegment.stage`·`us.check_estimate`·`us.sweep_progress`·후보 `search_r_mm`·`values` | 총괄 → 초음파(2026-11-20) | 추가 | 완료 | #534 | ultrasonic-spec 8.9 |
+| REQ-110 | F2-b: MuJoCo 시험이 레이더 STL 하나 또는 받침·머리 둘을 받음 | 총괄 → MuJoCo(2026-11-20) | 변경 | 완료 | #533 |  |
+| REQ-111 | F2-c: `TaskRunner.pace`·`prefetch_enabled`, `make_ultrasonic_source` `arm.clock`·`arm_links_fn` | 총괄 → 팔(2026-11-20) | 추가 | 완료 | #540 |  |
+| REQ-112 | F2-d: 레이더 STL 받침·머리 나눔, `ScenePart.spin` | 총괄 → 팔(2026-11-20) | 추가 | 완료 | #542 |  |
+| REQ-113 | 교시 재생 그리퍼 대조(`gripper_mismatch`, `--any-gripper`, 피드백 F5) | 총괄 → 팔(2026-11-20) | 추가 | 완료 | #550 | 옛 기록은 WARN |
+| REQ-114 | 기구학 시뮬레이션 `object_grip`으로 `held` 채우기(피드백 F3) | 총괄 → 팔(2026-11-20) | 추가 | 완료 | #554 |  |
