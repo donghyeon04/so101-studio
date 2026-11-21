@@ -17,6 +17,7 @@ PREVIEW = "#6d4fc2"
 
 STATE_COLORS = {"대기": "grey-8", "실행 중": "primary", "정지": "negative", "오류": "negative"}
 CUBE_SIZE = 56  # 뷰큐브 한 변(px)
+CAPTION_PX, CAPTION_EXPLAIN_PX = 15, 20  # 작업 공간 인식 캡션: 빠른 모드·설명 모드(gui-spec 12.11)
 CUBE_BOX = 150  # 돌려도 좌표축 글자까지 잘리지 않는 칸
 # 감시 상태: (아이콘, 색). 색 + 아이콘 + 글자 (decisions/0025)
 WATCH_STYLES = {
@@ -113,6 +114,8 @@ body {{ font-family: 'IBM Plex Sans KR', 'Malgun Gothic', system-ui, sans-serif;
 .meta-gap {{ min-width: 34px; }}
 .progress-step {{ text-align: center; line-height: {CONTROL_H}px; background: {CARD}; color: {MUTED}; border: 1px solid {LINE}; border-radius: 6px; }}
 .progress-step.progress-active {{ background: {ACCENT}; color: #ffffff; font-weight: 600; border-color: {ACCENT}; }}
+.recognition-caption {{ font-size: {CAPTION_PX}px; color: {TEXT}; min-height: 1.4em; }}
+.recognition-caption.caption-explain {{ font-size: {CAPTION_EXPLAIN_PX}px; font-weight: 600; }}
 .event-line {{ font-size: 14px; line-height: 22px; }}
 .joint-name {{ width: 72px; flex: none; font-size: 14px; }}
 .joint-value {{ width: 56px; flex: none; text-align: right; font-size: 14px; }}

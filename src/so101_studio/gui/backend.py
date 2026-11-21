@@ -59,6 +59,10 @@ JOG_YAW_DEG_S = 60.0
 RUN_MODES = {"sim": "시뮬레이션만", "real": "실제만", "both": "동시", "sim_first": "시뮬레이션 먼저"}
 REASON_EXTRA = {"z_ceiling": "허용 상자보다 높습니다"}  # service.targets에 아직 없는 이유
 BUSY_TEXT = "팔이 아직 움직이고 있습니다"
+US_BUILDING_TEXT = "초음파 기준값을 재는 중입니다(팔이 대기 자세에서 레이더를 세 바퀴 돌립니다)"  # gui-spec 12.11
+EXPLAIN_SPEED_PCT = 30  # 설명 모드 속도(gui-spec 12.11)
+EXPLAIN_PAUSE_S = 2.0  # 설명 모드 자동 실행이 흐름 단계마다 쉬는 시간
+PERCEPTION_TEXT = {"manual": "수동", "sim": "초음파(가상)", "real": "초음파(실물)"}
 CALIBRATING_TEXT = "캘리브레이션 측정 중입니다(팔 연결을 잠시 끊고 포트를 직접 엽니다)"
 NAME_RE = re.compile(r"[0-9A-Za-z가-힣_\- ]{1,40}")  # 자세·프로그램 이름(파일 이름에도 쓴다)
 ESTOP_FAILED_TEXT = "정지 명령을 서보에 쓰지 못했습니다({}). 팔이 계속 움직이면 전원 스위치를 끄세요"
@@ -183,7 +187,7 @@ class Backend:
         # 실행 기록은 주 팔 하나만 남긴다. 같은 초에 만들면 폴더 이름이 겹친다
         self.real = ArmService(real_driver, cfg, ws, speed, log_root, proc="gui") if real_driver else None
         # MuJoCo는 실제 팔 없는 --sim에서만(gui-spec 12.8). 쌍둥이 시뮬레이션은 늘 SimDriver
-        sim_driver = make_sim_driver(cfg, ws, load_scene(), viewer=sim_viewer) if real_driver is None and sim_engine == "mujoco" else SimDriver(cfg.poses.get("home"))
+        sim_driver = make_sim_driver(cfg, ws, load_scene(), viewer=sim_viewer) if real_driver is None and sim_engine == "mujoco" else SimDriver(cfg.poses.get("home"), object_grip=True)  # 물체 폭에서 그리퍼가 멈춰 쥔 물체가 생긴다(REQ-114, 피드백 F3)
         self.sim = ArmService(sim_driver, cfg, ws, speed, None if real_driver else log_root, proc="gui")
         self.arm = self.real or self.sim  # 상태줄과 3D의 실제 팔이 읽는 쪽
         self.mode = "sim"
@@ -200,7 +204,17 @@ class Backend:
         self.arm.status_stream(self.state.update)
         self.health = ServoHealth()
         self.arm.status_stream(self.health.update)
-        self.source = ManualSource()
+        self.source = ManualSource()  # 정답 목록(수동 물체). objects()·편집은 늘 이것(gui-spec 12.11)
+        self.perception_source = self.source  # 작업 실행이 쓰는 인식 소스: 수동 또는 초음파(가상·실물)
+        self.perception_kind = "manual"
+        self._us_building = False  # 초음파(가상) 기준값을 재는 중
+        # 페이지 모듈과 순환하지 않게 여기서 부른다
+        from .sensors.ultrasonic_view import UltrasonicLog
+
+        self.us_log = UltrasonicLog()
+        self.explain = False  # 설명 모드(gui-spec 12.11): 흐름 단계마다 멈추고 캡션
+        self._speed_before: float | None = None  # 설명 모드 실행 동안 바꾼 속도의 원래 값
+        self._flow: tuple = ("idle", None)  # 캡션용 마지막 흐름 단계(pace의 step, stage)
         self._make_studio()
         self._reconnect_failed = False
         self.paused = False
@@ -220,9 +234,16 @@ class Backend:
             self._listener = StopListener(self.arm, link.stop_port).start()
 
     def _make_studio(self) -> None:
-        """Studio는 컨트롤러를 붙들고 있어, 다시 연결하면 새로 만든다."""
-        self.studio = Studio(self.arm, self.source, dry_run=self.real is None and not self._physical())  # 기구학 엔진에는 잡히는 물체가 없어 접촉 없음도 성공으로 본다
+        """Studio는 컨트롤러를 붙들고 있어, 다시 연결하면 새로 만든다. 초음파 소스면 새 버스에 소스와 기록을 다시 붙인다(gui-spec 12.11 "데이터를 받는 길")."""
+        src = self.perception_source
+        self.studio = Studio(self.arm, src, dry_run=self.real is None and not self._physical())  # 기구학 엔진에는 잡히는 물체가 없어 접촉 없음도 성공으로 본다
         self.studio.bus.subscribe("task", self._on_task)
+        if src is not self.source:
+            src.bus = self.studio.bus  # _begin_checkable은 버스가 None일 때만 넣는다: 옛 버스로 나가지 않게
+            self.us_log.clear()
+            self.us_log.attach(self.studio.bus)  # EventBus에는 구독 해제가 없어 새 버스마다 붙인다
+            if getattr(src, "baseline", None) is not None:
+                self.us_log.set_baseline(src.baseline.d)  # 기준값은 버스 없이 재서 이벤트로 오지 않는다
 
     def _physical(self) -> bool:
         """MuJoCo처럼 물체가 실제로 있는 시뮬레이션인가(gui-spec 12.8). SimDriver에는 속성이 없다."""
@@ -341,7 +362,10 @@ class Backend:
         return None
 
     def move_lock(self) -> str | None:
-        """실제 팔을 움직일 수 없으면 이유: 새 팔이거나 캘리브레이션이 다를 때(decisions/0027), 통신이 끊겼을 때(0031)."""
+        """실제 팔을 움직일 수 없으면 이유: 새 팔이거나 캘리브레이션이 다를 때(decisions/0027), 통신이 끊겼을 때(0031).
+        초음파(가상) 기준값을 재는 동안(팔이 대기 자세로 가 있다)이 맨 앞이다(gui-spec 12.11)."""
+        if self._us_building:
+            return US_BUILDING_TEXT
         if self.real is None:
             failed = self.physics_failed()
             return PHYSICS_FAILED_TEXT.format(failed) if failed else None
@@ -470,6 +494,8 @@ class Backend:
         return self._dispatch(lambda arm: arm.set_gripper(mm, as_width=True), f"그리퍼 폭 {mm:.0f} mm")
 
     def set_speed(self, pct: float) -> None:
+        if self._speed_before is not None and pct != EXPLAIN_SPEED_PCT:  # 설명 모드 실행 중 사람이 바꾼 속도를 되돌릴 값으로
+            self._speed_before = pct
         for arm in self._arms():
             arm.set_speed(pct)
 
@@ -684,6 +710,9 @@ class Backend:
 
     def _on_task(self, event) -> None:
         self.state.on_task(event)
+        if event.state in ("DONE", "STOPPED", "FAULT") and self._speed_before is not None:  # 설명 모드 속도를 되돌린다
+            speed, self._speed_before = self._speed_before, None
+            self.set_speed(speed)
         if self.scene and event.state in ("DECIDE", "PLACE", "DONE", "STOPPED"):
             self.scene.set_objects(self.objects(), self.state.chosen)
 
@@ -691,7 +720,111 @@ class Backend:
         thread = self.studio._thread
         return thread is not None and thread.is_alive()
 
+    # ---- 인식 소스와 설명 모드 (피드백 F2, gui-spec 12.11, ultrasonic-spec 8.9)
+    def _truth_boxes(self) -> list:
+        """정답 목록(수동 물체)을 가상 작업대 상자로. 높이를 모르면 40mm."""
+        from ..perception.ultrasonic.model import Box
+
+        return [Box(o.x_mm, o.y_mm, o.angle_deg or 0.0, o.width_mm or 30.0, o.length_mm or 100.0, o.height_mm or 40.0) for o in self.objects()]
+
+    def select_perception(self, kind: str, port: str | None = None) -> str | None:
+        """작업 실행의 인식 소스를 바꾼다: manual | sim(초음파 가상) | real(초음파 실물, port). 못 하면 이유(소스는 그대로). 스레드에서 부른다."""
+        if kind == self.perception_kind:
+            return None
+        if self.task_running():
+            return "작업 실행 중에는 인식을 바꿀 수 없습니다"
+        from ..perception.ultrasonic import radar
+        from ..service.ultrasonic import make_ultrasonic_source
+
+        src = self.source
+        if kind == "sim":
+            if self.real is not None:
+                return "초음파(가상)은 실물 팔이 없을 때만 씁니다"
+            self._us_building = True  # move_lock이 조그·작업 시작·스캔을 막는다
+            try:
+                src = make_ultrasonic_source(self.sim, sim=True, boxes=self._truth_boxes())  # 팔이 대기 자세로 가서 기준값을 잰다
+            except Exception as e:  # noqa: BLE001 radar_clear 실패(RuntimeError)·가상 장치 오류: 무엇이든 수동으로 남는다
+                return f"초음파(가상)을 켜지 못했습니다: {e}"
+            finally:
+                self._us_building = False
+        elif kind == "real":
+            if not port:
+                return "ESP32 센서 보드 페이지에서 실제 포트를 먼저 연결하세요"
+            try:
+                src = make_ultrasonic_source(self.arm, sim=False, port=port)
+                if not src.baseline_path.exists():
+                    with contextlib.suppress(Exception):
+                        src.close()  # 연 포트를 남기지 않는다
+                    return f"기준값 파일이 없습니다. radar_check --port {port} calibrate로 빈 작업대 기준값을 먼저 재세요"
+                src.connect()
+                src.baseline = radar.Baseline.load(src.baseline_path)  # 만든 직후 None이다(8.9)
+            except (OSError, SystemExit, ValueError) as e:
+                if src is not self.source:  # 열다 만 포트를 닫는다
+                    with contextlib.suppress(Exception):
+                        src.close()
+                return f"초음파(실물)을 열지 못했습니다: {e}"
+        elif kind != "manual":
+            return f"모르는 인식: {kind}"
+        old = self.perception_source
+        if old is not self.source:
+            with contextlib.suppress(Exception):
+                old.close()
+        self.perception_source, self.perception_kind = src, kind
+        self._make_studio()
+        self.arm.log_event("perception", {"kind": kind})
+        return None
+
+    def _mark_flow(self, step: str, stage: str | None = None) -> None:
+        """빠른 모드의 pace: 멈추지 않고 캡션용 흐름 단계만 적는다(캡션은 두 모드 모두, gui-spec 12.11)."""
+        self._flow = (step, stage)
+
+    def _pace(self, step: str, stage: str | None = None) -> None:
+        """설명 모드의 흐름 단계 멈춤(ultrasonic-spec 8.9 "기다리기"). 작업 스레드에서 runner가 부른다.
+        paused면 [다음](Studio._step)을, 아니면 EXPLAIN_PAUSE_S를 기다린다. 정지·감시 정지(stopped/fault)면 바로 돌아온다."""
+        self._flow = (step, stage)
+        st = self.studio
+        st._step.clear()  # 팔이 움직이는 동안 누른 [다음]이 남아 이번 멈춤을 그냥 지나가지 않게
+        t0 = time.monotonic()
+        while not (st.task._stop or self.arm.ctl.state in ("stopped", "fault")):
+            if self.paused:
+                if st._step.wait(0.1):
+                    st._step.clear()
+                    return
+            elif time.monotonic() - t0 >= EXPLAIN_PAUSE_S:
+                return
+            else:
+                time.sleep(0.1)
+
+    def caption(self) -> str:
+        """작업 공간 3D 위 한 줄(gui-spec 12.11). 흐름 단계 ①~⑤를 쉬운 말로. 실행 중이 아니면 빈 문자열."""
+        if not self.task_running():
+            return ""
+        step, stage = self._flow
+        snap = self.us_log.snapshot() if self.perception_source is not self.source else {}
+        if step == "scan":
+            n = len(snap.get("candidates") or [])
+            return f"② 빈 작업대와 다른 곳: 후보 {n}개"
+        if step == "check":
+            words = {"L1": "첫 번째 직선", "L2": "두 번째 직선", "R": "원", "L34": "긴 축·짧은 축", "L3": "긴 축", "L4": "짧은 축", "GRID": "격자"}
+            nxt = next((p.get("stage") for p in reversed(snap.get("paths") or []) if p.get("phase") == "start"), stage)  # 다음 단계 이름은 phase=start로 안다
+            return f"③ 팔 센서로 후보를 지나갑니다 ({words.get(nxt or stage, '첫 구간')})"
+        if step == "check_done":
+            r = (snap.get("results") or [{}])[-1].get("object") or {}
+            if r:
+                return f"④ 위치 ({r.get('x_mm', 0):.0f}, {r.get('y_mm', 0):.0f}), 긴 축 {r.get('angle_deg') or 0:.0f}°"
+            return "④ 이 후보에는 물체가 없습니다"
+        if step == "pick":
+            return "⑤ 집습니다"
+        prog = snap.get("progress") or {}
+        if prog:
+            total = prog.get('total') or 0
+            turn = f" ({min(prog.get('pass', 0) + 1, total)}/{total}바퀴)" if total else ""  # pass는 실행 내내 세므로 이번 스캔 바퀴 수를 넘지 않게
+            return f"① 레이더가 돌며 거리를 잽니다{turn}"
+        return "① 레이더가 돌며 거리를 잽니다" if snap else ""
+
     def scan(self) -> list[DetectedObject]:
+        if self.perception_source is not self.source:  # 초음파 소스는 작업 실행으로만 본다(gui-spec 12.11)
+            return self.objects()
         objects = self.studio.perception.scan().objects
         if self.scene:
             self.scene.set_objects(objects, self.state.chosen)
@@ -710,7 +843,19 @@ class Backend:
         self.state.placed, self.paused, self.state.run_t0 = 0, step_mode, time.time()
         for arm in self._arms():
             self._tell_known_objects(arm)
-        self.studio.start(step_mode=step_mode)
+        task = self.studio.task  # Studio를 만들 때 한 번만 생기므로 실행마다 다시 넣는다(gui-spec 12.11)
+        task.pace, task.prefetch_enabled = (self._pace, False) if self.explain else (self._mark_flow, True)
+        self._flow = ("idle", None)
+        if self.perception_source is not self.source:
+            self.us_log.clear()
+            if getattr(self.perception_source, "baseline", None) is not None:
+                self.us_log.set_baseline(self.perception_source.baseline.d)
+        if self.explain:
+            self._speed_before = self.arm.speed
+            self.set_speed(EXPLAIN_SPEED_PCT)
+            self.studio.start(step_mode=False)  # 단계 실행이면 paused=True로 pace가 [다음]을 기다린다
+        else:
+            self.studio.start(step_mode=step_mode)
         self._object_undo.clear()  # 실행한 작업은 되돌리지 않는다(gui-spec 12.9)
         return None
 
@@ -722,10 +867,12 @@ class Backend:
         return self.start_task(step_mode=True)
 
     def toggle_pause(self) -> None:
-        """다음 상태 변화에서 멈추거나 다시 이어 간다."""
+        """다음 상태 변화에서 멈추거나 다시 이어 간다. 설명 모드는 paused만 뒤집는다(2초 쉬기 ↔ [다음] 대기, studio.pause와 겹치지 않게)."""
         if not self.task_running():
             return
         self.paused = not self.paused
+        if self.explain:
+            return
         if self.paused:
             self.studio.pause()
         else:
@@ -760,6 +907,9 @@ class Backend:
         return lay
 
     def _changed_objects(self) -> None:
+        esp = getattr(self.perception_source, "esp", None)
+        if esp is not None and not self.task_running():  # 정답 목록을 고치면 가상 작업대도(실행 중에는 아니다: 집혀 빠진 물체가 되살아나지 않게)
+            esp.boxes = self._truth_boxes()
         if self.scene:
             self.scene.set_objects(self.objects(), self.state.chosen)
 
@@ -1320,6 +1470,9 @@ class Backend:
         if self.policy is not None:
             self.policy.stop()
         self.stop_task()  # 제어 루프를 먼저 끄면 동작을 기다리던 스레드가 풀리지 않아 프로세스가 안 꺼진다
+        if self.perception_source is not self.source:  # 초음파 소스(실물이면 포트)를 닫는다
+            with contextlib.suppress(Exception):
+                self.perception_source.close()
         for arm in self._arms():
             arm.ctl.wait_idle()
             arm.disconnect()
