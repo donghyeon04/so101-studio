@@ -83,6 +83,10 @@ def build(backend, client_id: str, actions) -> None:
         reason = await run.io_bound(backend.select_perception, kind, port)
         if reason:
             ui.notify(reason, type="warning")
+            if kind == "real":  # 못 열었으면 닫았던 ESP32 페이지 연결을 되살린다
+                from ...perception.ultrasonic.model import load_config
+
+                await run.io_bound(board.connect, port, load_config().baud)
         perception.set_value(backend.perception_kind)
 
     with ui.row().classes("w-full items-center gap-4").mark("recognition-row"):
