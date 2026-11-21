@@ -4,12 +4,13 @@
 
 *Pick-and-place with an SO-101 arm using two low-cost ultrasonic sensors instead of a camera, with a web GUI, a kinematic and a MuJoCo physics simulator. Windows, Python 3.12. Docs are in Korean.*
 
-## 지금 상태 (2026-11-19, v0.1)
+## 지금 상태 (2026-11-21, v0.1 이후)
 - 시뮬레이션에서는 처음부터 끝까지 돈다: 초음파 인식, 작업 실행(가까운 순으로 집어 배출 통에 놓기), GUI. 물리 시뮬레이션(MuJoCo)은 시험장·학습 데이터 수집·정책 평가까지 되고, 시뮬레이션 시계로 실시간의 약 10배 빠르게 돈다.
 - 하드웨어 담당 CAD를 반영했다: 판 425×375mm(40×80 프로파일 위), 새 J1 받침, 오른쪽 앞 귀퉁이의 배출 통, 레이더 받침(XL330 + OpenRB + HC-SR04)의 자리와 형상([`decisions/0067`](docs/decisions/0067-workbench-cad-values.md)). 판 높이·팔 원점은 CAD 값이라 실물 조립 뒤 실측으로 고친다.
 - 병렬(로보나인) 손은 높이를 알면 기울여 집을 수 있다(`grasp_approach: auto`, 기본은 수직).
 - 실물 팔로는 11-13까지 전원·자동 캘리브레이션·집기·놓기를 확인했다(옛 받침, 58mm 상자 5회 왕복 30%·50%에서 10/10). 새 작업대·레이더 조립과 실물 재확인은 다음 단계다.
 - 학습(ACT 모방학습, 위·손목 카메라 + 관절): 스크립트 시연 988개로 학습한 v2가 시뮬레이션에서 고르지 않은 새 씨앗 50개에서 38번을 집어 통에 놓는다(체크포인트를 고른 씨앗에서는 45/50). 시연 314개로는 7~17/50이었다(기준 15/50, [`decisions/0071`](docs/decisions/0071-act-second-collection.md)). GUI 정책 실행 화면에서 학습 배치를 놓고 돌려 볼 수 있다.
+- GUI 작업 공간에서 인식 소스(수동·초음파 가상·초음파 실물)와 설명 모드(단계마다 멈추고 ①~⑤ 캡션)를 고를 수 있고, 3D에 레이더 빔·후보 범위·확인 경로를, 초음파 화면에 단계별 기록을 그린다(사용자 피드백 F1~F10).
 - 다음은 초음파 정확도다: 레이더 조립 → 실측 → 보정([`decisions/0072`](docs/decisions/0072-ultrasonic-accuracy-first.md)). 카메라 학습은 카메라를 산 뒤 한다.
 - 현황 한 장은 [`docs/planning/project-status.md`](docs/planning/project-status.md), 진행 중인 일과 사용자 결정은 [`docs/planning/work-queue.md`](docs/planning/work-queue.md)에 있다.
 
