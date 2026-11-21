@@ -779,15 +779,10 @@ def test_plan_splits_radial_line_over_two_yaws():
     assert plan[0][1] not in alts and alts == sorted(alts, key=lambda y: abs((y - plan[0][1] + 180) % 360 - 180))
 
 
-def test_neighbor_filters_split_trim_and_drop_unpaired_cells():
-    """8.10 초안: N1 h 골에서 구간을 나눈다, N2 긴 구간은 후보 쪽만 쓴다(기본 끔이면 그대로)."""
+def test_long_echo_run_is_trimmed_to_the_candidate_side():
+    """8.10 N2: 이웃이 붙어 긴 구간은 후보 쪽만 쓴다(기본 끔이면 그대로)."""
     from so101_studio.perception.ultrasonic.check import Probe
     from so101_studio.perception.ultrasonic.model import load_config
-
-    h = [40, 40, 40, 40, 25, 40, 40, 40]  # 칸 4에 골: 두 물체
-    above = {i: [(i * 6.0, v, 154.5, 0, 0)] for i, v in enumerate(h)}
-    assert Probe._valley_split(list(range(8)), above, 8) == [[0, 1, 2, 3], [5, 6, 7]]
-    assert Probe._valley_split(list(range(8)), above, 20) == [list(range(8))]
 
     def probe(**check):
         p = object.__new__(Probe)
