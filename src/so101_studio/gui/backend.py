@@ -714,8 +714,14 @@ class Backend:
         if event.state in ("DONE", "STOPPED", "FAULT") and self._speed_before is not None:  # 설명 모드 속도를 되돌린다
             speed, self._speed_before = self._speed_before, None
             self.set_speed(speed)
+        if event.state in ("PREPARE", "SCAN", "RESCAN"):  # 레이더가 다시 돈다: pace("scan")는 스캔이 끝나야 오므로 캡션을 ①로 되돌린다
+            self._flow = ("idle", None)
         if self.scene and event.state in ("DECIDE", "PLACE", "DONE", "STOPPED"):
-            self.scene.set_objects(self.objects(), self.state.chosen)
+            self.scene.set_objects(self._plan_objects(), self.state.chosen)
+
+    def _plan_objects(self) -> list[DetectedObject]:
+        """3D /objects에 진하게 그릴 물체: 수동이면 정답 목록, 초음파면 없음(정답은 [정답 보이기] 겹, 찾은 것은 인식 겹, 12.11)."""
+        return self.objects() if self.perception_source is self.source else []
 
     def task_running(self) -> bool:
         thread = self.studio._thread
@@ -772,6 +778,8 @@ class Backend:
                 old.close()
         self.perception_source, self.perception_kind = src, kind
         self._make_studio()
+        self._drawn_version = None
+        self._changed_objects()  # 3D: 초음파면 정답을 진하게 그리지 않는다
         self.arm.log_event("perception", {"kind": kind})
         return None
 
@@ -927,7 +935,7 @@ class Backend:
         if esp is not None and not self.task_running():  # 정답 목록을 고치면 가상 작업대도(실행 중에는 아니다: 집혀 빠진 물체가 되살아나지 않게)
             esp.boxes = self._truth_boxes()
         if self.scene:
-            self.scene.set_objects(self.objects(), self.state.chosen)
+            self.scene.set_objects(self._plan_objects(), self.state.chosen)
 
     def add_object(self, x: float, y: float, angle: float = 0.0, width: float = 30.0, length: float = 100.0, height: float = 0.0) -> str:
         """클릭한 자리에 물체를 놓고 id를 돌려준다."""

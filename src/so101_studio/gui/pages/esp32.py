@@ -175,9 +175,10 @@ def build(backend, client_id: str, actions) -> None:
 
     def redraw() -> None:
         controls.refresh()
-        connect_button.enabled = controls.allowed and bool(port.value)
+        in_use = getattr(backend, "perception_kind", "manual") == "real"  # 작업 공간 초음파(실물)가 이 포트를 쓰는 중(12.11)
+        connect_button.enabled = controls.allowed and bool(port.value) and not in_use
         disconnect_button.enabled = controls.allowed and board.connected
-        state.text = (f"연결됨: {board.port}" if board.connected else "연결 안 됨") + (f" · 오류: {board.error}" if board.error else "")
+        state.text = ("작업 공간 초음파(실물)가 사용 중입니다" if in_use else (f"연결됨: {board.port}" if board.connected else "연결 안 됨")) + (f" · 오류: {board.error}" if board.error else "")
         firmware.text = f'펌웨어 {board.hello.get("fw", "?")}' if board.hello else "펌웨어 모름"
         err = board.sync_error_ms()
         sync.text = "시계 오차 모름" if err is None else f"시계 오차 ±{err:.2f} ms (목표 2 ms 이하)"

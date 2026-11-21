@@ -114,7 +114,7 @@ def test_ultrasonic_sim_fast_run_logs_candidates_checks_and_results(backend):
         snap = backend.us_log.snapshot()
         assert snap["results"] and snap["estimates"] and snap["passes"]  # 마지막 스캔은 다 치운 뒤라 후보 0개가 맞다
         assert backend.studio.result["end"] == "no_objects" and len(backend.studio.result["picked"]) == 3
-        assert {c[:1] for c in captions if c} >= {"①", "②", "③", "⑤"}  # 빠른 모드도 흐름 단계를 캡션으로(④는 쉬지 않아 곧 ⑤로 넘어간다)
+        assert {c[:1] for c in captions if c} >= {"①", "③", "⑤"}  # 빠른 모드도 흐름 단계를 캡션으로(②·④는 쉬지 않아 곧 넘어간다, 단위 시험이 본다)
     finally:
         backend.stop_task()
         backend.set_speed(30)
@@ -182,3 +182,27 @@ def test_recognition_layers_are_drawn_from_the_log_and_the_radar_head_spins(back
     finally:
         log.clear()
         backend._drawn_version = None
+
+
+def test_a_new_scan_puts_the_caption_back_to_the_radar_step(backend):
+    """drift 11-21: 다음 사이클의 SCAN·RESCAN 동안 캡션이 앞 단계(⑤)에 남지 않고 ①로 돌아간다."""
+    try:
+        backend._mark_flow("pick")
+        for state in ("SCAN", "RESCAN", "PREPARE"):
+            backend._flow = ("pick", None)
+            backend._on_task(SimpleNamespace(state=state, data={}, t=time.time()))
+            assert backend._flow == ("idle", None), state
+    finally:
+        backend._flow = ("idle", None)
+
+
+def test_ultrasonic_source_does_not_draw_the_truth_as_plan_objects(backend, monkeypatch):
+    """drift 11-21: 초음파 소스면 3D /objects에 정답을 진하게 그리지 않는다(정답은 [정답 보이기] 겹만)."""
+    handles = backend.scene.server.scene._handle_from_node_name
+    backend._changed_objects()
+    assert any(n.startswith("/objects/") for n in handles)
+    monkeypatch.setattr(backend, "perception_source", SimpleNamespace(cfg=None))
+    backend._changed_objects()
+    assert not any(n.startswith("/objects/") for n in handles)
+    monkeypatch.undo()
+    backend._changed_objects()
