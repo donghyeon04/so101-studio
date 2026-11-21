@@ -76,9 +76,10 @@ def test_result_without_object_and_without_direction():
     snap["results"] = [square, _result("empty", obj=False)]
     svg = uv.radar_overlay(CFG, snap, 400, CFG.check.hit_mm)
     assert "<line" not in svg.split("<g ")[-1]  # 방향이 없으면 축 선을 그리지 않는다
-    rows = uv.result_rows(snap)
-    assert (rows[0]["status"], rows[0]["angle"], rows[0]["size"], rows[0]["seconds"]) == ("확정", "없음", "100×30", "12.3")
-    assert (rows[1]["status"], rows[1]["x"]) == ("물체 없음", "")
+    snap["results"] = [square]
+    assert "방향 없음 100×30" in uv.timeline_rows(snap)[0]["result"]  # 타임라인 결과 칸(F7)
+    snap["results"] = [_result("empty", obj=False)]
+    assert uv.timeline_rows(snap)[0]["result"] == "물체 없음"
 
 
 def test_chart_sorts_angles_and_keeps_gaps():
@@ -136,8 +137,8 @@ def test_page_runs_the_demo_and_view_only_browser_cannot_start(backend):
                 await asyncio.sleep(0.05)
             assert not demo.running and demo.error is None
             await asyncio.sleep(0.4)  # 화면 타이머
-            rows = next(iter(user.find(marker="us-results").elements)).rows
-            assert any(r["status"] == "확정" for r in rows)
+            rows = next(iter(user.find(marker="us-timeline").elements)).rows  # 결과표 대신 후보별 타임라인(F7)
+            assert rows and any(r["result"] not in ("", "확인 중") for r in rows)
             backend.owner = "다른 브라우저"
             demo.log.clear()
             user.find(marker="us-start").click()
@@ -184,3 +185,39 @@ def test_demo_uses_the_arm_gripper_reach(monkeypatch):
     assert demo.wait(10)
     assert seen["reach"] == load_config(gripper="parallel").check.tool_reach_mm != load_config().check.tool_reach_mm
 
+
+
+def _f7_snap() -> dict:
+    log = uv.UltrasonicLog()
+    log.on_event("us.sweep", {"angles": [60, 70], "d": [180.0, None]})
+    log.on_event("us.candidates", {"objects": [{"id": "us-1", "x_mm": 210.0, "y_mm": 200.0, "search_r_mm": 90.0}], "arcs": [], "masked": [80]})
+    log.on_event("us.check_path", {"id": "us-1", "stage": "L1", "phase": "end", "points_mm": [(180, 200), (240, 200)], "points": [(200, 200, 40.0)]})
+    log.on_event("us.check_estimate", {"id": "us-1", "stage": "L1", "center": [205.0, 199.0], "spread_mm": 60.0})
+    log.on_event("us.check_estimate", {"id": "us-1", "stage": "L2", "center": [211.0, 201.0], "spread_mm": 20.0})
+    log.on_event("us.check_result", {"id": "us-1", "object": {"x_mm": 212.0, "y_mm": 201.0, "angle_deg": 30.0, "length_mm": 80.0, "width_mm": 40.0,
+                                                              "confidence": 0.9}, "info": {}, "status": "ok"})
+    return log.snapshot()
+
+
+def test_overlay_draws_only_the_chosen_layers():
+    """F7 겹 고르기(gui-spec 12.11): 바닥 원자료만 고르면 바닥 메아리 점만, 결과·경로·범위는 없다."""
+    cfg, snap = uv.load_config(), _f7_snap()
+    only_floor = uv.radar_overlay(cfg, snap, 375, cfg.check.hit_mm, layers={"바닥 원자료"})
+    assert 'class="raw-floor"' in only_floor and "<polyline" not in only_floor and "rotate(" not in only_floor and 'class="raw-arm"' not in only_floor
+    everything = uv.radar_overlay(cfg, snap, 375, cfg.check.hit_mm)
+    assert all(s in everything for s in ('class="raw-floor"', 'class="raw-arm"', "<polyline", "rotate("))
+
+
+def test_timeline_has_one_row_per_candidate_with_each_stage():
+    rows = uv.timeline_rows(_f7_snap())
+    assert len(rows) == 1 and rows[0]["id"] == "us-1"
+    assert rows[0]["L1"] == "(205, 199) ±60" and rows[0]["L2"] == "(211, 201) ±20" and rows[0]["원"] == ""
+    assert rows[0]["result"].startswith("(212, 201) 30° 80×40")
+    assert uv.arm_chart_options(_f7_snap(), 15.0)["series"][0]["data"] == [[0, 40.0]]
+
+
+def test_active_log_follows_the_workspace_perception(backend, monkeypatch):
+    """작업 공간 인식이 초음파면 작업 실행 기록, 수동이면 가상 데모 기록을 그린다."""
+    assert uv.active_log(backend) is uv.demo_of(backend).log
+    monkeypatch.setattr(backend, "perception_source", object())
+    assert uv.active_log(backend) is backend.us_log

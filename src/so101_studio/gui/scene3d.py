@@ -386,7 +386,7 @@ class Scene3D:
         for handle, base in self._spin:
             handle.wxyz = (tf.SO3.from_z_radians(math.radians(servo_deg - 90.0)) @ base).wxyz
 
-    def show_recognition(self, cfg, snap: dict) -> None:
+    def show_recognition(self, cfg, snap: dict, truth=()) -> None:
         """작업 공간 인식 흐름 겹(gui-spec 12.11): ① 빔·메아리 ② 후보 예상 범위 원 ③ 확인 경로·점 ④ 좁혀지는 범위·결과 사각형.
         snap = UltrasonicLog.snapshot(), cfg = 초음파 설정. 노드는 /recognition/ 아래. None이면 지운다."""
         from ..perception.ultrasonic import radar
@@ -438,6 +438,10 @@ class Scene3D:
                 if e.get("center") and e.get("spread_mm"):
                     scene.add_line_segments(f"/recognition/est/{cid}", ring(*e["center"], e["spread_mm"], z=0.003), theme.rgb(theme.PREVIEW),
                                             thickness=2.0, thickness_units="screen")
+            for i, b in enumerate(truth):  # 정답 보이기: 가상 작업대의 남은 물체를 흐리게(12.11)
+                scene.add_box(f"/recognition/truth/{i}", color=theme.rgb(theme.MUTED), opacity=0.25, cast_shadow=False,
+                              dimensions=(b.length / 1000, b.width / 1000, b.height / 1000), position=(b.x / 1000, b.y / 1000, b.height / 2000),
+                              wxyz=_yaw(b.angle_deg))
             for res in snap.get("results") or []:  # ④ 결과 사각형
                 o = res.get("object")
                 if o:

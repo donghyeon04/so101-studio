@@ -93,6 +93,9 @@ def build(backend, client_id: str, actions) -> None:
         mode = controls.add(ui.toggle({False: "빠른", True: "설명"}, value=backend.explain, on_change=lambda e: setattr(backend, "explain", e.value))
                             .props("no-caps dense").mark("explain-mode"))
         mode.tooltip("설명: 레이더 회전 → 후보 → 팔 확인 → 위치 → 집기를 단계마다 멈추고 설명합니다(속도 30%)")
+        truth_box = ui.checkbox("정답 보이기", value=backend.show_truth,
+                                on_change=lambda e: (setattr(backend, "show_truth", e.value), setattr(backend, "_drawn_version", None))).mark("show-truth")
+        truth_box.tooltip("초음파(가상)에서 실제 물체 자리를 3D에 흐리게 그립니다")
     caption = ui.label("").classes("recognition-caption").mark("recognition-caption")
 
     with ui.row().classes("w-full no-wrap gap-1").mark("progress"):
@@ -140,6 +143,7 @@ def build(backend, client_id: str, actions) -> None:
         pause_button.enabled = controls.mine and running
         pause_button.text = "계속" if backend.paused else "일시정지"
         perception.enabled = mode.enabled = controls.mine and not running and not backend.move_lock()
+        truth_box.visible = backend.perception_kind == "sim"
         objects_title.text = "물체" if manual else "가상 작업대에 놓인 물체(정답)" if backend.perception_kind == "sim" else "물체(정답, 사람이 적은 것)"
         caption.text = backend.caption()
         backend.draw_recognition()  # 3D 인식 겹(F2-f): 기록이 바뀔 때만
