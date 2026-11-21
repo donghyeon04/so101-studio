@@ -142,6 +142,7 @@ def build(backend, client_id: str, actions) -> None:
         perception.enabled = mode.enabled = controls.mine and not running and not backend.move_lock()
         objects_title.text = "물체" if manual else "가상 작업대에 놓인 물체(정답)" if backend.perception_kind == "sim" else "물체(정답, 사람이 적은 것)"
         caption.text = backend.caption()
+        backend.draw_recognition()  # 3D 인식 겹(F2-f): 기록이 바뀔 때만
         caption.classes(add="caption-explain" if backend.explain else "", remove="" if backend.explain else "caption-explain")
         active = progress_index(state.task_state, state.placed)
         for i, chip in enumerate(chips):

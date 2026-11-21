@@ -774,6 +774,19 @@ class Backend:
         self.arm.log_event("perception", {"kind": kind})
         return None
 
+    def draw_recognition(self) -> None:
+        """작업 공간 3D의 인식 겹을 기록(us_log)이 바뀔 때만 다시 그린다. 화면 타이머가 부른다(버스 콜백에서 Viser를 부르지 않는다, 12.11)."""
+        if self.scene is None:
+            return
+        version = self.us_log.version if self.perception_source is not self.source else None
+        if version == getattr(self, "_drawn_version", None):
+            return
+        self._drawn_version = version
+        if version is None:
+            self.scene.show_recognition(None, None)
+        else:
+            self.scene.show_recognition(self.perception_source.cfg, self.us_log.snapshot())
+
     def _mark_flow(self, step: str, stage: str | None = None) -> None:
         """빠른 모드의 pace: 멈추지 않고 캡션용 흐름 단계만 적는다(캡션은 두 모드 모두, gui-spec 12.11)."""
         self._flow = (step, stage)
