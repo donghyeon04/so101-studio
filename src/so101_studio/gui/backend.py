@@ -213,6 +213,7 @@ class Backend:
 
         self.us_log = UltrasonicLog()
         self.explain = False  # 설명 모드(gui-spec 12.11): 흐름 단계마다 멈추고 캡션
+        self.show_truth = True  # 초음파(가상)에서 정답 물체를 3D에 흐리게(12.11)
         self._speed_before: float | None = None  # 설명 모드 실행 동안 바꾼 속도의 원래 값
         self._flow: tuple = ("idle", None)  # 캡션용 마지막 흐름 단계(pace의 step, stage)
         self._make_studio()
@@ -785,7 +786,9 @@ class Backend:
         if version is None:
             self.scene.show_recognition(None, None)
         else:
-            self.scene.show_recognition(self.perception_source.cfg, self.us_log.snapshot())
+            esp = getattr(self.perception_source, "esp", None)
+            truth = list(esp.boxes) if esp is not None and self.show_truth else []
+            self.scene.show_recognition(self.perception_source.cfg, self.us_log.snapshot(), truth)
 
     def _mark_flow(self, step: str, stage: str | None = None) -> None:
         """빠른 모드의 pace: 멈추지 않고 캡션용 흐름 단계만 적는다(캡션은 두 모드 모두, gui-spec 12.11)."""

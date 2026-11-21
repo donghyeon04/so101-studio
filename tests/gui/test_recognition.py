@@ -155,7 +155,9 @@ def test_recognition_layers_are_drawn_from_the_log_and_the_radar_head_spins(back
     from so101_studio.perception.ultrasonic.model import load_config
 
     cfg = load_config()
-    monkeypatch.setattr(backend, "perception_source", SimpleNamespace(cfg=cfg))
+    from so101_studio.perception.ultrasonic.model import Box
+
+    monkeypatch.setattr(backend, "perception_source", SimpleNamespace(cfg=cfg, esp=SimpleNamespace(boxes=[Box(250.0, 220.0, 0.0)])))
     handles = backend.scene.server.scene._handle_from_node_name
     log = backend.us_log
     try:
@@ -170,7 +172,8 @@ def test_recognition_layers_are_drawn_from_the_log_and_the_radar_head_spins(back
         before = [np.asarray(h.wxyz).copy() for h, _ in heads]
         backend.draw_recognition()
         names = set(handles)
-        assert {"/recognition/beam", "/recognition/echo", "/recognition/cand/us-1", "/recognition/est/us-1", "/recognition/result/us-1"} <= names
+        assert {"/recognition/beam", "/recognition/echo", "/recognition/cand/us-1", "/recognition/est/us-1", "/recognition/result/us-1",
+                "/recognition/truth/0"} <= names  # 정답 보이기 기본 켬
         assert any(n.startswith("/recognition/path/us-1/") for n in names)
         assert heads and any(not np.allclose(np.asarray(h.wxyz), b) for (h, _), b in zip(heads, before, strict=True))  # 60°면 정면(90°)에서 돈다
         monkeypatch.setattr(backend, "perception_source", backend.source)
