@@ -145,3 +145,37 @@ def test_caption_names_each_flow_step(backend, monkeypatch):
     finally:
         log.clear()
         backend._flow = ("idle", None)
+
+
+def test_recognition_layers_are_drawn_from_the_log_and_the_radar_head_spins(backend, monkeypatch):
+    """F2-f(gui-spec 12.11 3D 겹): 기록(us_log)에서 빔·후보 범위 원·확인 경로·좁혀지는 범위·결과 사각형을 /recognition/ 아래에 그린다.
+    레이더 머리(scene spin: radar)는 서보 각도로 돈다. 수동으로 돌아가면 지운다."""
+    import numpy as np
+
+    from so101_studio.perception.ultrasonic.model import load_config
+
+    cfg = load_config()
+    monkeypatch.setattr(backend, "perception_source", SimpleNamespace(cfg=cfg))
+    handles = backend.scene.server.scene._handle_from_node_name
+    log = backend.us_log
+    try:
+        log.clear()
+        log.on_event("us.sweep_progress", {"pass": 0, "total": 2, "dir": 1, "servo_deg": 60.0, "t_ns": 0, "angles": [50, 60], "d": [180.0, None]})
+        log.on_event("us.candidates", {"objects": [{"id": "us-1", "x_mm": 210.0, "y_mm": 200.0, "search_r_mm": 90.0}], "arcs": [], "masked": []})
+        log.on_event("us.check_path", {"id": "us-1", "stage": "L1", "phase": "end", "points_mm": [[180, 200], [240, 200]], "points": [[200, 200, 40.0]]})
+        log.on_event("us.check_estimate", {"id": "us-1", "stage": "L2", "center": [212.0, 201.0], "spread_mm": 25.0})
+        log.on_event("us.check_result", {"id": "us-1", "object": {"x_mm": 212.0, "y_mm": 201.0, "angle_deg": 30.0, "length_mm": 80.0, "width_mm": 40.0},
+                                         "info": {}, "status": "ok"})
+        heads = list(backend.scene._spin)
+        before = [np.asarray(h.wxyz).copy() for h, _ in heads]
+        backend.draw_recognition()
+        names = set(handles)
+        assert {"/recognition/beam", "/recognition/echo", "/recognition/cand/us-1", "/recognition/est/us-1", "/recognition/result/us-1"} <= names
+        assert any(n.startswith("/recognition/path/us-1/") for n in names)
+        assert heads and any(not np.allclose(np.asarray(h.wxyz), b) for (h, _), b in zip(heads, before, strict=True))  # 60°면 정면(90°)에서 돈다
+        monkeypatch.setattr(backend, "perception_source", backend.source)
+        backend.draw_recognition()
+        assert not any(n.startswith("/recognition/") for n in handles)
+    finally:
+        log.clear()
+        backend._drawn_version = None

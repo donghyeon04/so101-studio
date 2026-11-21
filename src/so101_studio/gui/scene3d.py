@@ -192,6 +192,7 @@ class Scene3D:
         marks = scene.add_frame("/marks", show_axes=False)
         parts = scene.add_frame("/parts", show_axes=False)
         self._part_nodes: list[str] = []
+        self._spin: list = []  # (레이더 머리 노드, 기본 회전): spin_radar가 돌린다
         self._layer_nodes = {
             "arm": [real_root], "table": [table, grid, parts], "zones": zones, "axes": [axes_table, axes_robot, self._tool],
             "marks": [marks], "handle": [self._handle],
@@ -360,7 +361,7 @@ class Scene3D:
         with self.server.atomic():
             for name in self._part_nodes:
                 scene.remove_by_name(name)
-            self._part_nodes = []
+            self._part_nodes, self._spin = [], []
             for part in getattr(scene_def, "parts", None) or []:
                 if part.attach == "table":
                     parent = "/parts"
@@ -371,12 +372,78 @@ class Scene3D:
                     continue
                 T = np.asarray(part.T, float)
                 name = f"{parent}/part_{part.name}"
-                scene.add_mesh_simple(
+                handle = scene.add_mesh_simple(
                     name, np.asarray(part.mesh.vertices, np.float32) / 1000, np.asarray(part.mesh.faces, np.uint32),
                     color=theme.rgb(getattr(part, "color", None) or theme.MUTED), opacity=PART_ALPHA,
                     position=T[:3, 3] / 1000, wxyz=tf.SO3.from_matrix(T[:3, :3]).wxyz,
                 )
                 self._part_nodes.append(name)
+                if getattr(part, "spin", None) == "radar":  # 레이더 머리: 서보 각도로 돌려 그린다(ultrasonic-spec 8.9)
+                    self._spin.append((handle, tf.SO3.from_matrix(T[:3, :3])))
+
+    def spin_radar(self, servo_deg: float) -> None:
+        """레이더 머리를 (servo_deg − 90)°만큼 z축 둘레로 돌린다(정면 90°가 메쉬 그대로). 원점이 서보 축이다."""
+        for handle, base in self._spin:
+            handle.wxyz = (tf.SO3.from_z_radians(math.radians(servo_deg - 90.0)) @ base).wxyz
+
+    def show_recognition(self, cfg, snap: dict) -> None:
+        """작업 공간 인식 흐름 겹(gui-spec 12.11): ① 빔·메아리 ② 후보 예상 범위 원 ③ 확인 경로·점 ④ 좁혀지는 범위·결과 사각형.
+        snap = UltrasonicLog.snapshot(), cfg = 초음파 설정. 노드는 /recognition/ 아래. None이면 지운다."""
+        from ..perception.ultrasonic import radar
+
+        scene = self.server.scene
+        if snap is None:
+            scene.remove_by_name("/recognition")
+            return
+        r = cfg.radar
+        z0 = getattr(r, "height_mm", 20.0) / 1000
+
+        def ring(x, y, rad, z=0.002, n=36) -> np.ndarray:
+            a = np.linspace(0, 2 * math.pi, n + 1)
+            pts = np.stack([(x + rad * np.cos(a)) / 1000, (y + rad * np.sin(a)) / 1000, np.full_like(a, z)], axis=1)
+            return np.stack([pts[:-1], pts[1:]], axis=1)
+
+        with self.server.atomic():
+            scene.remove_by_name("/recognition")
+            scene.add_frame("/recognition", show_axes=False, visible=self.layers.get("objects", True))
+            prog = snap.get("progress") or {}
+            if prog.get("servo_deg") is not None:  # ① 빔: 머리에서 마지막 거리까지(메아리 없으면 방향 표시 30mm)
+                self.spin_radar(prog["servo_deg"])
+                d = next((v for v in reversed(prog.get("d") or []) if v is not None), None)
+                ex, ey = radar.polar(cfg, prog["servo_deg"], d if d is not None else 30.0)
+                sx, sy = r.station_mm.x, r.station_mm.y
+                seg = np.array([[[sx / 1000, sy / 1000, z0], [ex / 1000, ey / 1000, z0]]])
+                scene.add_line_segments("/recognition/beam", seg, theme.rgb(theme.WARN if d is not None else theme.MUTED), thickness=3.0,
+                                        thickness_units="screen")
+                echo = [radar.polar(cfg, a, v) for a, v in zip(prog.get("angles") or [], prog.get("d") or [], strict=False) if v is not None]
+                if echo:
+                    scene.add_point_cloud("/recognition/echo", np.array([[x / 1000, y / 1000, 0.002] for x, y in echo], np.float32),
+                                          colors=theme.rgb(theme.MUTED), point_size=0.006)
+            for c in snap.get("candidates") or []:  # ② 후보마다 예상 범위 원
+                scene.add_line_segments(f"/recognition/cand/{c['id']}", ring(c["x_mm"], c["y_mm"], c.get("search_r_mm") or 45.0),
+                                        theme.rgb(theme.WARN), thickness=2.0, thickness_units="screen")
+            paths = snap.get("paths") or []
+            latest = paths[-1]["id"] if paths else None
+            for i, p in enumerate(q for q in paths if q["id"] == latest):  # ③ 지금 후보의 확인 경로와 점
+                line = np.array([[x / 1000, y / 1000, 0.05] for x, y in p.get("points_mm") or []], np.float32)
+                if len(line) > 1:
+                    scene.add_line_segments(f"/recognition/path/{latest}/{i}", np.stack([line[:-1], line[1:]], axis=1), theme.rgb(theme.ACCENT),
+                                            thickness=2.0, thickness_units="screen")
+                pts = p.get("points") or []
+                if pts:
+                    scene.add_point_cloud(f"/recognition/path/{latest}/pts{i}", np.array([[x / 1000, y / 1000, max(h, 1.0) / 1000] for x, y, h in pts], np.float32),
+                                          colors=theme.rgb(theme.OK), point_size=0.005)
+            for cid, ests in (snap.get("estimates") or {}).items():  # ④ 단계마다 좁혀지는 범위(마지막 값)
+                e = ests[-1] if ests else {}
+                if e.get("center") and e.get("spread_mm"):
+                    scene.add_line_segments(f"/recognition/est/{cid}", ring(*e["center"], e["spread_mm"], z=0.003), theme.rgb(theme.PREVIEW),
+                                            thickness=2.0, thickness_units="screen")
+            for res in snap.get("results") or []:  # ④ 결과 사각형
+                o = res.get("object")
+                if o:
+                    scene.add_box(f"/recognition/result/{res['id']}", color=theme.rgb(theme.OK), wireframe=True, cast_shadow=False,
+                                  dimensions=(o["length_mm"] / 1000, o["width_mm"] / 1000, 0.004),
+                                  position=(o["x_mm"] / 1000, o["y_mm"] / 1000, 0.002), wxyz=_yaw(o.get("angle_deg") or 0.0))
 
     def pick(self, x_mm: float, y_mm: float, h_mm: float) -> None:
         """작업대 클릭이나 손잡이로 고른 점을 남긴다. Viser 스레드에서 불리고, 화면 타이머가 picked로 읽는다."""
