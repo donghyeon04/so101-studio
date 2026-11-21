@@ -95,7 +95,7 @@ def build(backend, client_id: str) -> None:
         step_button.enabled = mine and (not running or backend.paused) and not backend.move_lock()
         pause_button.enabled = mine and running
         pause_button.text = "계속" if backend.paused else "일시정지"
-        source = SOURCE_TEXT.get(type(backend.source).__name__, type(backend.source).__name__)
+        source = SOURCE_TEXT.get(type(backend.perception_source).__name__, type(backend.perception_source).__name__)  # 작업 실행의 인식 소스(12.11)
         title.text = f"SO-101 · {'실물' if backend.real else '시뮬레이션'} · 인식: {source}"
         ts = state.task_state
         if running and started[0] is None:

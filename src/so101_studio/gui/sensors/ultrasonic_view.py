@@ -3,6 +3,7 @@
 
 import copy
 import html
+import logging
 import tempfile
 import threading
 import time
@@ -21,7 +22,7 @@ from .. import theme
 from ..pages.common import Controls
 from .manual_view import plane_svg
 
-TOPICS = ("us.sweep", "us.candidates", "us.check_path", "us.check_result")
+TOPICS = ("us.sweep", "us.candidates", "us.check_path", "us.check_result", "us.sweep_progress", "us.check_estimate")  # 뒤 둘: gui-spec 12.11·8.9
 DEMO_SPEED = 3.0  # 가상 시간을 이만큼 빠르게 돌린다
 STATUS_TEXT = {"ok": "확정", "empty": "물체 없음", "unreachable": "못 감"}
 
@@ -43,16 +44,31 @@ class UltrasonicLog:
             self.paths: list[dict] = []
             self.results: list[dict] = []
             self.baseline: dict = {}
+            self.passes: list[dict] = []  # 이번 실행의 바퀴(us.sweep) 목록
+            self.progress: dict | None = None  # 이번 바퀴의 진행(us.sweep_progress 마지막 값)
+            self.estimates: dict[str, list[dict]] = {}  # 후보 id -> 단계별 us.check_estimate(값이 None인 키도 늘 있다, 8.9)
 
     def attach(self, bus) -> None:
         for topic in TOPICS:
             bus.subscribe(topic, lambda e, t=topic: self.on_event(t, e))
 
     def on_event(self, topic: str, e: dict) -> None:
+        """작업 스레드의 버스 콜백이다. 예외를 내지 않는다(올라가면 작업 실행이 FAULT가 된다)."""
+        try:
+            self._on_event(topic, e)
+        except Exception:  # 화면용 기록이 작업을 멈추면 안 된다
+            logging.getLogger(__name__).exception("초음파 기록 실패: %s", topic)
+
+    def _on_event(self, topic: str, e: dict) -> None:
         with self._lock:
             self.version += 1
             if topic == "us.sweep":
                 self.sweep = e
+                self.passes.append(e)
+            elif topic == "us.sweep_progress":
+                self.progress = e
+            elif topic == "us.check_estimate":
+                self.estimates.setdefault(str(e.get("id")), []).append(e)
             elif topic == "us.candidates":
                 self.candidates, self.arcs, self.masked = e["objects"], e["arcs"], e["masked"]
             elif topic == "us.check_path":
@@ -71,7 +87,8 @@ class UltrasonicLog:
     def snapshot(self) -> dict:
         with self._lock:
             return copy.deepcopy({"version": self.version, "sweep": self.sweep, "candidates": self.candidates, "arcs": self.arcs,
-                                  "masked": self.masked, "paths": self.paths, "results": self.results, "baseline": self.baseline})
+                                  "masked": self.masked, "paths": self.paths, "results": self.results, "baseline": self.baseline,
+                                  "passes": self.passes, "progress": self.progress, "estimates": self.estimates})
 
 
 def radar_overlay(cfg, snap: dict, table_h: float, hit_mm: float) -> str:
