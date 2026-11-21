@@ -279,6 +279,9 @@ class Probe:
             cur.append(i)
         if cur:
             runs.append(cur)
+        v = c.get("valley_split_mm") or 0
+        if v:  # 8.10 N1: 이웃 두 물체 사이는 빔이 비스듬히 닿아 h가 낮다. 양옆 봉우리보다 v 이상 낮은 골에서 나눈다
+            runs = [p for r in runs for p in self._valley_split(r, above, v)]
         out = []
         for r in runs:
             sm = [s for i in r for s in above[i]]
@@ -286,6 +289,21 @@ class Probe:
             out.append({"i0": r[0], "i1": r[-1], "s0": min(ss), "s1": max(ss), "h": statistics.median(s[1] for s in sm),
                             "z": statistics.mean(s[2] for s in sm), "broken": r[-1] - r[0] + 1 != len(r)})
         return out
+
+    @staticmethod
+    def _valley_split(r, above, v):
+        h = [statistics.median(s[1] for s in above[i]) if i in above else None for i in range(r[0], r[-1] + 1)]
+        best, at = 0.0, None
+        for k in range(1, len(h) - 1):
+            if h[k] is None:
+                continue
+            left, right = max((x for x in h[:k] if x is not None), default=None), max((x for x in h[k + 1:] if x is not None), default=None)
+            if left is not None and right is not None and min(left, right) - h[k] >= v and min(left, right) - h[k] > best:
+                best, at = min(left, right) - h[k], r[0] + k
+        if at is None:
+            return [r]
+        a, b = [i for i in r if i < at], [i for i in r if i > at]
+        return [p for part in (a, b) if part for p in Probe._valley_split(part, above, v)]
 
     def _analyze(self, pts, start, u, cuts):
         """직선(start에서 방향 u)을 지난 점(x, y, z, d)에서 후보 중심을 품은(또는 가장 가까운) 메아리 구간 하나를 고른다."""
@@ -296,8 +314,18 @@ class Probe:
         if not runs:
             return None, runs, samples
         r = min(runs, key=lambda r: 0 if r["s0"] <= half <= r["s1"] else min(abs(r["s0"] - half), abs(r["s1"] - half)))
-        mid = (r["s0"] + r["s1"]) / 2
-        hit = {"xy": (start[0] + u[0] * mid, start[1] + u[1] * mid), "extent": r["s1"] - r["s0"] + c.sample_mm,
+        s0, s1, merged = r["s0"], r["s1"], False
+        cap = c.get("max_extent_mm") or 0
+        if cap:  # 8.10 N2: 물체 하나로 보기엔 긴 구간 = 이웃이 붙었다. 후보 중심 쪽 끝에서 상한 길이만 쓴다
+            keep = cap + 2 * beam_radius(r["z"], r["h"], self.cfg.beam_half_deg) - c.sample_mm
+            if s1 - s0 > keep:
+                merged = True
+                if half - s0 <= s1 - half:
+                    s1 = s0 + keep
+                else:
+                    s0 = s1 - keep
+        mid = (s0 + s1) / 2
+        hit = {"xy": (start[0] + u[0] * mid, start[1] + u[1] * mid), "extent": s1 - s0 + c.sample_mm, "merged": merged,
                "h": r["h"], "z": r["z"], "broken": r["broken"],
                "cut": any(abs(r[k] - cp) <= 1.5 * c.sample_mm for cp in cuts for k in ("s0", "s1"))}
         return hit, runs, samples
@@ -416,6 +444,11 @@ class Probe:
         # 칸(sample_mm 호 길이)마다 한 번만 센다: 팔이 멈칫하며 같은 자리를 여러 번 재도 방향 평균이 쏠리지 않게
         cells = {round((math.atan2(y - ctr[1], x - ctr[0]) % (2 * math.pi)) * ring_r / c.sample_mm)
                  for x, y, z, d in got if z - d > c.hit_mm}
+        mirror = c.get("ring_mirror_cells") or 0
+        if mirror and cells:  # 8.10 N3: 물체 하나는 마주 보는 두 호를 남긴다. 반대편에 짝이 없는 칸(이웃)은 뺀다
+            n = max(round(2 * math.pi * ring_r / c.sample_mm), 1)
+            paired = {i for i in cells if any(min((j - i - n / 2) % n, (i + n / 2 - j) % n) <= mirror for j in cells)}
+            cells = paired or cells
         th = [i * c.sample_mm / ring_r for i in sorted(cells)]
         sx = sum(math.sin(2 * t) for t in th)
         cx = sum(math.cos(2 * t) for t in th)
@@ -442,6 +475,9 @@ class Probe:
         conf = 0.5 + 0.5 * min(R, 1)
         if any(h["broken"] for h in hs) or skew > 10 or not (h3 and h4):
             conf -= 0.2
+        if any(h.get("merged") for h in hs):
+            conf -= 0.2  # 8.10 N2: 이웃이 붙은 구간을 잘랐다
+            self.info["merged"] = True
         if any(h["cut"] for h in hs):
             conf -= 0.2  # 메아리 구간이 도달 범위로 잘린 끝에 닿았다(#71)
         if self.info.get("unreachable"):
