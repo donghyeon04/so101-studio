@@ -20,7 +20,7 @@ MUJOCO_MISSING_TEXT = "MuJoCo가 설치되지 않았습니다. docs/guides/tooli
 
 def make_driver(sim: bool, cfg):
     if sim:
-        return SimDriver(cfg.poses.get("home"))
+        return SimDriver(cfg.poses.get("home"), object_grip=True)  # 집기가 물체 폭에서 멈춰 쥔 물체가 생긴다(REQ-115, GUI는 REQ-114). 없으면 병렬 쥠 확인이 늘 no_object
     from ..arm.driver import ArmDriver  # lerobot이 필요한 import는 실제 팔을 쓸 때만
 
     return ArmDriver(cfg.pid, cfg.joint_offsets_deg, cfg.servo_acceleration, cfg.gripper_acceleration)
