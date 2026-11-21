@@ -33,6 +33,16 @@ def test_cell_compares_with_manual_baseline():
     assert s["manual_pct"] == 100 and s["total_mean_s"] == row["total_s"] and s["checks_mean"] == row["checks"]
 
 
+def test_recognition_loss_is_manual_minus_ultrasonic():
+    """REQ-116: 정답 위치로 집은 비율(팔 도달 한계)에서 초음파 성공률을 뺀 것이 인식 탓 손실이다(이웃 합침과 도달 실패를 나눈다)."""
+    from so101_studio.perception.ultrasonic.benchmark import summarize
+
+    base = {"radius": None, "n": 2, "recog_s": 1.0, "left": 0, "radar_errs": [], "check_errs": [], "angles": [], "h_errs": [],
+            "total_s": 1.0, "checks": 1, "manual_s": 1.0}
+    s = summarize([{**base, "ok": 1, "manual_ok": 2}, {**base, "ok": 1, "manual_ok": 1}])  # 둘째 배치는 하나가 닿지 않아 수동도 1
+    assert s["manual_pct"] == 75 and s["success_pct"] == 50 and s["recog_loss_pct"] == 25 and s["recog_loss_runs"] == 1
+
+
 def test_bench_run_once_against_fake_esp32():
     """bench.py가 7절 규약(gap 응답, once의 done)을 가상 ESP32와 맞게 주고받는다."""
     from so101_studio.perception.ultrasonic.bench import run_once

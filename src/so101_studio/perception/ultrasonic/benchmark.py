@@ -544,6 +544,9 @@ def summarize(rows) -> dict:
         tot = sorted(r["total_s"] for r in done)
         out.update(checks_mean=statistics.mean(r["checks"] for r in done), total_mean_s=statistics.mean(tot), total_p90_s=tot[math.ceil(0.9 * len(tot)) - 1],
                    manual_pct=100 * statistics.mean(r["manual_ok"] for r in done) / n, manual_mean_s=statistics.mean(r["manual_s"] for r in done))
+        # REQ-116: 같은 배치를 정답 위치로 집은 것(팔 도달 한계)과의 차이 = 인식 탓 손실. 이웃 합침과 도달 실패를 나눠 본다
+        out.update(recog_loss_pct=out["manual_pct"] - 100 * statistics.mean(r["ok"] for r in done) / n,
+                   recog_loss_runs=sum(r["manual_ok"] > r["ok"] for r in done))
     pulls = [n for r in rows for n in r.get("pulls", [])]
     if pulls:
         out.update(pull_mean=statistics.mean(pulls), pull_max=max(pulls), pull_stages=len(pulls))
@@ -637,7 +640,9 @@ def main(argv=None):
         rows = run_scenario(name, model, a.seeds, rescan_home=rescan, report_failures=not a.no_note_failure, arm_kw=arm_kw, pair_gap=a.pair_gap, kin_spec=kin_spec, seed_timeout=seed_timeout, seed_start=a.seed_start, **opts)
         results.append({"commit": sha, "command": cmd, "scenario": name, "model": model, "options": {**opts, "reach": a.reach, "hover_mm": a.hover_mm, "rescan_home": rescan, "note_failure": not a.no_note_failure}, "summary": summarize(rows),
                         "rows": [{k: v for k, v in r.items() if k != "log"} for r in rows]})
-        print(f"  {name} {model}: 성공 {results[-1]['summary']['success_mean']:.2f}/{results[-1]['summary']['objects']}", flush=True)
+        s = results[-1]["summary"]
+        loss = f" · 정답 위치 {s['manual_pct']:.0f}% · 인식 손실 {s['recog_loss_pct']:.0f}%p" if "recog_loss_pct" in s else ""
+        print(f"  {name} {model}: 성공 {s['success_mean']:.2f}/{s['objects']}{loss}", flush=True)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     path = out / f"{time.strftime('%Y%m%d-%H%M%S')}-{sha}.json"
