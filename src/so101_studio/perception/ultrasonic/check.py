@@ -296,8 +296,18 @@ class Probe:
         if not runs:
             return None, runs, samples
         r = min(runs, key=lambda r: 0 if r["s0"] <= half <= r["s1"] else min(abs(r["s0"] - half), abs(r["s1"] - half)))
-        mid = (r["s0"] + r["s1"]) / 2
-        hit = {"xy": (start[0] + u[0] * mid, start[1] + u[1] * mid), "extent": r["s1"] - r["s0"] + c.sample_mm,
+        s0, s1, merged = r["s0"], r["s1"], False
+        cap = c.get("max_extent_mm") or 0
+        if cap:  # 8.10 N2: 물체 하나로 보기엔 긴 구간 = 이웃이 붙었다. 후보 중심 쪽 끝에서 상한 길이만 쓴다
+            keep = cap + 2 * beam_radius(r["z"], r["h"], self.cfg.beam_half_deg) - c.sample_mm
+            if s1 - s0 > keep:
+                merged = True
+                if half - s0 <= s1 - half:
+                    s1 = s0 + keep
+                else:
+                    s0 = s1 - keep
+        mid = (s0 + s1) / 2
+        hit = {"xy": (start[0] + u[0] * mid, start[1] + u[1] * mid), "extent": s1 - s0 + c.sample_mm, "merged": merged,
                "h": r["h"], "z": r["z"], "broken": r["broken"],
                "cut": any(abs(r[k] - cp) <= 1.5 * c.sample_mm for cp in cuts for k in ("s0", "s1"))}
         return hit, runs, samples
@@ -442,6 +452,9 @@ class Probe:
         conf = 0.5 + 0.5 * min(R, 1)
         if any(h["broken"] for h in hs) or skew > 10 or not (h3 and h4):
             conf -= 0.2
+        if any(h.get("merged") for h in hs):
+            conf -= 0.2  # 8.10 N2: 이웃이 붙은 구간을 잘랐다
+            self.info["merged"] = True
         if any(h["cut"] for h in hs):
             conf -= 0.2  # 메아리 구간이 도달 범위로 잘린 끝에 닿았다(#71)
         if self.info.get("unreachable"):

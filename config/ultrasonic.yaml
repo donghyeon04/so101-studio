@@ -34,6 +34,7 @@ check:
   ring_n: 36
   ring_auto_mm: [35, 75]  # 결정 0075: 원 반지름 = (L1 + L2 구간 길이)/4를 이 범위로 자름(40x80이 60mm 원에 모서리만 걸려 방향이 쏠리는 것을 막는다). null이면 ring_r_mm 고정
   hit_mm: 15
+  max_extent_mm: 0        # 8.10 N2: 빔 폭을 뺀 구간이 이보다 길면 이웃이 붙은 것으로 보고 후보 쪽만 쓴다. 0 = 끔(110이면 pair 20mm +8/+7%p, 11-21)
   approach_line: false    # T8 옵션 (결정 0038): true면 첫 확인선을 팔 원점에서 후보로 가는 방향으로
   early_stop_cells: 0     # T9, 경로 안에서 멈추는 기능이 생길 때까지 0(끔)
   fallback_grid_mm: 20

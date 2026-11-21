@@ -777,3 +777,19 @@ def test_plan_splits_radial_line_over_two_yaws():
     assert covered(plan) >= covered(off._plan(line)) + 10  # 152 -> 170mm
     alts = on._alt_yaws(plan[0][0], plan[0][1])  # ik_fail 때 다시 낼 각도: 조각이 도달 범위에 다 드는 것만, 가까운 순
     assert plan[0][1] not in alts and alts == sorted(alts, key=lambda y: abs((y - plan[0][1] + 180) % 360 - 180))
+
+
+def test_long_echo_run_is_trimmed_to_the_candidate_side():
+    """8.10 N2: 이웃이 붙어 긴 구간은 후보 쪽만 쓴다(기본 끔이면 그대로)."""
+    from so101_studio.perception.ultrasonic.check import Probe
+    from so101_studio.perception.ultrasonic.model import load_config
+
+    def probe(**check):
+        p = object.__new__(Probe)
+        p.cfg = load_config(**check)
+        return p
+
+    line = [(s, 0.0, 154.5, 154.5 - 40) for s in range(30, 160, 2)]  # 직선 위 130mm 내내 높이 40: 물체 둘이 붙었다
+    plain, _, _ = probe()._analyze(line, (0.0, 0.0), (1.0, 0.0), [])
+    trimmed, _, _ = probe(max_extent_mm=60)._analyze(line, (0.0, 0.0), (1.0, 0.0), [])
+    assert not plain["merged"] and trimmed["merged"] and trimmed["extent"] < plain["extent"]
